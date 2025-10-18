@@ -1,0 +1,130 @@
+/**
+ * Vector class for embeddings with metadata
+ */
+
+import { getWasm } from './wasm-loader';
+
+export interface VectorMetadata {
+  [key: string]: any;
+}
+
+export class Vector {
+  private wasmVector: any;
+  private _data: Float32Array;
+  private _metadata?: VectorMetadata;
+
+  constructor(data: number[] | Float32Array, metadata?: VectorMetadata) {
+    const wasm = getWasm();
+
+    // Convert to Float32Array if needed
+    this._data = data instanceof Float32Array ? data : new Float32Array(data);
+    this._metadata = metadata;
+
+    // Create WASM vector
+    const metadataStr = metadata ? JSON.stringify(metadata) : undefined;
+    this.wasmVector = new wasm.Vector(Array.from(this._data), metadataStr);
+  }
+
+  /**
+   * Get vector data as Float32Array
+   */
+  get data(): Float32Array {
+    return this._data;
+  }
+
+  /**
+   * Get vector metadata
+   */
+  get metadata(): VectorMetadata | undefined {
+    return this._metadata;
+  }
+
+  /**
+   * Get vector dimension
+   */
+  get dimension(): number {
+    return this._data.length;
+  }
+
+  /**
+   * Get internal WASM vector
+   * @internal
+   */
+  getWasmVector(): any {
+    return this.wasmVector;
+  }
+
+  /**
+   * Create vector from array
+   */
+  static from(data: number[] | Float32Array, metadata?: VectorMetadata): Vector {
+    return new Vector(data, metadata);
+  }
+
+  /**
+   * Convert to plain object
+   */
+  toJSON(): { data: number[]; metadata?: VectorMetadata } {
+    return {
+      data: Array.from(this._data),
+      metadata: this._metadata,
+    };
+  }
+
+  /**
+   * Calculate cosine similarity with another vector
+   */
+  cosineSimilarity(other: Vector): number {
+    if (this.dimension !== other.dimension) {
+      throw new Error('Vectors must have same dimension');
+    }
+
+    const dotProduct = this._data.reduce((sum, val, i) => sum + val * other._data[i], 0);
+    const magA = Math.sqrt(this._data.reduce((sum, val) => sum + val * val, 0));
+    const magB = Math.sqrt(other._data.reduce((sum, val) => sum + val * val, 0));
+
+    if (magA === 0 || magB === 0) {
+      return 0;
+    }
+
+    return dotProduct / (magA * magB);
+  }
+
+  /**
+   * Calculate Euclidean distance to another vector
+   */
+  euclideanDistance(other: Vector): number {
+    if (this.dimension !== other.dimension) {
+      throw new Error('Vectors must have same dimension');
+    }
+
+    return Math.sqrt(
+      this._data.reduce((sum, val, i) => sum + Math.pow(val - other._data[i], 2), 0)
+    );
+  }
+
+  /**
+   * Calculate dot product with another vector
+   */
+  dotProduct(other: Vector): number {
+    if (this.dimension !== other.dimension) {
+      throw new Error('Vectors must have same dimension');
+    }
+
+    return this._data.reduce((sum, val, i) => sum + val * other._data[i], 0);
+  }
+
+  /**
+   * Normalize vector to unit length
+   */
+  normalize(): Vector {
+    const magnitude = Math.sqrt(this._data.reduce((sum, val) => sum + val * val, 0));
+
+    if (magnitude === 0) {
+      return new Vector(this._data, this._metadata);
+    }
+
+    const normalized = this._data.map(val => val / magnitude);
+    return new Vector(normalized, this._metadata);
+  }
+}

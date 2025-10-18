@@ -1,0 +1,144 @@
+# SARSA Template
+# State-Action-Reward-State-Action (on-policy TD learning)
+# On-policy variant of Q-learning with eligibility traces
+
+# Plugin metadata
+name: sarsa
+version: 1.0.0
+description: On-policy TD learning with eligibility traces
+base_algorithm: sarsa
+
+# Algorithm configuration
+algorithm:
+  type: sarsa
+
+  # SARSA parameters
+  learning_rate: 0.001              # Learning rate (alpha)
+  discount_factor: 0.99             # Discount factor (gamma)
+
+  # Eligibility traces (SARSA(lambda))
+  lambda: 0.9                       # Eligibility trace decay (0 = SARSA(0), 1 = Monte Carlo)
+  trace_type: replacing             # replacing, accumulating
+  trace_threshold: 0.01             # Threshold for pruning traces
+
+  # Exploration parameters (epsilon-greedy)
+  epsilon_start: 0.1                # Initial exploration rate (lower for on-policy)
+  epsilon_end: 0.01                 # Minimum exploration rate
+  epsilon_decay: 0.99               # Epsilon decay rate per episode
+  epsilon_decay_type: exponential   # exponential or linear
+
+  # Q-value initialization
+  initial_q_value: 0.0              # Initial Q-value for unseen state-action pairs
+
+  # On-policy specific
+  behavior_policy: epsilon_greedy   # Policy used for action selection
+  target_policy: epsilon_greedy     # Policy being learned (same as behavior for SARSA)
+
+# State representation
+state:
+  embedding_model: sentence-transformers/all-MiniLM-L6-v2
+  dimension: 384
+  preprocessing:
+    - normalize                     # Normalize state vectors
+
+# Action space
+action:
+  type: discrete                    # SARSA works best with discrete actions
+  space_size: 100                   # Number of discrete actions
+  selection_strategy: epsilon_greedy # epsilon_greedy, softmax
+
+# Reward configuration
+reward:
+  type: success_based               # success_based, time_aware, token_aware, custom
+  clip: true                        # Clip rewards to [-1, 1]
+  clip_range: [-1.0, 1.0]
+
+  # Custom reward function (optional)
+  # function: |
+  #   function computeReward(outcome, context) {
+  #     const baseReward = outcome.success ? 1.0 : -1.0;
+  #     const stepPenalty = -0.01;  # Small penalty for each step
+  #     return baseReward + stepPenalty;
+  #   }
+
+# Experience replay
+experience_replay:
+  type: none                        # SARSA is on-policy, typically no replay
+  # If enabled, use small buffer for recent experiences only
+  # capacity: 1000
+  # min_size: 32
+
+# Storage configuration
+storage:
+  backend: agentdb
+  path: ./.rl/sarsa.db
+
+  # HNSW index for state similarity search
+  hnsw:
+    enabled: true
+    M: 16                           # Connections per layer
+    efConstruction: 200             # Construction quality
+    efSearch: 50                    # Search quality
+
+  # Vector quantization
+  quantization:
+    enabled: false
+    bits: 8
+
+  # Store eligibility traces
+  store_traces: true                # Store eligibility trace history
+
+# Training configuration
+training:
+  batch_size: 1                     # SARSA typically updates online (batch_size=1)
+  epochs: 1                         # Single update per experience
+  min_experiences: 0                # Can train immediately
+  train_every: 1                    # Train after every experience (online)
+  online: true                      # Online learning
+
+  # Update method
+  update_method: td                 # td (temporal difference), monte_carlo
+
+  # Episode handling
+  reset_traces_on_episode: true     # Reset eligibility traces at episode start
+
+# Monitoring
+monitoring:
+  track_metrics:
+    - success_rate                  # Task success rate
+    - avg_reward                    # Average reward per episode
+    - epsilon                       # Current exploration rate
+    - td_error                      # TD error magnitude
+    - avg_q_value                   # Average Q-value
+    - trace_magnitude               # Average eligibility trace magnitude
+    - episode_length                # Average episode length
+  log_interval: 10                  # Log every N episodes
+  save_checkpoints: true
+  checkpoint_interval: 50
+
+  # Weights & Biases integration (optional)
+  wandb:
+    enabled: false
+    project: sarsa
+    entity: null
+
+# Extensions
+extensions:
+  # True online SARSA(lambda) (optional)
+  - name: true-online-sarsa
+    enabled: false
+    config:
+      use_dutch_traces: true        # Use dutch traces for better performance
+
+  # Expected SARSA (optional)
+  - name: expected-sarsa
+    enabled: false
+    config:
+      use_expected_update: true     # Use expected value instead of sampled action
+
+  # Tile coding for state representation (optional)
+  - name: tile-coding
+    enabled: false
+    config:
+      num_tilings: 8                # Number of tilings
+      tiles_per_dimension: 8        # Tiles per state dimension

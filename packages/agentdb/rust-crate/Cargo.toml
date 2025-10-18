@@ -1,0 +1,97 @@
+[package]
+name = "sqlite-vector"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["Agentic Flow Team <hello@ruv.io>"]
+description = "Ultra-fast SQLite vector database with SIMD acceleration and QUIC synchronization"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ruvnet/agentic-flow"
+documentation = "https://docs.rs/sqlite-vector"
+homepage = "https://github.com/ruvnet/agentic-flow/tree/main/packages/sqlite-vector"
+keywords = ["vector", "database", "sqlite", "embeddings", "simd"]
+categories = ["database", "database-implementations", "embedded", "wasm"]
+readme = "README.md"
+exclude = [
+    "benchmarks/*",
+    "tests/*",
+    ".github/*",
+    "*.md",
+    "!README.md",
+]
+
+[lib]
+name = "sqlite_vector"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Core SQLite integration
+rusqlite = { version = "0.31", features = ["bundled", "vtab", "array", "blob"] }
+
+# SIMD acceleration (using std::simd on nightly, or simba on stable)
+simba = { version = "0.9", optional = true }
+# Alternative: wide for portable SIMD
+wide = { version = "0.7", optional = true, features = ["serde"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rmp-serde = "1.1"  # MessagePack for efficient binary serialization
+
+# QUIC networking (optional)
+quinn = { version = "0.10", optional = true }
+tokio = { version = "1.35", features = ["full"], optional = true }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Utilities
+once_cell = "1.19"
+parking_lot = "0.12"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+tempfile = "3.8"
+proptest = "1.4"
+tokio-test = "0.4"
+
+[features]
+default = ["simd"]
+simd = ["wide"]
+quic-sync = ["quinn", "tokio"]
+wasm = []
+full = ["simd", "quic-sync"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[profile.bench]
+inherits = "release"
+
+# Documentation configuration for docs.rs
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+targets = ["x86_64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-pc-windows-msvc"]
+
+# Workspace configuration (if needed)
+[workspace]
+members = ["."]
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+required-features = []
+
+[[example]]
+name = "quic_sync"
+path = "examples/quic_sync.rs"
+required-features = ["quic-sync"]
+
+[[bench]]
+name = "vector_operations"
+harness = false

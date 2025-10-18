@@ -1,0 +1,138 @@
+# Decision Transformer Template
+# Sequence modeling approach to reinforcement learning
+# Recommended for sequential decision-making tasks
+
+# Plugin metadata
+name: decision-transformer
+version: 1.0.0
+description: Sequence modeling approach to RL using transformer architecture
+base_algorithm: decision_transformer
+
+# Algorithm configuration
+algorithm:
+  type: decision_transformer
+
+  # Model architecture
+  state_dim: 768                    # State embedding dimension
+  action_dim: 768                   # Action embedding dimension
+  hidden_size: 256                  # Hidden layer size in transformer
+  num_layers: 3                     # Number of transformer layers
+  num_heads: 8                      # Number of attention heads
+  dropout: 0.1                      # Dropout rate
+
+  # Training parameters
+  learning_rate: 0.001              # Adam optimizer learning rate
+  weight_decay: 0.0001              # L2 regularization
+  max_grad_norm: 1.0                # Gradient clipping
+
+  # Sequence parameters
+  context_length: 20                # Length of trajectory history
+  return_to_go: true                # Use return-to-go conditioning
+  state_mean: 0.0                   # State normalization mean
+  state_std: 1.0                    # State normalization std
+
+# State representation
+state:
+  embedding_model: sentence-transformers/all-MiniLM-L6-v2
+  dimension: 768
+  preprocessing:
+    - normalize                     # Normalize state vectors
+    - reduce_dim                    # Optional dimensionality reduction
+
+# Action space
+action:
+  type: discrete                    # discrete or continuous
+  space_size: 100                   # Number of discrete actions (patterns)
+  selection_strategy: 3_tier        # 3-tier strategy (exact → interpolation → neural)
+
+  # 3-tier strategy configuration
+  exact_threshold: 0.99             # Similarity threshold for exact match
+  interpolation_threshold: 0.95     # Threshold for interpolation
+  interpolation_k: 5                # Number of neighbors for interpolation
+
+# Reward configuration
+reward:
+  type: success_based               # success_based, time_aware, token_aware, custom
+  shaping:
+    gamma: 0.99                     # Discount factor for return-to-go
+    normalize: true                 # Normalize rewards to [-1, 1]
+
+  # Custom reward function (optional)
+  # function: |
+  #   function computeReward(outcome, context) {
+  #     const baseReward = outcome.success ? 1.0 : -1.0;
+  #     const timePenalty = -0.1 * (context.duration / 1000);
+  #     const tokenPenalty = -0.01 * (context.tokensUsed / 100);
+  #     return baseReward + timePenalty + tokenPenalty;
+  #   }
+
+# Experience replay (not typically used in DT, but available)
+experience_replay:
+  type: none                        # none, uniform, prioritized
+  capacity: 10000                   # Maximum number of experiences
+  min_size: 100                     # Minimum experiences before training
+
+# Storage configuration
+storage:
+  backend: agentdb
+  path: ./.rl/decision-transformer.db
+
+  # HNSW index for fast similarity search
+  hnsw:
+    enabled: true
+    M: 16                           # Number of connections per layer
+    efConstruction: 200             # Size of dynamic candidate list
+    efSearch: 100                   # Search quality parameter
+
+  # Vector quantization (optional)
+  quantization:
+    enabled: false
+    bits: 8                         # 8 or 16 bit quantization
+
+# Training configuration
+training:
+  batch_size: 32                    # Batch size for training
+  epochs: 10                        # Number of training epochs
+  validation_split: 0.2             # Validation set ratio
+  early_stopping_patience: 3        # Epochs to wait before early stopping
+  min_experiences: 100              # Minimum experiences before training
+  train_every: 100                  # Train after every N experiences
+  online: false                     # Online vs offline training
+
+  # Sequence sampling
+  sample_trajectories: true         # Sample full trajectories vs random transitions
+  trajectory_length: 20             # Length of sampled trajectories
+
+# Monitoring
+monitoring:
+  track_metrics:
+    - success_rate                  # Task success rate
+    - avg_reward                    # Average reward per episode
+    - avg_return                    # Average return-to-go
+    - loss                          # Training loss
+    - predicted_return              # Model's predicted return
+  log_interval: 10                  # Log every N episodes
+  save_checkpoints: true
+  checkpoint_interval: 50           # Save checkpoint every N episodes
+
+  # Weights & Biases integration (optional)
+  wandb:
+    enabled: false
+    project: decision-transformer
+    entity: null
+
+# Extensions
+extensions:
+  # Curiosity-driven exploration (optional)
+  - name: curiosity-driven-exploration
+    enabled: false
+    config:
+      intrinsic_reward_weight: 0.1
+      forward_model_hidden_size: 128
+
+  # Hindsight experience replay (optional)
+  - name: hindsight-experience-replay
+    enabled: false
+    config:
+      strategy: future              # future, final, episode
+      k: 4                          # Number of HER samples per transition

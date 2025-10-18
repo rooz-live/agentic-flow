@@ -1,0 +1,226 @@
+# Curiosity-Driven Exploration Template
+# Intrinsic motivation using prediction error as exploration bonus
+# Based on "Curiosity-driven Exploration by Self-supervised Prediction"
+
+# Plugin metadata
+name: curiosity-driven
+version: 1.0.0
+description: Intrinsic motivation for exploration using prediction error
+base_algorithm: decision_transformer  # Can use any base algorithm
+
+# Algorithm configuration (inherits from base algorithm)
+algorithm:
+  type: decision_transformer
+
+  # Model architecture
+  state_dim: 768
+  action_dim: 768
+  hidden_size: 256
+  num_layers: 3
+  num_heads: 8
+  dropout: 0.1
+
+  # Training parameters
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  max_grad_norm: 1.0
+
+  # Sequence parameters
+  context_length: 20
+  return_to_go: true
+
+# State representation
+state:
+  embedding_model: sentence-transformers/all-MiniLM-L6-v2
+  dimension: 768
+  preprocessing:
+    - normalize
+
+# Action space
+action:
+  type: discrete
+  space_size: 100
+  selection_strategy: 3_tier
+
+# Reward configuration
+reward:
+  type: curiosity_augmented          # Combines extrinsic + intrinsic rewards
+
+  # Extrinsic reward (from environment)
+  extrinsic:
+    type: success_based
+    weight: 1.0                      # Weight for extrinsic reward
+
+  # Intrinsic reward (from curiosity module)
+  intrinsic:
+    type: prediction_error           # prediction_error, count_based, random_network_distillation
+    weight: 0.1                      # Weight for intrinsic reward (beta)
+    normalize: true                  # Normalize intrinsic rewards
+    normalize_method: standardize    # standardize, rescale, clip
+
+  # Combined reward function
+  combination: weighted_sum          # weighted_sum, max, adaptive
+
+  # Custom reward function (optional override)
+  # function: |
+  #   function computeReward(outcome, context, intrinsicReward) {
+  #     const extrinsic = outcome.success ? 1.0 : -1.0;
+  #     const intrinsic = intrinsicReward * 0.1;
+  #     return extrinsic + intrinsic;
+  #   }
+
+# Curiosity module configuration
+curiosity:
+  enabled: true
+
+  # Forward model (predicts next state from current state + action)
+  forward_model:
+    type: neural                     # neural, linear
+    hidden_size: 128                 # Hidden layer size
+    num_layers: 2                    # Number of hidden layers
+    learning_rate: 0.001             # Forward model learning rate
+    dropout: 0.1                     # Dropout rate
+
+    # Feature encoding
+    feature_dim: 256                 # Dimension of encoded features
+    encode_states: true              # Encode states before prediction
+
+  # Inverse model (predicts action from state + next state)
+  inverse_model:
+    type: neural                     # neural, linear
+    hidden_size: 128                 # Hidden layer size
+    num_layers: 2                    # Number of hidden layers
+    learning_rate: 0.001             # Inverse model learning rate
+    dropout: 0.1                     # Dropout rate
+
+  # Intrinsic reward calculation
+  prediction_error_type: mse         # mse, mae, huber
+  prediction_error_scale: 1.0        # Scale factor for prediction error
+
+  # Intrinsic reward normalization
+  intrinsic_reward_normalize: true   # Normalize intrinsic rewards
+  running_stats_window: 1000         # Window size for running statistics
+  running_stats_clip: 5.0            # Clip intrinsic rewards to [-clip, clip] std devs
+
+  # Training
+  train_every: 1                     # Train curiosity module every N steps
+  batch_size: 32                     # Batch size for curiosity module training
+
+  # Loss weights
+  forward_loss_weight: 1.0           # Weight for forward model loss
+  inverse_loss_weight: 0.8           # Weight for inverse model loss (typically lower)
+
+# Experience replay
+experience_replay:
+  type: uniform                      # Uniform replay for curiosity-driven exploration
+  capacity: 10000
+  min_size: 100
+
+# Storage configuration
+storage:
+  backend: agentdb
+  path: ./.rl/curiosity-driven.db
+
+  # HNSW index
+  hnsw:
+    enabled: true
+    M: 16
+    efConstruction: 200
+    efSearch: 100
+
+  # Vector quantization
+  quantization:
+    enabled: false
+    bits: 8
+
+  # Store curiosity-specific data
+  store_intrinsic_rewards: true      # Store intrinsic reward values
+  store_prediction_errors: true      # Store prediction errors for analysis
+  store_visitation_counts: true      # Store state visitation counts (optional)
+
+# Training configuration
+training:
+  batch_size: 32
+  epochs: 10
+  validation_split: 0.2
+  early_stopping_patience: 3
+  min_experiences: 100
+  train_every: 100
+  online: false
+
+  # Curiosity module training
+  pretrain_curiosity_steps: 1000     # Pretrain curiosity module before main training
+  curiosity_train_ratio: 1.0         # Ratio of curiosity to policy updates (1.0 = equal)
+
+# Monitoring
+monitoring:
+  track_metrics:
+    - success_rate                   # Task success rate
+    - avg_reward                     # Average total reward
+    - avg_extrinsic_reward           # Average extrinsic reward
+    - avg_intrinsic_reward           # Average intrinsic reward
+    - avg_prediction_error           # Average prediction error
+    - forward_model_loss             # Forward model loss
+    - inverse_model_loss             # Inverse model loss
+    - exploration_bonus              # Average exploration bonus
+    - state_coverage                 # State space coverage metric
+    - novel_states_visited           # Number of novel states per episode
+  log_interval: 10
+  save_checkpoints: true
+  checkpoint_interval: 50
+
+  # Visualization
+  visualize_curiosity: true          # Generate curiosity visualizations
+  plot_intrinsic_rewards: true       # Plot intrinsic reward distribution
+  plot_state_coverage: true          # Plot state visitation heatmap
+
+  # Weights & Biases integration (optional)
+  wandb:
+    enabled: false
+    project: curiosity-driven
+    entity: null
+
+# Extensions
+extensions:
+  # Count-based exploration bonus (alternative/additional)
+  - name: count-based-exploration
+    enabled: false
+    config:
+      count_method: hash             # hash, density, kernel
+      bonus_type: inverse_sqrt       # inverse_sqrt, inverse, log
+      pseudo_count: 0.01             # Pseudo-count for unseen states
+
+  # Random Network Distillation (RND)
+  - name: random-network-distillation
+    enabled: false
+    config:
+      target_network_size: 256       # Size of random target network
+      predictor_network_size: 256    # Size of predictor network
+      predictor_learning_rate: 0.001
+
+  # Episodic curiosity
+  - name: episodic-curiosity
+    enabled: false
+    config:
+      episodic_memory_capacity: 1000 # Capacity of episodic memory
+      similarity_threshold: 0.95     # Threshold for considering state novel
+      kernel_type: rbf               # rbf, inverse_distance
+
+# Advanced settings
+advanced:
+  # Feature normalization
+  normalize_features: true           # Normalize features for curiosity module
+  feature_normalization_method: batch_norm  # batch_norm, layer_norm, instance_norm
+
+  # Exploration scheduling
+  curiosity_weight_schedule: constant  # constant, linear_decay, exponential_decay
+  curiosity_weight_decay: 0.999      # Decay rate for curiosity weight
+  curiosity_weight_min: 0.01         # Minimum curiosity weight
+
+  # State novelty detection
+  novelty_detection_method: prediction_error  # prediction_error, distance, density
+  novelty_threshold: 0.1             # Threshold for considering state novel
+
+  # Memory management
+  prioritize_novel_experiences: true  # Prioritize novel experiences in replay buffer
+  novelty_priority_weight: 0.5       # Weight for novelty in prioritization

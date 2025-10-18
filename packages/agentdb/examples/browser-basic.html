@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SQLiteVector Browser Example</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #333;
+      border-bottom: 2px solid #4CAF50;
+      padding-bottom: 10px;
+    }
+    .controls {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    button {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-right: 10px;
+      font-size: 14px;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    #output {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+      white-space: pre-wrap;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .success { color: #4CAF50; }
+    .error { color: #f44336; }
+    .info { color: #2196F3; }
+  </style>
+</head>
+<body>
+  <h1>🚀 SQLiteVector Browser Example</h1>
+
+  <div class="controls">
+    <button onclick="initDatabase()">Initialize DB</button>
+    <button onclick="insertVectors()">Insert Vectors</button>
+    <button onclick="searchVectors()">Search Similar</button>
+    <button onclick="getStats()">Show Stats</button>
+    <button onclick="clearOutput()">Clear Output</button>
+  </div>
+
+  <div id="output">Click buttons above to interact with SQLiteVector...</div>
+
+  <script type="module">
+    import { createDb, Vector } from '../dist/index.mjs';
+
+    let db = null;
+
+    function log(message, type = 'info') {
+      const output = document.getElementById('output');
+      const timestamp = new Date().toLocaleTimeString();
+      const colorClass = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+      output.innerHTML += `<span class="${colorClass}">[${timestamp}] ${message}</span>\n`;
+      output.scrollTop = output.scrollHeight;
+    }
+
+    window.initDatabase = async function() {
+      try {
+        log('Initializing SQLiteVector database...', 'info');
+        db = await createDb({ memoryMode: true, dimension: 384 });
+        log('✓ Database initialized successfully!', 'success');
+      } catch (error) {
+        log(`✗ Error: ${error.message}`, 'error');
+      }
+    };
+
+    window.insertVectors = async function() {
+      if (!db) {
+        log('Please initialize database first!', 'error');
+        return;
+      }
+
+      try {
+        log('Inserting sample vectors...', 'info');
+
+        const vectors = [
+          new Vector([0.1, 0.2, 0.3], { doc: 'Document 1', category: 'tech' }),
+          new Vector([0.4, 0.5, 0.6], { doc: 'Document 2', category: 'science' }),
+          new Vector([0.15, 0.25, 0.35], { doc: 'Document 3', category: 'tech' }),
+          new Vector([0.7, 0.8, 0.9], { doc: 'Document 4', category: 'math' }),
+        ];
+
+        const ids = await db.insertBatch(vectors);
+        log(`✓ Inserted ${ids.length} vectors with IDs: ${ids.join(', ')}`, 'success');
+      } catch (error) {
+        log(`✗ Error: ${error.message}`, 'error');
+      }
+    };
+
+    window.searchVectors = async function() {
+      if (!db) {
+        log('Please initialize database first!', 'error');
+        return;
+      }
+
+      try {
+        log('Searching for similar vectors...', 'info');
+
+        const query = new Vector([0.12, 0.22, 0.32]);
+        const results = await db.search(query, 3, { metric: 'cosine', threshold: 0.5 });
+
+        log(`Found ${results.length} similar vectors:`, 'info');
+        results.forEach((result, i) => {
+          log(`  ${i + 1}. ID: ${result.id}, Score: ${result.score.toFixed(4)}, ` +
+              `Metadata: ${JSON.stringify(result.metadata)}`, 'info');
+        });
+
+        log('✓ Search completed', 'success');
+      } catch (error) {
+        log(`✗ Error: ${error.message}`, 'error');
+      }
+    };
+
+    window.getStats = async function() {
+      if (!db) {
+        log('Please initialize database first!', 'error');
+        return;
+      }
+
+      try {
+        log('Fetching database statistics...', 'info');
+
+        const stats = await db.getStats();
+        log('Database Statistics:', 'info');
+        log(`  Total Vectors: ${stats.totalVectors}`, 'info');
+        log(`  Dimension: ${stats.dimension}`, 'info');
+        log(`  Memory Usage: ${(stats.memoryUsage / 1024).toFixed(2)} KB`, 'info');
+        log(`  DB Size: ${(stats.dbSize / 1024).toFixed(2)} KB`, 'info');
+
+        log('✓ Stats retrieved', 'success');
+      } catch (error) {
+        log(`✗ Error: ${error.message}`, 'error');
+      }
+    };
+
+    window.clearOutput = function() {
+      document.getElementById('output').innerHTML = 'Output cleared. Ready for new operations...\n';
+    };
+
+    // Auto-initialize on load
+    log('SQLiteVector Browser Example Ready', 'success');
+    log('Click "Initialize DB" to begin', 'info');
+  </script>
+</body>
+</html>

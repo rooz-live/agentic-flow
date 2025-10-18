@@ -1,0 +1,181 @@
+# Actor-Critic Template
+# Policy gradient method with value function baseline
+# Combines policy-based (actor) and value-based (critic) approaches
+
+# Plugin metadata
+name: actor-critic
+version: 1.0.0
+description: Policy gradient with value function baseline
+base_algorithm: actor_critic
+
+# Algorithm configuration
+algorithm:
+  type: actor_critic
+
+  # Actor (policy) parameters
+  actor_lr: 0.0001                  # Actor learning rate (lower than critic)
+  actor_hidden_size: 256            # Actor network hidden layer size
+  actor_num_layers: 2               # Number of hidden layers in actor
+
+  # Critic (value function) parameters
+  critic_lr: 0.001                  # Critic learning rate
+  critic_hidden_size: 256           # Critic network hidden layer size
+  critic_num_layers: 2              # Number of hidden layers in critic
+
+  # Shared parameters
+  discount_factor: 0.99             # Discount factor (gamma)
+  gae_lambda: 0.95                  # GAE (Generalized Advantage Estimation) lambda
+
+  # Advantage estimation
+  advantage_method: gae             # gae, td, monte_carlo
+  normalize_advantages: true        # Normalize advantages to mean 0, std 1
+
+  # Entropy regularization (encourages exploration)
+  entropy_coefficient: 0.01         # Weight for entropy bonus
+  entropy_decay: 1.0                # Decay rate for entropy coefficient
+
+  # Value function loss
+  value_loss_coefficient: 0.5       # Weight for value function loss
+  max_grad_norm: 0.5                # Gradient clipping
+
+  # PPO-style clipping (optional)
+  use_ppo_clip: false               # Enable PPO clipping
+  ppo_clip_range: 0.2               # PPO clip range
+  ppo_epochs: 10                    # PPO optimization epochs per batch
+
+# State representation
+state:
+  embedding_model: sentence-transformers/all-MiniLM-L6-v2
+  dimension: 768
+  preprocessing:
+    - normalize                     # Normalize state vectors
+
+# Action space
+action:
+  type: continuous                  # continuous or discrete
+
+  # For continuous actions
+  space_bounds:                     # Action space bounds [min, max] per dimension
+    - [-1.0, 1.0]
+    - [-1.0, 1.0]
+  action_dim: 2                     # Action dimension (inferred from bounds)
+
+  # For discrete actions (alternative)
+  # space_size: 100                 # Number of discrete actions
+
+  # Policy distribution
+  policy_distribution: gaussian     # gaussian (continuous), categorical (discrete)
+
+  # Gaussian policy parameters
+  initial_log_std: 0.0              # Initial log standard deviation
+  learn_std: true                   # Learn standard deviation vs fixed
+  min_log_std: -20.0                # Minimum log std (for numerical stability)
+  max_log_std: 2.0                  # Maximum log std
+
+# Reward configuration
+reward:
+  type: success_based               # success_based, time_aware, token_aware, custom
+  normalize: true                   # Normalize rewards
+  normalize_method: standardize     # standardize, rescale
+
+  # Reward scaling
+  reward_scale: 1.0                 # Scale factor for rewards
+
+  # Custom reward function (optional)
+  # function: |
+  #   function computeReward(outcome, context) {
+  #     const baseReward = outcome.success ? 1.0 : -1.0;
+  #     const timePenalty = -0.1 * (context.duration / 1000);
+  #     const tokenPenalty = -0.01 * (context.tokensUsed / 100);
+  #     return baseReward + timePenalty + tokenPenalty;
+  #   }
+
+# Experience replay (trajectory buffer)
+experience_replay:
+  type: trajectory                  # trajectory-based for on-policy methods
+  capacity: 5000                    # Maximum number of transitions
+  min_size: 2048                    # Minimum transitions before training
+  clear_after_update: true          # Clear buffer after each update (on-policy)
+
+# Storage configuration
+storage:
+  backend: agentdb
+  path: ./.rl/actor-critic.db
+
+  # HNSW index for state similarity search
+  hnsw:
+    enabled: true
+    M: 16                           # Connections per layer
+    efConstruction: 200             # Construction quality
+    efSearch: 50                    # Search quality
+
+  # Vector quantization
+  quantization:
+    enabled: false
+    bits: 8
+
+# Training configuration
+training:
+  batch_size: 64                    # Batch size for training
+  minibatch_size: 32                # Minibatch size for PPO updates
+  epochs: 1                         # Training epochs per update
+  validation_split: 0.0             # No validation for on-policy
+  min_experiences: 2048             # Minimum experiences before training
+  train_every: 2048                 # Train after every N experiences
+  online: false                     # Batch updates (not fully online)
+
+  # Optimization
+  optimizer: adam                   # adam, rmsprop, sgd
+  weight_decay: 0.0                 # L2 regularization
+
+  # Learning rate scheduling
+  lr_schedule: constant             # constant, linear, exponential
+  lr_decay: 0.99                    # Decay rate for scheduled learning rate
+
+# Monitoring
+monitoring:
+  track_metrics:
+    - success_rate                  # Task success rate
+    - avg_reward                    # Average reward per episode
+    - avg_return                    # Average return
+    - actor_loss                    # Actor (policy) loss
+    - critic_loss                   # Critic (value) loss
+    - entropy                       # Policy entropy
+    - advantage_mean                # Mean advantage
+    - advantage_std                 # Advantage standard deviation
+    - value_estimate                # Average value estimate
+    - explained_variance            # Explained variance of value function
+    - kl_divergence                 # KL divergence (for PPO)
+  log_interval: 10                  # Log every N episodes
+  save_checkpoints: true
+  checkpoint_interval: 50
+
+  # Weights & Biases integration (optional)
+  wandb:
+    enabled: false
+    project: actor-critic
+    entity: null
+
+# Extensions
+extensions:
+  # Trust Region Policy Optimization (optional)
+  - name: trpo
+    enabled: false
+    config:
+      max_kl: 0.01                  # Maximum KL divergence
+      damping: 0.1                  # Damping coefficient
+      conjugate_gradient_iters: 10  # CG iterations
+
+  # Multi-step returns (optional)
+  - name: n-step-returns
+    enabled: false
+    config:
+      n: 5                          # Number of steps for n-step returns
+
+  # Recurrent policy (optional, for partial observability)
+  - name: recurrent-policy
+    enabled: false
+    config:
+      rnn_type: lstm                # lstm, gru
+      rnn_hidden_size: 256
+      rnn_num_layers: 1

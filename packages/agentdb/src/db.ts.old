@@ -1,0 +1,191 @@
+/**
+ * SQLiteVector Database wrapper
+ * Provides high-level API for vector operations
+ */
+
+import { getWasm } from './wasm-loader';
+import { Vector } from './vector';
+
+export interface DbConfig {
+  memoryMode?: boolean;
+  dbPath?: string;
+  cacheSize?: number;
+  dimension?: number;
+}
+
+export interface SearchOptions {
+  metric?: 'cosine' | 'euclidean' | 'dot';
+  threshold?: number;
+}
+
+export interface SearchResult {
+  id: number;
+  score: number;
+  vector: Vector;
+  metadata?: any;
+}
+
+export interface DbStats {
+  totalVectors: number;
+  dimension: number;
+  memoryUsage: number;
+  dbSize: number;
+}
+
+export class SqliteVectorDB {
+  private wasmDb: any;
+  private config: DbConfig;
+
+  private constructor(wasmDb: any, config: DbConfig) {
+    this.wasmDb = wasmDb;
+    this.config = config;
+  }
+
+  /**
+   * Create new database instance
+   */
+  static async create(config?: DbConfig): Promise<SqliteVectorDB> {
+    const wasm = getWasm();
+
+    // Create WASM config
+    const wasmConfig = new wasm.Config();
+
+    if (config?.memoryMode !== undefined) {
+      wasmConfig.setMemoryMode(config.memoryMode);
+    }
+
+    if (config?.dbPath) {
+      wasmConfig.setDbPath(config.dbPath);
+    }
+
+    if (config?.cacheSize) {
+      wasmConfig.setCacheSize(config.cacheSize);
+    }
+
+    if (config?.dimension) {
+      wasmConfig.setDimension(config.dimension);
+    }
+
+    // Create database
+    const wasmDb = new wasm.SqliteVectorDB(wasmConfig);
+
+    return new SqliteVectorDB(wasmDb, config || {});
+  }
+
+  /**
+   * Insert single vector
+   */
+  async insert(vector: Vector): Promise<number> {
+    try {
+      return this.wasmDb.insert(vector.getWasmVector());
+    } catch (error) {
+      throw new Error(`Insert failed: ${error}`);
+    }
+  }
+
+  /**
+   * Insert multiple vectors in batch
+   * More efficient than multiple insert() calls
+   */
+  async insertBatch(vectors: Vector[]): Promise<number[]> {
+    try {
+      const wasmVectors = vectors.map(v => v.getWasmVector());
+      return this.wasmDb.insertBatch(wasmVectors);
+    } catch (error) {
+      throw new Error(`Batch insert failed: ${error}`);
+    }
+  }
+
+  /**
+   * Search for similar vectors
+   */
+  async search(
+    query: Vector,
+    k: number = 5,
+    options?: SearchOptions
+  ): Promise<SearchResult[]> {
+    try {
+      const metric = options?.metric || 'cosine';
+      const threshold = options?.threshold;
+
+      const results = this.wasmDb.search(
+        query.getWasmVector(),
+        k,
+        metric,
+        threshold
+      );
+
+      return results.map((result: any) => {
+        const vectorData = result.getVector();
+        const metadataStr = result.getMetadata();
+        const metadata = metadataStr ? JSON.parse(metadataStr) : undefined;
+
+        return {
+          id: result.id,
+          score: result.score,
+          vector: new Vector(vectorData, metadata),
+          metadata,
+        };
+      });
+    } catch (error) {
+      throw new Error(`Search failed: ${error}`);
+    }
+  }
+
+  /**
+   * Update vector by ID
+   */
+  async update(id: number, vector: Vector): Promise<boolean> {
+    try {
+      return this.wasmDb.update(id, vector.getWasmVector());
+    } catch (error) {
+      throw new Error(`Update failed: ${error}`);
+    }
+  }
+
+  /**
+   * Delete vector by ID
+   */
+  async delete(id: number): Promise<boolean> {
+    try {
+      return this.wasmDb.delete(id);
+    } catch (error) {
+      throw new Error(`Delete failed: ${error}`);
+    }
+  }
+
+  /**
+   * Get database statistics
+   */
+  async getStats(): Promise<DbStats> {
+    try {
+      const stats = this.wasmDb.getStats();
+      return {
+        totalVectors: stats.totalVectors,
+        dimension: stats.dimension,
+        memoryUsage: stats.memoryUsage,
+        dbSize: stats.dbSize,
+      };
+    } catch (error) {
+      throw new Error(`Get stats failed: ${error}`);
+    }
+  }
+
+  /**
+   * Clear all vectors
+   */
+  async clear(): Promise<void> {
+    try {
+      return this.wasmDb.clear();
+    } catch (error) {
+      throw new Error(`Clear failed: ${error}`);
+    }
+  }
+
+  /**
+   * Get current configuration
+   */
+  getConfig(): DbConfig {
+    return { ...this.config };
+  }
+}

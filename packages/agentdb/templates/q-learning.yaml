@@ -1,0 +1,144 @@
+# Q-Learning Template
+# Model-free, off-policy, value-based reinforcement learning
+# Classic RL algorithm suitable for discrete action spaces
+
+# Plugin metadata
+name: q-learning
+version: 1.0.0
+description: Model-free value-based learning with experience replay
+base_algorithm: q_learning
+
+# Algorithm configuration
+algorithm:
+  type: q_learning
+
+  # Q-learning parameters
+  learning_rate: 0.001              # Learning rate (alpha)
+  discount_factor: 0.99             # Discount factor (gamma)
+
+  # Exploration parameters (epsilon-greedy)
+  epsilon_start: 1.0                # Initial exploration rate
+  epsilon_end: 0.01                 # Minimum exploration rate
+  epsilon_decay: 0.995              # Epsilon decay rate per episode
+  epsilon_decay_type: exponential   # exponential or linear
+
+  # Q-value initialization
+  initial_q_value: 0.0              # Initial Q-value for unseen state-action pairs
+  optimistic_init: false            # Use optimistic initialization
+
+  # Double Q-learning (reduces overestimation)
+  double_q: true                    # Enable double Q-learning
+
+  # Target network (for stability)
+  use_target_network: true          # Use separate target network
+  target_update_freq: 100           # Update target network every N steps
+
+# State representation
+state:
+  embedding_model: sentence-transformers/all-MiniLM-L6-v2
+  dimension: 384
+  preprocessing:
+    - normalize                     # Normalize state vectors
+
+# Action space
+action:
+  type: discrete                    # Q-learning works best with discrete actions
+  space_size: 100                   # Number of discrete actions
+  selection_strategy: epsilon_greedy # epsilon_greedy, softmax, ucb
+
+# Reward configuration
+reward:
+  type: success_based               # success_based, time_aware, token_aware, custom
+  clip: true                        # Clip rewards to [-1, 1]
+  clip_range: [-1.0, 1.0]
+
+  # Custom reward function (optional)
+  # function: |
+  #   function computeReward(outcome, context) {
+  #     const baseReward = outcome.success ? 1.0 : -1.0;
+  #     const timePenalty = -0.1 * (context.duration / 1000);
+  #     return baseReward + timePenalty;
+  #   }
+
+# Experience replay
+experience_replay:
+  type: uniform                     # none, uniform, prioritized
+  capacity: 10000                   # Maximum replay buffer size
+  min_size: 100                     # Minimum size before sampling
+  replace: false                    # Sample with/without replacement
+
+  # Prioritized experience replay (if type: prioritized)
+  # alpha: 0.6                      # Priority exponent
+  # beta: 0.4                       # Importance sampling exponent
+  # beta_increment: 0.001           # Beta annealing per training step
+  # epsilon: 0.01                   # Small constant to prevent zero priority
+
+# Storage configuration
+storage:
+  backend: agentdb
+  path: ./.rl/q-learning.db
+
+  # HNSW index for state similarity search
+  hnsw:
+    enabled: true
+    M: 16                           # Connections per layer
+    efConstruction: 200             # Construction quality
+    efSearch: 50                    # Search quality
+
+  # Vector quantization
+  quantization:
+    enabled: false
+    bits: 8
+
+# Training configuration
+training:
+  batch_size: 32                    # Batch size for experience replay
+  epochs: 1                         # Epochs per training call
+  validation_split: 0.0             # No validation needed for Q-learning
+  min_experiences: 100              # Minimum experiences before training
+  train_every: 4                    # Train after every N experiences
+  online: false                     # Offline training from replay buffer
+
+  # Gradient clipping
+  max_grad_norm: 10.0               # Maximum gradient norm
+
+# Monitoring
+monitoring:
+  track_metrics:
+    - success_rate                  # Task success rate
+    - avg_reward                    # Average reward per episode
+    - epsilon                       # Current exploration rate
+    - loss                          # TD error loss
+    - avg_q_value                   # Average Q-value
+    - max_q_value                   # Maximum Q-value
+    - replay_buffer_size            # Current replay buffer size
+  log_interval: 10                  # Log every N episodes
+  save_checkpoints: true
+  checkpoint_interval: 50
+
+  # Weights & Biases integration (optional)
+  wandb:
+    enabled: false
+    project: q-learning
+    entity: null
+
+# Extensions
+extensions:
+  # N-step Q-learning (optional)
+  - name: n-step-returns
+    enabled: false
+    config:
+      n: 3                          # Number of steps for n-step returns
+
+  # Dueling DQN architecture (optional)
+  - name: dueling-dqn
+    enabled: false
+    config:
+      value_hidden_size: 128
+      advantage_hidden_size: 128
+
+  # Noisy networks for exploration (optional)
+  - name: noisy-networks
+    enabled: false
+    config:
+      sigma_init: 0.5               # Initial noise standard deviation

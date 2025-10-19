@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.3] - 2025-10-19
+
+### Fixed
+- **CRITICAL: Skills Installation Path** - Fixed skills to install at top level for Claude Code discovery
+  - **Before**: Skills installed to `.claude/skills/agentic-flow/[skill-name]/` (WRONG - nested subdirectory)
+  - **After**: Skills install to `.claude/skills/[skill-name]/` (CORRECT - top level)
+  - Claude Code requires skills at top level, NOT in subdirectories
+  - Affects `npx agentic-flow skills create` command
+  - All 4 example skills (agentdb-vector-search, agentdb-memory-patterns, swarm-orchestration, reasoningbank-intelligence) now install correctly
+
+### Migration
+If you installed skills with v1.7.2:
+```bash
+# Move skills from subdirectory to top level
+cd .claude/skills
+mv agentic-flow/* .
+rmdir agentic-flow
+# Restart Claude Code
+```
+
+Or simply reinstall:
+```bash
+rm -rf .claude/skills
+npx agentic-flow@latest skills create
+```
+
 ## [1.7.2] - 2025-10-19
 
 ### Added

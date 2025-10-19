@@ -1,3 +1,8 @@
+---
+name: test-neural
+description: Test agent for validating neural network tool access
+---
+
 # Test Neural Agent
 
 Test agent for validating neural network tool access.

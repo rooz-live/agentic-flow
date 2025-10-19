@@ -1,7 +1,7 @@
 // CLI argument parsing and help utilities
 
 export interface CliOptions {
-  mode: 'agent' | 'parallel' | 'list' | 'mcp' | 'mcp-manager' | 'config' | 'agent-manager' | 'proxy' | 'quic' | 'claude-code' | 'reasoningbank';
+  mode: 'agent' | 'parallel' | 'list' | 'mcp' | 'mcp-manager' | 'config' | 'agent-manager' | 'agentdb' | 'skills' | 'proxy' | 'quic' | 'claude-code' | 'reasoningbank';
   agent?: string;
   task?: string;
 
@@ -103,6 +103,18 @@ export function parseArgs(): CliOptions {
   // Check for reasoningbank command
   if (args[0] === 'reasoningbank') {
     options.mode = 'reasoningbank';
+    return options;
+  }
+
+  // Check for agentdb command
+  if (args[0] === 'agentdb') {
+    options.mode = 'agentdb';
+    return options;
+  }
+
+  // Check for skills command
+  if (args[0] === 'skills') {
+    options.mode = 'skills';
     return options;
   }
 
@@ -237,6 +249,7 @@ USAGE:
   npx agentic-flow [COMMAND] [OPTIONS]
 
 COMMANDS:
+  skills <command>        Claude Code Skills management (init, create, list)
   reasoningbank <cmd>     Memory system that learns from experience (demo, test, init)
   claude-code [options]   Spawn Claude Code with proxy + Agent Booster (57x faster edits)
   mcp <command> [server]  Manage MCP servers (start, stop, status, list)
@@ -252,6 +265,12 @@ REASONINGBANK COMMANDS:
   npx agentic-flow reasoningbank init         Initialize database
   npx agentic-flow reasoningbank benchmark    Run performance benchmarks
   npx agentic-flow reasoningbank status       Show memory statistics
+
+SKILLS COMMANDS:
+  npx agentic-flow skills init [location]   Initialize skills directories (personal/project/both)
+  npx agentic-flow skills create            Create example agentic-flow skills
+  npx agentic-flow skills list              List all installed skills
+  npx agentic-flow skills help              Show skills help
 
 MCP COMMANDS:
   npx agentic-flow mcp start [server]    Start MCP server(s)
@@ -298,6 +317,11 @@ OPTIONS:
   --help, -h                  Show this help message
 
 EXAMPLES:
+  # Skills (Claude Code integration!)
+  npx agentic-flow skills init              # Initialize skills directories
+  npx agentic-flow skills create            # Create agentdb-quickstart skill
+  npx agentic-flow skills list              # List all installed skills
+
   # ReasoningBank (Learn from agent experience!)
   npx agentic-flow reasoningbank demo       # See 0% → 100% success transformation
   npx agentic-flow reasoningbank test       # Run 27 validation tests

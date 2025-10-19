@@ -464,9 +464,14 @@ export class AgentDBMCPServer {
         this.learningTools = null;
         this.registry = new AgentDBRegistry();
         this.resourceHandler = new ResourceHandler(this.registry);
+        // Initialize learning tools immediately so they show in tools list
+        // Learning tools work independently of the main database
+        const tempDb = new SQLiteVectorDB({ memoryMode: true });
+        const learningManager = new LearningManager(tempDb);
+        this.learningTools = new MCPLearningTools(learningManager);
         this.server = new Server({
             name: 'agentdb-mcp',
-            version: '1.0.0',
+            version: '1.0.3',
         }, {
             capabilities: {
                 tools: {},
@@ -574,9 +579,9 @@ export class AgentDBMCPServer {
     // ============================================================================
     async handleInit(args) {
         const db = await this.registry.getOrCreate(args);
-        // Initialize learning tools
-        const learningManager = this.registry.getOrCreateLearningManager();
-        this.learningTools = new MCPLearningTools(learningManager);
+        // Learning tools already initialized in constructor
+        // Just use the registry's learning manager for database operations
+        this.registry.getOrCreateLearningManager();
         return {
             content: [
                 {

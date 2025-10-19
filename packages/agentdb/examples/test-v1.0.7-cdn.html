@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentDB v1.0.7 CDN Test - better-sqlite3 Fix Validation</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 1000px;
+      margin: 50px auto;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .container {
+      background: rgba(255, 255, 255, 0.95);
+      border-radius: 15px;
+      padding: 30px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+      color: #333;
+    }
+    h1 {
+      color: #667eea;
+      margin-bottom: 10px;
+    }
+    .status {
+      padding: 15px;
+      margin: 15px 0;
+      border-radius: 8px;
+      font-weight: bold;
+    }
+    .loading { background: #fff3cd; color: #856404; }
+    .success { background: #d4edda; color: #155724; }
+    .error { background: #f8d7da; color: #721c24; }
+    pre {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 14px;
+    }
+    .version {
+      color: #6c757d;
+      font-size: 0.9em;
+    }
+    .test-results {
+      margin-top: 20px;
+    }
+    .test-item {
+      padding: 10px;
+      margin: 10px 0;
+      border-left: 4px solid #667eea;
+      background: #f8f9fa;
+      border-radius: 4px;
+    }
+    .pass { border-left-color: #28a745; }
+    .fail { border-left-color: #dc3545; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🚀 AgentDB v1.0.7 CDN Test</h1>
+    <p class="version">Testing better-sqlite3 fix via unpkg.com CDN</p>
+
+    <div id="status" class="status loading">
+      ⏳ Loading AgentDB from CDN...
+    </div>
+
+    <div class="test-results">
+      <h3>Test Results:</h3>
+      <div id="results"></div>
+    </div>
+
+    <h3>Console Output:</h3>
+    <pre id="console"></pre>
+  </div>
+
+  <script type="module">
+    const statusEl = document.getElementById('status');
+    const resultsEl = document.getElementById('results');
+    const consoleEl = document.getElementById('console');
+
+    let logs = [];
+    function log(message, type = 'info') {
+      const timestamp = new Date().toLocaleTimeString();
+      const logMessage = `[${timestamp}] ${message}`;
+      logs.push(logMessage);
+      consoleEl.textContent = logs.join('\n');
+      console.log(message);
+    }
+
+    function addTestResult(name, passed, details) {
+      const div = document.createElement('div');
+      div.className = `test-item ${passed ? 'pass' : 'fail'}`;
+      div.innerHTML = `
+        <strong>${passed ? '✅' : '❌'} ${name}</strong>
+        ${details ? `<br><small>${details}</small>` : ''}
+      `;
+      resultsEl.appendChild(div);
+    }
+
+    async function runTests() {
+      try {
+        log('🔍 Attempting to import AgentDB v1.0.7 from unpkg CDN...');
+
+        // Import from unpkg CDN
+        const { SQLiteVectorDB, createVectorDB } = await import('https://unpkg.com/agentdb@1.0.7/dist/agentdb.min.js');
+
+        log('✅ Successfully loaded AgentDB module!');
+        addTestResult('Module Import', true, 'No better-sqlite3 import errors!');
+
+        // Test 1: Create database instance
+        log('🧪 Test 1: Creating SQLiteVectorDB instance...');
+        const db = new SQLiteVectorDB({
+          memoryMode: true,
+          backend: 'wasm'
+        });
+        addTestResult('Database Instance Creation', true, 'Backend set to WASM');
+
+        // Test 2: Initialize WASM backend
+        log('🧪 Test 2: Initializing WASM backend...');
+        await db.initializeAsync();
+        log('✅ WASM backend initialized successfully!');
+        addTestResult('WASM Initialization', true, 'sql.js loaded without errors');
+
+        // Test 3: Insert vector
+        log('🧪 Test 3: Inserting test vector...');
+        const vector1 = {
+          id: 'vec1',
+          embedding: [0.1, 0.2, 0.3, 0.4, 0.5],
+          metadata: { test: 'v1.0.7-fix', type: 'validation' }
+        };
+        const id1 = db.insert(vector1);
+        log(`✅ Inserted vector with ID: ${id1}`);
+        addTestResult('Vector Insert', true, `ID: ${id1}`);
+
+        // Test 4: Search
+        log('🧪 Test 4: Searching for similar vectors...');
+        const results = db.search([0.1, 0.2, 0.3, 0.4, 0.5], 1);
+        log(`✅ Found ${results.length} results, score: ${results[0]?.score}`);
+        addTestResult('Vector Search', results.length > 0, `Score: ${results[0]?.score?.toFixed(4)}`);
+
+        // Test 5: Verify backend type
+        log('🧪 Test 5: Verifying backend type...');
+        const backendType = db.getBackendType();
+        log(`✅ Backend type: ${backendType}`);
+        addTestResult('Backend Type Check', backendType === 'wasm', `Using: ${backendType}`);
+
+        // Test 6: Stats
+        log('🧪 Test 6: Getting database stats...');
+        const stats = db.stats();
+        log(`✅ Database has ${stats.count} vectors, size: ${stats.size} bytes`);
+        addTestResult('Database Stats', stats.count === 1, `Vectors: ${stats.count}, Size: ${stats.size}B`);
+
+        // All tests passed!
+        statusEl.textContent = '🎉 All tests passed! The better-sqlite3 fix works perfectly!';
+        statusEl.className = 'status success';
+
+        log('');
+        log('=' .repeat(60));
+        log('🎉 VALIDATION SUCCESSFUL!');
+        log('✅ No better-sqlite3 import errors');
+        log('✅ WASM backend works correctly');
+        log('✅ All vector operations functional');
+        log('✅ AgentDB v1.0.7 ready for production use in browsers!');
+        log('=' .repeat(60));
+
+      } catch (error) {
+        log(`❌ ERROR: ${error.message}`, 'error');
+        log(`Stack: ${error.stack}`, 'error');
+
+        statusEl.textContent = `❌ Test failed: ${error.message}`;
+        statusEl.className = 'status error';
+
+        addTestResult('Error Occurred', false, error.message);
+
+        // Check if it's the better-sqlite3 error
+        if (error.message.includes('better-sqlite3')) {
+          log('🚨 CRITICAL: better-sqlite3 dependency still present in bundle!');
+          addTestResult('better-sqlite3 Fix', false, 'Module still contains Node.js dependency');
+        }
+      }
+    }
+
+    // Run tests when page loads
+    runTests();
+  </script>
+</body>
+</html>

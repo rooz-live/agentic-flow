@@ -73,28 +73,55 @@ It's the missing layer that lets agents **remember what worked, learn what didn'
 npm install agentdb
 ```
 
-### For Claude Desktop / MCP Integration
+### For Claude Code / MCP Integration
 
-Add AgentDB as an MCP server in your Claude Desktop config:
+**Quick Setup (Recommended):**
+
+```bash
+claude mcp add agentdb npx agentdb@1.0.7 mcp
+```
+
+This automatically configures Claude Code with all 20 AgentDB tools (10 core + 10 learning tools).
+
+**Manual Setup:**
+
+Add AgentDB to your Claude Desktop config (`~/.config/claude/claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "agentdb": {
       "command": "npx",
-      "args": ["agentdb", "mcp"]
+      "args": ["agentdb@1.0.5", "mcp"]
     }
   }
 }
 ```
 
-**Available MCP Tools:**
+**Available MCP Tools (20 total):**
+
+*Core Tools (10):*
 - `agentdb_init` - Initialize vector database
 - `agentdb_insert` / `agentdb_insert_batch` - Store vectors
-- `agentdb_search` - Semantic search
-- `agentdb_pattern_store` / `agentdb_pattern_search` - ReasoningBank
+- `agentdb_search` - Semantic similarity search
+- `agentdb_pattern_store` / `agentdb_pattern_search` - ReasoningBank patterns
 - `agentdb_stats` - Database metrics
-- ...and 5 more tools
+- `agentdb_delete` - Delete vectors
+- `agentdb_pattern_stats` - Pattern statistics
+- `agentdb_clear_cache` - Clear query cache
+
+*Learning Tools (10):*
+- `learning_start_session` / `learning_end_session` - Session management
+- `learning_predict` - AI-recommended actions with confidence
+- `learning_feedback` - Provide user feedback
+- `learning_train` - Train policies on experience
+- `learning_metrics` - Performance metrics
+- `learning_transfer` - Transfer learning between tasks
+- `learning_explain` - Explain AI predictions
+- `experience_record` - Record tool executions
+- `reward_signal` - Calculate multi-dimensional rewards
+
+[📚 Full Claude Code Setup Guide](docs/CLAUDE_CODE_SETUP.md)
 
 ### CLI Usage
 

@@ -3,11 +3,12 @@
  * Supports both native (better-sqlite3) and WASM (sql.js) backends
  */
 import { BackendType } from './backend-interface.mjs';
-import { NativeBackend } from './native-backend.mjs';
 import { WasmBackend } from './wasm-backend.mjs';
 import { QueryCache } from '../cache/query-cache.mjs';
 import { ProductQuantizer } from '../quantization/product-quantization.mjs';
 import { VectorQueryBuilder } from '../query/query-builder.mjs';
+// Dynamic import for NativeBackend to avoid bundling better-sqlite3 in browser builds
+let NativeBackend = null;
 export class SQLiteVectorDB {
     constructor(config = {}) {
         // If path is provided but memoryMode not specified, default to file mode
@@ -50,14 +51,8 @@ export class SQLiteVectorDB {
             // Browser environment
             return BackendType.WASM;
         }
-        // Node.js environment - check if better-sqlite3 is available
-        try {
-            require.resolve('better-sqlite3');
-            return BackendType.NATIVE;
-        }
-        catch {
-            return BackendType.WASM;
-        }
+        // Node.js environment - default to NATIVE, will fallback to WASM if not available
+        return BackendType.NATIVE;
     }
     /**
      * Create backend instance
@@ -65,6 +60,15 @@ export class SQLiteVectorDB {
     createBackend(type) {
         switch (type) {
             case BackendType.NATIVE:
+                // Lazy load NativeBackend only when needed (Node.js environment)
+                if (!NativeBackend) {
+                    try {
+                        NativeBackend = require('./native-backend').NativeBackend;
+                    }
+                    catch (error) {
+                        throw new Error('NativeBackend not available. Install better-sqlite3 or use WASM backend.');
+                    }
+                }
                 return new NativeBackend();
             case BackendType.WASM:
                 return new WasmBackend();

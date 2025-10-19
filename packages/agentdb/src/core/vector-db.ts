@@ -5,11 +5,13 @@
 
 import { Vector, SearchResult, SimilarityMetric, DatabaseConfig } from '../types';
 import { VectorBackend, BackendType, ExtendedDatabaseConfig } from './backend-interface';
-import { NativeBackend } from './native-backend';
 import { WasmBackend } from './wasm-backend';
 import { QueryCache } from '../cache/query-cache';
 import { ProductQuantizer } from '../quantization/product-quantization';
 import { VectorQueryBuilder } from '../query/query-builder';
+
+// Dynamic import for NativeBackend to avoid bundling better-sqlite3 in browser builds
+let NativeBackend: any = null;
 
 export class SQLiteVectorDB {
   private backend: VectorBackend;
@@ -65,13 +67,8 @@ export class SQLiteVectorDB {
       return BackendType.WASM;
     }
 
-    // Node.js environment - check if better-sqlite3 is available
-    try {
-      require.resolve('better-sqlite3');
-      return BackendType.NATIVE;
-    } catch {
-      return BackendType.WASM;
-    }
+    // Node.js environment - default to NATIVE, will fallback to WASM if not available
+    return BackendType.NATIVE;
   }
 
   /**
@@ -80,6 +77,14 @@ export class SQLiteVectorDB {
   private createBackend(type: BackendType): VectorBackend {
     switch (type) {
       case BackendType.NATIVE:
+        // Lazy load NativeBackend only when needed (Node.js environment)
+        if (!NativeBackend) {
+          try {
+            NativeBackend = require('./native-backend').NativeBackend;
+          } catch (error) {
+            throw new Error('NativeBackend not available. Install better-sqlite3 or use WASM backend.');
+          }
+        }
         return new NativeBackend();
       case BackendType.WASM:
         return new WasmBackend();
@@ -115,7 +120,7 @@ export class SQLiteVectorDB {
     if (this.backendType === BackendType.WASM) {
       return (this.backend as WasmBackend).isInitialized();
     }
-    return (this.backend as NativeBackend).isInitialized();
+    return (this.backend as any).isInitialized();
   }
 
   /**
@@ -221,7 +226,7 @@ export class SQLiteVectorDB {
    */
   getDatabase(): any {
     if (this.backendType === BackendType.NATIVE) {
-      return (this.backend as NativeBackend).getDatabase();
+      return (this.backend as any).getDatabase();
     }
     throw new Error('getDatabase() only supported on native backend. Use getBackend() instead.');
   }

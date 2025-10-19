@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AgentDB WASM Browser Example (Real Implementation)</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 { color: #333; margin-bottom: 0.5rem; }
+        .status {
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            margin: 0.5rem 0.5rem 0.5rem 0;
+        }
+        button:hover { background: #5568d3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 1rem;
+            margin-top: 1rem;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 0.85rem;
+        }
+        .log-entry { margin: 0.25rem 0; }
+        input, textarea {
+            width: 100%;
+            padding: 0.5rem;
+            margin: 0.5rem 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 AgentDB WASM Browser Example</h1>
+        <p>Real implementation using sql.js WASM backend</p>
+
+        <div id="status" class="status info">
+            Initializing AgentDB with WASM backend...
+        </div>
+
+        <div id="controls" style="display: none;">
+            <h3>Test Operations</h3>
+
+            <div>
+                <h4>Insert Vector</h4>
+                <input type="text" id="metadata" placeholder="Metadata (JSON)" value='{"type": "test", "id": "1"}'>
+                <button onclick="insertVector()">Insert Random Vector</button>
+            </div>
+
+            <div>
+                <h4>Search Similar</h4>
+                <button onclick="searchVectors()">Search for Similar Vectors</button>
+            </div>
+
+            <div>
+                <h4>Database Stats</h4>
+                <button onclick="getStats()">Get Database Statistics</button>
+            </div>
+        </div>
+
+        <div class="log" id="log"></div>
+    </div>
+
+    <script type="module">
+        let db = null;
+        const logEl = document.getElementById('log');
+        const statusEl = document.getElementById('status');
+        const controlsEl = document.getElementById('controls');
+
+        function log(message, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.style.color = type === 'error' ? '#721c24' : type === 'success' ? '#155724' : '#333';
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function setStatus(message, type = 'info') {
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+
+        async function initAgentDB() {
+            try {
+                log('Loading AgentDB WASM module from unpkg...');
+
+                // Import from unpkg CDN (published package)
+                const { SQLiteVectorDB } = await import('https://unpkg.com/agentdb@1.0.4/dist/index.mjs');
+
+                log('Creating SQLiteVectorDB instance with WASM backend...');
+                db = new SQLiteVectorDB({
+                    memoryMode: true,
+                    backend: 'wasm'
+                });
+
+                log('Initializing WASM backend asynchronously...');
+                await db.initializeAsync();
+
+                log('✅ AgentDB WASM backend initialized successfully!', 'success');
+                setStatus('✅ AgentDB Ready! WASM backend loaded.', 'success');
+                controlsEl.style.display = 'block';
+
+            } catch (error) {
+                const errorMsg = `❌ Failed to initialize AgentDB: ${error.message}`;
+                log(errorMsg, 'error');
+                setStatus(errorMsg, 'error');
+                console.error('AgentDB initialization error:', error);
+
+                // Fallback: Try loading from local files if available
+                log('Trying fallback: loading from relative path...');
+                tryLocalFallback();
+            }
+        }
+
+        async function tryLocalFallback() {
+            try {
+                // Try loading from package dist if running locally
+                const { SQLiteVectorDB } = await import('../dist/index.mjs');
+
+                log('Loading from local dist...');
+                db = new SQLiteVectorDB({
+                    memoryMode: true,
+                    backend: 'wasm'
+                });
+
+                await db.initializeAsync();
+
+                log('✅ Loaded from local package!', 'success');
+                setStatus('✅ AgentDB Ready! (Local fallback)', 'success');
+                controlsEl.style.display = 'block';
+
+            } catch (fallbackError) {
+                log(`❌ Fallback also failed: ${fallbackError.message}`, 'error');
+                log('Note: AgentDB WASM requires the package to be built and published.', 'error');
+                setStatus('❌ Could not load AgentDB', 'error');
+            }
+        }
+
+        // Global functions for buttons
+        window.insertVector = async function() {
+            if (!db) return;
+
+            try {
+                // Generate random 768-dim vector
+                const embedding = Array.from({ length: 768 }, () => Math.random());
+                const metadataStr = document.getElementById('metadata').value;
+                const metadata = JSON.parse(metadataStr);
+
+                log('Inserting vector with 768 dimensions...');
+                const id = await db.insert({ embedding, metadata });
+                log(`✅ Inserted vector with ID: ${id}`, 'success');
+            } catch (error) {
+                log(`❌ Insert failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.searchVectors = async function() {
+            if (!db) return;
+
+            try {
+                // Generate random query vector
+                const queryEmbedding = Array.from({ length: 768 }, () => Math.random());
+
+                log('Searching for 5 nearest neighbors...');
+                const results = await db.search(queryEmbedding, 5);
+                log(`✅ Found ${results.length} results`, 'success');
+                results.forEach((result, i) => {
+                    log(`  ${i+1}. ID: ${result.id}, Distance: ${result.distance.toFixed(4)}, Metadata: ${JSON.stringify(result.metadata)}`);
+                });
+            } catch (error) {
+                log(`❌ Search failed: ${error.message}`, 'error');
+            }
+        };
+
+        window.getStats = async function() {
+            if (!db) return;
+
+            try {
+                log('Fetching database statistics...');
+                const stats = await db.getStats();
+                log(`✅ Database Statistics:`, 'success');
+                log(`  Total vectors: ${stats.totalVectors}`);
+                log(`  Backend: ${stats.backend}`);
+                if (stats.cacheStats) {
+                    log(`  Cache hits: ${stats.cacheStats.hits}`);
+                    log(`  Cache misses: ${stats.cacheStats.misses}`);
+                }
+            } catch (error) {
+                log(`❌ Get stats failed: ${error.message}`, 'error');
+            }
+        };
+
+        // Initialize on page load
+        log('Starting AgentDB browser initialization...');
+        initAgentDB();
+    </script>
+</body>
+</html>

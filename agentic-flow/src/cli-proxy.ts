@@ -37,8 +37,10 @@ import { getAgent, listAgents } from "./utils/agentLoader.js";
 import { claudeAgent } from "./agents/claudeAgent.js";
 import { handleMCPCommand } from "./utils/mcpCommands.js";
 import { handleReasoningBankCommand } from "./utils/reasoningbankCommands.js";
+import { handleAgentDBCommand } from "./utils/agentdbCommands.js";
 import { handleConfigCommand } from "./cli/config-wizard.js";
 import { handleAgentCommand } from "./cli/agent-manager.js";
+import { handleSkillsCommand } from "./cli/skills-manager.js";
 import { ModelOptimizer } from "./utils/modelOptimizer.js";
 import { detectModelCapabilities } from "./utils/modelCapabilities.js";
 import { AgentBoosterPreprocessor } from "./utils/agentBoosterPreprocessor.js";
@@ -66,7 +68,7 @@ class AgenticFlowCLI {
     }
 
     // If no mode and no agent specified, show help
-    if (!options.agent && options.mode !== 'list' && !['config', 'agent-manager', 'mcp-manager', 'proxy', 'quic', 'claude-code', 'mcp', 'reasoningbank'].includes(options.mode)) {
+    if (!options.agent && options.mode !== 'list' && !['config', 'agent-manager', 'mcp-manager', 'agentdb', 'skills', 'proxy', 'quic', 'claude-code', 'mcp', 'reasoningbank'].includes(options.mode)) {
       this.printHelp();
       process.exit(0);
     }
@@ -87,6 +89,20 @@ class AgenticFlowCLI {
       // Handle agent management commands
       const agentArgs = process.argv.slice(3); // Skip 'node', 'cli-proxy.js', 'agent'
       await handleAgentCommand(agentArgs);
+      process.exit(0);
+    }
+
+    if (options.mode === 'agentdb') {
+      // Handle AgentDB commands
+      const agentdbArgs = process.argv.slice(3); // Skip 'node', 'cli-proxy.js', 'agentdb'
+      await handleAgentDBCommand(agentdbArgs);
+      process.exit(0);
+    }
+
+    if (options.mode === 'skills') {
+      // Handle Skills commands
+      const skillsArgs = process.argv.slice(3); // Skip 'node', 'cli-proxy.js', 'skills'
+      await handleSkillsCommand(skillsArgs);
       process.exit(0);
     }
 
@@ -1042,6 +1058,7 @@ COMMANDS:
   config [subcommand]     Manage environment configuration (interactive wizard)
   mcp <command> [server]  Manage MCP servers (start, stop, status, list)
   agent <command>         Agent management (list, create, info, conflicts)
+  agentdb <command>       AgentDB vector database management (init, search, migrate, etc.)
   proxy [options]         Run standalone proxy server for Claude Code/Cursor
   quic [options]          Run QUIC transport proxy for ultra-low latency (50-70% faster)
   claude-code [options]   Spawn Claude Code with auto-configured proxy
@@ -1069,6 +1086,21 @@ AGENT COMMANDS:
   npx agentic-flow agent create          Create new custom agent (interactive)
   npx agentic-flow agent info <name>     Show detailed agent information
   npx agentic-flow agent conflicts       Check for package/local conflicts
+
+AGENTDB COMMANDS (Vector Database for ReasoningBank):
+  npx agentic-flow agentdb init          Initialize AgentDB database
+  npx agentic-flow agentdb search        Search similar patterns (vector similarity)
+  npx agentic-flow agentdb insert        Insert pattern with embedding
+  npx agentic-flow agentdb train         Train learning model on experiences
+  npx agentic-flow agentdb stats         Display database statistics
+  npx agentic-flow agentdb optimize      Optimize database (consolidation, pruning)
+  npx agentic-flow agentdb migrate       Migrate from legacy ReasoningBank
+  npx agentic-flow agentdb export        Export patterns to JSON
+  npx agentic-flow agentdb import        Import patterns from JSON
+  npx agentic-flow agentdb help          Show detailed AgentDB help
+
+  Performance: 150x-12,500x faster than legacy ReasoningBank
+  Features: HNSW indexing, learning plugins, reasoning agents, QUIC sync
 
 OPTIONS:
   --task, -t <task>           Task description for agent mode
@@ -1168,11 +1200,12 @@ OPENROUTER MODELS (Best Free Tested):
   All models above support OpenRouter leaderboard tracking via HTTP-Referer headers.
   See https://openrouter.ai/models for full model catalog.
 
-MCP TOOLS (213+ available):
+MCP TOOLS (223+ available):
   • agentic-flow: 7 tools (agent execution, creation, management, model optimization)
   • claude-flow: 101 tools (neural networks, GitHub, workflows, DAA)
   • flow-nexus: 96 cloud tools (sandboxes, distributed swarms, templates)
   • agentic-payments: 6 tools (payment authorization, multi-agent consensus)
+  • agentdb: 10 tools (vector search, learning, reasoning, optimization)
 
 OPTIMIZATION BENEFITS:
   💰 Cost Savings: 85-98% cheaper models for same quality tasks

@@ -53,12 +53,12 @@ Most AI coding agents are **painfully slow** and **frustratingly forgetful**. Th
 | Component | Description | Performance | Documentation |
 |-----------|-------------|-------------|---------------|
 | **Agent Booster** | Ultra-fast local code transformations via Rust/WASM (auto-detects edits) | 352x faster, $0 cost | [Docs](https://github.com/ruvnet/agentic-flow/tree/main/agent-booster) |
-| **ReasoningBank** | Persistent learning memory system with semantic search | 46% faster, 100% success | [Docs](https://github.com/ruvnet/agentic-flow/tree/main/agentic-flow/src/reasoningbank) |
+| **ReasoningBank** | Persistent learning memory with AgentDB v1.0.7 backend | 46% faster, 150x-12,500x queries | [Docs](https://github.com/ruvnet/agentic-flow/tree/main/agentic-flow/src/reasoningbank) |
 | **Multi-Model Router** | Intelligent cost optimization across 100+ LLMs | 85-99% cost savings | [Docs](https://github.com/ruvnet/agentic-flow/tree/main/agentic-flow/src/router) |
-| **QUIC Transport** | Ultra-low latency agent communication via Rust/WASM QUIC protocol | 50-70% faster than TCP, 0-RTT | [Docs](https://github.com/ruvnet/agentic-flow/tree/main/crates/agentic-flow-quic) |
+| **QUIC Transport** | Ultra-low latency agent communication via Rust/WASM | 50-70% faster than TCP | [Docs](https://github.com/ruvnet/agentic-flow/tree/main/crates/agentic-flow-quic) |
 
-**CLI Usage**: Multi-Model Router via `--optimize`, Agent Booster (automatic), ReasoningBank (API only), QUIC Transport (API only)
-**Programmatic**: All components importable: `agentic-flow/router`, `agentic-flow/reasoningbank`, `agentic-flow/agent-booster`, `agentic-flow/transport/quic`
+**CLI Usage**: Model Router (`--optimize`), Agent Booster (automatic), ReasoningBank (API), QUIC (API)
+**Programmatic**: All importable: `agentic-flow/router`, `agentic-flow/reasoningbank`, `agentic-flow/reasoningbank/agentdb`
 
 **Get Started:**
 ```bash
@@ -72,7 +72,7 @@ import { AgentBooster } from 'agentic-flow/agent-booster';
 import { QuicTransport } from 'agentic-flow/transport/quic';
 ```
 
-Built on **[Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk)** by Anthropic, powered by **[Claude Flow](https://github.com/ruvnet/claude-flow)** (101 MCP tools), **[Flow Nexus](https://github.com/ruvnet/flow-nexus)** (96 cloud tools), **[OpenRouter](https://openrouter.ai)** (100+ LLM models), **[Google Gemini](https://ai.google.dev)** (fast, cost-effective inference), **[Agentic Payments](https://github.com/ruvnet/agentic-flow/tree/main/agentic-payments)** (payment authorization), and **[ONNX Runtime](https://onnxruntime.ai)** (free local CPU or GPU inference).
+Built on **[Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk)** by Anthropic, powered by **[AgentDB v1.0.7](https://github.com/ruvnet/agentdb)** (150x-12,500x vector search), **[Claude Flow](https://github.com/ruvnet/claude-flow)** (101 MCP tools), **[Flow Nexus](https://github.com/ruvnet/flow-nexus)** (96 cloud tools), **[OpenRouter](https://openrouter.ai)** (100+ models), **[Google Gemini](https://ai.google.dev)** (fast inference), **[Agentic Payments](https://github.com/ruvnet/agentic-flow/tree/main/agentic-payments)** (authorization), and **[ONNX Runtime](https://onnxruntime.ai)** (free local inference).
 
 ---
 
@@ -460,14 +460,26 @@ const response = await router.chat({
 console.log(`Cost: $${response.metadata.cost}, Model: ${response.metadata.model}`);
 ```
 
-### ReasoningBank (Learning Memory)
+### ReasoningBank with AgentDB Backend
 
 ```javascript
 import * as reasoningbank from 'agentic-flow/reasoningbank';
+import { AgentDBAdapter } from 'agentic-flow/reasoningbank/agentdb';
 
-await reasoningbank.initialize();
-await reasoningbank.storeMemory('pattern_name', 'pattern_value', { namespace: 'api' });
-const results = await reasoningbank.queryMemories('search query', { namespace: 'api' });
+// Initialize with AgentDB (150x-12,500x faster queries)
+await reasoningbank.initialize({ backend: 'agentdb' });
+
+// Store patterns with semantic search
+await reasoningbank.storeMemory('api_pattern', 'REST best practices', {
+  namespace: 'patterns',
+  tags: ['api', 'rest']
+});
+
+// Query with vector similarity (AgentDB)
+const results = await reasoningbank.queryMemories('API design', {
+  namespace: 'patterns',
+  limit: 10
+});
 ```
 
 ### Agent Booster (Auto-Optimizes Code Edits)
@@ -589,6 +601,7 @@ Agentic Flow integrates with **four MCP servers** providing 213 tools total:
 | Package | Version | Purpose |
 |---------|---------|---------|
 | `@anthropic-ai/claude-agent-sdk` | ^1.0.0 | Claude agent runtime |
+| `agentdb` | ^1.0.7 | Vector database with 150x-12,500x performance |
 | `claude-flow` | latest | MCP server with 101 tools |
 | `flow-nexus` | latest | Cloud platform (96 tools) |
 | `agentic-payments` | latest | Payment authorization (10 tools) |

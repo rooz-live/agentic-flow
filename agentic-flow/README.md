@@ -17,7 +17,7 @@
 |-------------|---------------|---------------|
 | [Quick Start](#-quick-start) | [Agent Booster](#-core-components) | [Agent List](#-agent-types) |
 | [Deployment Options](#-deployment-options) | [ReasoningBank](#-core-components) | [MCP Tools](#-mcp-tools-213-total) |
-| [Model Optimization](#-model-optimization) | [Multi-Model Router](#-using-the-multi-model-router) | [Complete Docs](https://github.com/ruvnet/agentic-flow/tree/main/docs) |
+| [Model Optimization](#-model-optimization) | [Skills System](#-skills-system-claude-code-integration) | [Complete Docs](https://github.com/ruvnet/agentic-flow/tree/main/docs) |
 
 ---
 
@@ -248,10 +248,18 @@ npx agentic-flow mcp status  # Check server status
 npx agentic-flow --list              # List all 79 agents
 npx agentic-flow agent info coder    # Get agent details
 npx agentic-flow agent create        # Create custom agent
+
+# Skills management (NEW in v1.5.11+)
+npx agentic-flow skills list         # List all installed skills
+npx agentic-flow skills init         # Initialize skills directories
+npx agentic-flow skills create       # Create agentic-flow example skills
+npx agentic-flow skills init-builder # Install skill-builder framework
+npx agentic-flow skills help         # Show skills help
 ```
 
 **Built-in MCP Tools** (7): agent execution, list agents, create agent, agent info, conflicts check, model optimizer, list all agents
 **External MCP Servers**: claude-flow (101 tools), flow-nexus (96 tools), agentic-payments (10 tools)
+**Skills System**: Create reusable AI workflows with YAML frontmatter and progressive disclosure
 
 ---
 
@@ -364,6 +372,76 @@ for (const file of files) {
 - **WASM Size**: 130 KB (optimized Rust binary)
 
 **Learn More:** [QUIC Documentation](https://github.com/ruvnet/agentic-flow/tree/main/crates/agentic-flow-quic)
+
+---
+
+## 🎓 Skills System (Claude Code Integration)
+
+**NEW in v1.5.11+**: Create reusable AI workflows with proper YAML frontmatter, progressive disclosure, and Claude Code integration.
+
+### What Are Skills?
+
+Skills are structured AI workflows that Claude can autonomously discover and execute across all surfaces (Claude.ai, Claude Code, SDK, API). Each skill is a self-contained SKILL.md file with YAML frontmatter defining its capabilities.
+
+### Quick Start
+
+```bash
+# Initialize skills directories
+npx agentic-flow skills init         # Creates ~/.claude/skills and .claude/skills
+
+# Install skill-builder framework (for creating custom skills)
+npx agentic-flow skills init-builder # Adds skill-builder to your project
+
+# Create example agentic-flow skills
+npx agentic-flow skills create       # Creates AgentDB, swarm, reasoningbank skills
+
+# List all installed skills
+npx agentic-flow skills list         # Shows personal and project skills
+
+# Get help
+npx agentic-flow skills help         # Show all commands and usage
+```
+
+### Skill Structure
+
+Every skill requires a SKILL.md file with YAML frontmatter:
+
+```yaml
+---
+name: "Skill Name"                    # REQUIRED: Max 64 chars
+description: "What this skill does    # REQUIRED: Max 1024 chars
+and when Claude should use it."       # Include BOTH what & when
+---
+
+# Skill Name
+
+## What This Skill Does
+[Instructions for Claude]
+
+## Quick Start
+[Basic usage examples]
+
+## Prerequisites
+[Requirements]
+```
+
+### Built-in Skills
+
+- **skill-builder** - Create new Claude Code Skills with proper structure
+- **agentdb-memory-patterns** - Persistent memory patterns for AI agents
+- **agentdb-vector-search** - Semantic search with AgentDB
+- **reasoningbank-intelligence** - Adaptive learning and pattern recognition
+- **swarm-orchestration** - Multi-agent coordination workflows
+
+### Benefits
+
+- ✅ **Reusable**: Share skills across projects and teams
+- ✅ **Discoverable**: Claude finds and uses skills automatically
+- ✅ **Structured**: YAML frontmatter ensures consistency
+- ✅ **Progressive**: Expand details only when needed
+- ✅ **Validated**: Built-in validation catches errors early
+
+**Learn More:** [Skills Documentation](https://github.com/ruvnet/agentic-flow/tree/main/agentic-flow/.claude/skills)
 
 ---
 

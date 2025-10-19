@@ -5,6 +5,97 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.2] - 2025-10-19
+
+### Added
+- **Skills System Integration** - Full CLI support for Claude Code Skills management
+  - `npx agentic-flow skills list` - List all installed skills (personal + project)
+  - `npx agentic-flow skills init` - Initialize skills directories (~/.claude/skills and .claude/skills)
+  - `npx agentic-flow skills create` - Create agentic-flow example skills (AgentDB, swarm, reasoningbank)
+  - `npx agentic-flow skills init-builder` - Install skill-builder framework for creating custom skills
+  - `npx agentic-flow skills help` - Show comprehensive skills command documentation
+  - Skills automatically discovered by Claude Code across all surfaces (Claude.ai, CLI, SDK, API)
+
+### Changed
+- **README Updates** - Added comprehensive Skills System documentation
+  - New Skills System section with Quick Start guide
+  - Updated Quick Navigation table to highlight Skills
+  - Updated CLI Commands section with all 5 skills commands
+  - Added skill structure examples with YAML frontmatter
+  - Listed 5 built-in skills: skill-builder, agentdb-memory-patterns, agentdb-vector-search, reasoningbank-intelligence, swarm-orchestration
+
+### Documentation
+- Updated both main README.md and npm package README.md with identical Skills documentation
+- Added skills to Quick Navigation for easy discovery
+- Included benefits: reusable, discoverable, structured, progressive, validated
+
+## [1.7.1] - 2025-10-19
+
+### Fixed
+- **CRITICAL: Skills Top-Level Installation** - Fixed skills to install at top level for Claude Code discovery
+  - **Claude Code requires**: `~/.claude/skills/[skill-name]/` (top level)
+  - **NOT supported**: `~/.claude/skills/namespace/[skill-name]/` (nested subdirectories)
+  - All skills now correctly install at top level: `~/.claude/skills/skill-builder/`, `~/.claude/skills/swarm-orchestration/`, etc.
+  - Skills are now properly discovered by Claude Code after restart
+  - Reverted incorrect v1.7.0 namespace changes that broke skill discovery
+
+### Changed
+- Updated `skills-manager.ts` to install all skills at top level (removed nested namespace)
+- Moved skill source files from `agentic-flow/` subdirectory to top level in `.claude/skills/`
+- Simplified source detection paths
+
+### Documentation
+- Added `docs/plans/skills/SKILLS_TOP_LEVEL_FIX.md` - Explanation of fix and testing
+- Updated `docs/plans/skills/SKILL_INSTALLATION_ANALYSIS.md` - Corrected with top-level requirement
+- Deprecated `docs/plans/skills/MIGRATION_v1.7.0.md` - Namespace approach was incorrect
+
+### Migration
+If you installed skills with v1.7.0:
+```bash
+# Move skills from namespace to top level
+cd ~/.claude/skills
+for skill in agentic-flow/*; do
+  mv "agentic-flow/$skill" "$(basename $skill)"
+done
+rm -rf agentic-flow
+# Restart Claude Code
+```
+
+Or simply reinstall:
+```bash
+npx agentic-flow skills init personal --with-builder
+```
+
+## [1.6.6] - 2025-10-18
+
+### Changed
+
+- **AgentDB v1.0.5** - Updated to latest version with browser bundle support
+  - Now includes `dist/agentdb.min.js` (196KB) and `dist/agentdb.js` (380KB) for CDN usage
+  - Browser bundles support direct import via unpkg/jsDelivr
+  - Source maps included for debugging
+  - WASM backend fully functional in browser environments
+
+## [1.6.5] - 2025-10-18
+
+### Changed
+
+- **AgentDB Dependency** - Updated to use published npm package instead of local file reference
+  - Changed from `"agentdb": "file:../packages/agentdb"` to `"agentdb": "^1.0.4"`
+  - Now uses stable published version from npm registry
+  - Includes all 20 MCP tools (10 core AgentDB + 10 learning tools)
+  - Easier installation and dependency management for end users
+
+### Added
+
+- **AgentDB v1.0.4 Integration** - Complete MCP learning system now available
+  - 10 learning tools: learning_start_session, learning_end_session, learning_predict, learning_feedback, learning_train, learning_metrics, learning_transfer, learning_explain, experience_record, reward_signal
+  - Q-learning with epsilon-greedy exploration
+  - Multi-dimensional reward system (success 40%, efficiency 30%, quality 20%, cost 10%)
+  - Experience replay buffer with prioritized sampling
+  - Transfer learning between similar tasks
+  - Session management with state persistence
+
 ## [1.6.4] - 2025-10-16
 
 ### 🚀 QUIC Transport - Production Ready (100% Complete)

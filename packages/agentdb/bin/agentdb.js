@@ -429,38 +429,33 @@ function runBenchmark() {
         process.exit(1);
       });
   } catch (error) {
-    // If compiled version doesn't exist, try TypeScript version with ts-node
-    try {
-      console.error('⚠️  Compiled benchmarks not found, trying TypeScript version...');
-      console.error('');
-
-      const { spawn } = require('child_process');
-      const benchmarkProcess = spawn('npx', ['ts-node', 'benchmarks/comprehensive-performance.bench.ts'], {
-        stdio: 'inherit',
-        cwd: require('path').resolve(__dirname, '..')
-      });
-
-      benchmarkProcess.on('close', (code) => {
-        process.exit(code);
-      });
-    } catch (tsError) {
-      console.error('❌ Benchmarks not available in npm package');
-      console.error('');
-      console.error('To run benchmarks, clone the source repository:');
-      console.error('');
-      console.error('  git clone https://github.com/ruvnet/agentic-flow.git');
-      console.error('  cd agentic-flow/packages/agentdb');
-      console.error('  npm install');
-      console.error('  npm run bench:comprehensive');
-      console.error('');
-      console.error('Or create a custom benchmark script:');
-      console.error('');
-      console.error('  const { SQLiteVectorDB } = require("agentdb");');
-      console.error('  const db = new SQLiteVectorDB({ memoryMode: true });');
-      console.error('  // Add your benchmark code here');
-      console.error('');
-      process.exit(1);
-    }
+    // Benchmarks are not included in npm package
+    console.error('');
+    console.error('❌ Benchmarks not available in npm package');
+    console.error('');
+    console.error('To run benchmarks, clone the source repository:');
+    console.error('');
+    console.error('  git clone https://github.com/ruvnet/agentic-flow.git');
+    console.error('  cd agentic-flow/packages/agentdb');
+    console.error('  npm install');
+    console.error('  npm run bench:comprehensive');
+    console.error('');
+    console.error('Or create a custom benchmark script:');
+    console.error('');
+    console.error('  const { SQLiteVectorDB } = require("agentdb");');
+    console.error('  const db = new SQLiteVectorDB({ memoryMode: true });');
+    console.error('  ');
+    console.error('  // Insert test vectors');
+    console.error('  const vectors = Array.from({ length: 1000 }, () => ({');
+    console.error('    embedding: Array(128).fill(0).map(() => Math.random()),');
+    console.error('    metadata: { test: true }');
+    console.error('  }));');
+    console.error('  ');
+    console.error('  const start = Date.now();');
+    console.error('  vectors.forEach(v => db.insert(v));');
+    console.error('  console.log(`Inserted 1000 vectors in ${Date.now() - start}ms`);');
+    console.error('');
+    process.exit(1);
   }
 }
 

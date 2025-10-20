@@ -402,58 +402,63 @@ function initDatabase(path) {
   }
 }
 
-function runBenchmark() {
-  console.log('📊 Running AgentDB Performance Benchmarks...');
-  console.log('');
-  console.log('This will test:');
-  console.log('  - Native & WASM backend performance');
-  console.log('  - Insert operations (single & batch)');
-  console.log('  - Search operations (various metrics)');
-  console.log('  - Memory usage');
-  console.log('  - Backend comparison');
-  console.log('');
-
+async function runBenchmark(...args) {
   try {
-    // Try to run compiled benchmark first
-    const benchmarkPath = require.resolve('../dist/benchmarks/comprehensive-performance.bench.js');
-    const { PerformanceBenchmark } = require(benchmarkPath);
+    // Convert arguments to array
+    const argArray = Array.isArray(args[0]) ? args[0] : Array.from(args);
 
-    const benchmark = new PerformanceBenchmark();
-    benchmark.runAll()
-      .then(() => {
-        console.log('\n✅ All benchmarks completed successfully');
-        process.exit(0);
-      })
-      .catch((error) => {
-        console.error('\n❌ Benchmark failed:', error);
-        process.exit(1);
-      });
+    // Parse arguments
+    const options = {
+      quick: argArray.includes('--quick') || argArray.includes('-q'),
+      vectors: null
+    };
+
+    // Parse custom vector count
+    const vectorsIndex = argArray.findIndex(arg => arg === '--vectors' || arg === '-v');
+    if (vectorsIndex !== -1 && argArray[vectorsIndex + 1]) {
+      options.vectors = parseInt(argArray[vectorsIndex + 1], 10);
+    }
+
+    // Show help if requested
+    if (argArray.includes('--help') || argArray.includes('-h')) {
+      console.log('');
+      console.log('AgentDB Benchmark');
+      console.log('');
+      console.log('USAGE');
+      console.log('  npx agentdb benchmark [options]');
+      console.log('');
+      console.log('OPTIONS');
+      console.log('  --quick, -q          Run quick benchmark (500/1000 vectors)');
+      console.log('  --vectors, -v <n>    Custom batch size (default: 5000, quick: 1000)');
+      console.log('  --help, -h           Show this help');
+      console.log('');
+      console.log('EXAMPLES');
+      console.log('  npx agentdb benchmark              # Standard benchmark (5K vectors)');
+      console.log('  npx agentdb benchmark --quick      # Quick benchmark (1K vectors)');
+      console.log('  npx agentdb benchmark -v 10000     # Custom 10K vectors');
+      console.log('');
+      console.log('For comprehensive benchmarks with WASM comparison:');
+      console.log('  git clone https://github.com/ruvnet/agentic-flow.git');
+      console.log('  cd agentic-flow/packages/agentdb');
+      console.log('  npm install && npm run bench:comprehensive');
+      console.log('');
+      return;
+    }
+
+    // Run the included benchmark
+    const benchmarkPath = require.resolve('./benchmark.js');
+    const { runBenchmark } = require(benchmarkPath);
+    await runBenchmark(options);
   } catch (error) {
-    // Benchmarks are not included in npm package
     console.error('');
-    console.error('❌ Benchmarks not available in npm package');
+    console.error('❌ Benchmark failed:', error.message);
     console.error('');
-    console.error('To run benchmarks, clone the source repository:');
+    console.error('For comprehensive benchmarks, clone the source repository:');
     console.error('');
     console.error('  git clone https://github.com/ruvnet/agentic-flow.git');
     console.error('  cd agentic-flow/packages/agentdb');
     console.error('  npm install');
     console.error('  npm run bench:comprehensive');
-    console.error('');
-    console.error('Or create a custom benchmark script:');
-    console.error('');
-    console.error('  const { SQLiteVectorDB } = require("agentdb");');
-    console.error('  const db = new SQLiteVectorDB({ memoryMode: true });');
-    console.error('  ');
-    console.error('  // Insert test vectors');
-    console.error('  const vectors = Array.from({ length: 1000 }, () => ({');
-    console.error('    embedding: Array(128).fill(0).map(() => Math.random()),');
-    console.error('    metadata: { test: true }');
-    console.error('  }));');
-    console.error('  ');
-    console.error('  const start = Date.now();');
-    console.error('  vectors.forEach(v => db.insert(v));');
-    console.error('  console.log(`Inserted 1000 vectors in ${Date.now() - start}ms`);');
     console.error('');
     process.exit(1);
   }

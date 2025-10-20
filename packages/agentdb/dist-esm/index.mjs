@@ -17,11 +17,13 @@ import { NativeBackend } from './core/native-backend.mjs';
 import { WasmBackend } from './core/wasm-backend.mjs';
 import { BackendType } from './core/backend-interface.mjs';
 import { initWasm, initSQL, getWasm, isInitialized, resetWasm } from './wasm-loader.mjs';
+import { Presets } from './presets.mjs';
 // Re-export everything
 export { SQLiteVectorDB };
 export { NativeBackend };
 export { WasmBackend };
 export { BackendType };
+export { Presets };
 // HNSW indexing for high-performance search
 export { HNSWIndex, DEFAULT_HNSW_CONFIG } from './index/hnsw.mjs';
 export { OptimizedHNSWIndex } from './index/hnsw-optimized.mjs';

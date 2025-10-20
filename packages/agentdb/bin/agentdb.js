@@ -444,15 +444,20 @@ function runBenchmark() {
         process.exit(code);
       });
     } catch (tsError) {
-      console.error('❌ Benchmarks not available');
+      console.error('❌ Benchmarks not available in npm package');
       console.error('');
-      console.error('To run benchmarks:');
-      console.error('  1. Build the project: npm run build');
-      console.error('  2. Run benchmarks: npx agentdb benchmark');
+      console.error('To run benchmarks, clone the source repository:');
       console.error('');
-      console.error('Or run directly:');
-      console.error('  npm run bench');
+      console.error('  git clone https://github.com/ruvnet/agentic-flow.git');
+      console.error('  cd agentic-flow/packages/agentdb');
+      console.error('  npm install');
       console.error('  npm run bench:comprehensive');
+      console.error('');
+      console.error('Or create a custom benchmark script:');
+      console.error('');
+      console.error('  const { SQLiteVectorDB } = require("agentdb");');
+      console.error('  const db = new SQLiteVectorDB({ memoryMode: true });');
+      console.error('  // Add your benchmark code here');
       console.error('');
       process.exit(1);
     }

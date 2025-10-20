@@ -19,12 +19,14 @@ import { NativeBackend } from './core/native-backend';
 import { WasmBackend } from './core/wasm-backend';
 import { BackendType, ExtendedDatabaseConfig, VectorBackend } from './core/backend-interface';
 import { initWasm, initSQL, getWasm, isInitialized, resetWasm } from './wasm-loader';
+import { Presets } from './presets';
 
 // Re-export everything
 export { SQLiteVectorDB };
 export { NativeBackend };
 export { WasmBackend };
 export { BackendType };
+export { Presets };
 export type { VectorBackend, ExtendedDatabaseConfig };
 
 // HNSW indexing for high-performance search

@@ -370,28 +370,34 @@ function initDatabase(path) {
   console.log('');
 
   try {
-    const { SqliteVectorDB, Presets } = require('../dist/index.js');
+    const { SQLiteVectorDB, Presets } = require('../dist/index.js');
 
     // Create a small test database
     const config = Presets.smallDataset(1536, path);
-    const db = SqliteVectorDB.new(config);
+    const db = new SQLiteVectorDB(config);
 
     console.log('✅ Database initialized successfully!');
     console.log('');
     console.log('Configuration:');
     console.log(`  Path: ${path}`);
-    console.log(`  Dimension: 1536`);
-    console.log(`  Mode: persistent`);
+    console.log(`  Mode: ${config.memoryMode ? 'in-memory' : 'persistent'}`);
+    console.log(`  Cache Size: ${config.cacheSize}MB`);
+    console.log(`  WAL Mode: ${config.walMode ? 'enabled' : 'disabled'}`);
     console.log('');
     console.log('Next steps:');
-    console.log('  1. Import the library: const { SqliteVectorDB } = require("agentdb")');
-    console.log('  2. Insert vectors: await db.insert({ data: [...], metadata: {...} })');
-    console.log('  3. Search: await db.search(queryVector, 5)');
+    console.log('  1. Import the library: const { SQLiteVectorDB } = require("agentdb")');
+    console.log('  2. Insert vectors: db.insert({ embedding: [...], metadata: {...} })');
+    console.log('  3. Search: db.search(queryVector, 5, "cosine", 0.0)');
+    console.log('  4. View the documentation: https://github.com/ruvnet/agentic-flow/tree/main/packages/agentdb');
     console.log('');
 
     db.close();
   } catch (error) {
     console.error('❌ Failed to initialize database:', error.message);
+    if (error.stack) {
+      console.error('\nStack trace:');
+      console.error(error.stack);
+    }
     process.exit(1);
   }
 }

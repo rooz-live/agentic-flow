@@ -45,14 +45,15 @@ async function runBenchmark(options = {}) {
   const { quick = false, vectors = null } = options;
 
   // Determine test sizes based on mode
+  // Note: HNSW index building is O(n log n), so batch sizes > 2000 can be slow
   const sizes = quick ? {
-    single: 300,
-    batch: 500,
+    single: 200,
+    batch: 300,
     queries: 10
   } : {
-    single: 1000,
-    batch: vectors || 5000,
-    queries: 50
+    single: 500,
+    batch: vectors || 1000,
+    queries: 20
   };
 
   console.log('🚀 AgentDB Performance Benchmark\n');
@@ -87,12 +88,14 @@ async function runBenchmark(options = {}) {
 
     // Test 3: Batch Insert Performance
     console.log(`📊 Test 3: Batch Insert (${sizes.batch.toLocaleString()} vectors)`);
+    console.log(`   ⏳ Generating ${sizes.batch.toLocaleString()} random vectors...`);
     const batchVectors = generateVectors(sizes.batch, 128);
+    console.log(`   ⏳ Inserting batch (this may take a moment for HNSW indexing)...`);
     const batchStart = performance.now();
     db2.insertBatch(batchVectors);
     const batchDuration = performance.now() - batchStart;
     const batchOps = (sizes.batch / batchDuration) * 1000;
-    console.log(`   ✅ Duration: ${batchDuration.toFixed(2)}ms`);
+    console.log(`   ✅ Duration: ${batchDuration.toFixed(2)}ms (includes HNSW index building)`);
     console.log(`   ✅ Throughput: ${formatThroughput(batchOps)}\n`);
 
     // Test 4: Search Performance

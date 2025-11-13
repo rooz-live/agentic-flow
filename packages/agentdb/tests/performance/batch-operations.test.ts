@@ -4,7 +4,7 @@
  * Tests batch insert/update performance and throughput
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import Database from 'better-sqlite3';
 import { BatchOperations } from '../../src/optimizations/BatchOperations.js';
 import { EmbeddingService } from '../../src/controllers/EmbeddingService.js';

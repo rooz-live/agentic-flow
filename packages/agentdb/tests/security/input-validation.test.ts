@@ -4,7 +4,7 @@
  * Tests input validation and sanitization
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import Database from 'better-sqlite3';
 import { ReflexionMemory, Episode } from '../../src/controllers/ReflexionMemory.js';
 import { SkillLibrary, Skill } from '../../src/controllers/SkillLibrary.js';

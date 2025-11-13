@@ -4,7 +4,7 @@
  * Tests causal reasoning, intervention-based analysis, and uplift modeling
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import Database from 'better-sqlite3';
 import { CausalMemoryGraph, CausalEdge, CausalExperiment, CausalObservation } from '../../../src/controllers/CausalMemoryGraph.js';
 import * as fs from 'fs';

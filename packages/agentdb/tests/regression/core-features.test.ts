@@ -3,7 +3,7 @@
  * Tests all existing functionality to ensure no regressions
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createDatabase } from '../../src/db-fallback.js';

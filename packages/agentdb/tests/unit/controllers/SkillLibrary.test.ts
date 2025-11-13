@@ -4,7 +4,7 @@
  * Tests skill management, consolidation, and pattern extraction
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import Database from 'better-sqlite3';
 import { SkillLibrary, Skill } from '../../../src/controllers/SkillLibrary.js';
 import { ReflexionMemory, Episode } from '../../../src/controllers/ReflexionMemory.js';

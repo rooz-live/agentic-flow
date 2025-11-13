@@ -48,9 +48,16 @@ class WorkflowOrchestrator:
         try:
             if action_type == 'AUTO-GIT':
                 result.update(self._handle_auto_git(timestamp))
+            elif action_type == 'RETRO-REFINEMENT':
+                result.update(self._handle_retro_refinement(timestamp))
+            elif action_type == 'BML-CYCLE':
+                result.update(self._handle_bml_cycle(timestamp))
+            elif action_type == 'METRICS-SNAPSHOT':
+                result.update(self._handle_metrics_snapshot(timestamp))
             else:
                 result['status'] = 'error'
                 result['message'] = f"Unknown action type: {action_type}"
+                return result
                 
             result['status'] = 'completed'
             
@@ -138,6 +145,135 @@ class WorkflowOrchestrator:
             text=True
         )
         return result.stdout.strip()
+    
+    def _handle_retro_refinement(self, timestamp: str) -> Dict:
+        """Handle retrospective refinement action items extraction."""
+        # Extract action items from documentation
+        doc_query_path = self.project_root / "scripts" / "doc_query.py"
+        if not doc_query_path.exists():
+            return {'action_status': 'error', 'message': 'doc_query.py not found'}
+        
+        result = subprocess.run(
+            ['python3', str(doc_query_path), '--action-items', '--json'],
+            capture_output=True,
+            text=True,
+            cwd=self.project_root
+        )
+        
+        if result.returncode != 0:
+            return {'action_status': 'error', 'message': result.stderr}
+        
+        action_items = json.loads(result.stdout)
+        
+        # Calculate metrics
+        total_items = len(action_items)
+        
+        return {
+            'action_status': 'completed',
+            'action_items_extracted': total_items,
+            'timestamp': timestamp,
+            'items': action_items[:10]  # First 10 for brevity
+        }
+    
+    def _handle_bml_cycle(self, timestamp: str) -> Dict:
+        """Handle Build-Measure-Learn cycle tracking."""
+        metrics_log = self.goalie_dir / "metrics_log.jsonl"
+        
+        # Read last metrics entry if exists
+        last_metrics = None
+        if metrics_log.exists():
+            with open(metrics_log, 'r') as f:
+                lines = f.readlines()
+                if lines:
+                    last_metrics = json.loads(lines[-1])
+        
+        # Create current metrics snapshot
+        current_metrics = {
+            'timestamp': datetime.now().isoformat(),
+            'cycle_timestamp': timestamp,
+            'git_commit': self._get_current_commit_hash(),
+            'branch': self._get_current_branch(),
+            'action_items_count': self._count_action_items()
+        }
+        
+        # Log to metrics
+        self.goalie_dir.mkdir(exist_ok=True)
+        with open(metrics_log, 'a') as f:
+            f.write(json.dumps(current_metrics) + '\n')
+        
+        return {
+            'action_status': 'completed',
+            'bml_cycle': 'logged',
+            'metrics': current_metrics,
+            'previous_metrics': last_metrics
+        }
+    
+    def _handle_metrics_snapshot(self, timestamp: str) -> Dict:
+        """Capture current metrics snapshot."""
+        metrics = {
+            'timestamp': datetime.now().isoformat(),
+            'git': {
+                'commit': self._get_current_commit_hash(),
+                'branch': self._get_current_branch(),
+                'status_clean': self._is_git_clean()
+            },
+            'action_items': {
+                'total': self._count_action_items(),
+                'target_completion': 80  # Target > 80%
+            },
+            'cycle_log_entries': self._count_cycle_log_entries()
+        }
+        
+        return {
+            'action_status': 'completed',
+            'metrics': metrics
+        }
+    
+    def _get_current_branch(self) -> str:
+        """Get current git branch."""
+        result = subprocess.run(
+            ['git', 'branch', '--show-current'],
+            capture_output=True,
+            text=True,
+            cwd=self.project_root
+        )
+        return result.stdout.strip()
+    
+    def _is_git_clean(self) -> bool:
+        """Check if git working directory is clean."""
+        result = subprocess.run(
+            ['git', 'status', '--porcelain'],
+            capture_output=True,
+            text=True,
+            cwd=self.project_root
+        )
+        return not result.stdout.strip()
+    
+    def _count_action_items(self) -> int:
+        """Count uncompleted action items."""
+        doc_query_path = self.project_root / "scripts" / "doc_query.py"
+        if not doc_query_path.exists():
+            return 0
+        
+        result = subprocess.run(
+            ['python3', str(doc_query_path), '--action-items', '--json'],
+            capture_output=True,
+            text=True,
+            cwd=self.project_root
+        )
+        
+        if result.returncode == 0:
+            items = json.loads(result.stdout)
+            return len(items)
+        return 0
+    
+    def _count_cycle_log_entries(self) -> int:
+        """Count entries in cycle log."""
+        if not self.cycle_log.exists():
+            return 0
+        
+        with open(self.cycle_log, 'r') as f:
+            return len(f.readlines())
     
     def _log_cycle(self, result: Dict):
         """Log cycle execution to tracking file."""

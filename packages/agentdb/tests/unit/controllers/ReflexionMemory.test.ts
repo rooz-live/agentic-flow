@@ -4,7 +4,7 @@
  * Tests episodic replay memory, self-critique storage, and similarity-based retrieval
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import Database from 'better-sqlite3';
 import { ReflexionMemory, Episode } from '../../../src/controllers/ReflexionMemory.js';
 import { EmbeddingService } from '../../../src/controllers/EmbeddingService.js';

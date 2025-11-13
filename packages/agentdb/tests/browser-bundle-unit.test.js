@@ -3,7 +3,7 @@
  * Tests browser bundle logic without WASM dependencies
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from '@jest/globals';
 
 describe('Browser Bundle Logic Tests', () => {
 

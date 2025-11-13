@@ -2,7 +2,7 @@
  * Global test setup for AgentDB test suite
  */
 
-import { beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+// Jest globals are automatically available
 import * as fs from 'fs';
 import * as path from 'path';
 

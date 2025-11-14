@@ -279,8 +279,32 @@ class WorkflowOrchestrator:
         """Log cycle execution to tracking file."""
         self.goalie_dir.mkdir(exist_ok=True)
         
+        # Validate: no new .md files created during cycle
+        self._validate_no_new_md_files()
+        
         with open(self.cycle_log, 'a') as f:
             f.write(json.dumps(result) + '\n')
+    
+    def _validate_no_new_md_files(self):
+        """Validate no new .md files were created."""
+        result = subprocess.run(
+            ['git', 'status', '--porcelain'],
+            capture_output=True,
+            text=True,
+            cwd=self.project_root
+        )
+        
+        for line in result.stdout.strip().split('\n'):
+            if not line:
+                continue
+            # Check for new files (status starts with 'A' or '??')
+            if line.startswith('?? ') or line.startswith('A  '):
+                file_path = line[3:].strip()
+                if file_path.endswith('.md'):
+                    raise ValueError(
+                        f"Constraint violation: New .md file detected: {file_path}\n"
+                        f"Use .goalie/*.jsonl or .goalie/*.yaml instead"
+                    )
 
 
 def main():

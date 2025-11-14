@@ -1,0 +1,349 @@
+#!/usr/bin/env bash
+#
+# af - Agentic Flow Unified Command Interface
+#
+# Consolidates tool contexts into single interface to reduce friction
+# and close Build-Measure-Learn feedback loops.
+#
+# Usage: af <command> [args]
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+show_help() {
+    cat <<EOF
+${BLUE}af - Agentic Flow Unified Command Interface${NC}
+
+${GREEN}Status & Analysis:${NC}
+  af status              Show comprehensive system status
+  af metrics             Display metrics dashboard
+  af analyze             Run doc_query analysis
+
+${GREEN}Feedback Loop:${NC}
+  af insight <text>      Capture retro insight
+  af action <title>      Create tracked action item
+  af quick-wins          Show Quick Wins progress
+  af wsjf                Calculate WSJF priorities
+
+${GREEN}Environment:${NC}
+  af snapshot [name]     Create environment snapshot
+  af restore [name]      Restore environment snapshot
+  af baseline            Capture baseline metrics
+
+${GREEN}Validation:${NC}
+  af validate            Run governor validation
+  af test                Run concurrent tests
+  af governor            Check governor stats
+
+${GREEN}Learning:${NC}
+  af hooks               Check hook discoverability
+  af events              Show recent learning events
+  af beam                Show BEAM dimensions
+
+${GREEN}Build-Measure-Learn:${NC}
+  af cycle               Show current BML cycle status
+  af commit              Create BML cycle commit
+  af feedback            Analyze feedback loops
+
+${GREEN}Context Reduction:${NC}
+  af board               Show Kanban board (NOW/NEXT/LATER)
+  af blockers            List active blockers
+  af cpu                 Check CPU and governor health
+
+Examples:
+  af status                    # Quick health check
+  af insight "Reduce CPU load" # Capture retro insight
+  af action "Fix IPMI"         # Create tracked action
+  af snapshot baseline         # Save current state
+  af board                     # Show work in progress
+
+EOF
+}
+
+# Status command - comprehensive health check
+cmd_status() {
+    echo -e "${BLUE}=== Agentic Flow Status ===${NC}\n"
+    
+    # Git status
+    echo -e "${GREEN}Git:${NC}"
+    git --no-pager log --oneline -1
+    echo ""
+    
+    # AgentDB status
+    echo -e "${GREEN}AgentDB:${NC}"
+    if [ -f "$PROJECT_ROOT/.agentdb/agentdb.sqlite" ]; then
+        echo "  Tables: $(sqlite3 "$PROJECT_ROOT/.agentdb/agentdb.sqlite" "SELECT COUNT(*) FROM sqlite_master WHERE type='table';")"
+        echo "  execution_contexts: $(sqlite3 "$PROJECT_ROOT/.agentdb/agentdb.sqlite" "SELECT COUNT(*) FROM execution_contexts;" 2>/dev/null || echo "0")"
+        echo "  beam_dimensions: $(sqlite3 "$PROJECT_ROOT/.agentdb/agentdb.sqlite" "SELECT COUNT(*) FROM beam_dimensions;" 2>/dev/null || echo "0")"
+    else
+        echo "  ❌ AgentDB not found"
+    fi
+    echo ""
+    
+    # Goalie status
+    echo -e "${GREEN}Goalie Tracking:${NC}"
+    if [ -f "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" ]; then
+        local now_count=$(grep -A 20 "NOW:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep "- id:" | wc -l | tr -d ' ')
+        local next_count=$(grep -A 20 "NEXT:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep "- id:" | wc -l | tr -d ' ')
+        local done_count=$(grep -A 100 "DONE:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep "- id:" | wc -l | tr -d ' ')
+        echo "  NOW: $now_count | NEXT: $next_count | DONE: $done_count"
+    fi
+    echo ""
+    
+    # CPU & Governor
+    echo -e "${GREEN}System Health:${NC}"
+    local load=$(uptime | awk -F'load averages:' '{print $2}' | awk '{print $1}')
+    echo "  Load: $load"
+    if [ -f "$PROJECT_ROOT/logs/governor_incidents.jsonl" ]; then
+        local incidents=$(wc -l < "$PROJECT_ROOT/logs/governor_incidents.jsonl" | tr -d ' ')
+        echo "  Governor incidents: $incidents"
+    fi
+    echo ""
+    
+    # Snapshots
+    echo -e "${GREEN}Snapshots:${NC}"
+    if [ -d "$PROJECT_ROOT/.snapshots" ]; then
+        ls -1 "$PROJECT_ROOT/.snapshots" | head -5
+    else
+        echo "  (no snapshots)"
+    fi
+}
+
+# Metrics dashboard
+cmd_metrics() {
+    if [ -f "$PROJECT_ROOT/.goalie/metrics_dashboard.md" ]; then
+        cat "$PROJECT_ROOT/.goalie/metrics_dashboard.md"
+    else
+        echo -e "${YELLOW}Metrics dashboard not found. Run: $SCRIPT_DIR/baseline-metrics.sh${NC}"
+    fi
+}
+
+# Doc query analysis
+cmd_analyze() {
+    local query="${1:-BLOCKER|retro|Quick Win}"
+    python3 "$SCRIPT_DIR/doc_query.py" "$query"
+}
+
+# Capture insight
+cmd_insight() {
+    local text="$*"
+    if [ -z "$text" ]; then
+        echo "Usage: af insight <text>"
+        exit 1
+    fi
+    
+    local timestamp=$(date -u +%Y%m%d_%H%M%S)
+    echo "{\"timestamp\": \"$timestamp\", \"type\": \"retro_insight\", \"text\": \"$text\"}" | \
+        tee -a "$PROJECT_ROOT/.goalie/insights_log.jsonl"
+    echo -e "${GREEN}✓ Insight captured${NC}"
+}
+
+# Create action item
+cmd_action() {
+    local title="$*"
+    if [ -z "$title" ]; then
+        echo "Usage: af action <title>"
+        exit 1
+    fi
+    
+    if [ -f "$SCRIPT_DIR/create_action_item.sh" ]; then
+        bash "$SCRIPT_DIR/create_action_item.sh" "$title"
+    else
+        echo -e "${YELLOW}create_action_item.sh not found${NC}"
+        # Fallback: append to CONSOLIDATED_ACTIONS.yaml
+        echo "  - title: \"$title\"" >> "$PROJECT_ROOT/.goalie/CONSOLIDATED_ACTIONS.yaml"
+        echo -e "${GREEN}✓ Action added to CONSOLIDATED_ACTIONS.yaml${NC}"
+    fi
+}
+
+# Quick wins progress
+cmd_quick_wins() {
+    if [ -f "$SCRIPT_DIR/show_quick_wins_progress.sh" ]; then
+        bash "$SCRIPT_DIR/show_quick_wins_progress.sh"
+    else
+        echo -e "${YELLOW}show_quick_wins_progress.sh not found${NC}"
+        if [ -f "$PROJECT_ROOT/docs/QUICK_WINS.md" ]; then
+            grep -E "^\- \[.\]" "$PROJECT_ROOT/docs/QUICK_WINS.md" | head -20
+        fi
+    fi
+}
+
+# WSJF calculation
+cmd_wsjf() {
+    if command -v npx &> /dev/null; then
+        cd "$PROJECT_ROOT" && npx goalie@latest recalc-wsjf 2>&1 || echo -e "${YELLOW}goalie not available${NC}"
+    else
+        echo -e "${YELLOW}npx not found${NC}"
+    fi
+}
+
+# Environment snapshot
+cmd_snapshot() {
+    local name="${1:-baseline}"
+    bash "$SCRIPT_DIR/restore-environment.sh" --snapshot "$name"
+}
+
+# Environment restore
+cmd_restore() {
+    local name="${1:-baseline}"
+    bash "$SCRIPT_DIR/restore-environment.sh" --snapshot "$name"
+}
+
+# Baseline metrics
+cmd_baseline() {
+    bash "$SCRIPT_DIR/baseline-metrics.sh" "$@"
+}
+
+# Governor validation
+cmd_validate() {
+    bash "$SCRIPT_DIR/validate-governor-integration.sh" "$@"
+}
+
+# Run tests
+cmd_test() {
+    if [ -f "$SCRIPT_DIR/run-concurrent-tests.sh" ]; then
+        bash "$SCRIPT_DIR/run-concurrent-tests.sh"
+    else
+        cd "$PROJECT_ROOT" && npm test
+    fi
+}
+
+# Governor stats
+cmd_governor() {
+    echo -e "${BLUE}=== Governor Stats ===${NC}\n"
+    if [ -f "$PROJECT_ROOT/logs/governor_incidents.jsonl" ]; then
+        local total=$(wc -l < "$PROJECT_ROOT/logs/governor_incidents.jsonl" | tr -d ' ')
+        local recent=$(tail -10 "$PROJECT_ROOT/logs/governor_incidents.jsonl")
+        echo "Total incidents: $total"
+        echo ""
+        echo "Recent (last 10):"
+        echo "$recent" | jq -r '"\(.timestamp) - \(.reason)"' 2>/dev/null || echo "$recent"
+    else
+        echo "No incidents logged"
+    fi
+}
+
+# Check hooks
+cmd_hooks() {
+    echo -e "${BLUE}=== Hook Discoverability ===${NC}\n"
+    if [ -d "$PROJECT_ROOT/.agentdb/hooks" ]; then
+        find "$PROJECT_ROOT/.agentdb/hooks" -type f
+    else
+        echo -e "${YELLOW}.agentdb/hooks not found${NC}"
+    fi
+}
+
+# Learning events
+cmd_events() {
+    local count="${1:-20}"
+    echo -e "${BLUE}=== Recent Learning Events ===${NC}\n"
+    if [ -f "$PROJECT_ROOT/logs/learning/events.jsonl" ]; then
+        tail -n "$count" "$PROJECT_ROOT/logs/learning/events.jsonl" | jq -r '"\(.timestamp) - \(.event)"' 2>/dev/null
+    else
+        echo -e "${YELLOW}logs/learning/events.jsonl not found${NC}"
+    fi
+}
+
+# BEAM dimensions
+cmd_beam() {
+    echo -e "${BLUE}=== BEAM Dimensions ===${NC}\n"
+    if [ -f "$PROJECT_ROOT/.agentdb/agentdb.sqlite" ]; then
+        sqlite3 "$PROJECT_ROOT/.agentdb/agentdb.sqlite" \
+            "SELECT * FROM beam_dimensions LIMIT 10;" 2>/dev/null || \
+            echo "No BEAM dimensions found"
+    else
+        echo -e "${YELLOW}AgentDB not found${NC}"
+    fi
+}
+
+# BML cycle status
+cmd_cycle() {
+    echo -e "${BLUE}=== Build-Measure-Learn Cycle ===${NC}\n"
+    if [ -f "$PROJECT_ROOT/.goalie/cycle_log.jsonl" ]; then
+        tail -5 "$PROJECT_ROOT/.goalie/cycle_log.jsonl" | jq -r 'select(.type == "BML-CYCLE") | "\(.id) - \(.status)"' 2>/dev/null
+    else
+        echo "No cycle log found"
+    fi
+}
+
+# BML commit
+cmd_commit() {
+    local msg="${*:-BML cycle $(date +%Y%m%d_%H%M%S)}"
+    cd "$PROJECT_ROOT"
+    git add .goalie/ .agentdb/ logs/ metrics/ 2>/dev/null || true
+    git commit -m "$msg" || echo -e "${YELLOW}Nothing to commit${NC}"
+}
+
+# Feedback analysis
+cmd_feedback() {
+    if [ -f "$SCRIPT_DIR/feedback-loop-analyzer.sh" ]; then
+        bash "$SCRIPT_DIR/feedback-loop-analyzer.sh"
+    else
+        echo -e "${YELLOW}feedback-loop-analyzer.sh not found${NC}"
+    fi
+}
+
+# Kanban board
+cmd_board() {
+    if [ -f "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" ]; then
+        cat "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep -A 50 "NOW:" | head -60
+    else
+        echo -e "${YELLOW}KANBAN_BOARD.yaml not found${NC}"
+    fi
+}
+
+# Active blockers
+cmd_blockers() {
+    python3 "$SCRIPT_DIR/doc_query.py" "BLOCKER-[0-9]+" | head -50
+}
+
+# CPU check
+cmd_cpu() {
+    echo -e "${BLUE}=== CPU & Governor Health ===${NC}\n"
+    uptime
+    echo ""
+    if [ -f "$PROJECT_ROOT/logs/governor_incidents.jsonl" ]; then
+        echo "Governor incidents (last 24h): $(find "$PROJECT_ROOT/logs/governor_incidents.jsonl" -mtime -1 -exec wc -l {} \; 2>/dev/null || echo "0")"
+    fi
+}
+
+# Main dispatch
+case "${1:-help}" in
+    status) cmd_status ;;
+    metrics) cmd_metrics ;;
+    analyze) shift; cmd_analyze "$@" ;;
+    insight) shift; cmd_insight "$@" ;;
+    action) shift; cmd_action "$@" ;;
+    quick-wins) cmd_quick_wins ;;
+    wsjf) cmd_wsjf ;;
+    snapshot) shift; cmd_snapshot "$@" ;;
+    restore) shift; cmd_restore "$@" ;;
+    baseline) shift; cmd_baseline "$@" ;;
+    validate) shift; cmd_validate "$@" ;;
+    test) cmd_test ;;
+    governor) cmd_governor ;;
+    hooks) cmd_hooks ;;
+    events) shift; cmd_events "$@" ;;
+    beam) cmd_beam ;;
+    cycle) cmd_cycle ;;
+    commit) shift; cmd_commit "$@" ;;
+    feedback) cmd_feedback ;;
+    board) cmd_board ;;
+    blockers) cmd_blockers ;;
+    cpu) cmd_cpu ;;
+    help|--help|-h) show_help ;;
+    *) 
+        echo -e "${RED}Unknown command: $1${NC}"
+        echo "Run 'af help' for usage"
+        exit 1
+        ;;
+esac

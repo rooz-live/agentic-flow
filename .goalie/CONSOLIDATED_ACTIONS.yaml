@@ -1,0 +1,330 @@
+---
+# WSJF Single Source of Truth
+# Consolidated from: agentic-flow todo list + incremental restoration plan
+# Last Updated: 2025-11-14T18:50:00Z
+# WSJF Formula: (User Value + Time Criticality + Risk Reduction) / Job Size
+
+metadata:
+  version: "1.0"
+  constraint: "No new .md files - append to approved docs only"
+  execution_mode: "local-only"
+  approved_docs:
+    - "docs/INCREMENTAL_RELENTLESS_EXECUTION_STATUS.md"
+    - "docs/QUICK_WINS.md"
+    - "docs/IMPLEMENTATION_STRATEGY_PRIORITY.md"
+
+items:
+  # PHASE C - COMPLETE ✅
+  - id: "PHASE-C-AUDIT"
+    title: "Phase C - Environment Restoration Audit"
+    status: "COMPLETE"
+    completed_at: "2025-11-14T00:35Z"
+    phase: "C"
+    wsjf_score: null
+    deliverables:
+      - "Audit findings appended to INCREMENTAL_RELENTLESS_EXECUTION_STATUS.md"
+      - "Baseline diagnostics: 8652 governor events, 2 learning events"
+      - "Gaps identified: hooks missing, risk DB missing, learning capture gap 4326:1"
+
+  # PHASE A - HIGH PRIORITY (Foundation Infrastructure)
+  - id: "PHASE-A-1"
+    title: "Establish initial measurable baselines"
+    status: "IN_PROGRESS"
+    phase: "A"
+    user_value: 8
+    time_criticality: 9
+    risk_reduction: 10
+    job_size: 3
+    wsjf_score: 9.0
+    cost_of_delay: 27
+    description: "Seed baseline metrics for later validation"
+    commands:
+      - "python3 ./scripts/agentic/bootstrap_local_metrics.py --count 50 2>&1 | tee -a logs/bootstrap_local_metrics.log"
+      - "test -f ./metrics/performance_baselines.json || echo '{\"created\":\"now\",\"note\":\"seed baseline ready\"}' > ./metrics/performance_baselines.json"
+    validation:
+      - "performance_baselines.json exists"
+      - "Contains seed metrics"
+
+  - id: "PHASE-A-2"
+    title: "Patch scripts to auto-create risk DB and capture learning events"
+    status: "PENDING"
+    phase: "A"
+    user_value: 7
+    time_criticality: 8
+    risk_reduction: 9
+    job_size: 2
+    wsjf_score: 12.0
+    cost_of_delay: 24
+    description: "Patch collect_metrics.py and execute_with_learning.sh for auto-init and JSONL append"
+    files_to_modify:
+      - "scripts/ci/collect_metrics.py"
+      - "scripts/execute_with_learning.sh"
+    validation:
+      - "DB auto-initializes on first run"
+      - "Learning events append to logs/learning/events.jsonl"
+
+  - id: "PHASE-A-3"
+    title: "Populate AgentDB with baseline data from existing logs"
+    status: "PENDING"
+    phase: "A"
+    user_value: 6
+    time_criticality: 7
+    risk_reduction: 8
+    job_size: 3
+    wsjf_score: 7.0
+    cost_of_delay: 21
+    description: "Import calibration and episode data to seed AgentDB tables"
+    commands:
+      - "python3 ./scripts/ci/import_calibration_to_agentdb.py --limit 50 2>&1 | tee -a logs/agentdb_import.log"
+      - "node ./scripts/learning/import_episodes_to_agentdb.mjs --limit 50 2>&1 | tee -a logs/agentdb_import_episodes.log"
+      - "npx agentdb db stats"
+    validation:
+      - "AgentDB tables have rows > 0"
+
+  - id: "PHASE-A-4"
+    title: "Validate learning capture parity vs governor events"
+    status: "PENDING"
+    phase: "A"
+    user_value: 8
+    time_criticality: 9
+    risk_reduction: 10
+    job_size: 2
+    wsjf_score: 13.5
+    cost_of_delay: 27
+    description: "Close the 4326:1 learning signal gap"
+    commands:
+      - "./.agentdb/hooks/pre_command.sh noop && ./.agentdb/hooks/post_command.sh noop"
+      - "wc -l logs/learning/events.jsonl"
+      - "wc -l logs/governor_incidents.jsonl"
+    target: "Learning events capture rate approaches governor rate"
+
+  - id: "PHASE-A-5"
+    title: "Create snapshot for rollback"
+    status: "CANCELLED"
+    phase: "A"
+    user_value: 5
+    time_criticality: 3
+    risk_reduction: 8
+    job_size: 1
+    wsjf_score: 16.0
+    cost_of_delay: 16
+    description: "Snapshot post-audit baseline (cancelled by user)"
+    note: "User cancelled during execution"
+
+  # PHASE B - BLOCKERS (Critical Dependencies)
+  - id: "PHASE-B-1"
+    title: "BLOCKER-001 - Calibration dataset status and safe resume"
+    status: "PENDING"
+    phase: "B"
+    user_value: 9
+    time_criticality: 7
+    risk_reduction: 10
+    job_size: 4
+    wsjf_score: 6.5
+    cost_of_delay: 26
+    blocker_severity: "HIGH"
+    description: "Resume calibration data collection in dry-run mode, then import to AgentDB"
+    commands:
+      - "ls -la scripts/ci/*calibration* 2>&1"
+      - "./scripts/ci/setup_calibration.sh 2>&1 | tee -a logs/calibration_setup.log"
+      - "./scripts/ci/run_calibration_enhanced.sh --count 100 --validation-mode --auto-approve --dry-run 2>&1 | tee -a logs/calibration_dry_run.log"
+
+  - id: "PHASE-B-2"
+    title: "BLOCKER-003 - IPMI connectivity test with SSH fallback"
+    status: "PENDING"
+    phase: "B"
+    user_value: 7
+    time_criticality: 6
+    risk_reduction: 9
+    job_size: 3
+    wsjf_score: 7.3
+    cost_of_delay: 22
+    blocker_severity: "MEDIUM"
+    description: "Validate device-24460 SSH/IPMI connectivity with conservative flags"
+    device_id: "24460"
+    commands:
+      - "ls -la scripts/ci/*ipmi* scripts/network/*ipmi* 2>&1"
+      - "./scripts/generate_ssh_config.sh --pem-folder \"$HOME/pem\" --device device-24460 --keepalive 60 --countmax 3 2>&1 | tee -a logs/ssh_config_gen.log"
+      - "python3 ./scripts/ci/test_device_24460_ssh_ipmi_enhanced.py --hostname device-24460 --ssh-only --timeout 15 2>&1 | tee -a logs/ipmi_test.log"
+
+  - id: "PHASE-B-3"
+    title: "Process Governor performance retrofit (rate limiting/backoff/batching)"
+    status: "PENDING"
+    phase: "B"
+    user_value: 10
+    time_criticality: 9
+    risk_reduction: 10
+    job_size: 5
+    wsjf_score: 5.8
+    cost_of_delay: 29
+    blocker_severity: "HIGH"
+    description: "Prevent 100% CPU thrash with token-bucket throttling and exponential backoff"
+    current_state: "Load 29.21 vs threshold 19.6 (-4.3% headroom)"
+    files_to_modify:
+      - "src/runtime/processGovernor.ts"
+      - "scripts/validate-governor-integration.sh"
+      - "tests/integration/throttled-stress.test.ts"
+    target_improvements:
+      - "Token-bucket or leaky-bucket throttling"
+      - "Exponential backoff on failures"
+      - "Micro-batching of spawns and log writes"
+      - "Adaptive polling intervals"
+
+  # VALIDATION & INTEGRATION
+  - id: "VALIDATE-1"
+    title: "Validation suite - stress, throttling, and QE agent flows"
+    status: "PENDING"
+    phase: "VALIDATE"
+    user_value: 8
+    time_criticality: 7
+    risk_reduction: 9
+    job_size: 3
+    wsjf_score: 8.0
+    cost_of_delay: 24
+    description: "Run focused test suites to validate process governor and flow metrics"
+    commands:
+      - "npm test -- tests/integration/concurrent-operations.test.js"
+      - "npm test -- tests/integration/throttled-stress.test.ts"
+      - "node ./vendor/agentic-qe/tests/integration/e2e-workflows.test.ts"
+    target: "WIP violations < 5%"
+
+  - id: "WSJF-SOT-1"
+    title: "WSJF single source of truth and Inbox Zero SAFLA linkage"
+    status: "IN_PROGRESS"
+    phase: "INTEGRATION"
+    user_value: 10
+    time_criticality: 10
+    risk_reduction: 8
+    job_size: 2
+    wsjf_score: 14.0
+    cost_of_delay: 28
+    description: "This file - CONSOLIDATED_ACTIONS.yaml as single source of truth"
+    deliverables:
+      - "YAML-based action items with WSJF fields"
+      - "Pointer from IMPLEMENTATION_STRATEGY_PRIORITY.md"
+    validation:
+      - "npx goalie@latest --plan --no-write --source .goalie/CONSOLIDATED_ACTIONS.yaml"
+
+  - id: "TOOLING-1"
+    title: "Tooling consolidation entrypoints (agentic-jujutsu, agentic-flow)"
+    status: "PENDING"
+    phase: "INTEGRATION"
+    user_value: 6
+    time_criticality: 5
+    risk_reduction: 7
+    job_size: 2
+    wsjf_score: 9.0
+    cost_of_delay: 18
+    description: "Validate agentic tooling status and federation"
+    commands:
+      - "npx agentic-jujutsu status"
+      - "npx agentic-jujutsu analyze"
+      - "npx agentic-flow@latest federation start --no-sync --local-only 2>&1 | tee -a logs/agentic_federation.log"
+
+  - id: "BML-1"
+    title: "Build-Measure-Learn instrumentation"
+    status: "PENDING"
+    phase: "INTEGRATION"
+    user_value: 9
+    time_criticality: 8
+    risk_reduction: 9
+    job_size: 3
+    wsjf_score: 8.7
+    cost_of_delay: 26
+    description: "Hardening retro loop with metrics collection and learning capture"
+    targets:
+      - "Retro insight → code commit < 1h"
+      - "Action items completion > 80%"
+      - "Context switches/day < 5"
+    commands:
+      - "python3 ./scripts/ci/collect_metrics.py --baseline-only 2>&1 | tee -a logs/metrics_collect.log"
+      - "node ./tests/utils/metrics-reporter.js --snapshot 2>&1 | tee -a logs/metrics_reporter.log"
+
+  - id: "GOVERNANCE-1"
+    title: "Governance and risk controls - hallucination risk and approval gates"
+    status: "PENDING"
+    phase: "GOVERNANCE"
+    user_value: 10
+    time_criticality: 9
+    risk_reduction: 10
+    job_size: 2
+    wsjf_score: 14.5
+    cost_of_delay: 29
+    description: "Enforce local-only, conservative thresholds, hierarchical fallbacks"
+    controls:
+      - "EXECUTION_MODE=local until confidence rises"
+      - "Conservative thresholds (syntax/lint only)"
+      - "Hierarchical fallbacks enabled"
+      - "Rollback procedure documented"
+
+  - id: "DOC-UPDATE-1"
+    title: "Append status deltas to allowed docs (no new .md)"
+    status: "PENDING"
+    phase: "DOCUMENTATION"
+    user_value: 7
+    time_criticality: 6
+    risk_reduction: 5
+    job_size: 1
+    wsjf_score: 18.0
+    cost_of_delay: 18
+    description: "Update three approved docs with concise deltas"
+    files_to_update:
+      - "docs/INCREMENTAL_RELENTLESS_EXECUTION_STATUS.md"
+      - "docs/QUICK_WINS.md"
+      - "docs/IMPLEMENTATION_STRATEGY_PRIORITY.md"
+    constraint: "Append-only, no overwriting"
+
+  # GO/NO-GO GATE
+  - id: "GATE-1"
+    title: "Go/No-Go gate with explicit criteria"
+    status: "PENDING"
+    phase: "GATE"
+    user_value: 10
+    time_criticality: 10
+    risk_reduction: 10
+    job_size: 1
+    wsjf_score: 30.0
+    cost_of_delay: 30
+    description: "Decision gate for proceeding to feature work"
+    go_criteria:
+      - ".agentdb/hooks exists and fires"
+      - "events.jsonl grows on commands"
+      - "AgentDB non-empty (rows > 0)"
+      - "Baseline metrics script completes without hang"
+      - "Blockers updated with next steps"
+      - "IPMI SSH fallback validated"
+      - "Snapshot created and recorded"
+    actions:
+      go: "Proceed to small-scale feature work under WSJF SOT"
+      no_go: "Open corrective tasks and loop back"
+
+# WSJF Priority Order (sorted by score descending)
+priority_order:
+  - "GATE-1 (30.0) - Go/No-Go gate"
+  - "DOC-UPDATE-1 (18.0) - Append status deltas"
+  - "PHASE-A-5 (16.0) - Snapshot (CANCELLED)"
+  - "WSJF-SOT-1 (14.0) - This file"
+  - "GOVERNANCE-1 (14.5) - Risk controls"
+  - "PHASE-A-4 (13.5) - Learning capture parity"
+  - "PHASE-A-2 (12.0) - Auto-DB patch"
+  - "PHASE-A-1 (9.0) - Baselines"
+  - "TOOLING-1 (9.0) - Tooling entrypoints"
+  - "BML-1 (8.7) - Build-Measure-Learn"
+  - "VALIDATE-1 (8.0) - Validation suite"
+  - "PHASE-B-2 (7.3) - IPMI connectivity"
+  - "PHASE-A-3 (7.0) - Populate AgentDB"
+  - "PHASE-B-1 (6.5) - Calibration dataset"
+  - "PHASE-B-3 (5.8) - Governor retrofit"
+
+# Next Sprint Candidates (top 3 by WSJF)
+next_sprint:
+  - id: "WSJF-SOT-1"
+    title: "Complete WSJF single source of truth"
+    wsjf_score: 14.0
+    status: "IN_PROGRESS"
+  - id: "GOVERNANCE-1"
+    title: "Governance and risk controls"
+    wsjf_score: 14.5
+  - id: "PHASE-A-4"
+    title: "Learning capture parity"
+    wsjf_score: 13.5

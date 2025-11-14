@@ -295,7 +295,7 @@ describe('BatchOperations', () => {
       expect(stats).toHaveProperty('totalSize');
       expect(stats).toHaveProperty('tableStats');
       expect(stats.totalSize).toBeGreaterThan(0);
-      expect(stats.tableStats).toBeInstanceOf(Array);
+      expect(Array.isArray(stats.tableStats)).toBe(true);
     });
 
     it('should include table row counts', () => {

@@ -29,23 +29,47 @@ function getModelForProvider(provider: string): {
 } {
   switch (provider) {
     case 'gemini':
+      const geminiKey = process.env.GOOGLE_GEMINI_API_KEY;
+      if (!geminiKey) {
+        throw new Error(
+          'GOOGLE_GEMINI_API_KEY is required for Gemini provider.\n' +
+          'Set it via environment variable or use --provider anthropic for Claude models.\n' +
+          'Get your API key at: https://makersuite.google.com/app/apikey'
+        );
+      }
       return {
         model: process.env.COMPLETION_MODEL || 'gemini-2.0-flash-exp',
-        apiKey: process.env.GOOGLE_GEMINI_API_KEY || process.env.ANTHROPIC_API_KEY || '',
+        apiKey: geminiKey,
         baseURL: process.env.PROXY_URL || undefined
       };
 
     case 'requesty':
+      const requestyKey = process.env.REQUESTY_API_KEY;
+      if (!requestyKey) {
+        throw new Error(
+          'REQUESTY_API_KEY is required for Requesty provider.\n' +
+          'Set it via environment variable or use --provider anthropic for Claude models.\n' +
+          'Get your API key at: https://requesty.ai'
+        );
+      }
       return {
         model: process.env.COMPLETION_MODEL || 'deepseek/deepseek-chat',
-        apiKey: process.env.REQUESTY_API_KEY || process.env.ANTHROPIC_API_KEY || '',
+        apiKey: requestyKey,
         baseURL: process.env.PROXY_URL || undefined
       };
 
     case 'openrouter':
+      const openrouterKey = process.env.OPENROUTER_API_KEY;
+      if (!openrouterKey) {
+        throw new Error(
+          'OPENROUTER_API_KEY is required for OpenRouter provider.\n' +
+          'Set it via environment variable or use --provider anthropic for Claude models.\n' +
+          'Get your API key at: https://openrouter.ai/keys'
+        );
+      }
       return {
         model: process.env.COMPLETION_MODEL || 'deepseek/deepseek-chat',
-        apiKey: process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY || '',
+        apiKey: openrouterKey,
         baseURL: process.env.PROXY_URL || undefined
       };
 
@@ -271,7 +295,17 @@ export async function claudeAgent(
       });
 
       let output = '';
+      let toolCallCount = 0;
+
       for await (const msg of result) {
+        const msgAny = msg as any; // Use any to handle different event types from SDK
+
+        // Debug: Log message structure to understand SDK events
+        if (process.env.DEBUG_STREAMING === 'true') {
+          console.error(`[DEBUG] Message type: ${msg.type}, keys: ${Object.keys(msg).join(', ')}`);
+        }
+
+        // Handle assistant text messages
         if (msg.type === 'assistant') {
           const chunk = msg.message.content?.map((c: any) => c.type === 'text' ? c.text : '').join('') || '';
           output += chunk;
@@ -279,6 +313,57 @@ export async function claudeAgent(
           if (onStream && chunk) {
             onStream(chunk);
           }
+
+          // Check for tool use in message content blocks
+          const toolBlocks = msg.message.content?.filter((c: any) => c.type === 'tool_use') || [];
+          for (const toolBlock of toolBlocks) {
+            toolCallCount++;
+            const toolName = (toolBlock as any).name || 'unknown';
+            const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+            const progressMsg = `\n[${timestamp}] 🔍 Tool call #${toolCallCount}: ${toolName}\n`;
+            process.stderr.write(progressMsg);
+
+            if (onStream) {
+              onStream(progressMsg);
+            }
+          }
+        }
+
+        // Handle stream events that contain tool information
+        if (msgAny.streamEvent) {
+          const event = msgAny.streamEvent;
+
+          // Tool use event (content_block_start with tool_use)
+          if (event.type === 'content_block_start' && event.content_block?.type === 'tool_use') {
+            toolCallCount++;
+            const toolName = event.content_block.name || 'unknown';
+            const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+            const progressMsg = `\n[${timestamp}] 🔍 Tool call #${toolCallCount}: ${toolName}\n`;
+            process.stderr.write(progressMsg);
+
+            if (onStream) {
+              onStream(progressMsg);
+            }
+          }
+
+          // Tool result event (content_block_stop)
+          if (event.type === 'content_block_stop') {
+            const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+            const resultMsg = `[${timestamp}] ✅ Tool completed\n`;
+            process.stderr.write(resultMsg);
+
+            if (onStream) {
+              onStream(resultMsg);
+            }
+          }
+        }
+
+        // Flush output to ensure immediate visibility
+        if (process.stderr.uncork) {
+          process.stderr.uncork();
+        }
+        if (process.stdout.uncork) {
+          process.stdout.uncork();
         }
       }
 

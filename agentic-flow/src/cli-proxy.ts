@@ -35,10 +35,12 @@ import { logger } from "./utils/logger.js";
 import { parseArgs } from "./utils/cli.js";
 import { getAgent, listAgents } from "./utils/agentLoader.js";
 import { claudeAgent } from "./agents/claudeAgent.js";
+import { claudeAgentDirect } from "./agents/claudeAgentDirect.js";
 import { handleMCPCommand } from "./utils/mcpCommands.js";
 import { handleReasoningBankCommand } from "./utils/reasoningbankCommands.js";
 import { handleConfigCommand } from "./cli/config-wizard.js";
 import { handleAgentCommand } from "./cli/agent-manager.js";
+import { handleFederationCommand } from "./cli/federation-cli.js";
 import { ModelOptimizer } from "./utils/modelOptimizer.js";
 import { detectModelCapabilities } from "./utils/modelCapabilities.js";
 import { AgentBoosterPreprocessor } from "./utils/agentBoosterPreprocessor.js";
@@ -66,7 +68,7 @@ class AgenticFlowCLI {
     }
 
     // If no mode and no agent specified, show help
-    if (!options.agent && options.mode !== 'list' && !['config', 'agent-manager', 'mcp-manager', 'proxy', 'quic', 'claude-code', 'mcp', 'reasoningbank'].includes(options.mode)) {
+    if (!options.agent && options.mode !== 'list' && !['config', 'agent-manager', 'mcp-manager', 'proxy', 'quic', 'claude-code', 'mcp', 'reasoningbank', 'federation'].includes(options.mode)) {
       this.printHelp();
       process.exit(0);
     }
@@ -178,6 +180,13 @@ class AgenticFlowCLI {
       process.exit(0);
     }
 
+    if (options.mode === 'federation') {
+      // Handle Federation commands
+      const federationArgs = process.argv.slice(3); // Skip 'node', 'cli-proxy.js', 'federation'
+      await handleFederationCommand(federationArgs);
+      process.exit(0);
+    }
+
     // Apply model optimization if requested
     if (options.optimize && options.agent && options.task) {
       const recommendation = ModelOptimizer.optimize({
@@ -237,7 +246,10 @@ class AgenticFlowCLI {
         await this.startOpenRouterProxy(options.model);
       } else if (useGemini) {
         console.log('🚀 Initializing Gemini proxy...');
-        await this.startGeminiProxy(options.model);
+        // Don't pass Anthropic model names to Gemini proxy
+        const geminiModel = options.model?.startsWith('claude') ? undefined : options.model;
+        console.log(`🔍 Model filtering: options.model=${options.model}, geminiModel=${geminiModel}`);
+        await this.startGeminiProxy(geminiModel);
       } else {
         console.log('🚀 Using direct Anthropic API...\n');
       }
@@ -282,6 +294,11 @@ class AgenticFlowCLI {
 
     if (process.env.USE_GEMINI === 'true') {
       return true;
+    }
+
+    // BUG FIX: Don't auto-select Gemini if user explicitly specified a different provider
+    if (options.provider && options.provider !== 'gemini') {
+      return false;
     }
 
     if (process.env.GOOGLE_GEMINI_API_KEY &&
@@ -411,9 +428,12 @@ class AgenticFlowCLI {
 
     logger.info('Starting integrated Gemini proxy');
 
-    const defaultModel = modelOverride ||
-                        process.env.COMPLETION_MODEL ||
-                        'gemini-2.0-flash-exp';
+    // BUG FIX: Don't use COMPLETION_MODEL for Gemini (it contains Anthropic model names)
+    // Always use modelOverride if provided, otherwise default to gemini-2.0-flash-exp
+    console.log(`🔍 Gemini proxy debug: modelOverride=${modelOverride}, COMPLETION_MODEL=${process.env.COMPLETION_MODEL}`);
+    const defaultModel = (modelOverride && !modelOverride.startsWith('claude'))
+                        ? modelOverride
+                        : 'gemini-2.0-flash-exp';
 
     // Import Gemini proxy
     const { AnthropicToGeminiProxy } = await import('./proxy/anthropic-to-gemini.js');
@@ -987,8 +1007,14 @@ PERFORMANCE:
 
     const streamHandler = options.stream ? (chunk: string) => process.stdout.write(chunk) : undefined;
 
-    // Use claudeAgent with Claude Agent SDK - handles multi-provider routing
-    const result = await claudeAgent(agent, task, streamHandler);
+    // FIXED: Use claudeAgentDirect (no Claude Code dependency) instead of claudeAgent
+    // This allows agentic-flow to work standalone in Docker/CI/CD without Claude Code
+    // BUG FIX: Don't pass Anthropic model names to non-Anthropic providers
+    const modelForAgent = useGemini || useOpenRouter || useONNX || useRequesty
+      ? (options.model?.startsWith('claude') ? undefined : options.model)
+      : options.model;
+
+    const result = await claudeAgentDirect(agent, task, streamHandler, modelForAgent);
 
     if (!options.stream) {
       console.log('\n✅ Completed!\n');
@@ -1033,7 +1059,10 @@ PERFORMANCE:
 
   private printHelp(): void {
     console.log(`
-🤖 Agentic Flow v${VERSION} - AI Agent Orchestration with OpenRouter Support
+🤖 Agentic Flow v${VERSION} - AI Agent Orchestration with Multi-Provider Support
+
+NEW IN v1.9.4: Enterprise provider fallback & dynamic switching for long-running agents
+✅ Automatic failover  ✅ Circuit breaker  ✅ Cost optimization  ✅ Health monitoring
 
 USAGE:
   npx agentic-flow [COMMAND] [OPTIONS]
@@ -1042,6 +1071,7 @@ COMMANDS:
   config [subcommand]     Manage environment configuration (interactive wizard)
   mcp <command> [server]  Manage MCP servers (start, stop, status, list)
   agent <command>         Agent management (list, create, info, conflicts)
+  federation <command>    Federation hub management (start, spawn, stats, test)
   proxy [options]         Run standalone proxy server for Claude Code/Cursor
   quic [options]          Run QUIC transport proxy for ultra-low latency (50-70% faster)
   claude-code [options]   Spawn Claude Code with auto-configured proxy
@@ -1069,6 +1099,17 @@ AGENT COMMANDS:
   npx agentic-flow agent create          Create new custom agent (interactive)
   npx agentic-flow agent info <name>     Show detailed agent information
   npx agentic-flow agent conflicts       Check for package/local conflicts
+
+FEDERATION COMMANDS:
+  npx agentic-flow federation start      Start federation hub server
+  npx agentic-flow federation spawn      Spawn ephemeral agent
+  npx agentic-flow federation stats      Show hub statistics
+  npx agentic-flow federation status     Show federation system status
+  npx agentic-flow federation test       Run multi-agent collaboration test
+  npx agentic-flow federation help       Show federation help
+
+  Federation enables ephemeral agents (5s-15min lifetime) with persistent memory.
+  Hub stores memories permanently; agents access past learnings from dead agents.
 
 OPTIONS:
   --task, -t <task>           Task description for agent mode
@@ -1111,12 +1152,35 @@ OPTIONS:
   Example savings: DeepSeek R1 costs 85% less than Claude Sonnet 4.5 with similar quality.
   See docs/agentic-flow/benchmarks/MODEL_CAPABILITIES.md for full comparison.
 
+PROVIDER FALLBACK (NEW v1.9.4):
+  Enterprise-grade provider fallback for long-running agents with automatic failover,
+  circuit breaker, health monitoring, cost tracking, and crash recovery.
+
+  Features:
+  • Automatic failover between providers (Gemini → Claude → ONNX)
+  • Circuit breaker prevents cascading failures (auto-recovery after timeout)
+  • Real-time health monitoring (success rate, latency, error tracking)
+  • Cost optimization (70% savings using Gemini for simple tasks)
+  • Checkpointing for crash recovery (save/restore agent state)
+  • Budget controls (hard limits on spending and runtime)
+
+  See: docs/PROVIDER-FALLBACK-GUIDE.md for complete documentation
+  Example: src/examples/use-provider-fallback.ts
+
 EXAMPLES:
   # MCP Server Management
   npx agentic-flow mcp start              # Start all MCP servers
   npx agentic-flow mcp start claude-flow  # Start specific server
   npx agentic-flow mcp list               # List all 203+ MCP tools
   npx agentic-flow mcp status             # Check server status
+
+  # Federation Hub Management
+  npx agentic-flow federation start       # Start hub server (WebSocket)
+  npx agentic-flow federation start --port 9443 --db-path ./data/hub.db
+  npx agentic-flow federation spawn       # Spawn ephemeral agent
+  npx agentic-flow federation spawn --tenant acme-corp --lifetime 600
+  npx agentic-flow federation stats       # Show hub statistics
+  npx agentic-flow federation test        # Run multi-agent test
 
   # Proxy Server for Claude Code/Cursor
   npx agentic-flow proxy --provider openrouter --port 3000
@@ -1180,26 +1244,33 @@ OPTIMIZATION BENEFITS:
   📊 10+ Models: Claude, GPT-4o, Gemini, DeepSeek, Llama, ONNX local
   ⚡ Zero Overhead: <5ms decision time, no API calls during optimization
 
-PROXY MODE (Claude Code CLI Integration):
-  The OpenRouter proxy allows Claude Code to use alternative models via API translation.
+TWO WAYS TO USE AGENTIC-FLOW:
 
-  Terminal 1 - Start Proxy Server:
-    npx agentic-flow proxy
-    # Or with custom port: PROXY_PORT=8080 npx agentic-flow proxy
-    # Proxy runs at http://localhost:3000 by default
+  1️⃣  DIRECT AGENT EXECUTION (agentic-flow agents)
+      Run agents directly in your terminal with full control:
 
-  Terminal 2 - Use with Claude Code:
-    export ANTHROPIC_BASE_URL="http://localhost:3000"
-    export ANTHROPIC_API_KEY="sk-ant-proxy-dummy-key"
-    export OPENROUTER_API_KEY="sk-or-v1-xxxxx"
+      npx agentic-flow --agent coder --task "Create Python script"
+      npx agentic-flow --agent researcher --task "Research AI trends"
 
-    # Now Claude Code will route through OpenRouter proxy
-    claude-code --agent coder --task "Create API"
+      This runs agentic-flow's 80+ specialized agents directly.
 
-  Proxy automatically translates Anthropic API calls to OpenRouter format.
-  Model override happens automatically: Claude requests → OpenRouter models.
+  2️⃣  CLAUDE CODE INTEGRATION (proxy for Claude Code CLI)
+      Use Claude Code CLI with OpenRouter/Gemini models via proxy:
 
-  Benefits for Claude Code users:
+      # Option A: Auto-spawn Claude Code with proxy (easiest)
+      npx agentic-flow claude-code --provider openrouter "Build API"
+
+      # Option B: Manual proxy setup (advanced)
+      Terminal 1 - Start Proxy:
+        npx agentic-flow proxy --provider openrouter
+
+      Terminal 2 - Configure Claude Code:
+        export ANTHROPIC_BASE_URL="http://localhost:3000"
+        export ANTHROPIC_API_KEY="sk-ant-proxy-dummy-key"
+        export OPENROUTER_API_KEY="sk-or-v1-xxxxx"
+        claude  # Now uses OpenRouter via proxy
+
+  Benefits of proxy mode:
   • 85-99% cost savings vs Claude Sonnet 4.5
   • Access to 100+ models (DeepSeek, Llama, Gemini, etc.)
   • Leaderboard tracking on OpenRouter

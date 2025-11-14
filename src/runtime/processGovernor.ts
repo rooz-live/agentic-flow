@@ -17,13 +17,18 @@ import os from 'os';
 import fs from 'fs';
 import path from 'path';
 
-// Configuration with safe defaults
-export const AF_CPU_HEADROOM_TARGET = parseFloat(process.env.AF_CPU_HEADROOM_TARGET || '0.35'); // 35% idle target
-export const AF_BATCH_SIZE = parseInt(process.env.AF_BATCH_SIZE || '5', 10);
-export const AF_MAX_WIP = parseInt(process.env.AF_MAX_WIP || '10', 10);
-export const AF_BACKOFF_MIN_MS = parseInt(process.env.AF_BACKOFF_MIN_MS || '100', 10);
+// Configuration with safe defaults (optimized for high CPU load scenarios)
+export const AF_CPU_HEADROOM_TARGET = parseFloat(process.env.AF_CPU_HEADROOM_TARGET || '0.40'); // 40% idle target (increased from 35%)
+export const AF_BATCH_SIZE = parseInt(process.env.AF_BATCH_SIZE || '3', 10); // Reduced from 5 to 3
+export const AF_MAX_WIP = parseInt(process.env.AF_MAX_WIP || '6', 10); // Reduced from 10 to 6
+export const AF_BACKOFF_MIN_MS = parseInt(process.env.AF_BACKOFF_MIN_MS || '200', 10); // Increased from 100 to 200
 export const AF_BACKOFF_MAX_MS = parseInt(process.env.AF_BACKOFF_MAX_MS || '30000', 10);
 export const AF_BACKOFF_MULTIPLIER = parseFloat(process.env.AF_BACKOFF_MULTIPLIER || '2.0');
+
+// Token bucket rate limiting (new)
+export const AF_RATE_LIMIT_ENABLED = process.env.AF_RATE_LIMIT_ENABLED !== 'false'; // Enabled by default
+export const AF_TOKENS_PER_SECOND = parseInt(process.env.AF_TOKENS_PER_SECOND || '10', 10);
+export const AF_MAX_BURST = parseInt(process.env.AF_MAX_BURST || '20', 10);
 
 // Governor state
 interface GovernorState {
@@ -33,9 +38,12 @@ interface GovernorState {
   failedWork: number;
   currentBackoff: number;
   lastLoadCheck: number;
+  // Token bucket state
+  availableTokens: number;
+  lastTokenRefill: number;
   incidents: Array<{
     timestamp: string;
-    type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE';
+    type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED';
     details: Record<string, unknown>;
   }>;
 }
@@ -47,6 +55,8 @@ const state: GovernorState = {
   failedWork: 0,
   currentBackoff: AF_BACKOFF_MIN_MS,
   lastLoadCheck: Date.now(),
+  availableTokens: AF_MAX_BURST,
+  lastTokenRefill: Date.now(),
   incidents: [],
 };
 
@@ -91,7 +101,48 @@ function getIdlePercentage(): number {
   return 100 - getCpuLoad();
 }
 
+// Token bucket rate limiting
+function refillTokens(): void {
+  if (!AF_RATE_LIMIT_ENABLED) {
+    state.availableTokens = AF_MAX_BURST; // Always full when disabled
+    return;
+  }
+  
+  const now = Date.now();
+  const elapsedMs = now - state.lastTokenRefill;
+  const elapsedSeconds = elapsedMs / 1000;
+  
+  const tokensToAdd = elapsedSeconds * AF_TOKENS_PER_SECOND;
+  state.availableTokens = Math.min(
+    state.availableTokens + tokensToAdd,
+    AF_MAX_BURST
+  );
+  state.lastTokenRefill = now;
+}
+
+function consumeToken(): boolean {
+  refillTokens();
+  
+  if (state.availableTokens >= 1) {
+    state.availableTokens -= 1;
+    return true;
+  }
+  
+  return false;
+}
+
 async function waitForCapacity(): Promise<void> {
+  // Token bucket rate limiting
+  while (!consumeToken()) {
+    logIncident('RATE_LIMITED', {
+      availableTokens: state.availableTokens,
+      tokensPerSecond: AF_TOKENS_PER_SECOND,
+      activeWork: state.activeWork,
+    });
+    await sleep(100); // Wait for token refill
+  }
+  
+  // WIP limit
   while (state.activeWork >= AF_MAX_WIP) {
     await sleep(50);
   }
@@ -266,6 +317,8 @@ export function reset(): void {
   state.failedWork = 0;
   state.currentBackoff = AF_BACKOFF_MIN_MS;
   state.lastLoadCheck = Date.now();
+  state.availableTokens = AF_MAX_BURST;
+  state.lastTokenRefill = Date.now();
   state.incidents = [];
 }
 
@@ -279,4 +332,7 @@ export const config = {
   AF_BACKOFF_MIN_MS,
   AF_BACKOFF_MAX_MS,
   AF_BACKOFF_MULTIPLIER,
+  AF_RATE_LIMIT_ENABLED,
+  AF_TOKENS_PER_SECOND,
+  AF_MAX_BURST,
 };

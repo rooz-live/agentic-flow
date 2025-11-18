@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # validate-governor-integration.sh
-# 
+#
 # Validates process governor integration through:
 # - PID tracking and cleanup
 # - Memory stress testing with throttling
@@ -41,30 +41,30 @@ echo "-----------------------------------"
 
 test_pid_tracking() {
     local pids=()
-    
+
     # Spawn test processes
     for i in $(seq 1 10); do
         sleep 0.5 &
         pids+=($!)
     done
-    
+
     echo "✓ Spawned ${#pids[@]} test processes"
-    
+
     # Verify all PIDs exist
     local alive=0
     for pid in "${pids[@]}"; do
         if kill -0 "$pid" 2>/dev/null; then
-            ((alive++))
+            ((alive+=1))
         fi
     done
-    
+
     echo "✓ Verified $alive/${#pids[@]} processes alive"
-    
+
     # Wait for completion
     for pid in "${pids[@]}"; do
         wait "$pid" 2>/dev/null || true
     done
-    
+
     echo "✓ All processes completed"
     echo ""
 }
@@ -78,30 +78,30 @@ echo "------------------------------"
 test_memory_stress() {
     local batch_size=5
     local total_batches=$((MAX_PROCESSES / batch_size))
-    
+
     echo "Running $total_batches batches of $batch_size processes each..."
-    
+
     local start_time=$(date +%s)
-    
+
     for batch in $(seq 1 "$total_batches"); do
         local batch_pids=()
-        
+
         # Spawn batch
         for i in $(seq 1 "$batch_size"); do
             # Memory allocation simulation (allocate 10MB per process)
             (dd if=/dev/zero of=/dev/null bs=1M count=10 2>/dev/null) &
             batch_pids+=($!)
         done
-        
+
         # Wait for batch completion
         for pid in "${batch_pids[@]}"; do
             wait "$pid" 2>/dev/null || true
         done
-        
+
         # Check system load
         local load=$(uptime | awk -F'load average:' '{ print $2 }' | cut -d, -f1 | xargs)
         echo "  Batch $batch/$total_batches complete (load: $load)"
-        
+
         # Dynamic throttling based on load
         local load_num=$(echo "$load" | cut -d. -f1)
         if [ "$load_num" -gt 10 ]; then
@@ -109,10 +109,10 @@ test_memory_stress() {
             sleep 1
         fi
     done
-    
+
     local end_time=$(date +%s)
     local duration=$((end_time - start_time))
-    
+
     echo "✓ Stress test completed in ${duration}s"
     echo ""
 }
@@ -126,11 +126,11 @@ echo "--------------------------------"
 test_graceful_throttling() {
     echo "Spawning rapid burst..."
     local burst_pids=()
-    
+
     for i in $(seq 1 20); do
         sleep 0.1 &
         burst_pids+=($!)
-        
+
         # Check WIP limit (simulate)
         local active=$(jobs -r | wc -l)
         if [ "$active" -gt 10 ]; then
@@ -138,12 +138,12 @@ test_graceful_throttling() {
             wait -n 2>/dev/null || true
         fi
     done
-    
+
     # Wait for all
     for pid in "${burst_pids[@]}"; do
         wait "$pid" 2>/dev/null || true
     done
-    
+
     echo "✓ Burst completed with throttling"
     echo ""
 }
@@ -157,30 +157,30 @@ echo "---------------------------------"
 test_dynamic_rate_limiting() {
     local rate_limit=5  # items per second
     local items=20
-    
+
     echo "Processing $items items at $rate_limit/sec..."
-    
+
     local start=$(date +%s)
-    
+
     for i in $(seq 1 "$items"); do
         # Simulate work
         sleep 0.05 &
-        
+
         # Rate limiting
         local elapsed=$(($(date +%s) - start))
         local expected_items=$((elapsed * rate_limit))
-        
+
         if [ "$i" -gt "$expected_items" ]; then
             local delay=$(echo "scale=3; ($i - $expected_items) / $rate_limit" | bc)
             sleep "$delay"
         fi
     done
-    
+
     wait
-    
+
     local total_time=$(($(date +%s) - start))
     local actual_rate=$(echo "scale=2; $items / $total_time" | bc)
-    
+
     echo "✓ Processed $items items in ${total_time}s (rate: ${actual_rate}/sec)"
     echo ""
 }
@@ -196,7 +196,7 @@ test_incident_logging() {
         local count=$(wc -l < "$INCIDENT_LOG")
         echo "✓ Incident log exists: $INCIDENT_LOG"
         echo "  Total incidents logged: $count"
-        
+
         # Show recent incidents
         if [ "$count" -gt 0 ]; then
             echo ""
@@ -218,9 +218,9 @@ echo "------------------------------------"
 test_cpu_headroom() {
     local samples=5
     local total_idle=0
-    
+
     echo "Collecting $samples CPU samples..."
-    
+
     for i in $(seq 1 "$samples"); do
         # Get CPU idle percentage (platform-specific)
         if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -230,7 +230,7 @@ test_cpu_headroom() {
             # Linux
             local cpu_idle=$(mpstat 1 1 | awk '/Average/ {print 100 - $NF}')
         fi
-        
+
         # Default to load average if direct CPU measurement fails
         if [ -z "$cpu_idle" ]; then
             local load=$(uptime | awk -F'load average:' '{ print $2 }' | cut -d, -f1 | xargs)
@@ -238,19 +238,19 @@ test_cpu_headroom() {
             local load_percent=$(echo "scale=2; ($load / $cores) * 100" | bc)
             cpu_idle=$(echo "scale=2; 100 - $load_percent" | bc)
         fi
-        
+
         total_idle=$(echo "$total_idle + ${cpu_idle:-50}" | bc)
         echo "  Sample $i: ${cpu_idle:-50}% idle"
         sleep 1
     done
-    
+
     local avg_idle=$(echo "scale=2; $total_idle / $samples" | bc)
     local target_idle=35
-    
+
     echo ""
     echo "Average CPU idle: ${avg_idle}%"
     echo "Target idle: ${target_idle}%"
-    
+
     if (( $(echo "$avg_idle >= $target_idle" | bc -l) )); then
         echo -e "${GREEN}✓ CPU headroom within target${NC}"
     else

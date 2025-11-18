@@ -43,6 +43,7 @@ ${GREEN}Validation:${NC}
   af validate            Run governor validation
   af test                Run concurrent tests
   af governor            Check governor stats
+  af governor-health     Validate governor + process tree + BML health
 
 ${GREEN}Learning:${NC}
   af hooks               Check hook discoverability
@@ -53,6 +54,10 @@ ${GREEN}Build-Measure-Learn:${NC}
   af cycle               Show current BML cycle status
   af commit              Create BML cycle commit
   af feedback            Analyze feedback loops
+  af action              Create retro action item
+  af suggest-team        Suggest circle teams for NOW items (read-only)
+  af suggest-actions     Suggest actions from recent insights (read-only)
+  af full-cycle [n]      Run n full BML + health passes (default 1)
 
 ${GREEN}Context Reduction:${NC}
   af board               Show Kanban board (NOW/NEXT/LATER)
@@ -72,12 +77,12 @@ EOF
 # Status command - comprehensive health check
 cmd_status() {
     echo -e "${BLUE}=== Agentic Flow Status ===${NC}\n"
-    
+
     # Git status
     echo -e "${GREEN}Git:${NC}"
     git --no-pager log --oneline -1
     echo ""
-    
+
     # AgentDB status
     echo -e "${GREEN}AgentDB:${NC}"
     if [ -f "$PROJECT_ROOT/.agentdb/agentdb.sqlite" ]; then
@@ -88,7 +93,7 @@ cmd_status() {
         echo "  ❌ AgentDB not found"
     fi
     echo ""
-    
+
     # Goalie status
     echo -e "${GREEN}Goalie Tracking:${NC}"
     if [ -f "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" ]; then
@@ -98,7 +103,7 @@ cmd_status() {
         echo "  NOW: $now_count | NEXT: $next_count | DONE: $done_count"
     fi
     echo ""
-    
+
     # CPU & Governor
     echo -e "${GREEN}System Health:${NC}"
     local load=$(uptime | awk -F'load averages:' '{print $2}' | awk '{print $1}')
@@ -108,7 +113,7 @@ cmd_status() {
         echo "  Governor incidents: $incidents"
     fi
     echo ""
-    
+
     # Snapshots
     echo -e "${GREEN}Snapshots:${NC}"
     if [ -d "$PROJECT_ROOT/.snapshots" ]; then
@@ -140,7 +145,7 @@ cmd_insight() {
         echo "Usage: af insight <text>"
         exit 1
     fi
-    
+
     local timestamp=$(date -u +%Y%m%d_%H%M%S)
     echo "{\"timestamp\": \"$timestamp\", \"type\": \"retro_insight\", \"text\": \"$text\"}" | \
         tee -a "$PROJECT_ROOT/.goalie/insights_log.jsonl"
@@ -154,7 +159,7 @@ cmd_action() {
         echo "Usage: af action <title>"
         exit 1
     fi
-    
+
     if [ -f "$SCRIPT_DIR/create_action_item.sh" ]; then
         bash "$SCRIPT_DIR/create_action_item.sh" "$title"
     else
@@ -162,6 +167,28 @@ cmd_action() {
         # Fallback: append to CONSOLIDATED_ACTIONS.yaml
         echo "  - title: \"$title\"" >> "$PROJECT_ROOT/.goalie/CONSOLIDATED_ACTIONS.yaml"
         echo -e "${GREEN}✓ Action added to CONSOLIDATED_ACTIONS.yaml${NC}"
+    fi
+}
+
+# Suggest circle teams for NOW items (read-only)
+cmd_suggest_team() {
+    echo -e "${BLUE}=== Suggested Circle Teams (NOW lane) ===${NC}\n"
+    if [ -f "$SCRIPT_DIR/agentic/suggest_team.py" ]; then
+        python3 "$SCRIPT_DIR/agentic/suggest_team.py" || \
+            echo -e "${YELLOW}suggest_team.py failed${NC}"
+    else
+        echo -e "${YELLOW}suggest_team.py not found${NC}"
+    fi
+}
+
+# Suggest actions from recent insights (read-only)
+cmd_suggest_actions() {
+    echo -e "${BLUE}=== Suggested Actions from Recent Insights ===${NC}\n"
+    if [ -f "$SCRIPT_DIR/agentic/suggest_actions.py" ]; then
+        python3 "$SCRIPT_DIR/agentic/suggest_actions.py" || \
+            echo -e "${YELLOW}suggest_actions.py failed${NC}"
+    else
+        echo -e "${YELLOW}suggest_actions.py not found${NC}"
     fi
 }
 
@@ -292,6 +319,126 @@ cmd_feedback() {
     fi
 }
 
+# Full BML + health cycle
+cmd_full_cycle() {
+    local iterations="${1:-1}"
+
+    case "$iterations" in
+        ''|*[!0-9]*)
+            echo -e "${YELLOW}Invalid iteration count: $iterations (must be positive integer)${NC}"
+            return 1
+            ;;
+    esac
+
+    if [ "$iterations" -le 0 ]; then
+        echo -e "${YELLOW}Iteration count must be > 0${NC}"
+        return 1
+    fi
+
+    local i
+    for i in $(seq 1 "$iterations"); do
+        echo -e "${BLUE}=== Full BML + Health Cycle $i/$iterations ===${NC}\n"
+
+        cmd_status
+        echo ""
+        cmd_board
+        echo ""
+        cmd_suggest_team
+        echo ""
+        cmd_metrics
+        echo ""
+        cmd_cycle
+        echo ""
+        cmd_governor_health
+        echo ""
+
+        if [ -f "$SCRIPT_DIR/doc_query.py" ]; then
+            echo -e "${BLUE}=== Circle Roles Snapshot (doc_query) ===${NC}\n"
+            python3 "$SCRIPT_DIR/doc_query.py" "Analyst|Assessor|Innovator|Intuitive|Seeker" --max-depth 6 || \
+                echo -e "${YELLOW}doc_query.py failed${NC}"
+        fi
+
+        cmd_suggest_actions
+        echo ""
+
+        # Optional autocommit path behind test-first guardrails
+        local do_autocommit="${AF_FULL_CYCLE_AUTOCOMMIT:-0}"
+        if [ "$do_autocommit" = "1" ]; then
+            echo -e "${BLUE}=== Autocommit Guardrails (iteration $i) ===${NC}\n"
+
+            # Test-first guardrail (can be disabled with AF_FULL_CYCLE_TEST_FIRST=0)
+            local run_tests="${AF_FULL_CYCLE_TEST_FIRST:-1}"
+            if [ "$run_tests" = "1" ]; then
+                echo -e "${BLUE}Running tests via af test...${NC}\n"
+                cmd_test
+                local test_status=$?
+                if [ "$test_status" -ne 0 ]; then
+                    echo -e "${RED}Tests failed (status=$test_status); skipping autocommit for this iteration.${NC}"
+                    continue
+                fi
+
+                echo -e "${BLUE}Running governor validation via af validate...${NC}\n"
+                cmd_validate
+                local validate_status=$?
+                if [ "$validate_status" -ne 0 ]; then
+                    echo -e "${RED}Governor validation failed (status=$validate_status); skipping autocommit for this iteration.${NC}"
+                    continue
+                fi
+            fi
+
+            # Only autocommit if there are changes, and warn if there are unsafe ones
+            cd "$PROJECT_ROOT"
+            local changed
+            changed=$(git status --porcelain 2>/dev/null || true)
+            if [ -z "$changed" ]; then
+                echo -e "${YELLOW}No changes detected; nothing to autocommit.${NC}"
+            else
+                local unsafe
+                unsafe=$(echo "$changed" | awk '{print $2}' | grep -Ev '^(\.goalie/|\.agentdb/|logs/|metrics/)' || true)
+
+                if [ -n "$unsafe" ]; then
+                    echo -e "${YELLOW}Unsafe changes detected outside [.goalie, .agentdb, logs, metrics]; autocommit will include only safe paths via cmd_commit.${NC}"
+                    echo "$unsafe" | sed 's/^/  - /'
+                fi
+
+                echo -e "${GREEN}Creating BML full-cycle auto-commit for safe paths (.goalie, .agentdb, logs, metrics).${NC}"
+                cmd_commit "BML full-cycle auto-commit (iteration $i of $iterations)"
+
+                # Optional code-level autocommit under additional guardrails and policy
+                local allow_code="${AF_ALLOW_CODE_AUTOCOMMIT:-0}"
+                if [ "$allow_code" = "1" ] && [ -f "$PROJECT_ROOT/.goalie/autocommit_policy.yaml" ]; then
+                    echo -e "${BLUE}Evaluating code-level autocommit via code_guardrails...${NC}\n"
+
+                    local changed_paths
+                    changed_paths=$(echo "$changed" | awk '{print $2}')
+
+                    local safe_code_files
+                    safe_code_files=$(printf '%s\n' "$changed_paths" | \
+                        python3 "$SCRIPT_DIR/agentic/code_guardrails.py" --filter-code 2>/dev/null || true)
+
+                    if [ -n "$safe_code_files" ]; then
+                        echo -e "${GREEN}Staging code files approved by guardrails:${NC}"
+                        echo "$safe_code_files" | sed 's/^/  - /'
+
+                        while IFS= read -r f; do
+                            [ -n "$f" ] && git add "$f"
+                        done <<< "$safe_code_files"
+
+                        git commit -m "BML full-cycle code auto-commit (iteration $i of $iterations)" || \
+                            echo -e "${YELLOW}No code changes to commit (code-level).${NC}"
+                    else
+                        echo -e "${YELLOW}No eligible code files for auto-commit after guardrails.${NC}"
+                    fi
+                fi
+            fi
+        fi
+
+        if [ "$i" -lt "$iterations" ]; then
+            echo -e "\n${GREEN}--- End of iteration $i ---${NC}\n"
+        fi
+    done
+}
+
 # Kanban board
 cmd_board() {
     if [ -f "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" ]; then
@@ -316,6 +463,38 @@ cmd_cpu() {
     fi
 }
 
+# Governor validation + health suite
+cmd_governor_health() {
+    echo -e "${BLUE}=== Governor Validation & Health Suite ===${NC}\n"
+
+    # 1) Run governor validation
+    if [ -f "$SCRIPT_DIR/validate-governor-integration.sh" ]; then
+        bash "$SCRIPT_DIR/validate-governor-integration.sh" "$@"
+    else
+        echo -e "${YELLOW}validate-governor-integration.sh not found${NC}"
+    fi
+
+    echo ""
+
+    # 2) Capture a single process tree snapshot
+    if [ -f "$SCRIPT_DIR/monitoring/process_tree_watch.js" ]; then
+        echo -e "${GREEN}Process tree snapshot (process_tree_watch --once):${NC}"
+        node "$SCRIPT_DIR/monitoring/process_tree_watch.js" --once || \
+            echo -e "${YELLOW}process_tree_watch.js failed${NC}"
+    fi
+
+    echo ""
+
+    # 3) Run BML health check
+    if [ -f "$SCRIPT_DIR/agentic/health_check.py" ]; then
+        echo -e "${GREEN}BML health check:${NC}"
+        python3 "$SCRIPT_DIR/agentic/health_check.py" || \
+            echo -e "${YELLOW}health_check.py failed${NC}"
+    else
+        echo -e "${YELLOW}health_check.py not found${NC}"
+    fi
+}
+
 # Main dispatch
 case "${1:-help}" in
     status) cmd_status ;;
@@ -323,6 +502,8 @@ case "${1:-help}" in
     analyze) shift; cmd_analyze "$@" ;;
     insight) shift; cmd_insight "$@" ;;
     action) shift; cmd_action "$@" ;;
+    suggest-team) shift; cmd_suggest_team "$@" ;;
+    suggest-actions) shift; cmd_suggest_actions "$@" ;;
     quick-wins) cmd_quick_wins ;;
     wsjf) cmd_wsjf ;;
     snapshot) shift; cmd_snapshot "$@" ;;
@@ -331,9 +512,11 @@ case "${1:-help}" in
     validate) shift; cmd_validate "$@" ;;
     test) cmd_test ;;
     governor) cmd_governor ;;
+    governor-health) shift; cmd_governor_health "$@" ;;
     hooks) cmd_hooks ;;
     events) shift; cmd_events "$@" ;;
     beam) cmd_beam ;;
+    full-cycle) shift; cmd_full_cycle "${1:-1}" ;;
     cycle) cmd_cycle ;;
     commit) shift; cmd_commit "$@" ;;
     feedback) cmd_feedback ;;
@@ -341,7 +524,7 @@ case "${1:-help}" in
     blockers) cmd_blockers ;;
     cpu) cmd_cpu ;;
     help|--help|-h) show_help ;;
-    *) 
+    *)
         echo -e "${RED}Unknown command: $1${NC}"
         echo "Run 'af help' for usage"
         exit 1

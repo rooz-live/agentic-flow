@@ -1,0 +1,68 @@
+# Reference configuration for workload-specific Cost of Delay (CoD) thresholds
+#
+# This file is **not** loaded at runtime. To enable it, copy to:
+#   .goalie/COD_THRESHOLDS.yaml
+#
+# Retro Coach uses these thresholds to decide which economic gaps are surfaced
+# in retrospectives. Patterns with COD below their effective threshold are
+# suppressed so that retros focus on the highest-impact gaps.
+#
+# The effective threshold for a pattern is resolved in this order:
+#   1. patternThresholds[<pattern-name>] if present
+#   2. patternThresholds[<workload-tag>] using workload tags from workloadsForPattern()
+#      (e.g. __ML__, __HPC__, __Stats__, __Device__)
+#   3. defaultCodThreshold
+#
+# All values here are **dimensionless CoD scores** consistent with the
+# economic.cod signal emitted by scripts/af producers.
+
+# Global fallback if no pattern- or workload-specific threshold matches.
+# 5 means: only surface gaps where COD is clearly non-trivial but still
+# allows low-noise experimentation environments to pass.
+defaultCodThreshold: 5
+
+patternThresholds:
+  # ML training / evaluation loops
+  # 6 ≈ "only surface when training/eval COD is high enough that delayed
+  # learning or miscalibration would clearly hurt business outcomes."
+  ml-training-guardrail: 6
+
+  # HPC batch windows and cluster-intensive jobs
+  # 8 ≈ "only surface when severe tail latency + many nodes locked + long
+  # queue times combine into a clearly painful batch window."
+  # Example (illustrative only):
+  #   COD ≈ (queue_time_sec/3600 * node_count * 4.5) + (p99_latency_ms/1000 * node_count)
+  hpc-batch-window: 8
+
+  # Statistical robustness sweeps
+  # 4 ≈ "surface gaps when robustness checks are clearly under-powered or
+  # missing, but allow exploratory sweeps with low COD to proceed."
+  stat-robustness-sweep: 4
+
+  # Device / browser coverage
+  # 5 ≈ "surface when device/browser gaps are large enough to be user-visible
+  # or revenue-impacting, but avoid noise from tiny tail segments."
+  device-coverage: 5
+
+  # Mobile / desktop / web UX performance patterns (Device/Web workload)
+  # These are optional examples; copy what matters into your env-specific COD_THRESHOLDS.yaml.
+  mobile-interaction-lag: 6        # high lag hurts activation/conversion
+  mobile-app-cold-start: 5         # cold start visible but not catastrophic
+  mobile-offline-sync: 6           # offline failures can corrupt or lose work
+  desktop-app-memory-leak: 5       # leaks degrade long-running desktop sessions
+  desktop-app-startup: 5           # slow startup hurts adoption for tooling
+  web-prototype-build-time: 5      # long build slows feedback but isn't always CoD-critical
+  web-bundle-size: 5               # bloated bundles hurt LCP/TTI on constrained devices
+  cross-platform-compatibility: 5  # regressions on a single platform should surface quickly
+
+  # Workload-level fallback keys (used when a pattern is not explicitly listed)
+  # These map to the logical workloads used by workloadsForPattern():
+  #   - __ML__     → ML training / evaluation flows
+  #   - __HPC__    → HPC / batch cluster workloads
+  #   - __Stats__  → statistical analysis and robustness sweeps
+  #   - __Device__ → device / web / client coverage patterns
+
+  __ML__: 6
+  __HPC__: 8
+  __Stats__: 4
+  __Device__: 5

@@ -164,7 +164,7 @@ def main(argv: List[str] | None = None) -> int:
     if args.project_root:
         project_root = Path(args.project_root).resolve()
     else:
-        # Start from CWD and search upwards for .goalie
+        # Start from CWD and search upwards for the nearest .goalie
         project_root = Path.cwd().resolve()
         while project_root != project_root.parent:
             if (project_root / ".goalie").exists():

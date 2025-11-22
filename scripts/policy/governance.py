@@ -108,6 +108,44 @@ class GovernanceMiddleware:
         self.observability_missing_signals = 0
         self.observability_suggestions = 0
 
+        # Minimal RCA state (per run)
+        self.dt_consecutive_failures = 0
+        self.retro_coach_consecutive_nonzero = 0
+        self.emit_metrics_retry_attempts = 0
+        self.iterations_without_progress = 0
+        self.safe_degrade_error_count = 0
+        self.vsix_telemetry_gap_count = 0
+
+    def update_rca_counters(self, status: str):
+        """Update RCA counters based on cycle status."""
+        if status == "failure":
+            self.iterations_without_progress += 1
+            # If we are in safe degrade mode and failing, increment the error count
+            if self.safe_degrade_triggers > 0:
+                self.safe_degrade_error_count += 1
+        else:
+            # Reset progress counter on success
+            self.iterations_without_progress = 0
+        
+        # VSIX Telemetry Gap Logic
+        # Check if pattern_metrics.jsonl has been modified recently (e.g. last 5 minutes)
+        # This assumes VSIX or some other process is writing to it.
+        # If not, increment gap count.
+        pattern_log = self.project_root / ".goalie" / "pattern_metrics.jsonl"
+        is_fresh = False
+        if pattern_log.exists():
+            try:
+                mtime = pattern_log.stat().st_mtime
+                if time.time() - mtime < 300:  # 5 minutes
+                    is_fresh = True
+            except Exception:
+                pass
+        
+        if not is_fresh:
+            self.vsix_telemetry_gap_count += 1
+        else:
+            self.vsix_telemetry_gap_count = 0
+
     def _write_preflight_snapshot(self, context: Dict[str, Any]) -> None:
         """Persist a compact JSON snapshot of the guardrail state before iteration loop.
 
@@ -165,21 +203,37 @@ class GovernanceMiddleware:
 
         metrics_file = self.project_root / ".goalie/metrics_log.jsonl"
         avg_score = 100
+        score_samples = 0
         if metrics_file.exists():
             try:
                 with open(metrics_file, "r") as f:
                     lines = f.readlines()
-                    # Find last valid score
-                    for line in reversed(lines):
+                # Scan all lines to count how many average_score samples we have
+                for line in lines:
+                    try:
                         data = json.loads(line)
-                        if "average_score" in data:
-                            avg_score = data["average_score"]
-                            break
+                    except Exception:
+                        continue
+                    if "average_score" in data:
+                        score_samples += 1
+                        avg_score = data["average_score"]
+                # If we never saw an average_score, fall back to default 100
+                if score_samples == 0:
+                    avg_score = 100
             except Exception:
-                pass
+                avg_score = 100
+                score_samples = 0
+
+        # Require a minimal baseline of score samples before enforcing the score guard.
+        # This prevents cold-start runs from being blocked solely due to avg_score=0.0.
+        has_score_baseline = score_samples >= 5
+
+        # Allow relaxing the score-based guard via env in dev/lab mode while keeping
+        # incident-based blocking intact.
+        relax_score_guard = os.environ.get("AF_PROD_RELAX_SCORE_GUARD", "0") == "1"
 
         is_unsafe_load = recent_incidents > SAFE_DEGRADE_THRESHOLD_INCIDENTS
-        is_unsafe_score = avg_score < SAFE_DEGRADE_THRESHOLD_SCORE
+        is_unsafe_score = (not relax_score_guard) and has_score_baseline and avg_score < SAFE_DEGRADE_THRESHOLD_SCORE
 
         previously_active = self.safe_degrade_active_since is not None
 
@@ -469,6 +523,9 @@ class GovernanceMiddleware:
             return_code = e.returncode
             print(f"[Governance] Cycle failed with exit code {e.returncode}")
 
+            # Treat full-cycle failure as a dt_dataset_build failure for RCA seed purposes.
+            self.dt_consecutive_failures += 1
+
             # Pattern 5: Failure Strategy - Abort on critical failure?
             # For MVP, we log and continue to next iteration unless it's catastrophic.
             self.telemetry.log_pattern_event({
@@ -484,6 +541,13 @@ class GovernanceMiddleware:
                 "action": "log-failure"
             })
 
+        self.update_rca_counters(status)
+
+        if status == "success":
+            # Reset simple RCA counters when the cycle succeeds.
+            self.dt_consecutive_failures = 0
+            # iterations_without_progress is handled in update_rca_counters
+            
         duration = time.time() - start_time
         duration_ms = int(duration * 1000)
 
@@ -542,6 +606,21 @@ class GovernanceMiddleware:
             "--observability-first-metrics-written", str(self.observability_metrics_written),
             "--observability-first-missing-signals", str(self.observability_missing_signals),
             "--observability-first-suggestion-made", str(self.observability_suggestions),
+            "--dt-consecutive-failures", str(self.dt_consecutive_failures),
+            "--dt-consecutive-failures-threshold-reached", "1" if self.dt_consecutive_failures >= 3 else "0",
+            "--retro-coach-consecutive-nonzero", str(self.retro_coach_consecutive_nonzero),
+            "--retro-coach-consecutive-nonzero-threshold-reached", "1" if self.retro_coach_consecutive_nonzero >= 2 else "0",
+            "--emit-metrics-retry-attempts", str(self.emit_metrics_retry_attempts),
+            "--emit-metrics-retry-burst-threshold-reached", "1" if self.emit_metrics_retry_attempts >= 5 else "0",
+            "--iterations-without-progress", str(self.iterations_without_progress),
+            "--prod-cycle-stagnation-threshold-reached", "1" if self.iterations_without_progress >= 2 else "0",
+            "--safe-degrade-error-count", str(self.safe_degrade_error_count),
+            "--safe-degrade-overuse-flag", "1" if self.safe_degrade_error_count >= 3 else "0",
+            "--errors-by-circle", json.dumps({}),
+            "--errors-by-pattern", json.dumps({}),
+            "--retro-coach-exit-code-histogram", json.dumps({}),
+            "--vsix-telemetry-gap-count", str(self.vsix_telemetry_gap_count),
+            "--vsix-telemetry-gap-threshold-reached", "1" if self.vsix_telemetry_gap_count >= 2 else "0",
             "--log-file", str(metrics_log_path)
         ]
         self._emit_metrics_event(state_args)

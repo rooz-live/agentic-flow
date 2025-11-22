@@ -11,6 +11,7 @@ Design goals:
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import List, Dict, Any
@@ -90,21 +91,61 @@ def main() -> int:
     project_root = script_path.parents[2]
     board_path = project_root / ".goalie" / "KANBAN_BOARD.yaml"
 
+    # Depth-aware context from AF
+    circle = os.getenv("AF_CIRCLE", "").strip()
+    try:
+        depth_level = int(os.getenv("AF_DEPTH_LEVEL", "0"))
+    except ValueError:
+        depth_level = 0
+
+    depth_labels = {0: "core", 1: "analysis", 2: "circle", 3: "devops", 4: "deploy"}
+    depth_label = depth_labels.get(depth_level, "core")
+
     items = load_now_items(board_path)
     if not items:
         sys.stdout.write("No NOW items found on the Kanban board or board missing.\n")
         return 0
 
-    sys.stdout.write("Suggested circle teams for NOW items (read-only):\n\n")
+    sys.stdout.write(
+        f"Suggested circle teams for NOW items (read-only; depth={depth_level} ({depth_label}), circle={circle or '<none>'}):\n\n"
+    )
+
     for item in items:
         item_id = item.get("id", "UNKNOWN")
         title = item.get("title", "(no title)")
         metrics = item.get("metrics", [])
         roles = metrics_to_roles(metrics)
+
+        # Circle perspective can bias ordering
+        if circle and circle in roles:
+            roles = [circle] + [r for r in roles if r != circle]
+
         metrics_str = ", ".join(metrics) if metrics else "(none)"
         roles_str = ", ".join(roles)
+
+        # Depth-aware focus tags
+        focus_tags: List[str] = []
+        if depth_level >= 1:
+            focus_tags.append("analysis")
+        if depth_level >= 2:
+            focus_tags.extend(["review", "retro", "refinement", "replenishment"])
+        if depth_level >= 3:
+            focus_tags.append("technical-radar")
+        if depth_level >= 4:
+            focus_tags.append("deploy-readiness")
+
+        # Deduplicate focus tags
+        seen = set()
+        deduped_focus = []
+        for tag in focus_tags:
+            if tag not in seen:
+                seen.add(tag)
+                deduped_focus.append(tag)
+
         sys.stdout.write(f"{item_id} - {title}\n")
         sys.stdout.write(f"  metrics: {metrics_str}\n")
+        if deduped_focus:
+            sys.stdout.write(f"  depth_focus: {', '.join(deduped_focus)}\n")
         sys.stdout.write(f"  suggested_roles: {roles_str}\n\n")
 
     return 0
@@ -112,4 +153,3 @@ def main() -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())
-

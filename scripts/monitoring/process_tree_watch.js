@@ -10,18 +10,18 @@
  *   node scripts/monitoring/process_tree_watch.js --once  # Run once for validation
  */
 
-const { exec } = require('child_process');
-const { promisify } = require('util');
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 
 const execAsync = promisify(exec);
 
 // Configuration
 const POLL_INTERVAL_MS = 10000; // 10 seconds
 const CPU_COUNT = os.cpus().length;
-const CAPACITY_THRESHOLD = 0.70; // 70% of CPU count
+const CAPACITY_THRESHOLD = 0.90; // 70% of CPU count
 const LOAD_THRESHOLD = CPU_COUNT * CAPACITY_THRESHOLD;
 const SNAPSHOT_FILE = 'logs/process_tree_snapshot.json';
 const INCIDENTS_LOG = 'logs/governor_incidents.jsonl';

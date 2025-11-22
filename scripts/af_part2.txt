@@ -1,80 +1,3 @@
-#!/usr/bin/env bash
-#
-# af - Agentic Flow Unified Command Interface
-#
-# Consolidates tool contexts into single interface to reduce friction
-# and close Build-Measure-Learn feedback loops.
-#
-# Usage: af <command> [args]
-
-set -euo pipefail
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-
-# Colors
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-BLUE='\033[0;34m'
-NC='\033[0m'
-
-# Pattern metrics logging helper
-log_pattern_event() {
-    local pattern="$1"
-    local mode="$2"
-    local gate="$3"
-    local reason="$4"
-    local action="$5"
-    local context_json="${6:-}"
-
-    # Validate known patterns to keep metrics clean
-    case "$pattern" in
-        depth-ladder|safe-degrade|circle-risk-focus|autocommit-shadow|guardrail-lock|failure-strategy|iteration-budget|observability-first)
-            ;;
-        *)
-            # Unknown pattern; skip logging to avoid polluting metrics
-            return 0
-            ;;
-    esac
-
-    local ts
-    ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-
-    local run_kind="${AF_RUN_KIND:-unknown}"
-    local iteration="${AF_RUN_ITERATION:-0}"
-    local circle="${AF_CIRCLE:-unknown}"
-    local depth="${AF_DEPTH_LEVEL:-0}"
-    local framework="${AF_FRAMEWORK:-}"
-    local scheduler="${AF_SCHEDULER:-}"
-    local mutation="false"
-    if [[ "$mode" == *"mutate"* ]] || [[ "$mode" == *"enforce"* ]] || [[ "$mode" == *"blocking"* ]]; then
-        mutation="true"
-    fi
-
-    # Ensure .goalie directory exists
-    mkdir -p "$PROJECT_ROOT/.goalie"
-
-    # Base JSON fields
-    printf "{\"ts\":\"%s\",\"run\":\"%s\",\"iteration\":%s," \
-        "$ts" "$run_kind" "$iteration" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
-    printf "\"circle\":\"%s\",\"depth\":%s," \
-        "$circle" "$depth" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
-    printf "\"pattern\":\"%s\",\"mode\":\"%s\",\"mutation\":%s,\"gate\":\"%s\"," \
-        "$pattern" "$mode" "$mutation" "$gate" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
-
-    # Final fields + optional context JSON (must be valid JSON value, typically an object)
-    printf "\"framework\":\"%s\",\"scheduler\":\"%s\",\"reason\":\"%s\",\"action\":\"%s\"" \
-        "$framework" "$scheduler" "$reason" "$action" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
-
-    if [ -n "$context_json" ]; then
-        printf ",\"context\":%s" "$context_json" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
-    fi
-
-    printf "}\n" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
-}
-
-show_help() {
     cat <<EOF
 ${BLUE}af - Agentic Flow Unified Command Interface${NC}
 
@@ -82,12 +5,6 @@ ${GREEN}Status & Analysis:${NC}
   af status              Show comprehensive system status
   af metrics             Display metrics dashboard
   af analyze             Run doc_query analysis
-
-${GREEN}Production Maturity & Observability:${NC}
-  af retro-analysis      Run production maturity retrospective analysis
-  af flow-metrics        Show flow & learning metrics (WSJF, BML throughput)
-  af validate-success    Validate production success criteria
-  af validate-dt         Validate Decision Transformer trajectories
 
 ${GREEN}Feedback Loop:${NC}
   af insight <text>      Capture retro insight
@@ -158,9 +75,9 @@ cmd_status() {
     # Goalie status
     echo -e "${GREEN}Goalie Tracking:${NC}"
     if [ -f "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" ]; then
-        local now_count=$(grep -A 20 "NOW:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep -e "- id:" | wc -l | tr -d ' ')
-        local next_count=$(grep -A 20 "NEXT:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep -e "- id:" | wc -l | tr -d ' ')
-        local done_count=$(grep -A 100 "DONE:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep -e "- id:" | wc -l | tr -d ' ')
+        local now_count=$(grep -A 20 "NOW:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep "- id:" | wc -l | tr -d ' ')
+        local next_count=$(grep -A 20 "NEXT:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep "- id:" | wc -l | tr -d ' ')
+        local done_count=$(grep -A 100 "DONE:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep "- id:" | wc -l | tr -d ' ')
         echo "  NOW: $now_count | NEXT: $next_count | DONE: $done_count"
     fi
     echo ""
@@ -558,147 +475,6 @@ cmd_governor_health() {
         echo -e "${YELLOW}health_check.py not found${NC}"
     fi
 }
-
-cmd_multi_pattern_coverage() {
-    local json_mode=0
-    local dirs_arg=""
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --json)
-                json_mode=1
-                shift
-                ;;
-            --dirs)
-                dirs_arg="${2:-}"
-                shift 2
-                ;;
-            *)
-                echo -e "${YELLOW}Ignoring unknown multi-pattern-coverage option: $1${NC}" >&2
-                shift
-                ;;
-        esac
-    done
-
-    if [ "$json_mode" -ne 1 ]; then
-        echo -e "${RED}multi-pattern-coverage currently supports only --json mode${NC}" >&2
-        return 1
-    fi
-
-    if [ -z "$dirs_arg" ]; then
-        # Default to current PROJECT_ROOT/.goalie for compatibility
-        dirs_arg="${PROJECT_ROOT}/.goalie"
-    fi
-
-    IFS=',' read -r -a goalie_dirs <<< "$dirs_arg"
-
-    AF_MULTI_GOALIE_DIRS="$dirs_arg" python3 - << 'PY'
-import json
-import os
-import subprocess
-import sys
-from datetime import datetime
-
-project_root = os.environ.get("PROJECT_ROOT", os.getcwd())
-
-raw_dirs = os.environ.get("AF_MULTI_GOALIE_DIRS", "")
-if not raw_dirs:
-    print(json.dumps({"error": "AF_MULTI_GOALIE_DIRS not set"}))
-    sys.exit(1)
-
-goalie_dirs = [d.strip() for d in raw_dirs.split(',') if d.strip()]
-
-if not goalie_dirs:
-    print(json.dumps({"error": "No Goalie dirs provided"}))
-    sys.exit(1)
-
-per_env = []
-all_patterns = {}
-
-def run_pattern_coverage(goalie_dir: str):
-    env = os.environ.copy()
-    env["PROJECT_ROOT"] = project_root
-    # Allow overriding Goalie dir via env for the called script
-    env["AF_GOALIE_DIR"] = goalie_dir
-    cmd = [os.path.join(project_root, "scripts", "af"), "pattern-coverage", "--json"]
-    try:
-        out = subprocess.check_output(cmd, env=env, stderr=subprocess.DEVNULL)
-    except Exception as e:
-        return {"error": f"failed to run pattern-coverage for {goalie_dir}: {e}"}
-    try:
-        return json.loads(out.decode("utf-8"))
-    except Exception as e:
-        return {"error": f"invalid JSON from pattern-coverage for {goalie_dir}: {e}"}
-
-for gd in goalie_dirs:
-    name = os.path.basename(os.path.normpath(gd)) or gd
-    pc_json = run_pattern_coverage(gd)
-    if "error" in pc_json:
-        per_env.append({"name": name, "error": pc_json["error"]})
-        continue
-
-    per_env.append({
-        "name": name,
-        "coverage": pc_json.get("coverage", {}),
-        "totals": pc_json.get("totals", {}),
-        "patterns": pc_json.get("patterns", []),
-    })
-
-    for entry in pc_json.get("patterns", []):
-        pname = entry.get("name")
-        if not pname:
-            continue
-        agg = all_patterns.setdefault(pname, {"direct_events": 0, "inferred_events": 0})
-        agg["direct_events"] += int(entry.get("direct_events", 0))
-        agg["inferred_events"] += int(entry.get("inferred_events", 0))
-
-# Compute global coverage across all envs
-pattern_names = sorted(all_patterns.keys())
-logged_patterns = 0
-for pname in pattern_names:
-    entry = all_patterns[pname]
-    if entry["direct_events"] + entry["inferred_events"] > 0:
-        logged_patterns += 1
-
-total_patterns = len(pattern_names) or 8
-coverage_pct = 0.0
-if total_patterns > 0:
-    coverage_pct = (float(logged_patterns) / float(total_patterns)) * 100.0
-
-global_totals = {
-    "direct_events": sum(v["direct_events"] for v in all_patterns.values()),
-    "inferred_events": sum(v["inferred_events"] for v in all_patterns.values()),
-}
-
-payload = {
-    "timestamp": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
-    "environments": per_env,
-    "global": {
-        "coverage": {
-            "unique_patterns_logged": logged_patterns,
-            "total_patterns": total_patterns,
-            "coverage_percentage": coverage_pct,
-        },
-        "totals": global_totals,
-    },
-}
-
-print(json.dumps(payload))
-PY
-}
-
-
-cmd_detect_observability_gaps() {
-    echo -e "${BLUE}=== Observability Gap Detection ===${NC}\n"
-
-    if [ -f "$SCRIPT_DIR/agentic/detect_observability_gaps.py" ]; then
-        python3 "$SCRIPT_DIR/agentic/detect_observability_gaps.py" "$@"
-    else
-        echo -e "${RED}detect_observability_gaps.py not found at $SCRIPT_DIR/agentic/detect_observability_gaps.py${NC}"
-        return 1
-    fi
-}
-
 # Governance federation helpers (Retro Coach + Governance Agent)
 cmd_retro_coach() {
     cd "$PROJECT_ROOT"
@@ -720,244 +496,225 @@ cmd_governance_agent() {
     fi
 }
 
-cmd_governance_executor() {
-    cd "$PROJECT_ROOT"
-    if ! command -v npx &> /dev/null; then
-        echo -e "${YELLOW}npx not found; cannot run governance_executor.ts${NC}"
-        return 1
-    fi
-
-    mkdir -p "$PROJECT_ROOT/.goalie"
-
-    local tmp_json
-    tmp_json="$(mktemp "$PROJECT_ROOT/.goalie/governance_payload_XXXXXX.json")"
-
-    if ! cmd_governance_agent --json > "$tmp_json"; then
-        echo -e "${YELLOW}governance_agent failed; skipping governance executor${NC}"
-        rm -f "$tmp_json"
-        return 0
-    fi
-
-    local summary_out="$PROJECT_ROOT/.goalie/executor_summary.json"
-    local error_log="$PROJECT_ROOT/.goalie/executor_errors.log"
-
-    if [ "${AF_GOVERNANCE_EXECUTOR_DRY_RUN:-1}" = "1" ]; then
-        npx tsx tools/federation/governance_executor.ts --dry-run < "$tmp_json" \
-            > "$summary_out" 2>> "$error_log" || true
-    else
-        npx tsx tools/federation/governance_executor.ts < "$tmp_json" \
-            > "$summary_out" 2>> "$error_log" || true
-    fi
-
-    rm -f "$tmp_json"
-}
 
 
 
-
-# Production maturity cycle (Delegated to Governance Middleware)
+# Production maturity cycle (Relentless Execution: Insight -> Action -> Commit)
+# Integrated with Dynamic Autocommit Policy & Smart Defaults
 cmd_prod_cycle() {
-    local middleware_script="$SCRIPT_DIR/policy/governance.py"
+    # 1. Smart Defaults (Max Config)
+    local iterations="${1:-12}"  # Default 12 if not provided
+    local depth=3                # Default 3 (DevOps safe) if not overridden
+    local circle=""
+    local rotate_circles=1       # Default rotation on
+    local flag_autocommit=1      # Default autocommit on
 
-    if [ ! -f "$middleware_script" ]; then
-        echo -e "${RED}Error: Governance middleware not found at $middleware_script${NC}"
-        exit 1
+    # 2. Parse Overrides
+    # Check if first arg is a number (iterations)
+    if [[ "$iterations" =~ ^[0-9]+$ ]]; then
+        shift 2>/dev/null || true
+    else
+        iterations=12 # Reset if first arg wasn't number
     fi
 
-    # Invoke Python Middleware
-    # Arguments are passed directly, allowing governance.py to parse flags
-    python3 "$middleware_script" "$@"
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --depth) shift; depth="${1:-3}" ;;
+            --circle) shift; circle="${1:-}"; rotate_circles=0 ;; # Specific circle disables rotation
+            --rotate-circles) rotate_circles=1 ;;
+            --autocommit) flag_autocommit=1 ;;
+            --no-autocommit) flag_autocommit=0 ;;
+            --no-test-first) export AF_FULL_CYCLE_TEST_FIRST=0 ;;
+            --no-deploy) ;; # No-op, just flag
+            --) shift; break ;;
+            -*) echo -e "${YELLOW}Unknown prod-cycle option: $1${NC}" ;;
+            *) ;;
+        esac
+        shift
+    done
+
+    # 3. Dynamic Health Policy (System Load & Risk)
+    # Check System Load
+    local incidents_log="$PROJECT_ROOT/logs/governor_incidents.jsonl"
+    local recent_load_incidents=0
+    if [ -f "$incidents_log" ]; then
+        recent_load_incidents=$(grep "system_overload" "$incidents_log" | tail -n 10 | wc -l | tr -d " ")
+    fi
+
+    # Check Risk Score
+    local metrics_log="$PROJECT_ROOT/.goalie/metrics_log.jsonl"
+    local current_risk_score=0
+    if [ -f "$metrics_log" ]; then
+        # Extract last valid score, default to 0 if missing/null
+        current_risk_score=$(tail -n 10 "$metrics_log" | grep "average_score" | tail -n 1 | sed -E "s/.*\"average_score\":([0-9]+).*/\1/" || echo 0)
+    fi
+
+    # Enforce Policy
+    if [ "$recent_load_incidents" -gt 5 ]; then
+        echo -e "${RED}⚠️  High System Load ($recent_load_incidents incidents). Disabling Code Autocommit.${NC}"
+        export AF_ALLOW_CODE_AUTOCOMMIT=0
+    elif [ "$current_risk_score" -gt 0 ] && [ "$current_risk_score" -lt 50 ]; then
+        echo -e "${RED}⚠️  High Risk Score ($current_risk_score < 50). Disabling Code Autocommit.${NC}"
+        export AF_ALLOW_CODE_AUTOCOMMIT=0
+    else
+        echo -e "${GREEN}✅ System Healthy (Load OK, Risk $current_risk_score). Code Autocommit Allowed.${NC}"
+        export AF_ALLOW_CODE_AUTOCOMMIT=1
+    fi
+
+    export AF_FULL_CYCLE_AUTOCOMMIT="$flag_autocommit"
+    export AF_RUN_KIND="prod-cycle"
+
+    # 4. Execution Loop with Dynamic Extension
+    echo -e "${BLUE}=== Relentless Execution Cycle (Smart Defaults) ===${NC}"
+    echo "  Iterations: $iterations (Adaptive)"
+    echo "  Rotation: $( [ "$rotate_circles" = "1" ] && echo "Enabled" || echo "Fixed: $circle" )"
+    echo "  Depth: $depth"
+    echo ""
+
+    local circles=("analyst" "assessor" "innovator" "intuitive" "orchestrator" "seeker")
+    local current_iter=1
+    local max_iter="$iterations"
+    local extensions=0
+    local max_extensions=3
+
+    while [ "$current_iter" -le "$max_iter" ]; do
+        local i="$current_iter"
+
+        local this_circle="$circle"
+        if [ "$rotate_circles" -eq 1 ]; then
+            local idx=$(( (i - 1) % ${#circles[@]} ))
+            this_circle="${circles[$idx]}"
+        fi
+
+        export AF_RUN_ITERATION="$i"
+        export AF_CIRCLE="$this_circle"
+        export AF_DEPTH_LEVEL="$depth"
+
+        # Reset Iteration Metrics
+        METRIC_SAFE_DEGRADE_TRIGGERS=0
+        METRIC_AUTOCOMMIT_CANDIDATES=0
+        METRIC_AUTOCOMMIT_CYCLES=0
+
+        echo -e "${BLUE}>>> Iteration $i/$max_iter (Circle: $this_circle) <<<${NC}"
+
+        # Telemetry Hook for Pattern Metrics
+        if [ "${AF_ENABLE_PATTERN_TELEMETRY:-1}" == "1" ]; then
+             log_pattern_event "depth-ladder" "${AF_PROD_CYCLE_MODE:-advisory}" "health" "depth=${depth}" "iteration_start"
+             log_pattern_event "circle-risk-focus" "${AF_PROD_CYCLE_MODE:-advisory}" "focus" "circle=${this_circle}" "iteration_start"
+        fi
+
+        # Invoke full-cycle logic
+        cmd_full_cycle 1
+
+        # Emit Structured Metrics
+        local budget_consumed="$i"
+        local budget_remaining=$((max_iter - i))
+        local governor_status="green" # Default, could be refined by parsing governor output
+        
+        python3 "$SCRIPT_DIR/emit_metrics.py" \
+            --cycle-index "$i" \
+            --depth "$depth" \
+            --circle "$this_circle" \
+            --safe-degrade-triggers "$METRIC_SAFE_DEGRADE_TRIGGERS" \
+            --autocommit-candidates "$METRIC_AUTOCOMMIT_CANDIDATES" \
+            --autocommit-cycles "$METRIC_AUTOCOMMIT_CYCLES" \
+            --budget-remaining "$budget_remaining" \
+            --budget-consumed "$budget_consumed" \
+            --governor-status "$governor_status" \
+            --log-file "$PROJECT_ROOT/.goalie/metrics_log.jsonl"
+
+        # Dynamic Extension Logic
+        if [ "${AF_ALLOW_CODE_AUTOCOMMIT:-1}" == "0" ] && [ "$extensions" -lt "$max_extensions" ]; then
+             echo -e "${YELLOW}Autocommit disabled due to load/risk. Extending prod-cycle by 1 iteration to ensure completion.${NC}"
+             max_iter=$((max_iter + 1))
+             extensions=$((extensions + 1))
+        fi
+
+        current_iter=$((current_iter + 1))
+    done
+
+    echo -e "${BLUE}=== Relentless Execution Cycle Complete (Total: $((current_iter - 1))) ===${NC}"
 }
 
 # Dynamic Policy Hook
 if [ -f "$SCRIPT_DIR/policy/dynamic_autocommit.sh" ] && [ "$1" == "prod-cycle" ]; then
-    source "$SCRIPT_DIR/policy/dynamic_autocommit.sh"
+    # Sourcing logic moved to wrapper, but leaving hook for future integration
+    :
 fi
 
+# Main dispatch
+case "${1:-help}" in
+    status) cmd_status ;;
+    metrics) cmd_metrics ;;
+    analyze) shift; cmd_analyze "$@" ;;
+    insight) shift; cmd_insight "$@" ;;
+    action) shift; cmd_action "$@" ;;
+    suggest-team) shift; cmd_suggest_team "$@" ;;
+    suggest-actions) shift; cmd_suggest_actions "$@" ;;
+    quick-wins) cmd_quick_wins ;;
+    wsjf) cmd_wsjf ;;
+    snapshot) shift; cmd_snapshot "$@" ;;
+    restore) shift; cmd_restore "$@" ;;
+    baseline) shift; cmd_baseline "$@" ;;
+    validate) shift; cmd_validate "$@" ;;
+    test) cmd_test ;;
+    governor) cmd_governor ;;
+    governor-health) shift; cmd_governor_health "$@" ;;
+    hooks) cmd_hooks ;;
+    events) shift; cmd_events "$@" ;;
+    beam) cmd_beam ;;
+    full-cycle) shift; cmd_full_cycle "${1:-1}" ;;
+    prod-cycle) shift; cmd_prod_cycle "$@" ;;
+    cycle) cmd_cycle ;;
+    commit) shift; cmd_commit "$@" ;;
+    feedback) cmd_feedback ;;
+    board) cmd_board ;;
+    blockers) cmd_blockers ;;
+    cpu) cmd_cpu ;;
+    goalie-gaps) shift; cmd_goalie_gaps "$@" ;;
+    sample-workloads) shift; cmd_sample_workloads "$@" ;;
+    retro-coach) shift; cmd_retro_coach "$@" ;;
+    governance-agent) shift; cmd_governance_agent "$@" ;;
+    help|--help|-h) show_help ;;
+    *)
+        echo -e "${RED}Unknown command: $1${NC}"
+        echo "Run 'af help' for usage"
+        exit 1
+        ;;
+esac
 
-log_prod_cycle_iteration_metrics() {
-    local run_kind="${AF_RUN_KIND:-unknown}"
-    if [ "$run_kind" != "prod-cycle" ]; then
-        return 0
-    fi
+# Pattern metrics logging helper
+log_pattern_event() {
+    local pattern="$1"
+    local mode="$2"
+    local gate="$3"
+    local reason="$4"
+    local action="$5"
 
     local ts
     ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
+    local run_kind="${AF_RUN_KIND:-unknown}"
     local iteration="${AF_RUN_ITERATION:-0}"
     local circle="${AF_CIRCLE:-unknown}"
     local depth="${AF_DEPTH_LEVEL:-0}"
-    local mode="${AF_PROD_CYCLE_MODE:-advisory}"
-    local run_id="${AF_RUN_ID:-unknown}"
+    local framework="${AF_FRAMEWORK:-}"
+    local scheduler="${AF_SCHEDULER:-}"
+    local mutation="false"
+    if [[ "$mode" == *"mutate"* ]] || [[ "$mode" == *"enforce"* ]] || [[ "$mode" == *"blocking"* ]]; then
+        mutation="true"
+    fi
 
-    local requested="${AF_PC_REQUESTED_ITERATIONS:-0}"
-    local max_iter="${AF_PC_MAX_ITER:-0}"
-    local extensions="${AF_PC_EXTENSIONS_USED:-0}"
-    local safe_degrade_triggers="${AF_PC_SAFE_DEGRADE_TRIGGERS:-0}"
-    local recent_incidents="${AF_PC_RECENT_LOAD_INCIDENTS:-0}"
-    local risk_score="${AF_PC_CURRENT_RISK_SCORE:-0}"
-
-    local allow_code="${AF_ALLOW_CODE_AUTOCOMMIT:-0}"
-    local full_autocommit="${AF_FULL_CYCLE_AUTOCOMMIT:-0}"
-    local test_first="${AF_FULL_CYCLE_TEST_FIRST:-1}"
-    local autocommit_runs="${AF_PC_AUTOCOMMIT_RUNS:-0}"
-
-    local safe_degrade_reason="${AF_PC_SAFE_DEGRADE_REASON:-none}"
-
-    local patt_depth_ladder="${AF_PROD_DEPTH_LADDER:-0}"
-    local patt_safe_degrade="${AF_PROD_SAFE_DEGRADE:-0}"
-    local patt_circle_risk_focus="${AF_PROD_CIRCLE_RISK_FOCUS:-0}"
-    local patt_autocommit_shadow="${AF_PROD_AUTOCOMMIT_SHADOW:-0}"
-    local patt_guardrail_lock="${AF_PROD_GUARDRAIL_LOCK:-0}"
-    local patt_failure_strategy="${AF_PROD_FAILURE_STRATEGY:-0}"
-    local patt_iteration_budget="${AF_PROD_ITERATION_BUDGET:-0}"
-    local patt_observability_first="${AF_PROD_OBSERVABILITY_FIRST:-0}"
-
-    local safe_degrade_actions="${AF_PC_SAFE_DEGRADE_ACTIONS:-[]}"
-    local safe_degrade_recovery="${AF_PC_SAFE_DEGRADE_RECOVERY_CYCLES:-0}"
-
-    local circle_risk_owner="${AF_PC_CIRCLE_RISK_FOCUS_TOP_OWNER:-none}"
-    local circle_risk_extra="${AF_PC_CIRCLE_RISK_FOCUS_EXTRA_ITERATIONS:-0}"
-    local circle_risk_reduction="${AF_PC_CIRCLE_RISK_FOCUS_ROAM_REDUCTION:-0}"
-
-    local shadow_override="${AF_PC_AUTOCOMMIT_SHADOW_MANUAL_OVERRIDE:-0}"
-
-    local guardrail_enforced="${AF_PC_GUARDRAIL_LOCK_ENFORCED:-0}"
-    local guardrail_health="${AF_PC_GUARDRAIL_LOCK_HEALTH_STATE:-unknown}"
-    local guardrail_requests="${AF_PC_GUARDRAIL_LOCK_USER_REQUESTS:-0}"
-
-    local fail_strat_mode="${AF_PC_FAILURE_STRATEGY_MODE:-none}"
-    local fail_strat_abort="${AF_PC_FAILURE_STRATEGY_ABORT_AT:-0}"
-    local fail_strat_reason="${AF_PC_FAILURE_STRATEGY_DEGRADE_REASON:-none}"
-
-    local budget_enforced="${AF_PC_ITERATION_BUDGET_ENFORCED:-0}"
-
-    local obs_written="${AF_PC_OBSERVABILITY_METRICS_WRITTEN:-0}"
-    local obs_missing="${AF_PC_OBSERVABILITY_MISSING_SIGNALS:-0}"
-    local obs_suggest="${AF_PC_OBSERVABILITY_SUGGESTION_MADE:-0}"
-
+    # Ensure .goalie directory exists
     mkdir -p "$PROJECT_ROOT/.goalie"
-    local out="$PROJECT_ROOT/.goalie/metrics_log.jsonl"
 
-    # Use emit_metrics.py for strictly typed, schema-compliant logging
-    # Calculates budget metrics: remaining = max - current, consumed = current
-    local budget_remaining=$((max_iter - iteration))
-    if [ "$budget_remaining" -lt 0 ]; then budget_remaining=0; fi
-
-    python3 "$SCRIPT_DIR/emit_metrics.py" \
-        --event-type "state" \
-        --run-id "$run_id" \
-        --cycle-index "$iteration" \
-        --circle "$circle" \
-        --depth "$depth" \
-        --safe-degrade-triggers "$safe_degrade_triggers" \
-        --safe-degrade-actions "$safe_degrade_actions" \
-        --safe-degrade-recovery-cycles "$safe_degrade_recovery" \
-        --circle-risk-focus-top-owner "$circle_risk_owner" \
-        --circle-risk-focus-extra-iterations "$circle_risk_extra" \
-        --circle-risk-focus-roam-reduction "$circle_risk_reduction" \
-        --autocommit-shadow-manual-override "$shadow_override" \
-        --guardrail-lock-enforced "$guardrail_enforced" \
-        --guardrail-lock-health-state "$guardrail_health" \
-        --guardrail-lock-user-requests "$guardrail_requests" \
-        --failure-strategy-mode "$fail_strat_mode" \
-        --failure-strategy-abort-iteration-at "$fail_strat_abort" \
-        --failure-strategy-degrade-reason "$fail_strat_reason" \
-        --iteration-budget-requested "$requested" \
-        --iteration-budget-enforced "$budget_enforced" \
-        --iteration-budget-autocommit-runs "$autocommit_runs" \
-        --observability-first-metrics-written "$obs_written" \
-        --observability-first-missing-signals "$obs_missing" \
-        --observability-first-suggestion-made "$obs_suggest" \
-        --autocommit-cycles "$autocommit_runs" \
-        --budget-remaining "$budget_remaining" \
-        --budget-consumed "$iteration" \
-        --risk-score "$risk_score" \
-        --recent-incidents "$recent_incidents" \
-        --average-score "$risk_score" \
-        --risk-distribution "${AF_PC_RISK_DISTRIBUTION:-{}}" \
-        --log-file "$out" || echo "${YELLOW}Warning: Failed to emit metrics via emit_metrics.py${NC}"
+    printf "{\"ts\":\"%s\",\"run\":\"%s\",\"iteration\":%s," \
+        "$ts" "$run_kind" "$iteration" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    printf "\"circle\":\"%s\",\"depth\":%s," \
+        "$circle" "$depth" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    printf "\"pattern\":\"%s\",\"mode\":\"%s\",\"mutation\":%s,\"gate\":\"%s\"," \
+        "$pattern" "$mode" "$mutation" "$gate" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    printf "\"framework\":\"%s\",\"scheduler\":\"%s\",\"reason\":\"%s\",\"action\":\"%s\"}\n" \
+        "$framework" "$scheduler" "$reason" "$action" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
 }
 
-# Main dispatch
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    case "${1:-help}" in
-        status) cmd_status ;;
-        metrics) cmd_metrics ;;
-        analyze) shift; cmd_analyze "$@" ;;
-        insight) shift; cmd_insight "$@" ;;
-        action) shift; cmd_action "$@" ;;
-        suggest-team) shift; cmd_suggest_team "$@" ;;
-        suggest-actions) shift; cmd_suggest_actions "$@" ;;
-        quick-wins) cmd_quick_wins ;;
-        wsjf) cmd_wsjf ;;
-        snapshot) shift; cmd_snapshot "$@" ;;
-        restore) shift; cmd_restore "$@" ;;
-        baseline) shift; cmd_baseline "$@" ;;
-        validate) shift; cmd_validate "$@" ;;
-        test) cmd_test ;;
-        governor) cmd_governor ;;
-        governor-health) shift; cmd_governor_health "$@" ;;
-        hooks) cmd_hooks ;;
-        events) shift; cmd_events "$@" ;;
-        beam) cmd_beam ;;
-        full-cycle) shift; cmd_full_cycle "${1:-1}" ;;
-        prod-cycle) shift; cmd_prod_cycle "$@" ;;
-        cycle) cmd_cycle ;;
-        commit) shift; cmd_commit "$@" ;;
-        feedback) cmd_feedback ;;
-        board) cmd_board ;;
-        blockers) cmd_blockers ;;
-        cpu) cmd_cpu ;;
-        goalie-gaps) shift; cmd_goalie_gaps "$@" ;;
-        pattern-coverage) shift; cmd_pattern_coverage "$@" ;;
-        multi-pattern-coverage) shift; cmd_multi_pattern_coverage "$@" ;;
-        detect-observability-gaps) shift; cmd_detect_observability_gaps "$@" ;;
-        sample-workloads) shift; cmd_sample_workloads "$@" ;;
-        retro-coach) shift; cmd_retro_coach "$@" ;;
-        governance-agent) shift; cmd_governance_agent "$@" ;;
-        retro-analysis)
-            shift
-            if [ -x "$SCRIPT_DIR/analysis/retrospective_analysis.py" ]; then
-                python3 "$SCRIPT_DIR/analysis/retrospective_analysis.py" "$@"
-            else
-                echo -e "${YELLOW}retrospective_analysis.py not found or not executable${NC}"
-                exit 1
-            fi
-            ;;
-        flow-metrics)
-            shift
-            if [ -x "$SCRIPT_DIR/analysis/flow_metrics.py" ]; then
-                python3 "$SCRIPT_DIR/analysis/flow_metrics.py" "$@"
-            else
-                echo -e "${YELLOW}flow_metrics.py not found or not executable${NC}"
-                exit 1
-            fi
-            ;;
-        validate-success)
-            shift
-            if [ -x "$SCRIPT_DIR/analysis/validate_success_criteria.sh" ]; then
-                bash "$SCRIPT_DIR/analysis/validate_success_criteria.sh" "$@"
-            else
-                echo -e "${YELLOW}validate_success_criteria.sh not found or not executable${NC}"
-                exit 1
-            fi
-            ;;
-        validate-dt)
-            shift
-            if [ -x "$SCRIPT_DIR/analysis/validate_dt_trajectories.py" ]; then
-                python3 "$SCRIPT_DIR/analysis/validate_dt_trajectories.py" "$@"
-            else
-                echo -e "${YELLOW}validate_dt_trajectories.py not found or not executable${NC}"
-                exit 1
-            fi
-            ;;
-
-        help|--help|-h) show_help ;;
-        *)
-            echo -e "${RED}Unknown command: $1${NC}"
-            echo "Run 'af help' for usage"
-            exit 1
-            ;;
-    esac
-fi

@@ -699,6 +699,43 @@ cmd_detect_observability_gaps() {
     fi
 }
 
+# Goalie Gaps Check (VSIX Validator)
+cmd_goalie_gaps() {
+    local vsix_path="${1:-}"
+    if [ -z "$vsix_path" ]; then
+        echo -e "${RED}Error: VSIX path required.${NC}"
+        echo "Usage: af goalie-gaps <path-to-vsix>"
+        return 1
+    fi
+
+    if [ ! -f "$vsix_path" ]; then
+        echo -e "${RED}Error: VSIX file not found at $vsix_path${NC}"
+        return 1
+    fi
+
+    echo -e "${BLUE}Validating VSIX: $vsix_path${NC}"
+
+    local tmp_dir
+    tmp_dir="$(mktemp -d)"
+    trap 'rm -rf "$tmp_dir"' RETURN
+
+    unzip -q "$vsix_path" -d "$tmp_dir"
+
+    local ext_dir="$tmp_dir/extension"
+    if [ ! -d "$ext_dir" ]; then
+        echo -e "${RED}Error: Invalid VSIX structure (no extension/ folder)${NC}"
+        return 1
+    fi
+
+    if [ ! -f "$ext_dir/scripts/gap-check.js" ]; then
+        echo -e "${RED}Error: scripts/gap-check.js not found in VSIX${NC}"
+        return 1
+    fi
+
+    echo "Running gap-check.js..."
+    (cd "$ext_dir" && node scripts/gap-check.js)
+}
+
 # Governance federation helpers (Retro Coach + Governance Agent)
 cmd_retro_coach() {
     cd "$PROJECT_ROOT"

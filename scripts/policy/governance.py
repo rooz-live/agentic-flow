@@ -108,6 +108,33 @@ class GovernanceMiddleware:
         self.observability_missing_signals = 0
         self.observability_suggestions = 0
 
+    def _write_preflight_snapshot(self, context: Dict[str, Any]) -> None:
+        """Persist a compact JSON snapshot of the guardrail state before iteration loop.
+
+        This is written once per run to .goalie/preflight_<run_id>.json so that
+        we can later reconstruct what the system believed about itself at
+        pre-flight time (incidents window, scores, autocommit flags, paths).
+        """
+        try:
+            goalie_dir = self.project_root / ".goalie"
+            goalie_dir.mkdir(parents=True, exist_ok=True)
+            snapshot_path = goalie_dir / f"preflight_{self.run_id}.json"
+            base_payload: Dict[str, Any] = {
+                "run_id": self.run_id,
+                "iteration": self.current_iteration,
+                "circle": self.active_circle,
+                "depth": self.current_depth,
+                "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "project_root": str(self.project_root),
+                "goalie_dir": str(goalie_dir),
+            }
+            base_payload.update(context)
+            with snapshot_path.open("w", encoding="utf-8") as f:
+                json.dump(base_payload, f, ensure_ascii=False, indent=2)
+        except Exception:
+            # Best-effort only; failures here must not break prod-cycle.
+            pass
+
     def check_safe_degrade(self) -> bool:
         """
         Pattern 1: Safe Degrade
@@ -115,6 +142,7 @@ class GovernanceMiddleware:
         """
         incidents_file = self.project_root / "logs/governor_incidents.jsonl"
         recent_incidents = 0
+        incident_tail: List[str] = []
         if incidents_file.exists():
             # Simple check: count total lines for now, ideally filter by timestamp
             # For this implementation, we'll rely on parsing the last few lines if timestamp is present,
@@ -125,7 +153,9 @@ class GovernanceMiddleware:
                 # We'll just check line count of 'system_overload' in last 20 lines for simplicity
                 # assuming the log is appended chronologically.
                 with open(incidents_file, "r") as f:
-                    lines = f.readlines()[-20:] # Check last 20 entries
+                    lines = f.readlines()[-20:]  # Check last 20 entries
+
+                incident_tail = [ln.strip() for ln in lines[-5:]]
 
                 # TODO: Implement precise time window filtering.
                 # For now, assume if there are many recent entries, it's bad.
@@ -173,7 +203,7 @@ class GovernanceMiddleware:
             self.safe_degrade_recovery_cycles.append(recovery)
             self.safe_degrade_active_since = None
 
-        # Log event
+        # Log event with explicit guardrail inputs for traceability
         self.telemetry.log_pattern_event({
             "run": "prod-cycle",
             "iteration": self.current_iteration,
@@ -184,7 +214,12 @@ class GovernanceMiddleware:
             "mutation": not self.is_safe,
             "gate": "system-risk",
             "reason": self.safe_degrade_reason,
-            "action": "disable-autocommit" if not self.is_safe else "allow-autocommit"
+            "action": "disable-autocommit" if not self.is_safe else "allow-autocommit",
+            "recent_incidents": recent_incidents,
+            "incident_threshold": SAFE_DEGRADE_THRESHOLD_INCIDENTS,
+            "average_score": avg_score,
+            "score_threshold": SAFE_DEGRADE_THRESHOLD_SCORE,
+            "incident_tail": incident_tail,
         })
 
         return self.is_safe
@@ -514,13 +549,52 @@ class GovernanceMiddleware:
     def run(self):
         print(f"Starting Prod-Cycle (Run ID: {self.run_id})")
 
+        # Persist last_run_id for downstream tools (e.g., run_dossier helper)
+        try:
+            goalie_dir = self.project_root / ".goalie"
+            goalie_dir.mkdir(parents=True, exist_ok=True)
+            last_run_path = goalie_dir / "last_run_id"
+            last_run_path.write_text(self.run_id + "\n", encoding="utf-8")
+        except Exception:
+            # Best-effort only; must not break prod-cycle
+            pass
+
         # Strict Pre-Flight Gate for PI Sync
         if not self.args.force:
             self.check_safe_degrade()
             if not self.is_safe:
+                # Best-effort pre-flight snapshot for blocked runs
+                self._write_preflight_snapshot({
+                    "safe_degrade_reason": self.safe_degrade_reason,
+                    "safe_degrade_triggers": self.safe_degrade_triggers,
+                    "safe_degrade_actions": self.safe_degrade_actions[-10:],
+                    "guardrail": "safe-degrade",
+                    "incident_threshold": SAFE_DEGRADE_THRESHOLD_INCIDENTS,
+                    "score_threshold": SAFE_DEGRADE_THRESHOLD_SCORE,
+                })
                 print(f"[Governance] CRITICAL: System Health Check FAILED ({self.safe_degrade_reason}).")
                 print("[Governance] Execution BLOCKED for PI Sync stability.")
+                print("[Governance] Exiting before iteration loop; reason=" + self.safe_degrade_reason)
                 print("[Governance] Use --force to override (NOT RECOMMENDED).")
+
+                # Optional: generate a run dossier for investigations if enabled
+                if os.environ.get("AF_PROD_DOSSIER") == "1":
+                    try:
+                        subprocess.run(
+                            [
+                                sys.executable,
+                                str(self.project_root / "scripts/analysis/run_dossier.py"),
+                                "--run-id",
+                                self.run_id,
+                                "--summary",
+                                "--output",
+                                str(goalie_dir / f"run_dossier_{self.run_id}.json"),
+                            ],
+                            check=False,
+                        )
+                    except Exception:
+                        # Best-effort only
+                        pass
                 sys.exit(1)
             print("[Governance] System Health Check: GREEN")
 
@@ -543,6 +617,26 @@ class GovernanceMiddleware:
              "total_iterations": self.current_iteration - 1,
              "extensions_used": self.extensions_used
         })
+
+        # Optional: generate a run dossier for completed runs if enabled
+        if os.environ.get("AF_PROD_DOSSIER") == "1":
+            try:
+                goalie_dir = self.project_root / ".goalie"
+                subprocess.run(
+                    [
+                        sys.executable,
+                        str(self.project_root / "scripts/analysis/run_dossier.py"),
+                        "--run-id",
+                        self.run_id,
+                        "--summary",
+                        "--output",
+                        str(goalie_dir / f"run_dossier_{self.run_id}.json"),
+                    ],
+                    check=False,
+                )
+            except Exception:
+                # Best-effort only
+                pass
 
 def main():
     parser = argparse.ArgumentParser(description="Agentic Flow Governance Middleware")

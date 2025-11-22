@@ -135,9 +135,22 @@ def _print_summary(dossier: Dict[str, Any]) -> None:
             msg += f" | avg_score={average_score} (threshold={score_threshold})"
         print(msg)
 
+    # Surface Safe Degrade / overload context from metrics if present.
+    last_incidents_10m = None
+    max_incidents_10m = 0
+    for m in metrics:
+        metrics_block = m.get("metrics") or {}
+        val = metrics_block.get("rca.safe_degrade_recent_incidents_10m")
+        if isinstance(val, (int, float)):
+            last_incidents_10m = int(val)
+            if val > max_incidents_10m:
+                max_incidents_10m = int(val)
+
     print(f"  Metrics entries: {len(metrics)}")
     print(f"  Trajectories:    {len(trajectories)}")
     print(f"  Safe-degrade events: {len(guardrails)}")
+    if last_incidents_10m is not None:
+        print(f"  Safe-degrade recent incidents (10m): last={last_incidents_10m}, max={max_incidents_10m}")
 
 
 def main(argv: List[str] | None = None) -> int:

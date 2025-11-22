@@ -162,6 +162,7 @@ def main():
     parser.add_argument("--retro-coach-exit-code-histogram", type=str, default="{}", help="JSON map of retro_coach exit code histogram")
     parser.add_argument("--vsix-telemetry-gap-count", type=int, default=0, help="Count of VSIX telemetry gaps for this run")
     parser.add_argument("--vsix-telemetry-gap-threshold-reached", type=int, default=0, help="1 if vsix_telemetry_gap_count crossed its RCA threshold")
+    parser.add_argument("--rca-safe-degrade-recent-incidents-10m", type=int, default=0, help="system_overload incidents in last 10 minutes for Safe Degrade RCA context")
     parser.add_argument(
         "--log-file",
         type=str,
@@ -349,7 +350,7 @@ def main():
 
                 # RCA / health counters
                 "rca.dt_consecutive_failures": args.dt_consecutive_failures,
-                "rca.dt_consecutive_failures_threshold_reached": bool(args.dt_consecutive_failures_threshold_reached),
+                "rca.dt_consecutive_failures_threshold_reached": args.dt_consecutive_failures_threshold_reached,
                 "rca.retro_coach_consecutive_nonzero": args.retro_coach_consecutive_nonzero,
                 "rca.retro_coach_consecutive_nonzero_threshold_reached": bool(args.retro_coach_consecutive_nonzero_threshold_reached),
                 "rca.emit_metrics_retry_attempts": args.emit_metrics_retry_attempts,
@@ -362,7 +363,8 @@ def main():
                 "rca.errors_by_pattern": errors_by_pattern,
                 "rca.retro_coach_exit_code_histogram": retro_exit_hist,
                 "rca.vsix_telemetry_gap_count": args.vsix_telemetry_gap_count,
-                "rca.vsix_telemetry_gap_threshold_reached": bool(args.vsix_telemetry_gap_threshold_reached),
+                "rca.vsix_telemetry_gap_threshold_reached": args.vsix_telemetry_gap_threshold_reached,
+                "rca.safe_degrade_recent_incidents_10m": args.rca_safe_degrade_recent_incidents_10m,
 
                 # Circle Risk Focus
                 "circle_risk_focus.top_owner": args.circle_risk_focus_top_owner,

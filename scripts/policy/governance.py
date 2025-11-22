@@ -23,7 +23,7 @@ import time
 import uuid
 import subprocess
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
@@ -35,7 +35,7 @@ CIRCLES = [
     "intuitive", "orchestrator", "seeker"
 ]
 SAFE_DEGRADE_THRESHOLD_SCORE = 50
-SAFE_DEGRADE_THRESHOLD_INCIDENTS = 5
+SAFE_DEGRADE_THRESHOLD_INCIDENTS = 8
 
 
 class TelemetryLogger:
@@ -115,6 +115,7 @@ class GovernanceMiddleware:
         self.iterations_without_progress = 0
         self.safe_degrade_error_count = 0
         self.vsix_telemetry_gap_count = 0
+        self.safe_degrade_recent_incidents_10m = 0
 
     def update_rca_counters(self, status: str):
         """Update RCA counters based on cycle status."""
@@ -254,24 +255,45 @@ class GovernanceMiddleware:
         recent_incidents = 0
         incident_tail: List[str] = []
         if incidents_file.exists():
-            # Simple check: count total lines for now, ideally filter by timestamp
-            # For this implementation, we'll rely on parsing the last few lines if timestamp is present,
-            # but a line count check of the file's tail is robust enough for MVP.
+            # Time-window based filtering: count system_overload incidents in the last 10 minutes.
             try:
-                # Get last 10 lines and check for recent timestamp within 10m?
-                # Simulating grep behavior: > 5 in last 10m.
-                # We'll just check line count of 'system_overload' in last 20 lines for simplicity
-                # assuming the log is appended chronologically.
+                now = datetime.now(timezone.utc)
+                window = timedelta(minutes=10)
+                cutoff = now - window
+
                 with open(incidents_file, "r") as f:
-                    lines = f.readlines()[-20:]  # Check last 20 entries
+                    # Read a reasonable tail; older entries are ignored via timestamp anyway.
+                    lines = f.readlines()[-200:]
 
                 incident_tail = [ln.strip() for ln in lines[-5:]]
 
-                # TODO: Implement precise time window filtering.
-                # For now, assume if there are many recent entries, it's bad.
-                recent_incidents = sum(1 for line in lines if "system_overload" in line)
+                recent_incidents = 0
+                for line in lines:
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    try:
+                        data = json.loads(stripped)
+                    except json.JSONDecodeError:
+                        continue
+
+                    reason = data.get("reason", "")
+                    ts_str = data.get("timestamp")
+                    if "system_overload" not in reason or not ts_str:
+                        continue
+
+                    try:
+                        ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                    except ValueError:
+                        continue
+
+                    if ts >= cutoff:
+                        recent_incidents += 1
             except Exception:
                 recent_incidents = 0
+
+        # Persist recent incident count for downstream RCA metrics
+        self.safe_degrade_recent_incidents_10m = recent_incidents
 
         metrics_file = self.project_root / ".goalie/metrics_log.jsonl"
         avg_score = 100
@@ -711,6 +733,7 @@ class GovernanceMiddleware:
             "--retro-coach-exit-code-histogram", json.dumps({}),
             "--vsix-telemetry-gap-count", str(self.vsix_telemetry_gap_count),
             "--vsix-telemetry-gap-threshold-reached", "1" if self.vsix_telemetry_gap_count >= 2 else "0",
+            "--rca-safe-degrade-recent-incidents-10m", str(self.safe_degrade_recent_incidents_10m),
             "--log-file", str(metrics_log_path)
         ]
         self._emit_metrics_event(state_args)

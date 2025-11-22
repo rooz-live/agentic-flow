@@ -15,7 +15,7 @@ def main():
         "--event-type",
         type=str,
         default="state",
-        choices=["state", "action", "reward"],
+        choices=["state", "action", "reward", "retro_coach_run"],
         help="Type of event to emit"
     )
     parser.add_argument(
@@ -145,6 +145,23 @@ def main():
         default="{}",
         help="Risk distribution JSON string"
     )
+
+    # RCA / health counters (optional; default to 0/empty for backwards compatibility)
+    parser.add_argument("--dt-consecutive-failures", type=int, default=0, help="Consecutive dt_dataset_build failures for this run")
+    parser.add_argument("--dt-consecutive-failures-threshold-reached", type=int, default=0, help="1 if dt_consecutive_failures crossed its RCA threshold")
+    parser.add_argument("--retro-coach-consecutive-nonzero", type=int, default=0, help="Consecutive non-zero retro_coach exit codes")
+    parser.add_argument("--retro-coach-consecutive-nonzero-threshold-reached", type=int, default=0, help="1 if retro_coach_consecutive_nonzero crossed its RCA threshold")
+    parser.add_argument("--emit-metrics-retry-attempts", type=int, default=0, help="Retry attempts for emit_metrics in this iteration")
+    parser.add_argument("--emit-metrics-retry-burst-threshold-reached", type=int, default=0, help="1 if emit_metrics_retry_attempts crossed its RCA threshold")
+    parser.add_argument("--iterations-without-progress", type=int, default=0, help="Consecutive iterations without progress signals")
+    parser.add_argument("--prod-cycle-stagnation-threshold-reached", type=int, default=0, help="1 if iterations_without_progress crossed its RCA threshold")
+    parser.add_argument("--safe-degrade-error-count", type=int, default=0, help="Errors attributed to safe-degrade pattern in this run")
+    parser.add_argument("--safe-degrade-overuse-flag", type=int, default=0, help="1 if safe_degrade_error_count crossed its RCA threshold")
+    parser.add_argument("--errors-by-circle", type=str, default="{}", help="JSON map of error counts by circle")
+    parser.add_argument("--errors-by-pattern", type=str, default="{}", help="JSON map of error counts by pattern")
+    parser.add_argument("--retro-coach-exit-code-histogram", type=str, default="{}", help="JSON map of retro_coach exit code histogram")
+    parser.add_argument("--vsix-telemetry-gap-count", type=int, default=0, help="Count of VSIX telemetry gaps for this run")
+    parser.add_argument("--vsix-telemetry-gap-threshold-reached", type=int, default=0, help="1 if vsix_telemetry_gap_count crossed its RCA threshold")
     parser.add_argument(
         "--log-file",
         type=str,
@@ -183,6 +200,16 @@ def main():
     parser.add_argument("--observability-first-metrics-written", type=int, default=0, help="Metrics written count")
     parser.add_argument("--observability-first-missing-signals", type=int, default=0, help="Missing signals count")
     parser.add_argument("--observability-first-suggestion-made", type=int, default=0, help="Suggestions made count")
+
+    # Event Type: retro_coach_run
+    parser.add_argument("--retro-method", action="append", help="Retro method used (e.g. 5-whys)")
+    parser.add_argument("--retro-design-pattern", action="append", help="Retro design pattern used")
+    parser.add_argument("--retro-event-prototype", action="append", help="Retro event prototype")
+    parser.add_argument("--retro-exit-code", type=int, default=0, help="Exit code for RCA")
+    parser.add_argument("--retro-rca-why", action="append", help="5-Whys RCA entry")
+    parser.add_argument("--retro-replenishment-merged", type=int, default=0, help="Duplicates merged")
+    parser.add_argument("--retro-replenishment-refined", type=int, default=0, help="Refined actions")
+    parser.add_argument("--retro-replenishment-error-tag", action="append", help="Error tag for replenishment")
 
     args = parser.parse_args()
 
@@ -247,6 +274,23 @@ def main():
                 "components": components,
             },
         }
+    elif args.event_type == "retro_coach_run":
+        record = {
+            "timestamp": timestamp,
+            "type": "retro_coach_run",
+            "run_id": args.run_id,
+            "cycle_index": args.cycle_index,
+            "methods": args.retro_method or [],
+            "design_patterns": args.retro_design_pattern or [],
+            "event_prototypes": args.retro_event_prototype or [],
+            "exit_code": args.retro_exit_code,
+            "rca_5_whys": args.retro_rca_why or [],
+            "replenishment": {
+                "duplicates_merged": args.retro_replenishment_merged,
+                "refined_actions": args.retro_replenishment_refined,
+                "error_tags": args.retro_replenishment_error_tag or []
+            }
+        }
     else:
         # Parse JSON fields safely
         try:
@@ -268,6 +312,21 @@ def main():
             except:
                 safe_degrade_recovery_cycles = 0
 
+        try:
+            errors_by_circle = json.loads(args.errors_by_circle)
+        except:
+            errors_by_circle = {}
+
+        try:
+            errors_by_pattern = json.loads(args.errors_by_pattern)
+        except:
+            errors_by_pattern = {}
+
+        try:
+            retro_exit_hist = json.loads(args.retro_coach_exit_code_histogram)
+        except:
+            retro_exit_hist = {}
+
         # Default to "state"
         record = {
             "timestamp": timestamp,
@@ -286,7 +345,24 @@ def main():
                 # Safe Degrade
                 "safe_degrade.triggers": args.safe_degrade_triggers,
                 "safe_degrade.actions": safe_degrade_actions,
-                "safe_degrade.recovery_cycles": args.safe_degrade_recovery_cycles,
+                "safe_degrade.recovery_cycles": safe_degrade_recovery_cycles,
+
+                # RCA / health counters
+                "rca.dt_consecutive_failures": args.dt_consecutive_failures,
+                "rca.dt_consecutive_failures_threshold_reached": bool(args.dt_consecutive_failures_threshold_reached),
+                "rca.retro_coach_consecutive_nonzero": args.retro_coach_consecutive_nonzero,
+                "rca.retro_coach_consecutive_nonzero_threshold_reached": bool(args.retro_coach_consecutive_nonzero_threshold_reached),
+                "rca.emit_metrics_retry_attempts": args.emit_metrics_retry_attempts,
+                "rca.emit_metrics_retry_burst_threshold_reached": bool(args.emit_metrics_retry_burst_threshold_reached),
+                "rca.iterations_without_progress": args.iterations_without_progress,
+                "rca.prod_cycle_stagnation_threshold_reached": bool(args.prod_cycle_stagnation_threshold_reached),
+                "rca.safe_degrade_error_count": args.safe_degrade_error_count,
+                "rca.safe_degrade_overuse_flag": bool(args.safe_degrade_overuse_flag),
+                "rca.errors_by_circle": errors_by_circle,
+                "rca.errors_by_pattern": errors_by_pattern,
+                "rca.retro_coach_exit_code_histogram": retro_exit_hist,
+                "rca.vsix_telemetry_gap_count": args.vsix_telemetry_gap_count,
+                "rca.vsix_telemetry_gap_threshold_reached": bool(args.vsix_telemetry_gap_threshold_reached),
 
                 # Circle Risk Focus
                 "circle_risk_focus.top_owner": args.circle_risk_focus_top_owner,

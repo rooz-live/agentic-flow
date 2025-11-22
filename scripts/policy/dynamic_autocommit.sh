@@ -32,7 +32,9 @@ fi
 CURRENT_RISK_SCORE=0
 if [ -f "$METRICS_LOG" ]; then
     # Extract last valid score, default to 0 if missing/null
-    CURRENT_RISK_SCORE=$(tail -n 10 "$METRICS_LOG" | grep "average_score" | tail -n 1 | sed -E 's/.*"average_score":([0-9]+).*/\1/' || echo 0)
+    # Use jq for robust parsing, handling floats (truncating to int)
+    CURRENT_RISK_SCORE=$(tail -n 1 "$METRICS_LOG" | jq -r '.average_score // 0')
+    CURRENT_RISK_SCORE=${CURRENT_RISK_SCORE%.*} # Truncate float to int
 fi
 
 # 3. DYNAMIC POLICY ENFORCEMENT

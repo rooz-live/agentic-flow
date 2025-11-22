@@ -88,6 +88,7 @@ ${GREEN}Production Maturity & Observability:${NC}
   af flow-metrics        Show flow & learning metrics (WSJF, BML throughput)
   af validate-success    Validate production success criteria
   af validate-dt         Validate Decision Transformer trajectories
+  af dt-summary          Summarize DT readiness (strict mode)
 
 ${GREEN}Feedback Loop:${NC}
   af insight <text>      Capture retro insight
@@ -499,7 +500,11 @@ cmd_full_cycle() {
 
         # Retro Coach Integration (Per-Iteration)
         echo -e "${BLUE}=== Retro Coach Analysis (iteration $i) ===${NC}\n"
-        cmd_retro_coach || echo -e "${YELLOW}Retro Coach failed; continuing cycle.${NC}"
+        # Assuming run_id is not easily available here without parsing args or generating one,
+        # but we can pass a placeholder or try to reuse one if available.
+        # cmd_full_cycle doesn't seem to generate a run_id itself, but governance.py does.
+        # However, for now we'll just pass the iteration index.
+        cmd_retro_coach_with_metrics "auto-cycle-$(date +%s)" "$i" || echo -e "${YELLOW}Retro Coach failed; continuing cycle.${NC}"
 
         if [ "$i" -lt "$iterations" ]; then
             echo -e "\n${GREEN}--- End of iteration $i ---${NC}\n"
@@ -751,6 +756,104 @@ cmd_retro_coach() {
     fi
 }
 
+cmd_retro_coach_with_metrics() {
+    local run_id="${1:-}"
+    local cycle_index="${2:-0}"
+    local log_file="${3:-$PROJECT_ROOT/.goalie/metrics_log.jsonl}"
+
+    local tmp_json
+    tmp_json="$(mktemp)"
+
+    # Run retro_coach in JSON mode
+    if ! cmd_retro_coach --json > "$tmp_json"; then
+        echo -e "${YELLOW}Retro Coach failed to generate JSON${NC}"
+        rm -f "$tmp_json"
+        return 1
+    fi
+
+    # Extract fields using jq
+    local methods
+    methods=$(jq -r '.methods[]? // empty' "$tmp_json" | sed 's/^/--retro-method /' | tr '\n' ' ')
+
+    local patterns
+    patterns=$(jq -r '.design_patterns[]? // empty' "$tmp_json" | sed 's/^/--retro-design-pattern /' | tr '\n' ' ')
+
+    local prototypes
+    prototypes=$(jq -r '.event_prototypes[]? // empty' "$tmp_json" | sed 's/^/--retro-event-prototype /' | tr '\n' ' ')
+
+    local exit_code
+    exit_code=$(jq -r '.exit_code // 0' "$tmp_json")
+
+    local rca
+    rca=$(jq -r '.rca_5_whys[]? // empty' "$tmp_json" | sed 's/^/--retro-rca-why /' | tr '\n' ' ')
+
+    local merged
+    merged=$(jq -r '.replenishment.merged // 0' "$tmp_json")
+
+    local refined
+    refined=$(jq -r '.replenishment.refined // 0' "$tmp_json")
+
+    local error_tags
+    error_tags=$(jq -r '.replenishment.error_tags[]? // empty' "$tmp_json" | sed 's/^/--retro-replenishment-error-tag /' | tr '\n' ' ')
+
+    # Derive additional RCA hints from latest metrics entry (if present)
+    local metrics_line
+    local extra_args=""
+
+    if [ -f "$log_file" ]; then
+        metrics_line=$(tail -n 1 "$log_file")
+
+        # dt_consecutive_failures_threshold_reached
+        val=$(echo "$metrics_line" | jq -r '.metrics["rca.dt_consecutive_failures_threshold_reached"] // false')
+        if [ "$val" = "true" ] || [ "$val" = "1" ]; then
+            extra_args+=" --retro-method 5-whys --retro-method timeline-analysis"
+            extra_args+=" --retro-design-pattern ml-training-guardrail --retro-design-pattern iteration-budget"
+            extra_args+=" --retro-rca-why 'dt_dataset_build failed repeatedly; investigate ml-training-guardrail and iteration-budget.'"
+        fi
+
+        # prod_cycle_stagnation_threshold_reached
+        val=$(echo "$metrics_line" | jq -r '.metrics["rca.prod_cycle_stagnation_threshold_reached"] // false')
+        if [ "$val" = "true" ] || [ "$val" = "1" ]; then
+            extra_args+=" --retro-method 5-whys --retro-method value-stream-mapping"
+            extra_args+=" --retro-design-pattern governance-review --retro-design-pattern circle-risk-focus"
+            extra_args+=" --retro-rca-why 'No progress detected across iterations; investigate governance-review and circle-risk-focus.'"
+        fi
+
+        # safe_degrade_overuse_flag
+        val=$(echo "$metrics_line" | jq -r '.metrics["rca.safe_degrade_overuse_flag"] // false')
+        if [ "$val" = "true" ] || [ "$val" = "1" ]; then
+            extra_args+=" --retro-method 5-whys --retro-method fishbone"
+            extra_args+=" --retro-design-pattern safe-degrade --retro-design-pattern iteration-budget"
+            extra_args+=" --retro-rca-why 'Safe-degrade fired repeatedly; investigate whether degradation is masking root failures.'"
+        fi
+
+        # vsix_telemetry_gap_threshold_reached
+        val=$(echo "$metrics_line" | jq -r '.metrics["rca.vsix_telemetry_gap_threshold_reached"] // false')
+        if [ "$val" = "true" ] || [ "$val" = "1" ]; then
+            extra_args+=" --retro-method 5-whys --retro-method fault-tree"
+            extra_args+=" --retro-design-pattern observability-first --retro-design-pattern kanban-telemetry"
+            extra_args+=" --retro-rca-why 'VSIX telemetry gaps detected; investigate observability-first and Kanban dashboard wiring.'"
+        fi
+    fi
+
+    # Emit metrics
+    python3 "$SCRIPT_DIR/emit_metrics.py" \
+        --event-type retro_coach_run \
+        --run-id "$run_id" \
+        --cycle-index "$cycle_index" \
+        --log-file "$log_file" \
+        --retro-exit-code "$exit_code" \
+        --retro-replenishment-merged "$merged" \
+        --retro-replenishment-refined "$refined" \
+        $methods $patterns $prototypes $rca $error_tags $extra_args
+
+    # Print summary for user
+    echo -e "${GREEN}Retro Coach Metrics Emitted.${NC}"
+    jq -r '.insightsSummary.recentInsights[].text' "$tmp_json" | head -n 5 | sed 's/^/  - /'
+
+    rm -f "$tmp_json"
+}
+
 cmd_governance_agent() {
     cd "$PROJECT_ROOT"
     if command -v npx &> /dev/null; then
@@ -805,9 +908,20 @@ cmd_prod_cycle() {
         exit 1
     fi
 
-    # Invoke Python Middleware
-    # Arguments are passed directly, allowing governance.py to parse flags
-    python3 "$middleware_script" "$@"
+    # Normalize shorthand positional iteration argument:
+    #   af prod-cycle 100  ->  governance.py --iterations 100
+    # while preserving all other flags for root-cause RCA/5W traceability.
+    local args=("$@")
+    local normalized=()
+
+    if [ ${#args[@]} -eq 1 ] && [[ "${args[0]}" =~ ^[0-9]+$ ]]; then
+        normalized+=("--iterations" "${args[0]}")
+    else
+        normalized=("${args[@]}")
+    fi
+
+    # Invoke Python Middleware with normalized arguments
+    python3 "$middleware_script" "${normalized[@]}"
 }
 
 # Dynamic Policy Hook
@@ -992,6 +1106,85 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             shift
             if [ -x "$SCRIPT_DIR/analysis/validate_dt_trajectories.py" ]; then
                 python3 "$SCRIPT_DIR/analysis/validate_dt_trajectories.py" "$@"
+            else
+                echo -e "${YELLOW}validate_dt_trajectories.py not found or not executable${NC}"
+                exit 1
+            fi
+            ;;
+        dt-summary)
+            shift
+            if [ -x "$SCRIPT_DIR/analysis/validate_dt_trajectories.py" ]; then
+                # Run validator in strict JSON mode and pretty-print a concise summary.
+                raw_json=$(python3 "$SCRIPT_DIR/analysis/validate_dt_trajectories.py" --json --strict "$@")
+                status=$?
+
+                if [ -z "$raw_json" ]; then
+                    echo -e "${YELLOW}[dt-summary] No DT summary produced (empty output)${NC}"
+                    exit $status
+                fi
+
+                python3 - "$raw_json" << 'PYEOF'
+import json
+import sys
+
+def main() -> int:
+    if len(sys.argv) < 2:
+        print("[dt-summary] missing JSON summary", file=sys.stderr)
+        return 1
+    raw = sys.argv[1]
+    try:
+        summary = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"[dt-summary] failed to parse JSON summary: {exc}", file=sys.stderr)
+        return 1
+
+    strict = summary.get("strict_status", {})
+    readiness = summary.get("readiness", {})
+    episode_stats = summary.get("episode_stats", {})
+    rewards = summary.get("rewards", {})
+
+    malformed_fraction = strict.get("malformed_fraction", 0.0)
+    violations = strict.get("violations", []) or []
+    tolerance = strict.get("tolerance", 0.0)
+
+    total_episodes = episode_stats.get("total_episodes", 0)
+    reward_count = rewards.get("count", 0)
+
+    warnings = readiness.get("warnings", []) or []
+    infos = readiness.get("info", []) or []
+
+    print("DT Summary (strict mode):")
+    print(f"  Episodes: {total_episodes}")
+    print(f"  Rewards:  {reward_count}")
+    print("  Malformed rewards:")
+    print(f"    fraction: {malformed_fraction:.3f} (tolerance {tolerance:.3f})")
+
+    if violations:
+        print("  Strict violations:")
+        for v in violations:
+            print(f"    - {v}")
+    else:
+        print("  Strict violations: none")
+
+    if warnings:
+        print("  Readiness warnings:")
+        for w in warnings:
+            print(f"    - {w}")
+    else:
+        print("  Readiness warnings: none")
+
+    if infos:
+        print("  Readiness info:")
+        for i in infos:
+            print(f"    - {i}")
+
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PYEOF
+
+                exit $status
             else
                 echo -e "${YELLOW}validate_dt_trajectories.py not found or not executable${NC}"
                 exit 1

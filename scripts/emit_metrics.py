@@ -154,7 +154,7 @@ def main():
 
     # Pattern: Safe Degrade
     parser.add_argument("--safe-degrade-actions", type=str, default="[]", help="JSON list of actions taken")
-    parser.add_argument("--safe-degrade-recovery-cycles", type=int, default=0, help="Cycles to recovery")
+    parser.add_argument("--safe-degrade-recovery-cycles", type=str, default="[]", help="Cycles to recovery")
 
     # Pattern: Circle Risk Focus
     parser.add_argument("--circle-risk-focus-top-owner", type=str, default="none", help="Circle with highest risk")
@@ -258,6 +258,15 @@ def main():
             safe_degrade_actions = json.loads(args.safe_degrade_actions)
         except:
             safe_degrade_actions = []
+
+        try:
+            safe_degrade_recovery_cycles = json.loads(args.safe_degrade_recovery_cycles)
+        except:
+            # Fallback if it's just a plain number string or invalid
+            try:
+                safe_degrade_recovery_cycles = int(args.safe_degrade_recovery_cycles)
+            except:
+                safe_degrade_recovery_cycles = 0
 
         # Default to "state"
         record = {

@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 # Constants
-DEFAULT_ITERATIONS = 12
+DEFAULT_ITERATIONS = 100
 DEFAULT_DEPTH = 3
 CIRCLES = [
     "analyst", "assessor", "innovator",
@@ -146,6 +146,78 @@ class GovernanceMiddleware:
         else:
             self.vsix_telemetry_gap_count = 0
 
+    def trigger_rca_if_needed(self, exit_code: int, status: str):
+        """
+        Evaluates failure state and triggers automated RCA event if thresholds are met.
+        Called inside run_cmd_full_cycle() after subprocess execution.
+        """
+        # Define thresholds
+        RCA_CONSECUTIVE_FAILURE_THRESHOLD = 3
+        RCA_STAGNATION_THRESHOLD = 3
+        RCA_SAFE_DEGRADE_OVERUSE_THRESHOLD = 3
+
+        rca_triggered = False
+        reason = "none"
+        initial_why = "none"
+        methods = []
+        patterns = []
+
+        # Heuristic 1: Persistent Failure Loop
+        if self.dt_consecutive_failures >= RCA_CONSECUTIVE_FAILURE_THRESHOLD:
+            rca_triggered = True
+            reason = "persistent_failure_loop"
+            initial_why = f"Cycle failed {self.dt_consecutive_failures} times in a row (exit code {exit_code})."
+            methods = ["5-whys", "timeline-analysis"]
+            patterns = ["ml-training-guardrail", "iteration-budget"]
+
+        # Heuristic 2: Stagnation (No Progress)
+        elif self.iterations_without_progress >= RCA_STAGNATION_THRESHOLD:
+            rca_triggered = True
+            reason = "stagnation"
+            initial_why = f"No progress detected for {self.iterations_without_progress} iterations."
+            methods = ["5-whys", "value-stream-mapping"]
+            patterns = ["governance-review", "circle-risk-focus"]
+
+        # Heuristic 3: Safe Degrade Overuse
+        elif self.safe_degrade_error_count >= RCA_SAFE_DEGRADE_OVERUSE_THRESHOLD:
+            rca_triggered = True
+            reason = "safe_degrade_overuse"
+            initial_why = f"Safe degrade triggered {self.safe_degrade_error_count} times with errors."
+            methods = ["5-whys", "fishbone"]
+            patterns = ["safe-degrade", "iteration-budget"]
+
+        if rca_triggered:
+            self._emit_rca_event(reason, initial_why, methods, patterns, exit_code)
+
+    def _emit_rca_event(self, reason: str, initial_why: str, methods: List[str], patterns: List[str], exit_code: int):
+        """Helper to emit the actual retro_coach_run event."""
+        emit_script = Path(__file__).resolve().parent.parent / "emit_metrics.py"
+        metrics_log_path = self.project_root / ".goalie/metrics_log.jsonl"
+
+        cmd = [
+            "python3", str(emit_script),
+            "--event-type", "retro_coach_run",
+            "--run-id", self.run_id,
+            "--cycle-index", str(self.current_iteration),
+            "--retro-exit-code", str(exit_code),
+            "--log-file", str(metrics_log_path)
+        ]
+        
+        for m in methods:
+            cmd.extend(["--retro-method", m])
+        for p in patterns:
+            cmd.extend(["--retro-design-pattern", p])
+        
+        cmd.extend(["--retro-rca-why", initial_why])
+        cmd.extend(["--retro-event-prototype", reason])
+
+        try:
+            subprocess.run(cmd, check=False)
+            print(f"\n[Governance] 🕵️ AUTOMATED RCA TRIGGERED: {reason}")
+            print(f"[Governance] Context: {initial_why}")
+        except Exception as e:
+            print(f"[Governance] Failed to emit RCA event: {e}")
+
     def _write_preflight_snapshot(self, context: Dict[str, Any]) -> None:
         """Persist a compact JSON snapshot of the guardrail state before iteration loop.
 
@@ -207,17 +279,33 @@ class GovernanceMiddleware:
         if metrics_file.exists():
             try:
                 with open(metrics_file, "r") as f:
-                    lines = f.readlines()
-                # Scan all lines to count how many average_score samples we have
+                    # Only consider a recent window for performance and relevance
+                    lines = f.readlines()[-200:]
+
+                # First pass: prefer samples for the current run_id
                 for line in lines:
                     try:
                         data = json.loads(line)
                     except Exception:
                         continue
+                    if data.get("run_id") != self.run_id:
+                        continue
                     if "average_score" in data:
                         score_samples += 1
                         avg_score = data["average_score"]
-                # If we never saw an average_score, fall back to default 100
+
+                # If we have no samples for this run, fall back to any recent samples
+                if score_samples == 0:
+                    for line in lines:
+                        try:
+                            data = json.loads(line)
+                        except Exception:
+                            continue
+                        if "average_score" in data:
+                            score_samples += 1
+                            avg_score = data["average_score"]
+
+                # If we still never saw an average_score, fall back to default 100
                 if score_samples == 0:
                     avg_score = 100
             except Exception:
@@ -225,7 +313,8 @@ class GovernanceMiddleware:
                 score_samples = 0
 
         # Require a minimal baseline of score samples before enforcing the score guard.
-        # This prevents cold-start runs from being blocked solely due to avg_score=0.0.
+        # This prevents cold-start runs or sparse metrics from being blocked solely due
+        # to avg_score=0.0.
         has_score_baseline = score_samples >= 5
 
         # Allow relaxing the score-based guard via env in dev/lab mode while keeping
@@ -542,6 +631,7 @@ class GovernanceMiddleware:
             })
 
         self.update_rca_counters(status)
+        self.trigger_rca_if_needed(return_code, status)
 
         if status == "success":
             # Reset simple RCA counters when the cycle succeeds.

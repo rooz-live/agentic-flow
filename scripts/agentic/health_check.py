@@ -194,16 +194,37 @@ class BMLHealthCheck:
             board = yaml.safe_load(f)
         
         violations = []
-        for col_id, col_data in board['columns'].items():
-            wip_limit = col_data.get('wip_limit')
-            if wip_limit:
-                current_count = len(col_data['items'])
-                if current_count > wip_limit:
-                    violations.append({
-                        'column': col_id,
-                        'current': current_count,
-                        'limit': wip_limit
-                    })
+        
+        # Handle structured format (with metadata)
+        if 'columns' in board:
+            for col_id, col_data in board['columns'].items():
+                wip_limit = col_data.get('wip_limit')
+                if wip_limit:
+                    current_count = len(col_data.get('items', []))
+                    if current_count > wip_limit:
+                        violations.append({
+                            'column': col_id,
+                            'current': current_count,
+                            'limit': wip_limit
+                        })
+        # Handle simple format (list of items per column key)
+        else:
+            # Default limits for simple structure
+            default_limits = {'NOW': 3, 'NEXT': 5, 'LATER': 20}
+            
+            for col_id, items in board.items():
+                if not isinstance(items, list):
+                    continue
+                    
+                wip_limit = default_limits.get(col_id)
+                if wip_limit:
+                    current_count = len(items)
+                    if current_count > wip_limit:
+                        violations.append({
+                            'column': col_id,
+                            'current': current_count,
+                            'limit': wip_limit
+                        })
         
         if violations:
             return {

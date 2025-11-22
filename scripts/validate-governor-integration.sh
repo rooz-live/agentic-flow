@@ -99,7 +99,7 @@ test_memory_stress() {
         done
 
         # Check system load
-        local load=$(uptime | awk -F'load average:' '{ print $2 }' | cut -d, -f1 | xargs)
+        local load=$(uptime | awk -F'load averages?:' '{ print $2 }' | cut -d, -f1 | xargs)
         echo "  Batch $batch/$total_batches complete (load: $load)"
 
         # Dynamic throttling based on load
@@ -233,7 +233,7 @@ test_cpu_headroom() {
 
         # Default to load average if direct CPU measurement fails
         if [ -z "$cpu_idle" ]; then
-            local load=$(uptime | awk -F'load average:' '{ print $2 }' | cut -d, -f1 | xargs)
+            local load=$(uptime | awk -F'load averages?:' '{ print $2 }' | cut -d, -f1 | xargs)
             local cores=$(sysctl -n hw.ncpu 2>/dev/null || nproc)
             local load_percent=$(echo "scale=2; ($load / $cores) * 100" | bc)
             cpu_idle=$(echo "scale=2; 100 - $load_percent" | bc)

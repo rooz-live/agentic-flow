@@ -7,7 +7,7 @@ set -euo pipefail
 
 CODE_DIR="/Users/shahroozbhopti/Documents/code"
 OUTPUT_JSON="/tmp/wsjf_rollup_$(date +%Y%m%d_%H%M%S).json"
-TARGET_DOC="$CODE_DIR/agentic-flow/docs/QUICK_WINS.md"
+TARGET_DOC="$CODE_DIR/investing/agentic-flow/docs/QUICK_WINS.md"
 
 echo "🔍 Scanning repos under $CODE_DIR..."
 echo "📊 Aggregating WSJF data..."

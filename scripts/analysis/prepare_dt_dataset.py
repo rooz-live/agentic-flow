@@ -54,6 +54,27 @@ def parse_args() -> argparse.Namespace:
         default=100,
         help="Minimum prod-cycle runs required before emitting dataset",
     )
+    parser.add_argument(
+        "--summary-only",
+        action="store_true",
+        help=(
+            "Only print dataset summary statistics; do not write JSONL/NPZ "
+            "outputs. Exits with code 1 when no valid datapoints are found."
+        ),
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print detailed feature and normalization information in summary mode",
+    )
+    parser.add_argument(
+        "--validate-schema",
+        action="store_true",
+        help=(
+            "Validate feature names against the DT schema registry before "
+            "writing outputs."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -103,14 +124,27 @@ def extract_state_features(
     state: Dict[str, Any],
     cycle_index: int,
 ) -> Dict[str, float]:
+    """Extract rich state features for DT.
+
+    The schema is fixed and backward-compatible: all expected keys are always
+    present, with sensible defaults when the underlying signal is missing.
+    """
+
     gov = state.get("governor_health") or {}
     metrics = state.get("metrics") or {}
+    risk_dist = state.get("risk_distribution") or {}
+    patterns = state.get("patterns") or {}
 
     features: Dict[str, float] = {}
+
+    # Core structural context
     features["cycle_index"] = float(cycle_index)
+
     risk = gov.get("risk_score")
     if isinstance(risk, (int, float)):
         features["risk_score"] = float(risk)
+    else:
+        features["risk_score"] = 0.0
 
     circle = state.get("circle")
     features["circle_bucket"] = float(
@@ -118,12 +152,12 @@ def extract_state_features(
     )
 
     depth = state.get("depth")
-    if isinstance(depth, (int, float)):
-        features["depth"] = float(depth)
+    features["depth"] = float(depth) if isinstance(depth, (int, float)) else 0.0
 
     avg_score = metrics.get("average_score")
-    if isinstance(avg_score, (int, float)):
-        features["average_score"] = float(avg_score)
+    features["average_score"] = (
+        float(avg_score) if isinstance(avg_score, (int, float)) else 0.0
+    )
 
     # Governance metrics flags (reused from previous version).
     features["safe_degrade_triggers"] = float(
@@ -141,6 +175,71 @@ def extract_state_features(
     features["observability_missing"] = float(
         metrics.get("observability_first.missing_signals", 0),
     )
+
+    # Risk distribution by circle (0.0 default when not present).
+    for circle_name in CIRCLES:
+        key = f"risk_{circle_name}"
+        value = risk_dist.get(circle_name)
+        features[key] = float(value) if isinstance(value, (int, float)) else 0.0
+
+    # Helper to interpret pattern activity in a tolerant way.
+    def _is_active(val: Any) -> bool:
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, (int, float)):
+            return val != 0
+        if isinstance(val, str):
+            return val.lower() in {"active", "on", "true", "yes", "1"}
+        return False
+
+    pattern_map = {
+        "safe-degrade": "pattern_safe_degrade",
+        "depth-ladder": "pattern_depth_ladder",
+        "circle-risk-focus": "pattern_circle_risk_focus",
+        "autocommit-shadow": "pattern_autocommit_shadow",
+        "guardrail-lock": "pattern_guardrail_lock",
+        "failure-strategy": "pattern_failure_strategy",
+        "iteration-budget": "pattern_iteration_budget",
+        "observability-first": "pattern_observability_first",
+    }
+    for raw_key, feat_name in pattern_map.items():
+        val = patterns.get(raw_key)
+        features[feat_name] = 1.0 if _is_active(val) else 0.0
+
+    # Governor health metrics beyond risk_score.
+    recent_incidents = gov.get("recent_incidents")
+    features["governor_recent_incidents"] = (
+        float(recent_incidents)
+        if isinstance(recent_incidents, (int, float))
+        else 0.0
+    )
+
+    def _bool_to_float(v: Any) -> float:
+        if isinstance(v, bool):
+            return 1.0 if v else 0.0
+        if isinstance(v, (int, float)):
+            return 1.0 if v != 0 else 0.0
+        if isinstance(v, str):
+            return 1.0 if v.lower() in {"true", "yes", "on", "active", "1"} else 0.0
+        return 0.0
+
+    features["governor_throttle_active"] = _bool_to_float(
+        gov.get("throttle_active"),
+    )
+    features["governor_safe_degrade_active"] = _bool_to_float(
+        gov.get("safe_degrade_active"),
+    )
+    features["governor_guardrail_active"] = _bool_to_float(
+        gov.get("guardrail_active"),
+    )
+
+    # Any additional numeric fields in governor_health get a namespaced feature.
+    for k, v in gov.items():
+        if k in {"status", "risk_score", "recent_incidents", "throttle_active", "safe_degrade_active", "guardrail_active"}:
+            continue
+        if isinstance(v, (int, float)):
+            features[f"governor_{k}"] = float(v)
+
     return features
 
 
@@ -148,19 +247,60 @@ def extract_action_features(
     action: Dict[str, Any] | None,
     action_vocab: Dict[str, int],
 ) -> Dict[str, float]:
+    """Extract rich action features for DT.
+
+    The schema is designed to be stable: even when ``action`` is ``None`` we
+    emit all core keys with sentinel defaults so that feature vectors remain
+    aligned across timesteps.
+    """
+
+    # Base schema with defaults, used both for None and real actions.
+    base: Dict[str, float] = {
+        "action_id": -1.0,
+        "action_target": 0.0,
+        "action_circle": -1.0,
+        "action_depth": 0.0,
+    }
+
     if action is None:
-        return {"action_id": -1.0}
+        return dict(base)
 
     cmd = action.get("command") or "unknown"
     if cmd not in action_vocab:
         action_vocab[cmd] = len(action_vocab)
     action_id = action_vocab[cmd]
 
-    features: Dict[str, float] = {"action_id": float(action_id)}
+    features: Dict[str, float] = dict(base)
+    features["action_id"] = float(action_id)
 
     target = action.get("target")
     if isinstance(target, (int, float)):
         features["action_target"] = float(target)
+
+    circle = action.get("circle")
+    features["action_circle"] = float(
+        CIRCLES.index(circle) if circle in CIRCLES else -1,
+    )
+
+    depth = action.get("depth")
+    if isinstance(depth, (int, float)):
+        features["action_depth"] = float(depth)
+
+    # Additional numeric parameters on the action payload get namespaced
+    # features so they can be learned independently.
+    blacklist = {
+        "command",
+        "target",
+        "circle",
+        "depth",
+        "timestamp",
+        "type",
+    }
+    for key, value in action.items():
+        if key in blacklist:
+            continue
+        if isinstance(value, (int, float)):
+            features[f"action_param_{key}"] = float(value)
 
     return features
 
@@ -235,22 +375,39 @@ def build_sequences(
     List[List[float]],
     List[float],
     Dict[str, int],
+    List[str],
+    List[str],
 ]:
     """Build per-timestep records and raw feature matrices.
 
     This is used for normalization and DT offline training preparation.
+
+    Returns
+    -------
+    records:
+        Per-timestep metadata (run_id, t, reward, rtg).
+    state_vecs, action_vecs:
+        Dense feature matrices aligned with ``state_feature_names`` and
+        ``action_feature_names``.
+    rewards:
+        Flat list of reward values.
+    action_vocab:
+        Mapping from action command string to integer id.
+    state_feature_names, action_feature_names:
+        Ordered feature name lists reflecting the actual keys observed in the
+        trajectories.
     """
 
     records: List[Dict[str, Any]] = []
-    state_vecs: List[List[float]] = []
-    action_vecs: List[List[float]] = []
+    state_dicts: List[Dict[str, float]] = []
+    action_dicts: List[Dict[str, float]] = []
     rewards: List[float] = []
     action_vocab: Dict[str, int] = {}
 
     for run_id, steps in episodes.items():
         episode_rewards: List[float] = []
-        ep_state_vecs: List[List[float]] = []
-        ep_action_vecs: List[List[float]] = []
+        ep_state_dicts: List[Dict[str, float]] = []
+        ep_action_dicts: List[Dict[str, float]] = []
 
         for t, step in enumerate(steps):
             state = step.get("state") or {}
@@ -268,11 +425,8 @@ def build_sequences(
             s_feats = extract_state_features(state, int(cycle_index))
             a_feats = extract_action_features(action, action_vocab)
 
-            s_vec = [v for _, v in sorted(s_feats.items())]
-            a_vec = [v for _, v in sorted(a_feats.items())]
-
-            ep_state_vecs.append(s_vec)
-            ep_action_vecs.append(a_vec)
+            ep_state_dicts.append(s_feats)
+            ep_action_dicts.append(a_feats)
             episode_rewards.append(reward_val)
 
         if not episode_rewards:
@@ -288,11 +442,41 @@ def build_sequences(
                 "rtg": rtg[t],
             }
             records.append(record)
-            state_vecs.append(ep_state_vecs[t])
-            action_vecs.append(ep_action_vecs[t])
+            state_dicts.append(ep_state_dicts[t])
+            action_dicts.append(ep_action_dicts[t])
             rewards.append(episode_rewards[t])
 
-    return records, state_vecs, action_vecs, rewards, action_vocab
+    # Derive a consistent feature ordering from the actual data.
+    state_keys: set[str] = set()
+    action_keys: set[str] = set()
+    for feats in state_dicts:
+        state_keys.update(feats.keys())
+    for feats in action_dicts:
+        action_keys.update(feats.keys())
+
+    state_feature_names = sorted(state_keys)
+    action_feature_names = sorted(action_keys)
+
+    # Build dense feature matrices aligned with the above names, defaulting
+    # missing values to 0.0 for backward compatibility.
+    state_vecs = [
+        [feats.get(name, 0.0) for name in state_feature_names]
+        for feats in state_dicts
+    ]
+    action_vecs = [
+        [feats.get(name, 0.0) for name in action_feature_names]
+        for feats in action_dicts
+    ]
+
+    return (
+        records,
+        state_vecs,
+        action_vecs,
+        rewards,
+        action_vocab,
+        state_feature_names,
+        action_feature_names,
+    )
 
 
 def write_jsonl_dataset(
@@ -366,26 +550,69 @@ def write_npz_dataset(
 
 def main() -> None:
     args = parse_args()
-    trajectories = load_trajectories(args.trajectories)
-    episodes = group_episodes(trajectories)
 
-    records, state_vecs, action_vecs, rewards, action_vocab = build_sequences(
-        episodes,
-    )
-    if not records:
+    try:
+        trajectories = load_trajectories(args.trajectories)
+    except FileNotFoundError:
         print(
-            "[warn] no valid DT datapoints after filtering for canonical "
-            "rewards",
+            "[dt-dataset-summary] No trajectories found. Run a prod-cycle first.",
             file=sys.stderr,
         )
-        return
+        sys.exit(1)
+    except RuntimeError as exc:
+        print(f"[prepare_dt_dataset] {exc}", file=sys.stderr)
+        sys.exit(1)
 
-    state_feature_names = sorted(
-        extract_state_features({}, 0).keys(),
-    )
-    action_feature_names = sorted(
-        {"action_id": 0.0}.keys(),
-    )
+    episodes = group_episodes(trajectories)
+
+    (
+        records,
+        state_vecs,
+        action_vecs,
+        rewards,
+        action_vocab,
+        state_feature_names,
+        action_feature_names,
+    ) = build_sequences(episodes)
+
+    total_episodes = len(episodes)
+    total_steps = len(records)
+
+    if not records:
+        print(
+            "[dt-dataset-summary] No valid DT datapoints (all rewards malformed).",
+            file=sys.stderr,
+        )
+        if args.summary_only:
+            # Print a structured summary with zero datapoints for easier debugging.
+            print("DT Dataset Summary:")
+            print(f"  Episodes: {total_episodes}")
+            print(f"  Total steps: {total_steps}")
+            print("  Average episode length: 0.00")
+            print("")
+            print("  Rewards:")
+            print("    Count: 0")
+            print("    Range: [0.0000, 0.0000]")
+            print("    Mean: 0.0000, Std: 0.0000")
+            print("")
+            print("  Actions:")
+            print("    Vocabulary size: 0")
+            print("    Sample commands: ")
+            print("")
+            print("  State Features: 0")
+            if args.verbose:
+                print("    Names: ")
+            print("  Action Features: 0")
+            if args.verbose:
+                print("    Names: ")
+            print("")
+            print("  Normalization:")
+            print("    State means (first 5): []")
+            print("    State stds (first 5): []")
+            print("    Action means (first 5): []")
+            print("    Action stds (first 5): []")
+            sys.exit(1)
+        return
 
     state_means, state_stds = compute_normalization(state_vecs)
     action_means, action_stds = compute_normalization(action_vecs)
@@ -402,6 +629,7 @@ def main() -> None:
     rtgs = compute_returns_to_go(rewards)
 
     metadata: Dict[str, Any] = {
+        "schema_id": "dt-schema-v1",
         "state_feature_names": state_feature_names,
         "action_feature_names": action_feature_names,
         "action_vocab": action_vocab,
@@ -411,6 +639,108 @@ def main() -> None:
         "action_stds": action_stds,
         "total_steps": len(records),
     }
+
+    if args.validate_schema:
+        from importlib import util as _importlib_util
+
+        schema_module_path = Path(__file__).resolve().parents[2] / "dt_schema.py"
+        if not schema_module_path.is_file():
+            print(
+                f"[error] schema module not found at {schema_module_path}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        spec = _importlib_util.spec_from_file_location(
+            "dt_schema",
+            schema_module_path,
+        )
+        if spec is None or spec.loader is None:
+            print("[error] failed to load dt_schema module", file=sys.stderr)
+            sys.exit(1)
+
+        dt_schema = _importlib_util.module_from_spec(spec)
+        spec.loader.exec_module(dt_schema)  # type: ignore[arg-type]
+
+        try:
+            schema = dt_schema.load_schema("dt-schema-v1")
+            is_valid, issues = dt_schema.validate_feature_alignment(
+                schema,
+                state_feature_names,
+                action_feature_names,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            print(f"[error] schema validation failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+
+        if issues:
+            print("[schema] validation issues:", file=sys.stderr)
+            for msg in issues:
+                print(f"  - {msg}", file=sys.stderr)
+
+        if not is_valid:
+            sys.exit(1)
+
+    if args.summary_only:
+        avg_episode_length = (
+            float(total_steps) / float(total_episodes)
+            if total_episodes > 0
+            else 0.0
+        )
+
+        if rewards:
+            if np is not None:
+                r_arr = np.asarray(rewards, dtype="float32")
+                min_reward = float(r_arr.min())
+                max_reward = float(r_arr.max())
+                mean_reward = float(r_arr.mean())
+                std_reward = float(r_arr.std())
+            else:
+                min_reward = float(min(rewards))
+                max_reward = float(max(rewards))
+                mean_reward = float(sum(rewards) / len(rewards))
+                var = sum((r - mean_reward) ** 2 for r in rewards) / max(
+                    len(rewards) - 1,
+                    1,
+                )
+                std_reward = math.sqrt(max(var, 0.0))
+        else:
+            min_reward = max_reward = mean_reward = std_reward = 0.0
+
+        print("DT Dataset Summary:")
+        print(f"  Episodes: {total_episodes}")
+        print(f"  Total steps: {total_steps}")
+        print(f"  Average episode length: {avg_episode_length:.2f}")
+        print("")
+        print("  Rewards:")
+        print(f"    Count: {len(rewards)}")
+        print(f"    Range: [{min_reward:.4f}, {max_reward:.4f}]")
+        print(f"    Mean: {mean_reward:.4f}, Std: {std_reward:.4f}")
+        print("")
+        print("  Actions:")
+        print(f"    Vocabulary size: {len(action_vocab)}")
+        sample_cmds = ", ".join(sorted(action_vocab.keys())[:10])
+        print(f"    Sample commands: {sample_cmds}")
+        print("")
+        print(f"  State Features: {len(state_feature_names)}")
+        if args.verbose:
+            print("    Names: " + ", ".join(state_feature_names))
+        print(f"  Action Features: {len(action_feature_names)}")
+        if args.verbose:
+            print("    Names: " + ", ".join(action_feature_names))
+        print("")
+        print("  Normalization:")
+        print(f"    State means (first 5): {state_means[:5]}")
+        print(f"    State stds (first 5): {state_stds[:5]}")
+        print(f"    Action means (first 5): {action_means[:5]}")
+        print(f"    Action stds (first 5): {action_stds[:5]}")
+
+        if total_steps <= 0:
+            sys.exit(1)
+        sys.exit(0)
+
+    total_episodes = len(episodes)
+    avg_len = len(records) / max(total_episodes or 1, 1)
 
     write_jsonl_dataset(
         records,
@@ -441,9 +771,8 @@ def main() -> None:
         args.output_npz,
     )
 
-    avg_len = len(records) / max(len(episodes) or 1, 1)
     print(
-        f"Dataset summary: episodes={len(episodes)}, "
+        f"Dataset summary: episodes={total_episodes}, "
         f"steps={len(records)}, avg-episode-length={avg_len:.2f}",
     )
 

@@ -51,12 +51,22 @@ class TelemetryLogger:
     def log_pattern_event(self, event: Dict[str, Any]):
         """Log a governance pattern event."""
         # Ensure ISO8601 timestamp
-        if "ts" not in event:
+        timestamp = event.pop("ts", None) or event.pop("timestamp", None)
+        if not timestamp:
             now = datetime.now(timezone.utc)
-            event["ts"] = now.isoformat().replace("+00:00", "Z")
+            timestamp = now.isoformat().replace("+00:00", "Z")
+
+        pattern_name = event.pop("pattern", "unknown")
+
+        # Construct structured log entry
+        structured_event = {
+            "timestamp": timestamp,
+            "pattern": pattern_name,
+            "data": event
+        }
 
         with open(self.pattern_log, "a") as f:
-            f.write(json.dumps(event) + "\n")
+            f.write(json.dumps(structured_event) + "\n")
 
     def log_metric(self, metric: Dict[str, Any]):
         """Log a quantitative metric."""

@@ -116,7 +116,7 @@ function checkLoadAlert(loads) {
       load15,
       cpu_count: CPU_COUNT,
       threshold: LOAD_THRESHOLD,
-      headroom_pct: ((CPU_COUNT - load1) / CPU_COUNT * 100).toFixed(1),
+      headroom_pct: Math.max(0, (CPU_COUNT - load1) / CPU_COUNT * 100).toFixed(1),
     };
 
     console.warn(

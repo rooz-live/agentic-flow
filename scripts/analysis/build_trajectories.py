@@ -19,6 +19,69 @@ class RunBuffers:
     rewards: Dict[int, Dict[str, Any]] = field(default_factory=dict)
 
 
+def _ensure_canonical_reward(
+    reward_entry: Optional[Dict[str, Any]],
+    state_entry: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Guarantee the reward payload carries reward.value for DT prep.
+
+    Older metrics rows only recorded status/duration. We synthesize a composite
+    reward that mirrors emit_metrics.py's weighting so validate_dt_dataset and
+    prepare_dt_dataset can consume historical data.
+    """
+
+    if not reward_entry:
+        return None
+
+    reward_block = reward_entry.get("reward")
+    if isinstance(reward_block, dict) and isinstance(
+        reward_block.get("value"), (int, float)
+    ):
+        return reward_entry
+
+    # Copy to avoid mutating the original buffer payload
+    reward_payload = dict(reward_entry)
+
+    status = str(reward_payload.get("status") or "").lower()
+    if status in {"success", "completed", "ok"}:
+        success_term = 1.0
+    elif status in {"failure", "error", "blocked"}:
+        success_term = -1.0
+    else:
+        success_term = 0.0
+
+    duration_term = 0.0
+    duration_ms = reward_payload.get("duration_ms")
+    if isinstance(duration_ms, (int, float)) and duration_ms > 0:
+        # Favor shorter iterations: 0.0 at target duration, negative when much longer.
+        TARGET_MS = 120_000  # 2 minutes
+        clamped = min(float(duration_ms), TARGET_MS * 2)
+        duration_term = 1.0 - (clamped / TARGET_MS)
+        duration_term = max(-1.0, min(1.0, duration_term))
+
+    roam_term = 0.0
+    if state_entry:
+        metrics = state_entry.get("metrics") or {}
+        roam_val = metrics.get("circle_risk_focus.roam_reduction")
+        if isinstance(roam_val, (int, float)):
+            roam_term = max(-1.0, min(1.0, float(roam_val)))
+
+    reward_value = (
+        1.0 * success_term + 0.2 * duration_term + 0.3 * roam_term
+    )
+
+    reward_payload["reward"] = {
+        "value": reward_value,
+        "components": {
+            "success": success_term,
+            "duration": duration_term,
+            "roam": roam_term,
+        },
+    }
+
+    return reward_payload
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Create decision-transformer trajectories")
     parser.add_argument(
@@ -99,7 +162,10 @@ def build_trajectories(buffers: Dict[str, RunBuffers], min_cycles: int) -> List[
         for idx, cycle in enumerate(cycles):
             state = buf.states.get(cycle)
             action = buf.actions.get(cycle)
-            reward = buf.rewards.get(cycle)
+            reward = _ensure_canonical_reward(
+                buf.rewards.get(cycle),
+                state,
+            )
             next_state: Optional[Dict[str, Any]] = None
             if idx + 1 < len(cycles):
                 next_state = buf.states.get(cycles[idx + 1])

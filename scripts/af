@@ -112,6 +112,7 @@ ${GREEN}Learning:${NC}
   af hooks               Check hook discoverability
   af events              Show recent learning events
   af beam                Show BEAM dimensions
+  af train-dt            Train Decision Transformer model from prepared dataset
 
 ${GREEN}Build-Measure-Learn:${NC}
   af cycle               Show current BML cycle status
@@ -1045,6 +1046,26 @@ log_prod_cycle_iteration_metrics() {
         --average-score "$risk_score" \
         --risk-distribution "${AF_PC_RISK_DISTRIBUTION:-{}}" \
         --log-file "$out" || echo "${YELLOW}Warning: Failed to emit metrics via emit_metrics.py${NC}"
+
+    # Explicit Pattern Logging (as requested for .goalie/pattern_metrics.jsonl)
+    if [ "$patt_safe_degrade" == "1" ]; then
+        log_pattern_event "safe-degrade" "$mode" "deploy" "$safe_degrade_reason" "degraded"
+    fi
+    if [ "$patt_depth_ladder" == "1" ]; then
+        log_pattern_event "depth-ladder" "$mode" "health" "depth-check" "checked"
+    fi
+    if [ "$patt_circle_risk_focus" == "1" ]; then
+        log_pattern_event "circle-risk-focus" "$mode" "roam" "high-risk-circle" "focus-assigned" "{\"circle\":\"$circle_risk_owner\"}"
+    fi
+    if [ "$patt_autocommit_shadow" == "1" ]; then
+        log_pattern_event "autocommit-shadow" "$mode" "autocommit" "shadow-mode" "logged-candidate"
+    fi
+    if [ "$patt_guardrail_lock" == "1" ]; then
+        log_pattern_event "guardrail-lock" "$mode" "test-first" "health-check-failed" "lock-engaged" "{\"health\":\"$guardrail_health\"}"
+    fi
+    if [ "$patt_iteration_budget" == "1" ]; then
+        log_pattern_event "iteration-budget" "$mode" "policy" "budget-check" "enforced" "{\"remaining\":$budget_remaining}"
+    fi
 }
 
 # Main dispatch
@@ -1205,6 +1226,15 @@ PYEOF
 	            python3 "$SCRIPT_DIR/analysis/prepare_dt_dataset.py" --summary-only "$@"
 	        else
 	            echo -e "${YELLOW}prepare_dt_dataset.py not found${NC}"
+	            exit 1
+	        fi
+	        ;;
+	    train-dt)
+	        shift
+	        if [ -f "$SCRIPT_DIR/analysis/train_dt_model.py" ]; then
+	            python3 "$SCRIPT_DIR/analysis/train_dt_model.py" "$@"
+	        else
+	            echo -e "${YELLOW}train_dt_model.py not found${NC}"
 	            exit 1
 	        fi
 	        ;;

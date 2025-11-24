@@ -1,54 +1,36 @@
 #!/bin/bash
-# Policy Wrapper for Agentic Flow (af)
-# - Enforces safety guardrails (System Load & Risk Score)
-# - Defaults to MAX CONFIGURATION (12 iterations, full rotation) if no args provided
+# Reads metrics_log.jsonl to decide if code autocommit is safe
 
-# Resolve script paths
-# Resolve script paths
-POLICY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$(dirname "$POLICY_DIR")")"
-AF_SCRIPT="$PROJECT_ROOT/scripts/af"
-
-# 1. MAX CONFIGURATION DEFAULT
-if [ $# -eq 0 ]; then
-    echo -e "\033[1;34m🚀 No arguments provided. Defaulting to MAX CONFIGURATION...\033[0m"
-    echo -e "   Command: \033[1;32maf prod-cycle 12 --rotate-circles --depth 3 --autocommit\033[0m"
-    echo -e "   Context: Full Rotation (2x all circles), DevOps Depth, Relentless Execution"
-    set -- prod-cycle 12 --rotate-circles --depth 3 --autocommit
+# 1. Check Measure: Recent CPU Load (from governor incidents)
+# Ensure the file exists before grepping to avoid errors
+if [ -f "logs/governor_incidents.jsonl" ]; then
+    recent_load_incidents=$(grep "system_overload" logs/governor_incidents.jsonl | tail -n 10 | wc -l)
+else
+    recent_load_incidents=0
 fi
 
-# 2. HEALTH CHECKS (Guardrails)
-INCIDENTS_LOG="$PROJECT_ROOT/logs/governor_incidents.jsonl"
-METRICS_LOG="$PROJECT_ROOT/.goalie/metrics_log.jsonl"
-
-# Check System Load
-RECENT_LOAD_INCIDENTS=0
-if [ -f "$INCIDENTS_LOG" ]; then
-    # Check last 20 lines for incidents (matching governance.py window)
-    RECENT_LOAD_INCIDENTS=$(tail -n 20 "$INCIDENTS_LOG" | grep "system_overload" | wc -l)
+# 2. Check Dimension: Risk Score (from metrics log)
+if [ -f ".goalie/metrics_log.jsonl" ]; then
+    current_risk_score=$(tail -n 1 .goalie/metrics_log.jsonl | jq '.average_score // 0')
+else
+    current_risk_score=0
 fi
 
-# Check Risk Score
-CURRENT_RISK_SCORE=0
-if [ -f "$METRICS_LOG" ]; then
-    # Extract last valid score, default to 0 if missing/null
-    # Use jq for robust parsing, handling floats (truncating to int)
-    CURRENT_RISK_SCORE=$(tail -n 1 "$METRICS_LOG" | jq -r '.average_score // 0')
-    CURRENT_RISK_SCORE=${CURRENT_RISK_SCORE%.*} # Truncate float to int
+# Handle empty or invalid risk score
+if [ -z "$current_risk_score" ] || [ "$current_risk_score" == "null" ]; then
+    current_risk_score=0
 fi
 
-# 3. DYNAMIC POLICY ENFORCEMENT
-if [ "$RECENT_LOAD_INCIDENTS" -gt 5 ]; then
-    echo -e "\033[0;31m⚠️  High System Load ($RECENT_LOAD_INCIDENTS incidents). Disabling Code Autocommit.\033[0m"
+if [ "$recent_load_incidents" -gt 5 ]; then
+    echo "⚠️ High System Load ($recent_load_incidents incidents). Disabling Code Autocommit."
     export AF_ALLOW_CODE_AUTOCOMMIT=0
-elif [ "$CURRENT_RISK_SCORE" -gt 0 ] && [ "$CURRENT_RISK_SCORE" -lt 50 ]; then
-    echo -e "\033[0;31m⚠️  High Risk Score ($CURRENT_RISK_SCORE < 50). Disabling Code Autocommit.\033[0m"
+elif (( $(echo "$current_risk_score < 50" | bc -l) )); then
+    echo "⚠️ High Risk Score ($current_risk_score). Disabling Code Autocommit."
     export AF_ALLOW_CODE_AUTOCOMMIT=0
 else
-    echo -e "\033[0;32m✅ System Healthy (Load OK, Risk $CURRENT_RISK_SCORE). Code Autocommit Allowed.\033[0m"
+    echo "✅ System Healthy. Code Autocommit Allowed."
     export AF_ALLOW_CODE_AUTOCOMMIT=1
 fi
 
-# 4. EXECUTION
-# exec "$AF_SCRIPT" "$@"
-# (Removed to prevent infinite loop when sourced by af)
+# Execute the cycle
+# exec ./scripts/af "$@"

@@ -307,10 +307,17 @@ def extract_action_features(
 
 def extract_reward_value(step: Dict[str, Any]) -> float | None:
     reward = step.get("reward")
-    if isinstance(reward, dict) and isinstance(
-        reward.get("value"), (int, float)
-    ):
-        return float(reward["value"])
+    if isinstance(reward, dict):
+        # Preferred canonical shape: reward.value lives directly on the reward dict.
+        direct_val = reward.get("value")
+        if isinstance(direct_val, (int, float)):
+            return float(direct_val)
+
+        # Back-compat: some trajectory builders store the full emit_metrics payload
+        # (which nests the canonical reward dict under reward["reward"]).
+        nested = reward.get("reward")
+        if isinstance(nested, dict) and isinstance(nested.get("value"), (int, float)):
+            return float(nested["value"])
     return None
 
 
@@ -734,6 +741,28 @@ def main() -> None:
         print(f"    State stds (first 5): {state_stds[:5]}")
         print(f"    Action means (first 5): {action_means[:5]}")
         print(f"    Action stds (first 5): {action_stds[:5]}")
+
+        # Governance interpretability: pattern activation frequencies.
+        pattern_indices = [
+            (idx, name)
+            for idx, name in enumerate(state_feature_names)
+            if name.startswith("pattern_")
+        ]
+        if pattern_indices and state_vecs:
+            print("")
+            print("  Pattern Activations:")
+            total_steps_float = float(total_steps)
+            for idx, name in pattern_indices:
+                active_count = sum(1 for row in state_vecs if row[idx] != 0.0)
+                pct = (
+                    (active_count / total_steps_float) * 100.0
+                    if total_steps_float > 0.0
+                    else 0.0
+                )
+                print(
+                    f"    {name}: {active_count}/{total_steps} steps "
+                    f"({pct:.1f}%)"
+                )
 
         if total_steps <= 0:
             sys.exit(1)

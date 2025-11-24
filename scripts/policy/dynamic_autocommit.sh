@@ -33,4 +33,4 @@ else
 fi
 
 # Execute the cycle
-# exec ./scripts/af "$@"
+exec ./scripts/af "$@"

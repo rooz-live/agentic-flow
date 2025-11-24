@@ -39,9 +39,9 @@ npm install agentic-jujutsu
 - ✅ **Pattern recognition** - discovers successful workflows automatically
 - ✅ **Intelligent suggestions** - AI-powered recommendations with confidence scores
 - ✅ **Adaptive optimization** - improves over time through continuous feedback
-- ✅ **Quantum-resistant security** - Post-quantum cryptography (NIST-standardized)
-- ✅ **Multi-agent coordination** - QuantumDAG for conflict-free collaboration
-- ✅ **Fast integrity checks** - <1ms quantum fingerprints
+- ✅ **Multi-agent coordination** - QuantumDAG architecture for conflict-free collaboration
+- ✅ **Kubernetes GitOps Integration** - Production-ready controller for k8s deployments
+- ⏳ **Quantum-resistant security** - Architecture ready, production crypto in v2.4.0
 
 ### The Problem with Git + AI Agents
 
@@ -88,10 +88,10 @@ Result: 23x faster, no conflicts, everyone happy
 | **Intelligent suggestions** | ❌ None | ✅ AI-powered recommendations |
 | **Learns from experience** | ❌ None | ✅ Adaptive optimization |
 | **Operation tracking** | ❌ Manual logs | ✅ AgentDB with automatic tracking |
-| **Quantum-resistant security** | ❌ None | ✅ ML-DSA, ML-KEM (NIST PQC) |
+| **Kubernetes GitOps** | ❌ Manual setup | ✅ Production controller included |
 | **Multi-agent coordination** | ❌ Manual | ✅ Automatic via QuantumDAG |
-| **Data integrity verification** | ❌ Slow | ✅ <1ms quantum fingerprints |
-| **Future-proof** | ⚠️ 10-20 years | ✅ 20+ years (quantum-ready) |
+| **Quantum-resistant security** | ❌ None | ⏳ Arch ready (crypto in v2.4.0) |
+| **Future-proof** | ⚠️ 10-20 years | ✅ 20+ years (quantum-ready arch) |
 
 ### What's New in v2.1?
 
@@ -106,29 +106,53 @@ Result: 23x faster, no conflicts, everyone happy
 - ⚡ **Adaptive Optimization** - Continuously improves strategies through feedback
 - 📈 **Success Scoring** - Measures and optimizes task outcomes over time
 
-### What's New in v2.2? (Coming Soon)
+### What's New in v2.3.4? ✨ LATEST RELEASE
 
-**Quantum-Resistant Security & Multi-Agent Coordination:**
+**⚠️ IMPORTANT: Quantum Cryptography Transparency Notice**
 
-- 🔒 **Quantum-Resistant Signatures** - ML-DSA commit signing (NIST Level 3)
-- ⚡ **Quantum Fingerprints** - <1ms integrity verification
-- 🤝 **Multi-Agent Coordination** - QuantumDAG for conflict-free collaboration
-- 🔐 **Secure Key Exchange** - ML-KEM quantum-resistant encryption
-- 🛡️ **Operation Log Signing** - Tamper-proof audit trails
-- 🧬 **Pattern Encryption** - Secure ReasoningBank with HQC encryption
-- 📡 **Real-Time Coordination** - <1ms agent synchronization
-- 🎯 **Auto-Conflict Resolution** - Smart conflict detection and handling
+This release provides **complete transparency** about quantum cryptography status:
+
+- **Architecture**: ✅ Quantum-ready interfaces implemented (@qudag/napi-core integrated)
+- **ML-DSA Signatures**: ⏳ Placeholder (production crypto coming in v2.4.0)
+- **SHA3-512 Fingerprints**: ⏳ Placeholder (production hashing coming in v2.4.0)
+- **HQC-128 Encryption**: ⏳ Placeholder (production encryption coming in v2.4.0)
+
+The codebase has the complete quantum-resistant architecture with proper API interfaces, but the actual cryptographic operations use placeholders for testing. Real quantum cryptography integration is planned for v2.4.0.
+
+**What Works Now (v2.3.4):**
+- ✅ **Multi-Agent Coordination** - QuantumDAG architecture for conflict-free collaboration
+- ✅ **Operation Tracking** - Complete audit trails for all VCS operations
+- ✅ **AgentDB Integration** - Pattern learning and operation analytics
+- ✅ **ReasoningBank** - Self-learning AI with trajectory tracking
+- ✅ **Jujutsu VCS** - Full change-centric version control operations
+- ✅ **7 Platform Support** - macOS (ARM64/x64), Linux (ARM64/x64), Windows (x64)
+- ✅ **Zero Dependencies** - jj binary embedded, works immediately
+
+**Coming in v2.4.0:**
+- 🔜 **Production Quantum Crypto** - QUDAG @qudag/napi-core full integration
+- 🔜 **ML-DSA Signatures** - NIST FIPS 204 Level 3 post-quantum signing
+- 🔜 **SHA3-512 Fingerprints** - Sub-millisecond integrity verification
+- 🔜 **HQC-128 Encryption** - Quantum-resistant trajectory encryption
+
+**Current Architecture (v2.3.4 - Quantum-Ready):**
+- 🏗️ **Quantum Bridge Interface** - API ready for QUDAG integration
+- 🏗️ **Signature Hooks** - ML-DSA signing interface prepared
+- 🏗️ **Fingerprint System** - Quantum hash verification framework
+- 🏗️ **Coordination Protocol** - QuantumDAG multi-agent architecture
 
 **Plus v2.0 Foundation:**
 - ✅ **Real jj binary** embedded in package
 - ✅ **Zero setup** - works immediately after install
-- ✅ **Production ready** - use in real projects
+- ✅ **Production ready** - use in real projects (VCS operations)
 - ✅ **7 platforms** supported automatically
 
 **Evolution:**
 - **v1.x:** Required separate install - complex setup
 - **v2.0:** Everything embedded - simple!
 - **v2.1:** Self-learning AI built-in - intelligent! 🧠
+- **v2.2.0:** Multi-agent architecture + quantum-ready foundation! 🚀
+- **v2.3.4:** Transparent status - honest documentation! 📋
+- **v2.4.0:** Production quantum cryptography (planned) 🔐
 
 ---
 

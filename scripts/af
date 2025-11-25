@@ -12,12 +12,40 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Global Flags
+export AF_ENABLE_IRIS_METRICS="${AF_ENABLE_IRIS_METRICS:-0}"
+
+# Check for --log-goalie flag
+for arg in "$@"; do
+    if [ "$arg" = "--log-goalie" ]; then
+        export AF_ENABLE_IRIS_METRICS="1"
+        break
+    fi
+done
+
 # Colors
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m'
+
+# IRIS Bridge Helper - Capture IRIS metrics to .goalie/metrics_log.jsonl
+capture_iris_metrics() {
+    local iris_command="$1"
+    shift
+    local iris_args=("$@")
+
+    # Only capture if metrics logging is enabled
+    if [ "$AF_ENABLE_IRIS_METRICS" = "1" ]; then
+        local goalie_dir="$PROJECT_ROOT/.goalie"
+        mkdir -p "$goalie_dir"
+        # Call iris_bridge.ts via npx tsx, forcing log file under PROJECT_ROOT/.goalie
+        npx -y tsx "$PROJECT_ROOT/tools/federation/iris_bridge.ts" \
+            "$iris_command" "${iris_args[@]}" --log-file "$goalie_dir/metrics_log.jsonl" 2>/dev/null || \
+            echo -e "${YELLOW}[iris_bridge] Warning: Failed to log IRIS metrics${NC}" >&2
+    fi
+}
 
 # Pattern metrics logging helper
 log_pattern_event() {
@@ -94,6 +122,14 @@ ${GREEN}Production Maturity & Observability:${NC}
   af dt-ci-history       Analyze CI history for DT calibration guardrail
   af reward-presets     List DT reward presets & semantics
 
+${GREEN}IRIS Agent Framework:${NC}
+  af iris-health         Quick health check across all projects
+  af iris-discover       Discover and instrument expert agents
+  af iris-evaluate       Evaluate project health and expert performance
+  af iris-patterns       Discover patterns across projects
+  af iris-telemetry      Show telemetry health (AgentDB + Supabase)
+  af iris-federated      Federated learning control plane
+  af iris-config         Show IRIS configuration
 
 ${GREEN}Feedback Loop:${NC}
   af insight <text>      Capture retro insight
@@ -428,6 +464,18 @@ cmd_full_cycle() {
 
         cmd_suggest_actions
         echo ""
+
+        # IRIS Integration: Evaluate and discover patterns if enabled
+        if [ "$AF_ENABLE_IRIS_METRICS" = "1" ]; then
+            echo -e "${BLUE}=== IRIS Evaluation (iteration $i) ===${NC}\n"
+            npx iris evaluate 2>/dev/null || echo -e "${YELLOW}IRIS evaluate skipped${NC}"
+            capture_iris_metrics "evaluate" "--iteration" "$i"
+
+            echo -e "${BLUE}=== IRIS Pattern Discovery (iteration $i) ===${NC}\n"
+            npx iris patterns 2>/dev/null || echo -e "${YELLOW}IRIS patterns skipped${NC}"
+            capture_iris_metrics "patterns" "--iteration" "$i"
+            echo ""
+        fi
 
         # Optional autocommit path behind test-first guardrails
         local do_autocommit="${AF_FULL_CYCLE_AUTOCOMMIT:-0}"
@@ -936,17 +984,37 @@ cmd_prod_cycle() {
     # Defaults to 100 iterations if not specified.
     local args=("$@")
     local normalized=()
+    local environment=""
 
-    if [[ "${args[0]}" =~ ^[0-9]+$ ]]; then
-        normalized+=("--iterations" "${args[0]}")
-        # Append remaining arguments (skipping the first one)
-        if [ ${#args[@]} -gt 1 ]; then
-            normalized+=("${args[@]:1}")
+    # Extract optional --environment flag (without changing ordering of other flags)
+    local remaining=()
+    local i=0
+    while [ $i -lt ${#args[@]} ]; do
+        if [ "${args[$i]}" = "--environment" ]; then
+            if [ $((i+1)) -lt ${#args[@]} ]; then
+                environment="${args[$((i+1))]}"
+                i=$((i+2))
+                continue
+            fi
         fi
-    elif [ ${#args[@]} -eq 0 ]; then
+        remaining+=("${args[$i]}")
+        i=$((i+1))
+    done
+
+    if [ -n "$environment" ]; then
+        normalized+=("--environment" "$environment")
+    fi
+
+    if [[ "${remaining[0]}" =~ ^[0-9]+$ ]]; then
+        normalized+=("--iterations" "${remaining[0]}")
+        # Append remaining arguments (skipping the first one)
+        if [ ${#remaining[@]} -gt 1 ]; then
+            normalized+=("${remaining[@]:1}")
+        fi
+    elif [ ${#remaining[@]} -eq 0 ]; then
         normalized+=("--iterations" "100")
     else
-        normalized=("${args[@]}")
+        normalized=("${remaining[@]}")
     fi
 
     # When forcing prod-cycle we already ran pre-flight checks; skip governor suite for speed.
@@ -1337,6 +1405,44 @@ PYEOF
 	            echo -e "${YELLOW}train_dt_model.py not found${NC}"
 	            exit 1
 	        fi
+	        ;;
+
+	    # IRIS Agent Framework Commands
+	    iris-health)
+	        npx iris health
+	        capture_iris_metrics "health"
+	        ;;
+
+	    iris-discover)
+	        npx iris discover
+	        capture_iris_metrics "discover"
+	        ;;
+
+	    iris-evaluate)
+	        shift
+	        npx iris evaluate "$@"
+	        capture_iris_metrics "evaluate" "$@"
+	        ;;
+
+	    iris-patterns)
+	        npx iris patterns
+	        capture_iris_metrics "patterns"
+	        ;;
+
+	    iris-telemetry)
+	        shift
+	        npx iris telemetry "$@"
+	        capture_iris_metrics "telemetry" "$@"
+	        ;;
+
+	    iris-federated)
+	        shift
+	        npx iris federated "$@"
+	        capture_iris_metrics "federated" "$@"
+	        ;;
+
+	    iris-config)
+	        npx iris config show
 	        ;;
 
 

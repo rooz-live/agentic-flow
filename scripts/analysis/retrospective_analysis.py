@@ -495,6 +495,48 @@ def analyze_roam_risks(
     }
 
 
+def analyze_iris_metrics(metrics: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Analyze IRIS evaluation events for retrospective insights."""
+    iris_events = [m for m in metrics if m.get("type") == "iris_evaluation"]
+
+    summary = {
+        "total_evaluations": len(iris_events),
+        "commands": Counter(),
+        "circles": Counter(),
+        "actions_by_priority": Counter(),
+        "replenishment_candidates": [],
+        "production_maturity_snapshot": {},
+    }
+
+    for event in iris_events:
+        cmd = event.get("iris_command")
+        if cmd:
+            summary["commands"][cmd] += 1
+
+        for circle in event.get("circles_involved") or []:
+            summary["circles"][circle] += 1
+
+        for action in event.get("actions_taken") or []:
+            prio = action.get("priority", "normal")
+            summary["actions_by_priority"][prio] += 1
+
+            # Identify replenishment candidates (innovator optimizations or analyst gaps)
+            circle = action.get("circle")
+            if circle in ("innovator", "analyst") and prio in ("critical", "urgent", "important"):
+                summary["replenishment_candidates"].append({
+                    "circle": circle,
+                    "action": action.get("action"),
+                    "priority": prio,
+                    "timestamp": event.get("timestamp")
+                })
+
+        # Keep latest production maturity snapshot
+        if event.get("production_maturity"):
+            summary["production_maturity_snapshot"] = event.get("production_maturity")
+
+    return summary
+
+
 
 def load_data(args: argparse.Namespace) -> Dict[str, Any]:
     since = parse_time(args.since)
@@ -645,10 +687,28 @@ def print_human(summary: Dict[str, Any]) -> None:
         risk = roam.get("risk", {})
         avg_roam = risk.get("avg_roam_risk_score")
         avg_obs = risk.get("avg_observed_risk_score")
-        if avg_roam is not None:
-            print(f"  Avg ROAM risk score: {avg_roam:.2f}")
         if avg_obs is not None:
             print(f"  Avg observed system risk: {avg_obs:.2f}")
+        print()
+
+    # IRIS Analysis
+    iris = summary.get("iris", {})
+    if iris.get("total_evaluations", 0) > 0:
+        print("## IRIS Integration & Replenishment")
+        print(f"  Total evaluations: {iris['total_evaluations']}")
+        print("  Commands:")
+        for cmd, count in iris.get("commands", {}).items():
+            print(f"    - {cmd}: {count}")
+        print("  Actions by Priority:")
+        for prio, count in iris.get("actions_by_priority", {}).items():
+            print(f"    - {prio}: {count}")
+
+        candidates = iris.get("replenishment_candidates", [])
+        if candidates:
+            print(f"  Replenishment Candidates ({len(candidates)}):")
+            # Show top 5 most recent
+            for c in candidates[-5:]:
+                print(f"    - [{c['priority'].upper()}] {c['circle']}: {c['action']}")
         print()
 
 
@@ -842,6 +902,7 @@ def build_summary(args: argparse.Namespace, data: Dict[str, Any]) -> Dict[str, A
         "autocommit_vs_executor": analyze_autocommit_vs_executor(
             metrics, data["executor_log"]
         ),
+        "iris": analyze_iris_metrics(data["metrics"]),  # Use raw metrics for IRIS events
         "time_window": {"since": args.since, "until": args.until},
         "pattern": args.pattern,
     }

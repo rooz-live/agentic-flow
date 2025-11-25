@@ -117,6 +117,8 @@ class GovernanceMiddleware:
         self.vsix_telemetry_gap_count = 0
         self.safe_degrade_recent_incidents_10m = 0
 
+        self.current_avg_score: float = 100.0
+
         self.progress_log_path = self.project_root / ".goalie" / "prod_cycle_progress.log"
 
     def log_progress(self) -> None:
@@ -355,6 +357,8 @@ class GovernanceMiddleware:
                 avg_score = 100
                 score_samples = 0
 
+        self.current_avg_score = float(avg_score)
+
         # Require a minimal baseline of score samples before enforcing the score guard.
         # This prevents cold-start runs or sparse metrics from being blocked solely due
         # to avg_score=0.0.
@@ -574,6 +578,7 @@ class GovernanceMiddleware:
 
         risk_distribution = {self.active_circle or "unknown": self.circle_risk_roam_delta}
         env["AF_PC_RISK_DISTRIBUTION"] = json.dumps(risk_distribution)
+        env["AF_PC_CURRENT_RISK_SCORE"] = f"{self.current_avg_score:.3f}"
 
     def run_cmd_full_cycle(self):
         """

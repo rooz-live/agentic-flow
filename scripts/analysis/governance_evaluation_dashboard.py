@@ -21,6 +21,7 @@ from scripts.analysis import retrospective_analysis as retro
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 GOALIE_DIR = PROJECT_ROOT / ".goalie"
+DEFAULT_HTML = GOALIE_DIR / "governance_evaluation_dashboard.html"
 
 
 @dataclass
@@ -217,6 +218,40 @@ def summarize_iris_for_governance(
     }
 
 
+def build_iris_payload(
+    iris_events: List[Dict[str, Any]], iris_summary: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
+    """Build JSON-serializable IRIS payload for the governance dashboard HTML.
+
+    The payload mirrors the DT dashboard structure where possible so that the
+    front-end can render an event timeline plus aggregated summaries.
+    """
+
+    if not iris_events:
+        return None
+
+    events_payload: List[Dict[str, Any]] = []
+    for ev in iris_events:
+        ts_str = ev.get("timestamp") or ""
+        ctx = ev.get("execution_context") or {}
+        events_payload.append(
+            {
+                "timestamp": ts_str,
+                "iris_command": ev.get("iris_command"),
+                "circles_involved": ev.get("circles_involved") or [],
+                "execution_context": {
+                    "incremental": bool(ctx.get("incremental")),
+                    "relentless": bool(ctx.get("relentless")),
+                    "focused": bool(ctx.get("focused")),
+                },
+                "actions_taken": ev.get("actions_taken") or [],
+                "production_maturity": ev.get("production_maturity") or {},
+            }
+        )
+
+    return {"events": events_payload, "summary": iris_summary or {}}
+
+
 def print_iris_summary(iris: Dict[str, Any]) -> None:
     """Render a brief IRIS governance summary for terminal output."""
     if not iris or iris.get("iris_events", 0) == 0:
@@ -351,6 +386,325 @@ def print_config_table(summary: Dict[str, Any]) -> None:
         )
 
 
+def build_html(summary: Dict[str, Any], iris_payload: Optional[Dict[str, Any]]) -> str:
+    """Construct an interactive governance evaluation HTML dashboard.
+
+    The layout mirrors the DT evaluation dashboard patterns and includes a
+    dedicated IRIS section for governance and risk correlation views.
+    """
+
+    data = {
+        "summary": summary,
+        "iris": iris_payload,
+    }
+    json_data = json.dumps(data)
+
+    html = """<!DOCTYPE html>
+<html>
+<head>
+  <meta charset=\"utf-8\" />
+  <title>Governance Evaluation Dashboard</title>
+  <script src=\"https://cdn.plot.ly/plotly-2.27.0.min.js\"></script>
+</head>
+<body>
+  <h1>Governance Evaluation Dashboard</h1>
+  <div id=\"governance-summary\">
+    <h2>Governance metrics</h2>
+    <div id=\"gov-metric-stats\"></div>
+    <div id=\"gov-config-impact\"></div>
+  </div>
+  <div id=\"iris-section\">
+    <h2>IRIS governance &amp; risk signals</h2>
+    <div id=\"iris-command-timeline\" style=\"width:100%;height:300px;\"></div>
+    <div id=\"iris-circle-participation\" style=\"width:100%;height:300px;\"></div>
+    <div id=\"iris-health-heatmap\" style=\"width:100%;height:350px;\"></div>
+    <div id=\"iris-action-backlog\"></div>
+    <div id=\"iris-risk-correlation\"></div>
+  </div>
+  <script>
+    const data = __DATA__;
+    const summary = data.summary || {};
+    const iris = data.iris || null;
+
+    function renderGovernanceSummary() {
+      const statsDiv = document.getElementById('gov-metric-stats');
+      const cfgDiv = document.getElementById('gov-config-impact');
+
+      const metricStats = summary.metric_stats || {};
+      if (statsDiv) {
+        const rows = [
+          ['risk_score', metricStats.risk_score || {}],
+          ['recent_incidents', metricStats.recent_incidents || {}],
+          ['safe_degrade_triggers', metricStats.safe_degrade_triggers || {}],
+        ];
+        let html = '<h3>Metric summaries</h3>';
+        html += '<table border="1" cellpadding="4" cellspacing="0">';
+        html += '<thead><tr><th>metric</th><th>min</th><th>p25</th><th>median</th><th>p75</th><th>p90</th><th>max</th></tr></thead><tbody>';
+        rows.forEach(([name, stats]) => {
+          if (!stats || Object.keys(stats).length === 0) {
+            return;
+          }
+          html += '<tr><td>' + name + '</td>' +
+            '<td>' + (stats.min ?? '') + '</td>' +
+            '<td>' + (stats.p25 ?? '') + '</td>' +
+            '<td>' + (stats.median ?? '') + '</td>' +
+            '<td>' + (stats.p75 ?? '') + '</td>' +
+            '<td>' + (stats.p90 ?? '') + '</td>' +
+            '<td>' + (stats.max ?? '') + '</td></tr>';
+        });
+        html += '</tbody></table>';
+        statsDiv.innerHTML = html;
+      }
+
+      if (cfgDiv) {
+        const impacts = summary.config_impact || {};
+        let html = '<h3>Config impact</h3>';
+        const names = Object.keys(impacts);
+        if (names.length === 0) {
+          html += '<p>No config impact data available.</p>';
+        } else {
+          html += '<table border="1" cellpadding="4" cellspacing="0">';
+          html += '<thead><tr><th>config</th><th>pass%</th><th>passed</th><th>failed</th></tr></thead><tbody>';
+          names.forEach(name => {
+            const imp = impacts[name] || {};
+            const rate = (imp.pass_rate != null) ? (100.0 * imp.pass_rate).toFixed(1) : '';
+            html += '<tr><td>' + name + '</td>' +
+              '<td>' + rate + '</td>' +
+              '<td>' + (imp.pass_count ?? '') + '</td>' +
+              '<td>' + (imp.fail_count ?? '') + '</td></tr>';
+          });
+          html += '</tbody></table>';
+        }
+        cfgDiv.innerHTML = html;
+      }
+    }
+
+
+    function renderIrisSection() {
+      const section = document.getElementById('iris-section');
+      if (!section) return;
+
+      if (!iris || !iris.events || !Array.isArray(iris.events) || iris.events.length === 0) {
+        section.innerHTML += '<p>No IRIS metrics available. Run prod-cycle or IRIS commands with metrics logging enabled.</p>';
+        return;
+      }
+
+      const events = iris.events;
+      const irisSummary = (summary && summary.iris) || (iris.summary || {});
+
+      // Command timeline grouped by IRIS command.
+      const byCmd = {};
+      events.forEach(ev => {
+        const cmd = (ev.iris_command || 'unknown').toString();
+        if (!byCmd[cmd]) byCmd[cmd] = [];
+        byCmd[cmd].push(ev);
+      });
+      const cmdNames = Object.keys(byCmd).sort();
+      const cmdTraces = [];
+      cmdNames.forEach(cmd => {
+        const list = byCmd[cmd];
+        cmdTraces.push({
+          x: list.map(e => e.timestamp),
+          y: list.map(() => cmd),
+          mode: 'markers',
+          name: cmd,
+          marker: {size: 10},
+          hovertemplate: 'ts=%{x}<br>command=' + cmd + '<extra></extra>',
+        });
+      });
+      if (cmdTraces.length > 0) {
+        Plotly.newPlot('iris-command-timeline', cmdTraces, {
+          title: 'IRIS commands over time',
+          xaxis: {title: 'timestamp'},
+          yaxis: {title: 'command', type: 'category'},
+          legend: {orientation: 'h'},
+        });
+      } else {
+        const div = document.getElementById('iris-command-timeline');
+        if (div) {
+          div.innerHTML = '<p>No IRIS commands recorded.</p>';
+        }
+      }
+
+      // Circle participation over time (scatter by circle).
+      const byCircle = {};
+      events.forEach(ev => {
+        const ts = ev.timestamp;
+        (ev.circles_involved || []).forEach(c => {
+          const name = (c || 'unknown').toString();
+          if (!byCircle[name]) byCircle[name] = [];
+          byCircle[name].push(ts);
+        });
+      });
+      const circleNames = Object.keys(byCircle).sort();
+      const circleTraces = [];
+      circleNames.forEach(circle => {
+        const tsList = byCircle[circle] || [];
+        circleTraces.push({
+          x: tsList,
+          y: tsList.map(() => circle),
+          mode: 'markers',
+          name: circle,
+          marker: {size: 9},
+          hovertemplate: 'ts=%{x}<br>circle=' + circle + '<extra></extra>',
+        });
+      });
+      if (circleTraces.length > 0) {
+        Plotly.newPlot('iris-circle-participation', circleTraces, {
+          title: 'Circle participation over time',
+          xaxis: {title: 'timestamp'},
+          yaxis: {title: 'circle', type: 'category'},
+          legend: {orientation: 'h'},
+        });
+      } else {
+        const div = document.getElementById('iris-circle-participation');
+        if (div) {
+          div.innerHTML = '<p>No IRIS circle participation data available.</p>';
+        }
+      }
+
+      // Component health heatmap using latest status per component.
+      const healthDiv = document.getElementById('iris-health-heatmap');
+      const health = (irisSummary && irisSummary.component_health) || {};
+      const componentNames = Object.keys(health || {}).sort();
+      if (healthDiv) {
+        if (componentNames.length === 0) {
+          healthDiv.innerHTML = '<p>No component health data available from IRIS.</p>';
+        } else {
+          const statusOrder = ['healthy', 'warning', 'degraded', 'critical', 'unknown'];
+          const statusToValue = {};
+          statusOrder.forEach((s, idx) => {
+            statusToValue[s] = idx / Math.max(1, statusOrder.length - 1);
+          });
+          const z = [];
+          const text = [];
+          componentNames.forEach(name => {
+            const latest = (health[name] && health[name].latest_status) || 'unknown';
+            const key = latest.toString().toLowerCase();
+            const value = Object.prototype.hasOwnProperty.call(statusToValue, key)
+              ? statusToValue[key]
+              : 0.0;
+            z.push([value]);
+            text.push([latest]);
+          });
+          const trace = {
+            x: ['status'],
+            y: componentNames,
+            z,
+            text,
+            type: 'heatmap',
+            colorscale: [
+              [0.0, '#dfe6e9'],
+              [0.25, '#ffeaa7'],
+              [0.5, '#fab1a0'],
+              [0.75, '#e17055'],
+              [1.0, '#d63031'],
+            ],
+            showscale: false,
+            hovertemplate: 'component=%{y}<br>status=%{text}<extra></extra>',
+          };
+          Plotly.newPlot('iris-health-heatmap', [trace], {
+            title: 'IRIS component health (latest status)',
+            xaxis: {showticklabels: false},
+            yaxis: {title: 'component'},
+          });
+        }
+      }
+
+      // Action backlog organized by circle and priority.
+      const backlogDiv = document.getElementById('iris-action-backlog');
+      if (backlogDiv) {
+        const actionsByCircle = (irisSummary && irisSummary.actions_by_circle) || {};
+        let html = '<h3>Action backlog by circle &amp; priority</h3>';
+        const circles = Object.keys(actionsByCircle);
+        if (circles.length === 0) {
+          html += '<p>No IRIS governance actions recorded.</p>';
+        } else {
+          const allPriorities = new Set();
+          Object.values(actionsByCircle).forEach(pmap => {
+            Object.keys(pmap).forEach(p => allPriorities.add(p));
+          });
+          const priorities = Array.from(allPriorities).sort();
+          html += '<table border="1" cellpadding="4" cellspacing="0"><thead><tr><th>circle</th>';
+          priorities.forEach(p => { html += '<th>' + p + '</th>'; });
+          html += '</tr></thead><tbody>';
+          circles.forEach(circle => {
+            const m = actionsByCircle[circle] || {};
+            html += '<tr><td>' + circle + '</td>';
+            priorities.forEach(p => {
+              const v = m[p] || 0;
+              html += '<td>' + v + '</td>';
+            });
+            html += '</tr>';
+          });
+          html += '</tbody></table>';
+        }
+        backlogDiv.innerHTML = html;
+      }
+
+      // Risk correlation visualization comparing overall vs near-degraded risk.
+      const riskDiv = document.getElementById('iris-risk-correlation');
+      if (riskDiv) {
+        const corr = (irisSummary && irisSummary.risk_correlation) || {};
+        let html = '<h3>Governance risk vs IRIS component alerts</h3>';
+        if (!corr || Object.keys(corr).length === 0) {
+          html += '<p>No overlapping governance risk and IRIS degradation windows found.</p>';
+          riskDiv.innerHTML = html;
+        } else {
+          const allRisk = corr.all_risk || {};
+          const degradedRisk = corr.degraded_risk || {};
+          const windowSeconds = corr.window_seconds || 0;
+          const degradedEvents = corr.degraded_event_count || 0;
+          html += '<p>Window: +/- ' + windowSeconds + 's around degraded/critical component health events.</p>';
+          html += '<p>Distinct degraded/critical component windows: ' + degradedEvents + '</p>';
+
+          const statsOrder = ['min', 'p25', 'median', 'p75', 'p90', 'max'];
+          html += '<table border="1" cellpadding="4" cellspacing="0">';
+          html += '<thead><tr><th>stat</th><th>overall risk</th><th>risk near degraded</th></tr></thead><tbody>';
+          statsOrder.forEach(name => {
+            const a = (allRisk && Object.prototype.hasOwnProperty.call(allRisk, name)) ? allRisk[name] : '';
+            const d = (degradedRisk && Object.prototype.hasOwnProperty.call(degradedRisk, name)) ? degradedRisk[name] : '';
+            if (a === '' && d === '') {
+              return;
+            }
+            html += '<tr><td>' + name + '</td>' +
+              '<td>' + a + '</td>' +
+              '<td>' + d + '</td></tr>';
+          });
+          html += '</tbody></table>';
+          html += '<div id="iris-risk-correlation-chart" style="width:100%;height:300px;"></div>';
+          riskDiv.innerHTML = html;
+
+          const medianOverall = allRisk.median;
+          const medianDegraded = degradedRisk.median;
+          const chartDivId = 'iris-risk-correlation-chart';
+          if (medianOverall != null || medianDegraded != null) {
+            const trace = {
+              x: ['overall', 'near_degraded'],
+              y: [medianOverall != null ? medianOverall : null, medianDegraded != null ? medianDegraded : null],
+              type: 'bar',
+              marker: {color: ['#4c78a8', '#e45756']},
+            };
+            Plotly.newPlot(chartDivId, [trace], {
+              title: 'Median governance risk score',
+              yaxis: {title: 'risk_score'},
+            });
+          }
+        }
+      }
+    }
+
+
+    renderGovernanceSummary();
+    renderIrisSection();
+
+  </script>
+</body>
+</html>
+"""
+    return html.replace("__DATA__", json_data)
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Governance Agent calibration dashboard.",
@@ -373,8 +727,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument(
         "--format",
         action="append",
-        choices=["json", "table"],
+        choices=["json", "table", "html"],
         help="Output formats to produce.",
+    )
+    parser.add_argument(
+        "--output-html",
+        type=Path,
+        default=DEFAULT_HTML,
+        help=(
+            "Path to write interactive HTML dashboard. "
+            "Used when --format includes html."
+        ),
     )
     parser.add_argument(
         "--since",
@@ -417,10 +780,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
 
     summary = build_summary(metrics, thresholds, args.dry_run_config, iris_events)
+    iris_payload = build_iris_payload(iris_events, summary.get("iris") or {})
+
     args.export_json.parent.mkdir(parents=True, exist_ok=True)
     args.export_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     fmts = args.format or ["json"]
+    if "html" in fmts:
+        args.output_html.parent.mkdir(parents=True, exist_ok=True)
+        html = build_html(summary, iris_payload)
+        args.output_html.write_text(html, encoding="utf-8")
     if "table" in fmts:
         print_config_table(summary)
         print_iris_summary(summary.get("iris") or {})

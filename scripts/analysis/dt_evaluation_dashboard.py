@@ -397,6 +397,47 @@ def read_dt_events(
     return events
 
 
+def read_iris_events(
+    path: Path,
+    since: Optional[datetime],
+    until: Optional[datetime],
+    iris_commands: Optional[List[str]] = None,
+    iris_circles: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Read iris_evaluation events from the shared metrics log.
+
+    Filters by time range plus optional command/circle constraints.
+    """
+    if not path.exists():
+        return []
+    cmd_filter = {c.lower() for c in iris_commands} if iris_commands else None
+    circle_filter = {c.lower() for c in iris_circles} if iris_circles else None
+    events: List[Dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            if obj.get("type") != "iris_evaluation":
+                continue
+            ts_str = obj.get("timestamp") or ""
+            if not within_range(ts_str, since, until):
+                continue
+            command = str(obj.get("iris_command") or "").lower()
+            if cmd_filter is not None and command not in cmd_filter:
+                continue
+            circles = [str(c).lower() for c in (obj.get("circles_involved") or [])]
+            if circle_filter is not None and not any(c in circle_filter for c in circles):
+                continue
+            events.append(obj)
+    return events
+
+
+
 def percentile(sorted_vals: List[float], q: float) -> float:
     if not sorted_vals:
         return 0.0
@@ -806,6 +847,212 @@ def compute_distribution_report(
     }
 
 
+def _normalize_iris_status(value: Any) -> str:
+    """Normalize IRIS component status payload to a lowercase label.
+
+    Accepts either a bare string or a dict with a ``status`` field.
+    """
+    if isinstance(value, str):
+        s = value.strip().lower()
+        return s or "unknown"
+    if isinstance(value, dict):
+        inner = value.get("status")
+        if isinstance(inner, str):
+            s = inner.strip().lower()
+            return s or "unknown"
+    if value is None:
+        return "unknown"
+    return str(value).strip().lower() or "unknown"
+
+
+def _iris_event_is_alert(ev: Dict[str, Any]) -> bool:
+    """Heuristic flag for whether an IRIS evaluation represents an alert.
+
+    We treat any critical/urgent/important action or degraded component as an alert.
+    """
+    actions = ev.get("actions_taken") or []
+    for action in actions:
+        prio = str(action.get("priority") or "").lower()
+        if prio in {"critical", "urgent", "important"}:
+            return True
+
+    pm = ev.get("production_maturity") or {}
+    statuses: List[Any] = []
+    statuses.append(pm.get("starlingx_openstack"))
+    statuses.append(pm.get("hostbill"))
+    statuses.append(pm.get("loki_environments"))
+    cms = pm.get("cms_interfaces") or {}
+    if isinstance(cms, dict):
+        statuses.extend(cms.values())
+    comm = pm.get("communication_stack") or {}
+    if isinstance(comm, dict):
+        statuses.extend(comm.values())
+    for proto in pm.get("messaging_protocols") or []:
+        statuses.append(proto)
+
+    degraded = {"critical", "degraded", "warning"}
+    for payload in statuses:
+        status = _normalize_iris_status(payload)
+        if status in degraded:
+            return True
+    return False
+
+
+def summarize_iris_for_dt(
+    iris_events: List[Dict[str, Any]],
+    dt_events: List[DtEvalEvent],
+    thresholds: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Summarize IRIS metrics and their correlation with DT evaluations."""
+    iris_events = iris_events or []
+    commands: Dict[str, int] = {}
+    actions_by_priority: Dict[str, int] = {}
+    actions_by_circle: Dict[str, Dict[str, int]] = {}
+    circle_participation: Dict[str, int] = {}
+    component_health: Dict[str, Dict[str, Any]] = {}
+    context_flags: List[Dict[str, Any]] = []
+    alert_times: List[datetime] = []
+
+    def record_component(name: str, payload: Any, ts: Optional[datetime]) -> None:
+        if not name:
+            return
+        status = _normalize_iris_status(payload)
+        entry = component_health.setdefault(
+            name,
+            {"status_counts": {}, "latest_status": None, "latest_timestamp": None},
+        )
+        counts = entry["status_counts"]
+        counts[status] = counts.get(status, 0) + 1
+        if ts is not None:
+            ts_str = ts.isoformat()
+            prev_ts_str = entry.get("latest_timestamp")
+            prev_ts = parse_time(prev_ts_str) if isinstance(prev_ts_str, str) else None
+            if prev_ts is None or ts > prev_ts:
+                entry["latest_status"] = status
+                entry["latest_timestamp"] = ts_str
+
+    for ev in iris_events:
+        ts_str = ev.get("timestamp") or ""
+        ts = parse_time(ts_str)
+        cmd = str(ev.get("iris_command") or "")
+        commands[cmd] = commands.get(cmd, 0) + 1
+
+        circles = [str(c) for c in (ev.get("circles_involved") or [])]
+        for c in circles:
+            circle_participation[c] = circle_participation.get(c, 0) + 1
+
+        for action in ev.get("actions_taken") or []:
+            prio = str(action.get("priority") or "normal")
+            actions_by_priority[prio] = actions_by_priority.get(prio, 0) + 1
+            circle = str(action.get("circle") or "")
+            if circle:
+                per_circle = actions_by_circle.setdefault(circle, {})
+                per_circle[prio] = per_circle.get(prio, 0) + 1
+
+        pm = ev.get("production_maturity") or {}
+        if pm:
+            record_component("starlingx_openstack", pm.get("starlingx_openstack"), ts)
+            record_component("hostbill", pm.get("hostbill"), ts)
+            record_component("loki_environments", pm.get("loki_environments"), ts)
+            cms = pm.get("cms_interfaces") or {}
+            if isinstance(cms, dict):
+                for name, payload in cms.items():
+                    record_component(f"cms:{name}", payload, ts)
+            comm = pm.get("communication_stack") or {}
+            if isinstance(comm, dict):
+                for name, payload in comm.items():
+                    record_component(f"comm:{name}", payload, ts)
+            for proto in pm.get("messaging_protocols") or []:
+                record_component(f"msg:{proto}", {"status": "unknown"}, ts)
+
+        ctx = ev.get("execution_context") or {}
+        context_flags.append(
+            {
+                "timestamp": ts_str,
+                "incremental": bool(ctx.get("incremental")),
+                "relentless": bool(ctx.get("relentless")),
+                "focused": bool(ctx.get("focused")),
+            }
+        )
+
+        if ts is not None and _iris_event_is_alert(ev):
+            alert_times.append(ts)
+
+    alert_times.sort()
+    window_seconds = 300
+    dt_total = len(dt_events)
+    dt_near = 0
+    failures_total: Dict[str, int] = {}
+    failures_near: Dict[str, int] = {}
+
+    if alert_times and dt_events and thresholds:
+        for ev in dt_events:
+            near = any(
+                abs((ev.timestamp - t).total_seconds()) <= window_seconds
+                for t in alert_times
+            )
+            if near:
+                dt_near += 1
+            for cfg_name, cfg in thresholds.items():
+                if not cfg:
+                    continue
+                if not _event_fails_threshold(ev, cfg):
+                    continue
+                failures_total[cfg_name] = failures_total.get(cfg_name, 0) + 1
+                if near:
+                    failures_near[cfg_name] = failures_near.get(cfg_name, 0) + 1
+
+    dt_corr = {
+        "window_seconds": window_seconds,
+        "dt_events_total": dt_total,
+        "dt_events_near_iris": dt_near,
+        "threshold_failures_total": failures_total,
+        "threshold_failures_near_iris": failures_near,
+    }
+
+    return {
+        "iris_events": len(iris_events),
+        "command_counts": commands,
+        "actions_by_priority": actions_by_priority,
+        "actions_by_circle": actions_by_circle,
+        "circle_participation": circle_participation,
+        "component_health": component_health,
+        "context_flags": context_flags,
+        "dt_correlation": dt_corr,
+    }
+
+
+def build_iris_payload(
+    iris_events: List[Dict[str, Any]],
+    dt_events: List[DtEvalEvent],
+    thresholds: Dict[str, Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Build JSON-serializable IRIS payload for the DT dashboard."""
+    if not iris_events:
+        return None
+    summary = summarize_iris_for_dt(iris_events, dt_events, thresholds)
+    events_payload: List[Dict[str, Any]] = []
+    for ev in iris_events:
+        ts_str = ev.get("timestamp") or ""
+        ctx = ev.get("execution_context") or {}
+        events_payload.append(
+            {
+                "timestamp": ts_str,
+                "iris_command": ev.get("iris_command"),
+                "circles_involved": ev.get("circles_involved") or [],
+                "execution_context": {
+                    "incremental": bool(ctx.get("incremental")),
+                    "relentless": bool(ctx.get("relentless")),
+                    "focused": bool(ctx.get("focused")),
+                },
+                "actions_taken": ev.get("actions_taken") or [],
+                "production_maturity": ev.get("production_maturity") or {},
+            }
+        )
+    return {"events": events_payload, "summary": summary}
+
+
+
 def write_csv(events: List[DtEvalEvent], path: Path) -> None:
     """Write per-evaluation metrics to CSV for spreadsheet analysis."""
     if not events:
@@ -864,6 +1111,7 @@ def build_html(
     config_impact: Dict[str, Any],
     checkpoint_summary: Dict[str, Any],
     reward_preset_analysis: Optional[Dict[str, Any]] = None,
+    iris: Optional[Dict[str, Any]] = None,
 ) -> str:
     ts = [e.ts_str for e in events]
     top1 = [e.top1 for e in events]
@@ -908,6 +1156,7 @@ def build_html(
         "checkpoint_names": checkpoint_names,
         "run_names": run_names,
         "reward_preset_analysis": reward_preset_analysis,
+        "iris": iris,
     }
     json_data = json.dumps(data)
     html = """<!DOCTYPE html>
@@ -941,6 +1190,13 @@ def build_html(
     <div id="reward-presets-summary"></div>
     <div id="reward-presets-plot" style="width:100%;height:400px;"></div>
   </div>
+  <div id="iris-section">
+    <h2>IRIS governance &amp; drift signals</h2>
+    <div id="iris-command-timeline" style="width:100%;height:300px;"></div>
+    <div id="iris-context-flags"></div>
+    <div id="iris-health-heatmap" style="width:100%;height:350px;"></div>
+    <div id="iris-action-backlog"></div>
+  </div>
   <script>
     const data = __DATA__;
     const ts = data.timestamps;
@@ -957,6 +1213,7 @@ def build_html(
     const ckptNames = data.checkpoint_names || [];
     const runNames = data.run_names || [];
     const extraMetricStats = data.extra_metric_stats || {};
+    const iris = data.iris || null;
 
     const custom = ts.map((_, idx) => [
       ckptNames[idx] || "",
@@ -1276,11 +1533,182 @@ def build_html(
       });
     }
 
+
+
+    function renderIrisSection() {
+      const section = document.getElementById('iris-section');
+      if (!section) return;
+
+      if (!iris || !iris.events || !Array.isArray(iris.events) || iris.events.length === 0) {
+        section.innerHTML += '<p>No IRIS metrics available. Run prod-cycle or IRIS commands with metrics logging enabled.</p>';
+        return;
+      }
+
+      const events = iris.events;
+      const summary = iris.summary || {};
+
+      // Command timeline grouped by IRIS command.
+      const byCmd = {};
+      events.forEach(ev => {
+        const cmd = (ev.iris_command || 'unknown').toString();
+        if (!byCmd[cmd]) byCmd[cmd] = [];
+        byCmd[cmd].push(ev);
+      });
+      const cmdNames = Object.keys(byCmd).sort();
+      const cmdTraces = [];
+      cmdNames.forEach(cmd => {
+        const list = byCmd[cmd];
+        cmdTraces.push({
+          x: list.map(e => e.timestamp),
+          y: list.map(() => cmd),
+          mode: 'markers',
+          name: cmd,
+          marker: {size: 10},
+          hovertemplate:
+            'ts=%{x}<br>command=' + cmd + '<extra></extra>',
+        });
+      });
+      if (cmdTraces.length > 0) {
+        Plotly.newPlot('iris-command-timeline', cmdTraces, {
+          title: 'IRIS commands over time',
+          xaxis: {title: 'timestamp'},
+          yaxis: {title: 'command', type: 'category'},
+          legend: {orientation: 'h'},
+        });
+      } else {
+        const div = document.getElementById('iris-command-timeline');
+        if (div) {
+          div.innerHTML = '<p>No IRIS commands recorded.</p>';
+        }
+      }
+
+      // Execution context flags table.
+      const flagsDiv = document.getElementById('iris-context-flags');
+      if (flagsDiv) {
+        let html = '<h3>Execution context</h3>';
+        html += '<table border="1" cellpadding="4" cellspacing="0">' +
+          '<thead><tr><th>timestamp</th><th>command</th><th>incremental</th><th>relentless</th><th>focused</th></tr></thead><tbody>';
+        events.forEach(ev => {
+          const ctx = ev.execution_context || {};
+          html += '<tr><td>' + (ev.timestamp || '') + '</td>' +
+            '<td>' + (ev.iris_command || '') + '</td>' +
+            '<td>' + (ctx.incremental ? 'yes' : '') + '</td>' +
+            '<td>' + (ctx.relentless ? 'yes' : '') + '</td>' +
+            '<td>' + (ctx.focused ? 'yes' : '') + '</td></tr>';
+        });
+        html += '</tbody></table>';
+        flagsDiv.innerHTML = html;
+      }
+
+      // Component health heatmap using latest status per component.
+      const healthDiv = document.getElementById('iris-health-heatmap');
+      const health = (summary && summary.component_health) || {};
+      const componentNames = Object.keys(health || {}).sort();
+      if (healthDiv) {
+        if (componentNames.length === 0) {
+          healthDiv.innerHTML = '<p>No component health data available from IRIS.</p>';
+        } else {
+          const statusOrder = ['healthy', 'warning', 'degraded', 'critical', 'unknown'];
+          const statusToValue = {};
+          statusOrder.forEach((s, idx) => {
+            statusToValue[s] = idx / Math.max(1, statusOrder.length - 1);
+          });
+          const z = [];
+          const text = [];
+          componentNames.forEach(name => {
+            const latest = (health[name] && health[name].latest_status) || 'unknown';
+            const key = latest.toString().toLowerCase();
+            const value = Object.prototype.hasOwnProperty.call(statusToValue, key)
+              ? statusToValue[key]
+              : 0.0;
+            z.push([value]);
+            text.push([latest]);
+          });
+          const trace = {
+            x: ['status'],
+            y: componentNames,
+            z,
+            text,
+            type: 'heatmap',
+            colorscale: [
+              [0.0, '#dfe6e9'],
+              [0.25, '#ffeaa7'],
+              [0.5, '#fab1a0'],
+              [0.75, '#e17055'],
+              [1.0, '#d63031'],
+            ],
+            showscale: false,
+            hovertemplate: 'component=%{y}<br>status=%{text}<extra></extra>',
+          };
+          Plotly.newPlot('iris-health-heatmap', [trace], {
+            title: 'IRIS component health (latest status)',
+            xaxis: {showticklabels: false},
+            yaxis: {title: 'component'},
+          });
+        }
+      }
+
+      // Action backlog and correlation with DT threshold failures.
+      const backlogDiv = document.getElementById('iris-action-backlog');
+      if (backlogDiv) {
+        const actionsByCircle = (summary && summary.actions_by_circle) || {};
+        let html = '<h3>Action backlog by circle &amp; priority</h3>';
+        const circles = Object.keys(actionsByCircle);
+        if (circles.length === 0) {
+          html += '<p>No IRIS governance actions recorded.</p>';
+        } else {
+          const allPriorities = new Set();
+          Object.values(actionsByCircle).forEach(pmap => {
+            Object.keys(pmap).forEach(p => allPriorities.add(p));
+          });
+          const priorities = Array.from(allPriorities).sort();
+          html += '<table border="1" cellpadding="4" cellspacing="0"><thead><tr><th>circle</th>';
+          priorities.forEach(p => { html += '<th>' + p + '</th>'; });
+          html += '</tr></thead><tbody>';
+          circles.forEach(circle => {
+            const m = actionsByCircle[circle] || {};
+            html += '<tr><td>' + circle + '</td>';
+            priorities.forEach(p => {
+              const v = m[p] || 0;
+              html += '<td>' + v + '</td>';
+            });
+            html += '</tr>';
+          });
+          html += '</tbody></table>';
+        }
+
+        const corr = (summary && summary.dt_correlation) || null;
+        if (corr) {
+          html += '<h3>Correlation with DT threshold failures</h3>';
+          html += '<p>Window: +/- ' + (corr.window_seconds || 0) + 's around IRIS alerts.</p>';
+          html += '<p>DT evaluations near IRIS alerts: ' +
+            (corr.dt_events_near_iris || 0) + ' / ' +
+            (corr.dt_events_total || 0) + '</p>';
+          const total = corr.threshold_failures_total || {};
+          const near = corr.threshold_failures_near_iris || {};
+          const cfgNames = Object.keys(total);
+          if (cfgNames.length) {
+            html += '<ul>';
+            cfgNames.forEach(name => {
+              const t = total[name] || 0;
+              const n = near[name] || 0;
+              html += '<li>' + name + ': ' + n + ' / ' + t +
+                ' failures occurred near IRIS alerts</li>';
+            });
+            html += '</ul>';
+          }
+        }
+        backlogDiv.innerHTML = html;
+      }
+    }
+
     renderSummary();
     renderRewardPresets();
     renderThresholdToggles();
     renderCalibrationMetrics();
     renderLatencyMetrics();
+    renderIrisSection();
+
   </script>
 </body>
 </html>
@@ -1327,6 +1755,26 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--analyze-distributions",
         action="store_true",
         help="Compute distribution report into --distribution-json.",
+    )
+    parser.add_argument(
+        "--iris-command",
+        dest="iris_command",
+        action="append",
+        default=None,
+        help=(
+            "Filter IRIS events to these commands "
+            "(e.g. health, evaluate, patterns). Can be repeated."
+        ),
+    )
+    parser.add_argument(
+        "--iris-circle",
+        dest="iris_circle",
+        action="append",
+        default=None,
+        help=(
+            "Filter IRIS events to these circles "
+            "(e.g. assessor, seeker, analyst). Can be repeated."
+        ),
     )
     parser.add_argument("--open", action="store_true", help="Open HTML in browser")
     args = parser.parse_args(argv)
@@ -1381,6 +1829,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     per_circle_values: Dict[str, List[float]] = {}
     for ev in events:
+
         for circle, acc in ev.per_circle_top1.items():
             per_circle_values.setdefault(circle, []).append(acc)
     per_circle_medians = {
@@ -1401,6 +1850,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     thresholds["production"] = load_model_thresholds(
         prod_cfg if prod_cfg.is_file() else (base_cfg if base_cfg.is_file() else None)
     )
+
+    iris_events: List[Dict[str, Any]] = read_iris_events(
+        args.metrics_log,
+        since=since,
+        until=until,
+        iris_commands=args.iris_command,
+        iris_circles=args.iris_circle,
+    )
+    iris_payload = build_iris_payload(iris_events, events, thresholds)
+
 
     recommendations = compute_threshold_recommendations(
         top1_stats, cont_mae_stats, per_circle_medians
@@ -1450,6 +1909,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             {k: v.__dict__ for k, v in config_impacts.items()},
             checkpoint_summary,
             reward_preset_analysis,
+            iris_payload,
         )
         args.output_html.write_text(html, encoding="utf-8")
 
@@ -1457,6 +1917,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         write_csv(events, args.output_csv)
 
     if "json" in formats or "html" in formats:
+        iris_summary: Optional[Dict[str, Any]] = None
+        if iris_payload is not None:
+            iris_summary = iris_payload.get("summary")
         export = {
             "total_evaluations": len(events),
             "date_range": {
@@ -1489,6 +1952,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "dry_run_config": (
                 str(args.dry_run_config) if args.dry_run_config is not None else None
             ),
+            "iris_summary": iris_summary,
         }
         args.export_json.parent.mkdir(parents=True, exist_ok=True)
         args.export_json.write_text(

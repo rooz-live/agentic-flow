@@ -23,6 +23,18 @@ import time
 import uuid
 import subprocess
 import argparse
+import yaml
+
+# Monkey-patch argparse to allow unknown args (e.g. --environment)
+# This is required because governance.py is often called with extra flags
+# that are intended for the underlying scripts it orchestrates.
+original_parse_args = argparse.ArgumentParser.parse_args
+
+def parse_known_args_wrapper(self, args=None, namespace=None):
+    return self.parse_known_args(args, namespace)[0]
+
+argparse.ArgumentParser.parse_args = parse_known_args_wrapper
+
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -74,6 +86,7 @@ class GovernanceMiddleware:
         self.project_root = project_root
         self.telemetry = TelemetryLogger(project_root)
         self.run_id = str(uuid.uuid4())
+        self.environment = getattr(args, "environment", None)
 
         # State
         self.current_iteration = 1
@@ -151,7 +164,7 @@ class GovernanceMiddleware:
         else:
             # Reset progress counter on success
             self.iterations_without_progress = 0
-        
+
         # VSIX Telemetry Gap Logic
         # Check if pattern_metrics.jsonl has been modified recently (e.g. last 5 minutes)
         # This assumes VSIX or some other process is writing to it.
@@ -165,7 +178,7 @@ class GovernanceMiddleware:
                     is_fresh = True
             except Exception:
                 pass
-        
+
         if not is_fresh:
             self.vsix_telemetry_gap_count += 1
         else:
@@ -227,12 +240,12 @@ class GovernanceMiddleware:
             "--retro-exit-code", str(exit_code),
             "--log-file", str(metrics_log_path)
         ]
-        
+
         for m in methods:
             cmd.extend(["--retro-method", m])
         for p in patterns:
             cmd.extend(["--retro-design-pattern", p])
-        
+
         cmd.extend(["--retro-rca-why", initial_why])
         cmd.extend(["--retro-event-prototype", reason])
 
@@ -582,6 +595,39 @@ class GovernanceMiddleware:
         env["AF_PC_MAX_ITER"] = str(self.max_iterations)
         env["AF_PC_REQUESTED_ITERATIONS"] = str(self.max_iterations)
 
+    def run_iris_checks(self) -> None:
+        """Invoke IRIS health/evaluate commands after each full-cycle iteration.
+
+        IRIS failures must never abort prod-cycle; they are logged as warnings.
+        """
+        af_script = Path(__file__).resolve().parent.parent / "af"
+        if af_script.exists():
+            base_cmd = [str(af_script)]
+        else:
+            base_cmd = ["af"]
+
+        env = os.environ.copy()
+        env["AF_RUN_ID"] = self.run_id
+        env["AF_RUN_KIND"] = "prod-cycle"
+        env["AF_RUN_ITERATION"] = str(self.current_iteration)
+        env["AF_CIRCLE"] = self.active_circle
+        env["AF_DEPTH_LEVEL"] = str(self.current_depth)
+        if self.environment:
+            env["AF_IRIS_ENVIRONMENT"] = self.environment
+            env["AF_ENVIRONMENT"] = self.environment
+
+        commands = [
+            base_cmd + ["iris-health", "--log-goalie"],
+            base_cmd + ["iris-evaluate", "--log-goalie"],
+        ]
+
+        for cmd in commands:
+            try:
+                print(f"[Governance] Running IRIS hook: {' '.join(cmd)}")
+                subprocess.run(cmd, env=env, check=False)
+            except Exception as exc:
+                print(f"[Governance] IRIS hook failed but was ignored: {exc}")
+
     def run_cmd_full_cycle(self):
         """
         Executes the `af full-cycle 1` command with appropriate environment variables.
@@ -595,6 +641,9 @@ class GovernanceMiddleware:
         env["AF_RUN_ITERATION"] = str(self.current_iteration)
         env["AF_CIRCLE"] = self.active_circle
         env["AF_DEPTH_LEVEL"] = str(self.current_depth)
+        if self.environment:
+            env["AF_IRIS_ENVIRONMENT"] = self.environment
+            env["AF_ENVIRONMENT"] = self.environment
 
         # Pattern 3: Autocommit Shadow
         if self.args.dry_run:
@@ -687,7 +736,7 @@ class GovernanceMiddleware:
             # Reset simple RCA counters when the cycle succeeds.
             self.dt_consecutive_failures = 0
             # iterations_without_progress is handled in update_rca_counters
-            
+
         duration = time.time() - start_time
         duration_ms = int(duration * 1000)
 
@@ -860,6 +909,7 @@ class GovernanceMiddleware:
 
             # Execute
             self.run_cmd_full_cycle()
+            self.run_iris_checks()
 
             # Increment
             self.current_iteration += 1
@@ -903,6 +953,7 @@ def main():
     parser.add_argument("--no-autocommit", action="store_false", dest="autocommit")
     parser.add_argument("--dry-run", "--shadow", action="store_true", help="Shadow mode (no commits)")
     parser.add_argument("--force", action="store_true", help="Bypass pre-flight checks")
+    parser.add_argument("--environment", type=str, help="Logical environment name (e.g. prod, staging)")
 
     # Handle env var overrides
     if os.environ.get("AF_PROD_ITERATIONS"):
@@ -916,7 +967,7 @@ def main():
     if os.environ.get("AF_PROD_SHADOW_MODE") == "1":
         sys.argv.append("--dry-run")
 
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
 
     # Find project root by searching for .goalie
     script_path = Path(__file__).resolve()

@@ -77,7 +77,9 @@ def _render_top_regressions_html(result: Dict[str, Any]) -> str:
         severity_class = ""
         if regressed and threshold_pct > 0:
             ratio = abs_change / threshold_pct
-            if ratio > 3.0:
+            if ratio > 5.0:
+                severity_label, severity_class = "Critical", "severity-critical"
+            elif ratio > 3.0:
                 severity_label, severity_class = "Severe", "severity-severe"
             elif ratio >= 2.0:
                 severity_label, severity_class = "Moderate", "severity-moderate"
@@ -253,6 +255,7 @@ def generate_html(result: Dict[str, Any]) -> str:
     .severity-minor {{ background: #fff3cd; color: #7f6000; }}
     .severity-moderate {{ background: #ffe0b2; color: #8e4b10; }}
     .severity-severe {{ background: #fadbd8; color: #922b21; }}
+    .severity-critical {{ background: #c0392b; color: #ffffff; }}
     .regression-remediation {{ margin-top: 8px; font-size: 12px; color: #555555; }}
     .regression-remediation ul {{ padding-left: 18px; margin: 4px 0 0; }}
 
@@ -327,6 +330,7 @@ def generate_slack_payload(result: Dict[str, Any]) -> Dict[str, Any]:
 
     # Optional Top Metric Regressions section (only when regressions exist)
     regression_block_text: Optional[str] = None
+    improvements_block_text: Optional[str] = None
     metric_gate: Optional[Dict[str, Any]] = None
     for gate in gates:
         if gate.get("name") == "metric_regression":
@@ -361,7 +365,9 @@ def generate_slack_payload(result: Dict[str, Any]) -> Dict[str, Any]:
                 severity_label = ""
                 if regressed and threshold_pct > 0:
                     ratio = abs_change / threshold_pct
-                    if ratio > 3.0:
+                    if ratio > 5.0:
+                        severity_label = "Critical"
+                    elif ratio > 3.0:
                         severity_label = "Severe"
                     elif ratio >= 2.0:
                         severity_label = "Moderate"
@@ -397,8 +403,11 @@ def generate_slack_payload(result: Dict[str, Any]) -> Dict[str, Any]:
 
                     emoji_sev = "🟠"
                     label_suffix = ""
-                    if severity_label == "Severe":
-                        emoji_sev = "🔴"
+                    if severity_label == "Critical":
+                        emoji_sev = "🔥"
+                        label_suffix = " CRITICAL"
+                    elif severity_label == "Severe":
+                        emoji_sev = "🚨"
                         label_suffix = " SEVERE"
                     elif severity_label == "Moderate":
                         emoji_sev = "🟡"
@@ -419,6 +428,31 @@ def generate_slack_payload(result: Dict[str, Any]) -> Dict[str, Any]:
 
                 regression_block_text = "\n".join(lines_top)
 
+            # Optional Top Improvements section (only when clear improvements exist)
+            improvement_items = [
+                it
+                for it in items
+                if it["is_improvement"] and not it["regressed"] and abs(it["change_pct"]) > 1.0
+            ]
+            if improvement_items:
+                improvement_items.sort(key=lambda x: x["abs_change"], reverse=True)
+                top_improvements = improvement_items[:3]
+
+                lines_improve: List[str] = ["*✅ Top Improvements*"]
+                for item in top_improvements:
+                    name = str(item.get("name", ""))
+                    baseline_val = item["baseline"]
+                    current_val = item["current"]
+                    change_val = item["change_pct"]
+
+                    line = (
+                        f"*{name}* {change_val:+.1f}% "
+                        f"({baseline_val:.3f} -> {current_val:.3f})"
+                    )
+                    lines_improve.append(line)
+
+                improvements_block_text = "\n".join(lines_improve)
+
     text = "\n".join(lines)
     footer = "See docs/dt_threshold_calibration.md for calibration & governance details."
 
@@ -438,6 +472,14 @@ def generate_slack_payload(result: Dict[str, Any]) -> Dict[str, Any]:
             {
                 "type": "section",
                 "text": {"type": "mrkdwn", "text": regression_block_text},
+            }
+        )
+
+    if improvements_block_text:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": improvements_block_text},
             }
         )
 

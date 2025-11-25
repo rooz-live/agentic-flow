@@ -14,13 +14,23 @@ NC='\033[0m'
 
 HAS_FAILURE=0
 
+# Environment selector for DT model-quality thresholds.
+# Usage:
+#   validate_success_criteria.sh --env staging
+#   validate_success_criteria.sh --env production
+ENVIRONMENT="production"
+if [ "${1:-}" = "--env" ] && [ -n "${2:-}" ]; then
+  ENVIRONMENT="$2"
+  shift 2
+fi
+
 pass() { echo -e "${GREEN}PASS${NC} - $1"; }
 fail() { HAS_FAILURE=1; echo -e "${RED}FAIL${NC} - $1"; }
 info() { echo -e "${YELLOW}INFO${NC} - $1"; }
 
 cd "$ROOT_DIR"
 
-echo "=== Agentic Flow Success Criteria Validation ==="
+echo "=== Agentic Flow Success Criteria Validation (env: ${ENVIRONMENT}) ==="
 
 # 1) Integration Testing - codeFixProposals test coverage
 if [ -f "$GOALIE_DIR/test_results.jsonl" ]; then
@@ -135,6 +145,56 @@ PY
   fi
 else
   info "DT Training Readiness: no output from validate-dt; skipping DT gate"
+fi
+
+# 6) DT Model Quality - offline evaluation and threshold gate
+DT_MODEL_CHECKPOINT="$GOALIE_DIR/dt_model.pt"
+DT_MODEL_DATA_NPZ="$GOALIE_DIR/dt_dataset.npz"
+DT_MODEL_DATA_JSONL="$GOALIE_DIR/dt_dataset.jsonl"
+
+# Select model-quality threshold config based on environment.
+DT_THRESHOLDS_CONFIG="$GOALIE_DIR/dt_validation_thresholds.yaml"
+case "$ENVIRONMENT" in
+  staging)
+    if [ -f "$GOALIE_DIR/dt_validation_thresholds_staging.yaml" ]; then
+      DT_THRESHOLDS_CONFIG="$GOALIE_DIR/dt_validation_thresholds_staging.yaml"
+    fi
+    ;;
+  production|prod)
+    if [ -f "$GOALIE_DIR/dt_validation_thresholds_production.yaml" ]; then
+      DT_THRESHOLDS_CONFIG="$GOALIE_DIR/dt_validation_thresholds_production.yaml"
+    fi
+    ;;
+esac
+
+if [ -x "$ROOT_DIR/scripts/af" ] && \
+   [ -f "$DT_MODEL_CHECKPOINT" ] && \
+   [ -f "$DT_MODEL_DATA_NPZ" ] && \
+   [ -f "$DT_MODEL_DATA_JSONL" ]; then
+  info "DT Model Quality: evaluating $DT_MODEL_CHECKPOINT using env '$ENVIRONMENT' thresholds"
+
+  # Temporarily disable -e to capture non-zero exit codes without aborting.
+  set +e
+  DT_MODEL_OUTPUT=$("$ROOT_DIR/scripts/af" validate-dt-model \
+    --checkpoint "$DT_MODEL_CHECKPOINT" \
+    --eval-dataset-npz "$DT_MODEL_DATA_NPZ" \
+    --eval-dataset-jsonl "$DT_MODEL_DATA_JSONL" \
+    --threshold-config "$DT_THRESHOLDS_CONFIG" 2>&1)
+  DT_MODEL_EXIT=$?
+  set -e
+
+  if [ "$DT_MODEL_EXIT" -eq 0 ]; then
+    pass "DT Model Quality: thresholds satisfied for checkpoint $DT_MODEL_CHECKPOINT"
+  else
+    fail "DT Model Quality: thresholds NOT satisfied for checkpoint $DT_MODEL_CHECKPOINT"
+  fi
+
+  # Surface threshold breakdown from validate-dt-model output for visibility.
+  if [ -n "$DT_MODEL_OUTPUT" ]; then
+    echo "$DT_MODEL_OUTPUT" | sed -n '/\[validate-dt-model] Threshold evaluation:/,$p' || true
+  fi
+else
+  info "DT Model Quality: missing af, checkpoint, or dataset; skipping DT model gate"
 fi
 
 if [ "$HAS_FAILURE" -ne 0 ]; then

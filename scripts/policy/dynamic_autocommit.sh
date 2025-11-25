@@ -24,7 +24,7 @@ fi
 if [ "$recent_load_incidents" -gt 5 ]; then
     echo "⚠️ High System Load ($recent_load_incidents incidents). Disabling Code Autocommit."
     export AF_ALLOW_CODE_AUTOCOMMIT=0
-elif (( $(echo "$current_risk_score < 50" | bc -l) )); then
+elif (( $(echo "$current_risk_score > 50" | bc -l) )); then
     echo "⚠️ High Risk Score ($current_risk_score). Disabling Code Autocommit."
     export AF_ALLOW_CODE_AUTOCOMMIT=0
 else
@@ -32,5 +32,6 @@ else
     export AF_ALLOW_CODE_AUTOCOMMIT=1
 fi
 
-# Execute the cycle
-exec ./scripts/af "$@"
+# When sourced from scripts/af this file only needs to tweak env vars; do not
+# re-exec af here or we end up in an infinite loop.
+return 0 2>/dev/null || true

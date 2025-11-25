@@ -29,6 +29,8 @@ GOALIE_DIR = PROJECT_ROOT / ".goalie"
 METRICS_LOG = GOALIE_DIR / "metrics_log.jsonl"
 DEFAULT_HTML = GOALIE_DIR / "dt_evaluation_dashboard.html"
 DEFAULT_EXPORT_JSON = GOALIE_DIR / "dt_evaluation_summary.json"
+DEFAULT_DISTRIBUTION_JSON = GOALIE_DIR / "dt_distribution_analysis.json"
+
 DEFAULT_TRAJECTORIES = GOALIE_DIR / "trajectories.jsonl"
 BUILD_TRAJECTORIES_SCRIPT = Path(__file__).resolve().with_name("build_trajectories.py")
 
@@ -668,6 +670,142 @@ def print_metric_summary_tables(
         print(format_table(circle_headers, circle_rows))
 
 
+def _build_histogram(values: List[float], bins: int = 20) -> Dict[str, Any]:
+    """Simple histogram helper for distribution analysis.
+
+    Returns a dict with `bin_edges` (length N+1) and `counts` (length N).
+    """
+
+    vals = [float(v) for v in values if isinstance(v, (int, float))]
+    if not vals or bins <= 0:
+        return {"bin_edges": [], "counts": []}
+
+    v_min = min(vals)
+    v_max = max(vals)
+    if v_min == v_max:
+        # Single-value distribution; use one bin centered on the value.
+        return {"bin_edges": [v_min, v_max], "counts": [len(vals)]}
+
+    width = (v_max - v_min) / float(bins)
+    edges = [v_min + i * width for i in range(bins + 1)]
+    counts = [0 for _ in range(bins)]
+    for v in vals:
+        if v <= edges[0]:
+            counts[0] += 1
+            continue
+        if v >= edges[-1]:
+            counts[-1] += 1
+            continue
+        idx = int((v - v_min) / width)
+        idx = max(0, min(bins - 1, idx))
+        counts[idx] += 1
+    return {"bin_edges": edges, "counts": counts}
+
+
+def _event_fails_threshold(
+    ev: DtEvalEvent, thresholds: Dict[str, Any]
+) -> bool:
+    """Return True if a single evaluation fails given thresholds.
+
+    This mirrors the logic in pass_rate() but at per-event granularity.
+    """
+
+    if not thresholds:
+        return False
+
+    min_top1 = float(thresholds.get("min_top1_accuracy") or 0.0)
+    max_mae = thresholds.get("max_cont_mae")
+    per_circle = thresholds.get("per_circle_min_top1") or {}
+
+    if ev.top1 < min_top1:
+        return True
+    if (
+        max_mae is not None
+        and ev.cont_mae is not None
+        and ev.cont_mae > float(max_mae)
+    ):
+        return True
+
+    for circle, req in per_circle.items():
+        acc = ev.per_circle_top1.get(circle)
+        if acc is None or acc < float(req):
+            return True
+    return False
+
+
+def compute_distribution_report(
+    events: List[DtEvalEvent],
+    production_thresholds: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Build distribution report used by downstream visualization script.
+
+    The report intentionally stays lightweight and JSON-serializable.
+    """
+
+    top1_values = [e.top1 for e in events]
+    mae_values = [e.cont_mae for e in events if e.cont_mae is not None]
+
+    per_circle_values: Dict[str, List[float]] = {}
+    for ev in events:
+        for circle, acc in ev.per_circle_top1.items():
+            per_circle_values.setdefault(circle, []).append(acc)
+
+    per_circle_summary: Dict[str, Any] = {}
+    for circle, vals in per_circle_values.items():
+        stats = summarize_metric(vals)
+        per_circle_summary[circle] = {
+            "count": len(vals),
+            "stats": {k: _clean_float_for_json(v) for k, v in stats.items()},
+            "values": vals,
+        }
+
+    # Outliers: evaluations that would fail suggested production thresholds.
+    outliers = []
+    if production_thresholds:
+        # Normalize per-circle thresholds into the newer nested form if needed.
+        per_circle_thr = production_thresholds.get("per_circle_min_top1") or {}
+        if not per_circle_thr:
+            for key, value in production_thresholds.items():
+                if key.startswith("per_circle_min_top1_"):
+                    circle = key[len("per_circle_min_top1_"):]
+                    per_circle_thr[circle] = value
+        thresholds_norm = dict(production_thresholds)
+        thresholds_norm["per_circle_min_top1"] = per_circle_thr
+
+        for ev in events:
+            if _event_fails_threshold(ev, thresholds_norm):
+                for circle, req in per_circle_thr.items():
+                    acc = ev.per_circle_top1.get(circle)
+                    if acc is None or acc >= float(req):
+                        continue
+                    eval_id = f"{ev.checkpoint or '<unknown>'}/{ev.ts_str}"
+                    outliers.append(
+                        {
+                            "eval_id": eval_id,
+                            "circle": circle,
+                            "top1_accuracy": acc,
+                            "cont_mae": ev.cont_mae,
+                        }
+                    )
+
+    meta = {
+        "total_evaluations": len(events),
+        "date_range": {
+            "start": events[0].ts_str if events else None,
+            "end": events[-1].ts_str if events else None,
+        },
+    }
+
+    return {
+        "meta": meta,
+        "top1_accuracy_histogram": _build_histogram(top1_values),
+        "cont_mae_histogram": _build_histogram(mae_values),
+        "per_circle_accuracy": per_circle_summary,
+        "suggested_production_thresholds": production_thresholds,
+        "outliers": outliers,
+    }
+
+
 def write_csv(events: List[DtEvalEvent], path: Path) -> None:
     """Write per-evaluation metrics to CSV for spreadsheet analysis."""
     if not events:
@@ -1155,6 +1293,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--metrics-log", type=Path, default=METRICS_LOG)
     parser.add_argument("--output-html", type=Path, default=DEFAULT_HTML)
     parser.add_argument("--export-json", type=Path, default=DEFAULT_EXPORT_JSON)
+    parser.add_argument(
+        "--distribution-json",
+        type=Path,
+        default=DEFAULT_DISTRIBUTION_JSON,
+        help="Output path for distribution analysis JSON report.",
+    )
     parser.add_argument("--output-csv", type=Path, default=DEFAULT_CSV)
     parser.add_argument(
         "--trajectories",
@@ -1178,6 +1322,11 @@ def main(argv: Optional[List[str]] = None) -> int:
         type=Path,
         default=None,
         help="Hypothetical threshold YAML to preview impact against history.",
+    )
+    parser.add_argument(
+        "--analyze-distributions",
+        action="store_true",
+        help="Compute distribution report into --distribution-json.",
     )
     parser.add_argument("--open", action="store_true", help="Open HTML in browser")
     args = parser.parse_args(argv)
@@ -1345,6 +1494,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         args.export_json.write_text(
             json.dumps(export, indent=2), encoding="utf-8"
         )
+
+    if args.analyze_distributions:
+        # Use suggested production thresholds when available; otherwise fall back
+        # to current production thresholds. This ties the analysis directly to
+        # the thresholds we intend to use for governance.
+        production_thresholds = (
+            recommendations.get("production")
+            or thresholds.get("production")
+            or {}
+        )
+        distribution_report = compute_distribution_report(events, production_thresholds)
+        args.distribution_json.parent.mkdir(parents=True, exist_ok=True)
+        args.distribution_json.write_text(
+            json.dumps(distribution_report, indent=2), encoding="utf-8"
+        )
+
 
     # Human-readable summary
     start_date = events[0].timestamp.date().isoformat()

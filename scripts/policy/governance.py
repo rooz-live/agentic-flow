@@ -118,6 +118,7 @@ class GovernanceMiddleware:
         self.safe_degrade_recent_incidents_10m = 0
 
         self.current_avg_score: float = 100.0
+        self.avg_score_samples: int = 0
 
         self.progress_log_path = self.project_root / ".goalie" / "prod_cycle_progress.log"
 
@@ -319,8 +320,7 @@ class GovernanceMiddleware:
         self.safe_degrade_recent_incidents_10m = recent_incidents
 
         metrics_file = self.project_root / ".goalie/metrics_log.jsonl"
-        avg_score = 100
-        score_samples = 0
+        avg_score_from_metrics: Optional[float] = None
         if metrics_file.exists():
             try:
                 with open(metrics_file, "r") as f:
@@ -336,33 +336,32 @@ class GovernanceMiddleware:
                     if data.get("run_id") != self.run_id:
                         continue
                     if "average_score" in data:
-                        score_samples += 1
-                        avg_score = data["average_score"]
+                        avg_score_from_metrics = data["average_score"]
+                        break
 
                 # If we have no samples for this run, fall back to any recent samples
-                if score_samples == 0:
+                if avg_score_from_metrics is None:
                     for line in lines:
                         try:
                             data = json.loads(line)
                         except Exception:
                             continue
                         if "average_score" in data:
-                            score_samples += 1
-                            avg_score = data["average_score"]
-
-                # If we still never saw an average_score, fall back to default 100
-                if score_samples == 0:
-                    avg_score = 100
+                            avg_score_from_metrics = data["average_score"]
+                            break
             except Exception:
-                avg_score = 100
-                score_samples = 0
+                avg_score_from_metrics = None
 
-        self.current_avg_score = float(avg_score)
+        if isinstance(avg_score_from_metrics, (int, float)):
+            self.current_avg_score = float(avg_score_from_metrics)
+
+        avg_score = self.current_avg_score
 
         # Require a minimal baseline of score samples before enforcing the score guard.
         # This prevents cold-start runs or sparse metrics from being blocked solely due
         # to avg_score=0.0.
-        has_score_baseline = score_samples >= 5
+        has_metrics_baseline = avg_score_from_metrics is not None
+        has_score_baseline = self.avg_score_samples >= 5 or has_metrics_baseline
 
         # Allow relaxing the score-based guard via env in dev/lab mode while keeping
         # incident-based blocking intact.
@@ -579,6 +578,9 @@ class GovernanceMiddleware:
         risk_distribution = {self.active_circle or "unknown": self.circle_risk_roam_delta}
         env["AF_PC_RISK_DISTRIBUTION"] = json.dumps(risk_distribution)
         env["AF_PC_CURRENT_RISK_SCORE"] = f"{self.current_avg_score:.3f}"
+        env["AF_PC_RECENT_LOAD_INCIDENTS"] = str(self.safe_degrade_recent_incidents_10m)
+        env["AF_PC_MAX_ITER"] = str(self.max_iterations)
+        env["AF_PC_REQUESTED_ITERATIONS"] = str(self.max_iterations)
 
     def run_cmd_full_cycle(self):
         """
@@ -703,6 +705,12 @@ class GovernanceMiddleware:
         # change in governor risk score when available (placeholder 0.0 here).
         roam_term = 0.0
 
+        reward_value = (
+            1.0 * float(success_term)
+            + 0.2 * float(duration_term)
+            + 0.3 * float(roam_term)
+        )
+
         # Emit 'Reward' Metric with composite reward schema
         self._emit_metrics_event([
             "python3", str(emit_script),
@@ -760,9 +768,25 @@ class GovernanceMiddleware:
             "--vsix-telemetry-gap-count", str(self.vsix_telemetry_gap_count),
             "--vsix-telemetry-gap-threshold-reached", "1" if self.vsix_telemetry_gap_count >= 2 else "0",
             "--rca-safe-degrade-recent-incidents-10m", str(self.safe_degrade_recent_incidents_10m),
+            "--risk-score", f"{self.current_avg_score:.3f}",
+            "--average-score", f"{self.current_avg_score:.3f}",
+            "--recent-incidents", str(self.safe_degrade_recent_incidents_10m),
             "--log-file", str(metrics_log_path)
         ]
         self._emit_metrics_event(state_args)
+        self.record_score_sample(reward_value)
+
+    def record_score_sample(self, reward_value: float):
+        normalized = max(0.0, min(100.0, reward_value * 100.0))
+        self.avg_score_samples += 1
+        if self.avg_score_samples == 1:
+            self.current_avg_score = normalized
+            return
+
+        smoothing = 0.35
+        self.current_avg_score = (
+            (1.0 - smoothing) * self.current_avg_score + smoothing * normalized
+        )
 
     def run(self):
         print(f"Starting Prod-Cycle (Run ID: {self.run_id})")
@@ -816,7 +840,16 @@ class GovernanceMiddleware:
                 sys.exit(1)
             print("[Governance] System Health Check: GREEN")
 
+        print(
+            f"[Governance] Starting iteration loop | iterations={self.max_iterations} "
+            f"| start_circle={self.active_circle} | force={self.args.force}"
+        )
+
         while self.check_iteration_budget():
+            print(
+                f"[Governance] Iteration {self.current_iteration}/{self.max_iterations} "
+                f"| safe={self.is_safe} | circle={self.active_circle or 'unknown'}"
+            )
             # Pre-flight checks
             self.check_safe_degrade()
             self.determine_circle_focus()

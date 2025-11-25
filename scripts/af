@@ -91,6 +91,7 @@ ${GREEN}Production Maturity & Observability:${NC}
   af dt-summary          Summarize DT readiness (strict mode)
   af dt-dataset-summary  Show DT dataset features & normalization summary
   af dt-dashboard        Visualize DT evaluation metrics over time
+  af dt-ci-history       Analyze CI history for DT calibration guardrail
   af reward-presets     List DT reward presets & semantics
 
 
@@ -543,6 +544,17 @@ cmd_cpu() {
 
 # Governor validation + health suite
 cmd_governor_health() {
+    if [ "${AF_SKIP_GOVERNOR_HEALTH:-0}" = "1" ]; then
+        echo -e "${YELLOW}[af] Skipping governor-health suite (AF_SKIP_GOVERNOR_HEALTH=1).${NC}"
+        return 0
+    fi
+
+    local trace_enabled="0"
+    if [ "${AF_TRACE_GOVERNOR_HEALTH:-0}" = "1" ]; then
+        set -x
+        trace_enabled="1"
+    fi
+
     echo -e "${BLUE}=== Governor Validation & Health Suite ===${NC}\n"
 
     # 1) Run governor validation
@@ -570,6 +582,10 @@ cmd_governor_health() {
             echo -e "${YELLOW}health_check.py failed${NC}"
     else
         echo -e "${YELLOW}health_check.py not found${NC}"
+    fi
+
+    if [ "$trace_enabled" = "1" ]; then
+        { set +x; } 2>/dev/null
     fi
 }
 
@@ -933,6 +949,11 @@ cmd_prod_cycle() {
         normalized=("${args[@]}")
     fi
 
+    # When forcing prod-cycle we already ran pre-flight checks; skip governor suite for speed.
+    if [[ " ${normalized[*]} " == *" --force "* ]]; then
+        export AF_SKIP_GOVERNOR_HEALTH="1"
+    fi
+
     # Invoke Python Middleware with normalized arguments
     python3 "$middleware_script" "${normalized[@]}"
 }
@@ -1230,6 +1251,16 @@ PYEOF
 	            exit 1
 	        fi
 	        ;;
+		    dt-ci-history)
+		        shift
+		        if [ -f "$SCRIPT_DIR/analysis/analyze_dt_ci_history.py" ]; then
+		            python3 "$SCRIPT_DIR/analysis/analyze_dt_ci_history.py" "$@"
+		        else
+		            echo -e "${YELLOW}analyze_dt_ci_history.py not found at $SCRIPT_DIR/analysis${NC}"
+		            exit 1
+		        fi
+		        ;;
+
 	    dt-suggest-thresholds)
 	        shift
 	        if [ -f "$SCRIPT_DIR/analysis/suggest_dt_thresholds.py" ]; then

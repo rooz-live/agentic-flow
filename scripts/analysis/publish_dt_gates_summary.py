@@ -325,30 +325,137 @@ def generate_slack_payload(result: Dict[str, Any]) -> Dict[str, Any]:
     else:
         lines.append("All gates passed :tada:")
 
+    # Optional Top Metric Regressions section (only when regressions exist)
+    regression_block_text: Optional[str] = None
+    metric_gate: Optional[Dict[str, Any]] = None
+    for gate in gates:
+        if gate.get("name") == "metric_regression":
+            metric_gate = gate
+            break
+
+    if metric_gate is not None:
+        raw_metrics = metric_gate.get("metrics") or []
+        if isinstance(raw_metrics, list) and raw_metrics:
+            items: List[Dict[str, Any]] = []
+            for m in raw_metrics:
+                try:
+                    change_pct = float(m.get("change_pct", 0.0))
+                except (TypeError, ValueError):
+                    change_pct = 0.0
+                try:
+                    baseline = float(m.get("baseline_median"))
+                    current = float(m.get("current_median"))
+                except (TypeError, ValueError):
+                    continue
+                threshold_pct = float(m.get("threshold_pct") or 0.0)
+                higher_is_better = bool(m.get("higher_is_better"))
+                regressed = bool(m.get("regressed"))
+                abs_change = abs(change_pct)
+
+                is_improvement = False
+                if higher_is_better:
+                    is_improvement = change_pct > 0
+                else:
+                    is_improvement = change_pct < 0
+
+                severity_label = ""
+                if regressed and threshold_pct > 0:
+                    ratio = abs_change / threshold_pct
+                    if ratio > 3.0:
+                        severity_label = "Severe"
+                    elif ratio >= 2.0:
+                        severity_label = "Moderate"
+                    elif ratio >= 1.0:
+                        severity_label = "Minor"
+
+                items.append(
+                    {
+                        "name": m.get("name", ""),
+                        "baseline": baseline,
+                        "current": current,
+                        "change_pct": change_pct,
+                        "abs_change": abs_change,
+                        "regressed": regressed,
+                        "is_improvement": is_improvement,
+                        "severity_label": severity_label,
+                    }
+                )
+
+            # Filter down to regressed metrics and pick top 1-3 by absolute change
+            regressed_items = [it for it in items if it["regressed"]]
+            if regressed_items:
+                regressed_items.sort(key=lambda x: x["abs_change"], reverse=True)
+                top_items = regressed_items[:3]
+
+                lines_top: List[str] = ["*⚠️ Top Metric Regressions*"]
+                for idx, item in enumerate(top_items):
+                    name = str(item.get("name", ""))
+                    baseline_val = item["baseline"]
+                    current_val = item["current"]
+                    change_val = item["change_pct"]
+                    severity_label = item["severity_label"]
+
+                    emoji_sev = "🟠"
+                    label_suffix = ""
+                    if severity_label == "Severe":
+                        emoji_sev = "🔴"
+                        label_suffix = " SEVERE"
+                    elif severity_label == "Moderate":
+                        emoji_sev = "🟡"
+                    elif severity_label == "Minor":
+                        emoji_sev = "🟠"
+
+                    line = (
+                        f"*{name}* {emoji_sev}{label_suffix} "
+                        f"{change_val:+.1f}% ({baseline_val:.3f} -> {current_val:.3f})"
+                    )
+                    lines_top.append(line)
+
+                    # Include remediation hint for the most severe (first) regression
+                    if idx == 0:
+                        guidance = METRIC_GUIDANCE.get(name, "")
+                        if guidance:
+                            lines_top.append(f"  _{guidance}_")
+
+                regression_block_text = "\n".join(lines_top)
+
     text = "\n".join(lines)
     footer = "See docs/dt_threshold_calibration.md for calibration & governance details."
+
+    blocks: List[Dict[str, Any]] = [
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"*{title}*"},
+        },
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": text},
+        },
+    ]
+
+    if regression_block_text:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": regression_block_text},
+            }
+        )
+
+    blocks.append(
+        {
+            "type": "context",
+            "elements": [
+                {"type": "mrkdwn", "text": footer},
+            ],
+        }
+    )
 
     payload: Dict[str, Any] = {
         "text": title,
         "attachments": [
             {
                 "color": color,
-                "blocks": [
-                    {
-                        "type": "section",
-                        "text": {"type": "mrkdwn", "text": f"*{title}*"},
-                    },
-                    {
-                        "type": "section",
-                        "text": {"type": "mrkdwn", "text": text},
-                    },
-                    {
-                        "type": "context",
-                        "elements": [
-                            {"type": "mrkdwn", "text": footer},
-                        ],
-                    },
-                ],
+                "blocks": blocks,
             }
         ],
     }

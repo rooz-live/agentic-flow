@@ -67,14 +67,6 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print detailed feature and normalization information in summary mode",
     )
-    parser.add_argument(
-        "--validate-schema",
-        action="store_true",
-        help=(
-            "Validate feature names against the DT schema registry before "
-            "writing outputs."
-        ),
-    )
     return parser.parse_args()
 
 
@@ -308,13 +300,10 @@ def extract_action_features(
 def extract_reward_value(step: Dict[str, Any]) -> float | None:
     reward = step.get("reward")
     if isinstance(reward, dict):
-        # Preferred canonical shape: reward.value lives directly on the reward dict.
         direct_val = reward.get("value")
         if isinstance(direct_val, (int, float)):
             return float(direct_val)
 
-        # Back-compat: some trajectory builders store the full emit_metrics payload
-        # (which nests the canonical reward dict under reward["reward"]).
         nested = reward.get("reward")
         if isinstance(nested, dict) and isinstance(nested.get("value"), (int, float)):
             return float(nested["value"])
@@ -636,7 +625,6 @@ def main() -> None:
     rtgs = compute_returns_to_go(rewards)
 
     metadata: Dict[str, Any] = {
-        "schema_id": "dt-schema-v1",
         "state_feature_names": state_feature_names,
         "action_feature_names": action_feature_names,
         "action_vocab": action_vocab,
@@ -646,47 +634,6 @@ def main() -> None:
         "action_stds": action_stds,
         "total_steps": len(records),
     }
-
-    if args.validate_schema:
-        from importlib import util as _importlib_util
-
-        schema_module_path = Path(__file__).resolve().parents[2] / "dt_schema.py"
-        if not schema_module_path.is_file():
-            print(
-                f"[error] schema module not found at {schema_module_path}",
-                file=sys.stderr,
-            )
-            sys.exit(1)
-
-        spec = _importlib_util.spec_from_file_location(
-            "dt_schema",
-            schema_module_path,
-        )
-        if spec is None or spec.loader is None:
-            print("[error] failed to load dt_schema module", file=sys.stderr)
-            sys.exit(1)
-
-        dt_schema = _importlib_util.module_from_spec(spec)
-        spec.loader.exec_module(dt_schema)  # type: ignore[arg-type]
-
-        try:
-            schema = dt_schema.load_schema("dt-schema-v1")
-            is_valid, issues = dt_schema.validate_feature_alignment(
-                schema,
-                state_feature_names,
-                action_feature_names,
-            )
-        except Exception as exc:  # pragma: no cover - defensive
-            print(f"[error] schema validation failed: {exc}", file=sys.stderr)
-            sys.exit(1)
-
-        if issues:
-            print("[schema] validation issues:", file=sys.stderr)
-            for msg in issues:
-                print(f"  - {msg}", file=sys.stderr)
-
-        if not is_valid:
-            sys.exit(1)
 
     if args.summary_only:
         avg_episode_length = (
@@ -741,28 +688,6 @@ def main() -> None:
         print(f"    State stds (first 5): {state_stds[:5]}")
         print(f"    Action means (first 5): {action_means[:5]}")
         print(f"    Action stds (first 5): {action_stds[:5]}")
-
-        # Governance interpretability: pattern activation frequencies.
-        pattern_indices = [
-            (idx, name)
-            for idx, name in enumerate(state_feature_names)
-            if name.startswith("pattern_")
-        ]
-        if pattern_indices and state_vecs:
-            print("")
-            print("  Pattern Activations:")
-            total_steps_float = float(total_steps)
-            for idx, name in pattern_indices:
-                active_count = sum(1 for row in state_vecs if row[idx] != 0.0)
-                pct = (
-                    (active_count / total_steps_float) * 100.0
-                    if total_steps_float > 0.0
-                    else 0.0
-                )
-                print(
-                    f"    {name}: {active_count}/{total_steps} steps "
-                    f"({pct:.1f}%)"
-                )
 
         if total_steps <= 0:
             sys.exit(1)

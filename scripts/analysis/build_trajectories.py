@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -82,6 +83,63 @@ def _ensure_canonical_reward(
     return reward_payload
 
 
+def compute_reward_value(
+    status: str,
+    duration_ms: float,
+    max_duration_ms: float = 60000.0,
+    alpha: float = 0.5,
+) -> float:
+    """Compute hybrid reward.value from status and duration.
+
+    The reward is a convex combination of a binary status factor and a
+    time-efficiency factor:
+
+    - ``status_factor`` is 1.0 for success, 0.0 for failure, and 0.5 for other
+      statuses.
+    - ``speed_factor`` is 1.0 for zero duration and decreases linearly to 0.0
+      at ``max_duration_ms`` (clamped for longer durations).
+
+    The final reward is::
+
+        reward = status_factor * (alpha + (1.0 - alpha) * speed_factor)
+
+    which is always in the range [0.0, 1.0].
+
+    Examples (alpha=0.5, max_duration_ms=60000)::
+
+        compute_reward_value("success", 0)       -> ~1.0
+        compute_reward_value("success", 60000)   -> ~0.5
+        compute_reward_value("failure", 1000)    -> 0.0
+    """
+
+    status_norm = (status or "").strip().lower()
+    if status_norm == "success":
+        status_factor = 1.0
+    elif status_norm == "failure":
+        status_factor = 0.0
+    else:
+        status_factor = 0.5
+
+    duration = max(0.0, float(duration_ms))
+    max_d = max(1.0, float(max_duration_ms))
+    speed_factor = 1.0 - min(duration / max_d, 1.0)
+
+    alpha_clamped = min(max(alpha, 0.0), 1.0)
+    return status_factor * (alpha_clamped + (1.0 - alpha_clamped) * speed_factor)
+
+# Named reward parameter presets for compute_reward_value.
+# Each preset maps to (max_duration_ms, alpha).
+REWARD_PRESETS: Dict[str, Tuple[float, float]] = {
+    "status_dominant": (80_000.0, 0.85),
+    "latency_sensitive": (38_000.0, 0.5),
+    "balanced": (60_000.0, 0.5),
+    "governance_conservative": (60_000.0, 0.4),
+}
+
+
+
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Create decision-transformer trajectories")
     parser.add_argument(
@@ -107,6 +165,41 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=1,
         help="Minimum number of state entries per run to include",
+    )
+    parser.add_argument(
+        "--compute-reward-value",
+        action="store_true",
+        help=(
+            "Compute hybrid reward.value for each step based on status and "
+            "duration_ms; leaves structure unchanged when disabled."
+        ),
+    )
+    parser.add_argument(
+        "--reward-max-duration",
+        type=float,
+        default=60000.0,
+        help=(
+            "Maximum duration in milliseconds for reward computation; "
+            "durations longer than this are treated as this value."
+        ),
+    )
+    parser.add_argument(
+        "--reward-alpha",
+        type=float,
+        default=0.5,
+        help=(
+            "Weight between status and speed factors in hybrid reward "
+            "computation (0.0–1.0)."
+        ),
+    )
+    parser.add_argument(
+        "--reward-preset",
+        type=str,
+        choices=sorted(REWARD_PRESETS.keys()),
+        help=(
+            "Named hybrid reward preset; overrides --reward-max-duration and "
+            "--reward-alpha when provided."
+        ),
     )
     return parser.parse_args()
 
@@ -231,10 +324,76 @@ def summarize(trajectories: List[Dict[str, Any]]) -> None:
 
 def main() -> None:
     args = parse_args()
+
+    if args.reward_preset:
+        max_duration_ms, alpha = REWARD_PRESETS[args.reward_preset]
+        print(
+            f"[build_trajectories] using reward preset '{args.reward_preset}' "
+            f"(max_duration_ms={max_duration_ms}, alpha={alpha})",
+            file=sys.stderr,
+        )
+        args.reward_max_duration = max_duration_ms
+        args.reward_alpha = alpha
+
     buffers = load_metrics(args.log_file)
     trajectories = build_trajectories(buffers, args.min_cycles)
+
+    reward_values: List[float] = []
+    status_counts: Dict[str, int] = defaultdict(int)
+
+    if args.compute_reward_value:
+        for entry in trajectories:
+            reward = entry.get("reward")
+            if not isinstance(reward, dict):
+                continue
+
+            status = str(reward.get("status") or "")
+            duration_ms = reward.get("duration_ms")
+            if not isinstance(duration_ms, (int, float)) or duration_ms < 0:
+                print(
+                    "[build_trajectories] skipping reward computation for "
+                    f"entry with invalid duration_ms: {duration_ms}",
+                    file=sys.stderr,
+                )
+                continue
+
+            value = compute_reward_value(
+                status=status,
+                duration_ms=float(duration_ms),
+                max_duration_ms=args.reward_max_duration,
+                alpha=args.reward_alpha,
+            )
+            reward["value"] = value
+            reward_values.append(value)
+
+            status_key = (status or "").strip().lower() or "unknown"
+            status_counts[status_key] += 1
+
     write_output(trajectories, args.output, args.format)
     summarize(trajectories)
+
+    if args.compute_reward_value and reward_values:
+        total_steps = len(trajectories)
+        values_sorted = sorted(reward_values)
+        n = len(values_sorted)
+        min_v = values_sorted[0]
+        max_v = values_sorted[-1]
+        mean_v = sum(values_sorted) / n
+        if n % 2:
+            median_v = values_sorted[n // 2]
+        else:
+            median_v = 0.5 * (values_sorted[n // 2 - 1] + values_sorted[n // 2])
+        var = sum((v - mean_v) ** 2 for v in values_sorted) / n
+        std_v = math.sqrt(var)
+
+        print("Reward summary (hybrid reward.value):")
+        print(f"  Total steps: {total_steps}")
+        print(f"  Steps with computed reward: {n}")
+        print(f"  Min: {min_v:.4f}, Max: {max_v:.4f}")
+        print(f"  Mean: {mean_v:.4f}, Median: {median_v:.4f}, Std: {std_v:.4f}")
+        print("  By status:")
+        for status_key, count in sorted(status_counts.items()):
+            print(f"    {status_key}: {count}")
 
 
 if __name__ == "__main__":

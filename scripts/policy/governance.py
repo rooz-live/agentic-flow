@@ -51,22 +51,12 @@ class TelemetryLogger:
     def log_pattern_event(self, event: Dict[str, Any]):
         """Log a governance pattern event."""
         # Ensure ISO8601 timestamp
-        timestamp = event.pop("ts", None) or event.pop("timestamp", None)
-        if not timestamp:
+        if "ts" not in event:
             now = datetime.now(timezone.utc)
-            timestamp = now.isoformat().replace("+00:00", "Z")
-
-        pattern_name = event.pop("pattern", "unknown")
-
-        # Construct structured log entry
-        structured_event = {
-            "timestamp": timestamp,
-            "pattern": pattern_name,
-            "data": event
-        }
+            event["ts"] = now.isoformat().replace("+00:00", "Z")
 
         with open(self.pattern_log, "a") as f:
-            f.write(json.dumps(structured_event) + "\n")
+            f.write(json.dumps(event) + "\n")
 
     def log_metric(self, metric: Dict[str, Any]):
         """Log a quantitative metric."""
@@ -126,6 +116,27 @@ class GovernanceMiddleware:
         self.safe_degrade_error_count = 0
         self.vsix_telemetry_gap_count = 0
         self.safe_degrade_recent_incidents_10m = 0
+
+        self.progress_log_path = self.project_root / ".goalie" / "prod_cycle_progress.log"
+
+    def log_progress(self) -> None:
+        """Emit a lightweight progress line for long prod-cycle runs."""
+
+        message = (
+            f"[prod-cycle] run {self.run_id} cycle {self.current_iteration}/"
+            f"{self.max_iterations} circle={self.active_circle or 'unknown'} "
+            f"depth={self.current_depth} safe={self.is_safe}"
+        )
+        print(message)
+
+        try:
+            self.progress_log_path.parent.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+            with self.progress_log_path.open("a", encoding="utf-8") as handle:
+                handle.write(f"{timestamp} {message}\n")
+        except Exception:
+            # Progress logging must never break prod-cycle
+            pass
 
     def update_rca_counters(self, status: str):
         """Update RCA counters based on cycle status."""
@@ -805,6 +816,9 @@ class GovernanceMiddleware:
             self.check_safe_degrade()
             self.determine_circle_focus()
             self.calculate_depth_ladder()
+
+            # Lightweight telemetry for long-running batches
+            self.log_progress()
 
             # Execute
             self.run_cmd_full_cycle()

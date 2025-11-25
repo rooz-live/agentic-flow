@@ -104,7 +104,7 @@ test_memory_stress() {
 
         # Dynamic throttling based on load
         local load_num=$(echo "$load" | cut -d. -f1)
-        if [ "$load_num" -gt 10 ]; then
+        if [ "$load_num" -gt 40 ]; then
             echo -e "  ${YELLOW}⚠ High load detected, throttling...${NC}"
             sleep 1
         fi

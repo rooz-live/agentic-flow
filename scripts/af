@@ -90,6 +90,9 @@ ${GREEN}Production Maturity & Observability:${NC}
   af validate-dt         Validate Decision Transformer trajectories
   af dt-summary          Summarize DT readiness (strict mode)
   af dt-dataset-summary  Show DT dataset features & normalization summary
+  af dt-dashboard        Visualize DT evaluation metrics over time
+  af reward-presets     List DT reward presets & semantics
+
 
 ${GREEN}Feedback Loop:${NC}
   af insight <text>      Capture retro insight
@@ -1046,26 +1049,6 @@ log_prod_cycle_iteration_metrics() {
         --average-score "$risk_score" \
         --risk-distribution "${AF_PC_RISK_DISTRIBUTION:-{}}" \
         --log-file "$out" || echo "${YELLOW}Warning: Failed to emit metrics via emit_metrics.py${NC}"
-
-    # Explicit Pattern Logging (as requested for .goalie/pattern_metrics.jsonl)
-    if [ "$patt_safe_degrade" == "1" ]; then
-        log_pattern_event "safe-degrade" "$mode" "deploy" "$safe_degrade_reason" "degraded"
-    fi
-    if [ "$patt_depth_ladder" == "1" ]; then
-        log_pattern_event "depth-ladder" "$mode" "health" "depth-check" "checked"
-    fi
-    if [ "$patt_circle_risk_focus" == "1" ]; then
-        log_pattern_event "circle-risk-focus" "$mode" "roam" "high-risk-circle" "focus-assigned" "{\"circle\":\"$circle_risk_owner\"}"
-    fi
-    if [ "$patt_autocommit_shadow" == "1" ]; then
-        log_pattern_event "autocommit-shadow" "$mode" "autocommit" "shadow-mode" "logged-candidate"
-    fi
-    if [ "$patt_guardrail_lock" == "1" ]; then
-        log_pattern_event "guardrail-lock" "$mode" "test-first" "health-check-failed" "lock-engaged" "{\"health\":\"$guardrail_health\"}"
-    fi
-    if [ "$patt_iteration_budget" == "1" ]; then
-        log_pattern_event "iteration-budget" "$mode" "policy" "budget-check" "enforced" "{\"remaining\":$budget_remaining}"
-    fi
 }
 
 # Main dispatch
@@ -1105,6 +1088,15 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         sample-workloads) shift; cmd_sample_workloads "$@" ;;
         retro-coach) shift; cmd_retro_coach "$@" ;;
         governance-agent) shift; cmd_governance_agent "$@" ;;
+        dt-e2e-check)
+            shift
+            if [ -f "$SCRIPT_DIR/analysis/dt_e2e_check.py" ]; then
+                python3 "$SCRIPT_DIR/analysis/dt_e2e_check.py" "$@"
+            else
+                echo -e "${YELLOW}dt_e2e_check.py not found at $SCRIPT_DIR/analysis${NC}"
+                exit 1
+            fi
+            ;;
         retro-analysis)
             shift
             if [ -x "$SCRIPT_DIR/analysis/retrospective_analysis.py" ]; then
@@ -1229,6 +1221,83 @@ PYEOF
 	            exit 1
 	        fi
 	        ;;
+	    dt-dashboard)
+	        shift
+	        if [ -f "$SCRIPT_DIR/analysis/dt_evaluation_dashboard.py" ]; then
+	            python3 "$SCRIPT_DIR/analysis/dt_evaluation_dashboard.py" "$@"
+	        else
+	            echo -e "${YELLOW}dt_evaluation_dashboard.py not found${NC}"
+	            exit 1
+	        fi
+	        ;;
+	    dt-suggest-thresholds)
+	        shift
+	        if [ -f "$SCRIPT_DIR/analysis/suggest_dt_thresholds.py" ]; then
+	            python3 "$SCRIPT_DIR/analysis/suggest_dt_thresholds.py" "$@"
+	        else
+	            echo -e "${YELLOW}suggest_dt_thresholds.py not found at $SCRIPT_DIR/analysis${NC}"
+	            exit 1
+	        fi
+	        ;;
+	    enforce-dt-gates)
+	        shift
+	        if [ -f "$SCRIPT_DIR/analysis/enforce_dt_quality_gates.py" ]; then
+	            python3 "$SCRIPT_DIR/analysis/enforce_dt_quality_gates.py" "$@"
+	        else
+	            echo -e "${YELLOW}enforce_dt_quality_gates.py not found at $SCRIPT_DIR/analysis${NC}"
+	            exit 1
+	        fi
+	        ;;
+            publish-dt-gates-summary)
+                shift
+                if [ -f "$SCRIPT_DIR/analysis/publish_dt_gates_summary.py" ]; then
+                    python3 "$SCRIPT_DIR/analysis/publish_dt_gates_summary.py" "$@"
+                else
+                    echo -e "${YELLOW}publish_dt_gates_summary.py not found at $SCRIPT_DIR/analysis${NC}"
+                    exit 1
+                fi
+                ;;
+
+		    reward-presets)
+		        shift
+		        if [ -f "$SCRIPT_DIR/analysis/list_reward_presets.py" ]; then
+		            python3 "$SCRIPT_DIR/analysis/list_reward_presets.py" "$@"
+		        else
+		            echo -e "${YELLOW}list_reward_presets.py not found at $SCRIPT_DIR/analysis${NC}"
+		            exit 1
+		        fi
+		        ;;
+
+		    compare-presets)
+		        shift
+		        if [ -f "$SCRIPT_DIR/analysis/compare_presets.py" ]; then
+		            python3 "$SCRIPT_DIR/analysis/compare_presets.py" "$@"
+		        else
+		            echo -e "${YELLOW}compare_presets.py not found at $SCRIPT_DIR/analysis${NC}"
+		            exit 1
+		        fi
+		        ;;
+
+        validate-dt-model)
+            shift
+            if [ -f "$SCRIPT_DIR/analysis/evaluate_dt_model.py" ]; then
+                python3 "$SCRIPT_DIR/analysis/evaluate_dt_model.py" --validate-only "$@"
+            else
+                echo -e "${YELLOW}evaluate_dt_model.py not found${NC}"
+                exit 1
+            fi
+            ;;
+
+        evaluate-dt)
+            shift
+            if [ -f "$SCRIPT_DIR/analysis/evaluate_dt_model.py" ]; then
+                python3 "$SCRIPT_DIR/analysis/evaluate_dt_model.py" "$@"
+            else
+                echo -e "${YELLOW}evaluate_dt_model.py not found${NC}"
+                exit 1
+            fi
+            ;;
+
 	    train-dt)
 	        shift
 	        if [ -f "$SCRIPT_DIR/analysis/train_dt_model.py" ]; then

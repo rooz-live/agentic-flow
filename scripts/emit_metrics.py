@@ -123,8 +123,8 @@ def main():
     )
     parser.add_argument(
         "--risk-score",
-        type=int,
-        default=0,
+        type=float,
+        default=0.0,
         help="Current system risk score"
     )
     parser.add_argument(

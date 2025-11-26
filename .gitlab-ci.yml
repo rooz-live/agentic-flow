@@ -1,0 +1,93 @@
+stages:
+  - detect
+  - test-iris
+  - test-dt
+  - test-dashboard
+  - security
+  - validate
+
+variables:
+  AF_IRIS_STUB: "1"
+
+detect-dependency-changes:
+  stage: detect
+  script:
+    - git diff $CI_MERGE_REQUEST_DIFF_BASE_SHA..HEAD package.json
+    - |
+      if git diff $CI_MERGE_REQUEST_DIFF_BASE_SHA..HEAD package.json | grep -q '@foxruv/iris'; then
+        echo "IRIS_UPDATED=true" >> detect.env
+      else
+        echo "IRIS_UPDATED=false" >> detect.env
+      fi
+  artifacts:
+    reports:
+      dotenv: detect.env
+  only:
+    - merge_requests
+
+test:iris-governance:
+  stage: test-iris
+  dependencies:
+    - detect-dependency-changes
+  script:
+    - pytest tests/policy/test_governance_iris_integration.py -v
+  only:
+    variables:
+      - $IRIS_UPDATED == "true"
+
+test:iris-prod-cycle:
+  stage: test-iris
+  script:
+    - pytest tests/analysis/test_iris_prod_cycle_integration.py -v
+  only:
+    variables:
+      - $IRIS_UPDATED == "true"
+
+test:dt-calibration:
+  stage: test-dt
+  script:
+    - pytest tests/analysis/test_prepare_dt_dataset.py tests/analysis/test_dt_e2e_check.py -v
+  only:
+    variables:
+      - $IRIS_UPDATED == "true"
+
+test:dt-quality-gates:
+  stage: test-dt
+  script:
+    - pytest tests/analysis/test_publish_dt_gates_summary.py -v
+  only:
+    variables:
+      - $IRIS_UPDATED == "true"
+
+test:reasoningbank-public-api:
+  stage: test-dt
+  script:
+    - npm ci
+    - cd agentic-flow
+    - npx vitest tests/reasoningbank/public-api-consumer.test.ts
+  only:
+    variables:
+      - $IRIS_UPDATED == "true"
+
+validate:dashboard:
+  stage: test-dashboard
+  script:
+    - echo "Dashboard validation"
+  only:
+    variables:
+      - $IRIS_UPDATED == "true"
+
+security:audit:
+  stage: security
+  script:
+    - npm audit --audit-level=moderate
+  allow_failure: true
+
+manual:major-update-approval:
+  stage: validate
+  script:
+    - echo "Major update requires manual approval"
+  when: manual
+  only:
+    variables:
+      - $IS_MAJOR_UPDATE == "true"

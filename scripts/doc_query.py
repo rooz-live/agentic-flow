@@ -310,8 +310,11 @@ def main():
         result = doc_query.query(args.query, max_depth=args.max_depth)
 
         if args.link_issue:
-            doc_query.link_to_wsjf(result['matches'][0]['file'] if result['matches'] else '',
-                                   args.link_issue)
+            if result['matches']:
+                doc_query.link_to_wsjf(result['matches'][0]['file'], args.link_issue)
+                print(f"\n✅ Linked top match to WSJF issue {args.link_issue}")
+            else:
+                print(f"\n⚠️  No matches found to link to WSJF issue {args.link_issue}", file=sys.stderr)
 
         if args.json:
             print(json.dumps(result, indent=2))

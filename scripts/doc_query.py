@@ -30,22 +30,191 @@ import re
 import sys
 import time
 import hashlib
+import threading
+import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional, Set, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 
+
+@dataclass
+class QueryMetrics:
+    """Performance metrics for query operations."""
+    files_processed: int = 0
+    cache_hits: int = 0
+    cache_misses: int = 0
+    avg_file_read_time_ms: float = 0.0
+    total_query_time_ms: float = 0.0
+    concurrent_workers: int = 1
+
+class SmartCache:
+    """Enhanced cache with intelligent invalidation and size management."""
+    
+    def __init__(self, max_size_mb: int = 100):
+        self.max_size_bytes = max_size_mb * 1024 * 1024
+        self.cache = {}
+        self.access_times = {}
+        self.current_size = 0
+        self.lock = threading.Lock()
+    
+    def get(self, key: str) -> Optional[Dict]:
+        """Get cached content with access time tracking."""
+        with self.lock:
+            if key in self.cache:
+                self.access_times[key] = time.time()
+                return self.cache[key]
+            return None
+    
+    def put(self, key: str, value: Dict):
+        """Put content in cache with size management."""
+        with self.lock:
+            # Calculate size of new entry
+            entry_size = len(str(value).encode('utf-8'))
+            
+            # Remove old entries if necessary
+            while self.current_size + entry_size > self.max_size_bytes and self.cache:
+                # Remove least recently used item
+                lru_key = min(self.access_times.keys(), key=lambda k: self.access_times[k])
+                removed_size = len(str(self.cache[lru_key]).encode('utf-8'))
+                del self.cache[lru_key]
+                del self.access_times[lru_key]
+                self.current_size -= removed_size
+            
+            # Add new entry
+            if key in self.cache:
+                # Update existing entry
+                old_size = len(str(self.cache[key]).encode('utf-8'))
+                self.current_size -= old_size
+            
+            self.cache[key] = value
+            self.access_times[key] = time.time()
+            self.current_size += entry_size
+    
+    def get_stats(self) -> Dict:
+        """Get cache statistics."""
+        with self.lock:
+            return {
+                'entries': len(self.cache),
+                'size_mb': self.current_size / (1024 * 1024),
+                'max_size_mb': self.max_size_bytes / (1024 * 1024),
+                'utilization_percent': (self.current_size / self.max_size_bytes) * 100 if self.max_size_bytes > 0 else 0
+            }
 
 class DocQuery:
     """Query and extract insights from existing documentation."""
 
-    def __init__(self, project_root: str, use_cache: bool = True):
+    def __init__(self, project_root: str, use_cache: bool = True, max_workers: int = 4,
+                 enable_concurrency: bool = True, cache_size_mb: int = 100):
         self.project_root = Path(project_root)
         self.goalie_dir = self.project_root / ".goalie"
         self.insights_log = self.goalie_dir / "insights_log.jsonl"
         self.cache_file = self.goalie_dir / "doc_query_cache.json"
         self.use_cache = use_cache
-        self._file_cache = self._load_cache() if use_cache else {}
+        self.max_workers = max_workers
+        self.enable_concurrency = enable_concurrency
+        self.metrics = QueryMetrics(concurrent_workers=max_workers if enable_concurrency else 1)
+        
+        # Setup logging for performance monitoring
+        self.logger = logging.getLogger(__name__)
+        # Don't configure logging here - will be configured based on JSON output
+        
+        # Initialize enhanced cache
+        if use_cache:
+            self.smart_cache = SmartCache(max_size_mb=cache_size_mb)
+            # Load legacy cache and migrate
+            legacy_cache = self._load_cache()
+            for key, value in legacy_cache.items():
+                self.smart_cache.put(key, value)
+        else:
+            self.smart_cache = None
 
+    def _process_file_batch(self, file_batch: List[Path], query: str) -> List[Dict]:
+        """Process a batch of files concurrently."""
+        batch_matches = []
+        
+        for doc_path in file_batch:
+            file_start_time = time.time()
+            
+            try:
+                # Get file hash for cache lookup
+                file_hash = self._get_file_hash(doc_path)
+                cache_key = f"{doc_path}_{file_hash}"
+                
+                # Check cache first
+                cached_content = None
+                if self.smart_cache:
+                    cached_content = self.smart_cache.get(cache_key)
+                    if cached_content:
+                        self.metrics.cache_hits += 1
+                        content = cached_content['content']
+                    else:
+                        self.metrics.cache_misses += 1
+                
+                # Read file if not in cache
+                if cached_content is None:
+                    content = self._read_file_with_backoff(doc_path)
+                    if content is None:
+                        continue
+                    
+                    # Store in cache
+                    if self.smart_cache:
+                        self.smart_cache.put(cache_key, {'hash': file_hash, 'content': content})
+                
+                # Search for query pattern
+                if re.search(query, content, re.IGNORECASE | re.MULTILINE):
+                    # Extract surrounding context
+                    lines = content.split('\n')
+                    for i, line in enumerate(lines):
+                        if re.search(query, line, re.IGNORECASE):
+                            context_start = max(0, i - 2)
+                            context_end = min(len(lines), i + 3)
+                            context = lines[context_start:context_end]
+
+                            batch_matches.append({
+                                'file': str(doc_path.relative_to(self.project_root)),
+                                'line': i + 1,
+                                'match': line.strip(),
+                                'context': context,
+                                'url': f"file://{doc_path}",
+                                'relevance': self._calculate_relevance(line, query)
+                            })
+                
+                self.metrics.files_processed += 1
+                
+                # Track performance metrics
+                file_time_ms = (time.time() - file_start_time) * 1000
+                if self.metrics.files_processed == 1:
+                    self.metrics.avg_file_read_time_ms = file_time_ms
+                else:
+                    # Rolling average
+                    self.metrics.avg_file_read_time_ms = (
+                        (self.metrics.avg_file_read_time_ms * (self.metrics.files_processed - 1) + file_time_ms)
+                        / self.metrics.files_processed
+                    )
+                
+            except Exception as e:
+                self.logger.warning(f"Error processing {doc_path}: {e}")
+                continue
+        
+        return batch_matches
+    
+    def _read_file_with_backoff(self, file_path: Path, max_retries: int = 3) -> Optional[str]:
+        """Read file with exponential backoff on errors."""
+        for attempt in range(max_retries):
+            try:
+                return file_path.read_text(encoding='utf-8', errors='ignore')
+            except (OSError, PermissionError, UnicodeDecodeError) as e:
+                if attempt == max_retries - 1:
+                    self.logger.error(f"Failed to read {file_path} after {max_retries} attempts: {e}")
+                    return None
+                # Exponential backoff
+                backoff_time = (2 ** attempt) * 0.1
+                time.sleep(backoff_time)
+                self.logger.debug(f"Retry {attempt + 1} for {file_path} after {backoff_time}s")
+        return None
+    
     def query(self, query: str, doc_patterns: Optional[List[str]] = None, max_depth: int = 5) -> Dict:
         """
         Query documentation files for relevant content.
@@ -81,12 +250,13 @@ class DocQuery:
             ]
 
         matches = []
-        file_count = 0
         seen_files: Set[Path] = set()
+        all_files = []
 
         # Skip common large/binary directories
         skip_dirs = {'node_modules', '.git', '__pycache__', '.venv', 'venv', '.tox', 'dist', 'build'}
 
+        # Collect all files first
         for pattern in doc_patterns:
             try:
                 for doc_path in self.project_root.glob(pattern):
@@ -104,64 +274,68 @@ class DocQuery:
                         continue
 
                     seen_files.add(doc_path)
-                    file_count += 1
-
-                    # Use cache if available
-                    file_hash = self._get_file_hash(doc_path)
-                    cached_content = self._file_cache.get(str(doc_path))
-                    if cached_content and cached_content.get('hash') == file_hash:
-                        content = cached_content['content']
-                    else:
-                        try:
-                            content = doc_path.read_text(encoding='utf-8', errors='ignore')
-                            self._file_cache[str(doc_path)] = {'hash': file_hash, 'content': content}
-                        except Exception as e:
-                            print(f"⚠️  Error reading {doc_path}: {e}", file=sys.stderr)
-                            continue
-
-                    # Search for query pattern
-                    if re.search(query, content, re.IGNORECASE | re.MULTILINE):
-                        # Extract surrounding context
-                        lines = content.split('\n')
-                        for i, line in enumerate(lines):
-                            if re.search(query, line, re.IGNORECASE):
-                                context_start = max(0, i - 2)
-                                context_end = min(len(lines), i + 3)
-                                context = lines[context_start:context_end]
-
-                                matches.append({
-                                    'file': str(doc_path.relative_to(self.project_root)),
-                                    'line': i + 1,
-                                    'match': line.strip(),
-                                    'context': context,
-                                    'url': f"file://{doc_path}",
-                                    'relevance': self._calculate_relevance(line, query)
-                                })
+                    all_files.append(doc_path)
             except Exception as e:
-                print(f"⚠️  Error with pattern {pattern}: {e}", file=sys.stderr)
+                self.logger.warning(f"Error with pattern {pattern}: {e}")
                 continue
+        
+        # Process files concurrently or sequentially
+        if self.enable_concurrency and len(all_files) > 5:
+            # Concurrent processing for larger file sets
+            batch_size = max(1, len(all_files) // self.max_workers)
+            file_batches = [all_files[i:i + batch_size] for i in range(0, len(all_files), batch_size)]
+            
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                # Submit batches for processing
+                future_to_batch = {
+                    executor.submit(self._process_file_batch, batch, query): batch
+                    for batch in file_batches
+                }
+                
+                # Collect results as they complete
+                for future in as_completed(future_to_batch):
+                    batch_matches = future.result()
+                    matches.extend(batch_matches)
+        else:
+            # Sequential processing for small file sets
+            batch_matches = self._process_file_batch(all_files, query)
+            matches.extend(batch_matches)
 
         # Sort by relevance
         matches.sort(key=lambda x: x.get('relevance', 0), reverse=True)
 
         elapsed_time = time.time() - start_time
 
+        self.metrics.total_query_time_ms = elapsed_time * 1000
+        
         result = {
             'query': query,
             'timestamp': datetime.now().isoformat(),
-            'files_searched': file_count,
+            'files_searched': self.metrics.files_processed,
             'matches_found': len(matches),
             'matches': matches,
             'elapsed_time_ms': int(elapsed_time * 1000),
             'performance_met': elapsed_time < 1.0,
-            'avg_relevance': sum(m.get('relevance', 0) for m in matches) / len(matches) if matches else 0
+            'avg_relevance': sum(m.get('relevance', 0) for m in matches) / len(matches) if matches else 0,
+            'performance_metrics': {
+                'cache_hits': self.metrics.cache_hits,
+                'cache_misses': self.metrics.cache_misses,
+                'cache_hit_rate': self.metrics.cache_hits / (self.metrics.cache_hits + self.metrics.cache_misses) if (self.metrics.cache_hits + self.metrics.cache_misses) > 0 else 0,
+                'avg_file_read_time_ms': round(self.metrics.avg_file_read_time_ms, 2),
+                'concurrent_workers': self.metrics.concurrent_workers,
+                'concurrency_enabled': self.enable_concurrency
+            }
         }
+
+        # Add cache stats if available
+        if self.smart_cache:
+            result['performance_metrics']['cache_stats'] = self.smart_cache.get_stats()
 
         # Log query to insights
         self._log_query(result)
 
         # Save cache if updated
-        if self.use_cache:
+        if self.use_cache and self.smart_cache:
             self._save_cache()
 
         return result
@@ -227,7 +401,7 @@ class DocQuery:
             f.write(json.dumps(log_entry) + '\n')
 
     def _load_cache(self) -> Dict:
-        """Load file content cache."""
+        """Load legacy file content cache for migration."""
         if self.cache_file.exists():
             try:
                 with open(self.cache_file) as f:
@@ -237,12 +411,21 @@ class DocQuery:
         return {}
 
     def _save_cache(self):
-        """Save file content cache."""
+        """Save cache statistics to file for monitoring."""
         try:
+            cache_stats = {
+                'cache_stats': self.smart_cache.get_stats() if self.smart_cache else {},
+                'last_saved': datetime.now().isoformat(),
+                'metrics': {
+                    'cache_hits': self.metrics.cache_hits,
+                    'cache_misses': self.metrics.cache_misses,
+                    'files_processed': self.metrics.files_processed
+                }
+            }
             with open(self.cache_file, 'w') as f:
-                json.dump(self._file_cache, f)
+                json.dump(cache_stats, f, indent=2)
         except Exception as e:
-            print(f"⚠️  Error saving cache: {e}", file=sys.stderr)
+            self.logger.warning(f"Error saving cache stats: {e}")
 
     def _get_file_hash(self, file_path: Path) -> str:
         """Get file hash for cache invalidation."""
@@ -285,12 +468,33 @@ def main():
     parser.add_argument('--json', action='store_true', help='Output as JSON')
     parser.add_argument('--no-cache', action='store_true', help='Disable file content caching')
     parser.add_argument('--max-depth', type=int, default=5, help='Maximum directory depth')
+    parser.add_argument('--workers', type=int, default=4, help='Number of concurrent workers (default: 4)')
+    parser.add_argument('--no-concurrency', action='store_true', help='Disable concurrent processing')
+    parser.add_argument('--cache-size-mb', type=int, default=100, help='Cache size in MB (default: 100)')
     parser.add_argument('--retrospective', action='store_true',
                        help='Show retrospective insights from query log')
 
     args = parser.parse_args()
 
-    doc_query = DocQuery(args.project_root, use_cache=not args.no_cache)
+    doc_query = DocQuery(
+        args.project_root,
+        use_cache=not args.no_cache,
+        max_workers=args.workers,
+        enable_concurrency=not args.no_concurrency,
+        cache_size_mb=args.cache_size_mb
+    )
+    
+    # Configure logging based on output format
+    if not args.json:
+        # Only setup logging for non-JSON output
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        doc_query.logger.addHandler(handler)
+        doc_query.logger.propagate = False
+    else:
+        # Disable logging for clean JSON output
+        doc_query.logger.addHandler(logging.NullHandler())
 
     if args.retrospective:
         # Show retrospective insights
@@ -325,7 +529,21 @@ def main():
 
             print(f"🔍 Query: {result['query']}")
             print(f"📊 Searched {result['files_searched']} files in {result['elapsed_time_ms']}ms {perf_icon}")
-            print(f"✅ Found {result['matches_found']} matches (avg relevance: {result['avg_relevance']:.2f}) {relevance_icon}\n")
+            print(f"✅ Found {result['matches_found']} matches (avg relevance: {result['avg_relevance']:.2f}) {relevance_icon}")
+            
+            # Display performance metrics
+            if 'performance_metrics' in result:
+                metrics = result['performance_metrics']
+                print(f"⚡ Performance: cache hit rate {metrics['cache_hit_rate']:.1%}, "
+                      f"avg read: {metrics['avg_file_read_time_ms']:.1f}ms")
+                print(f"🔧 Concurrency: {'enabled' if metrics['concurrency_enabled'] else 'disabled'}, "
+                      f"workers: {metrics['concurrent_workers']}")
+                
+                if 'cache_stats' in metrics:
+                    cache_stats = metrics['cache_stats']
+                    print(f"💾 Cache: {cache_stats['entries']} entries, "
+                          f"{cache_stats['size_mb']:.1f}MB ({cache_stats['utilization_percent']:.1f}% used)")
+            print()
 
             for match in result['matches'][:10]:  # Limit to first 10
                 relevance_bar = "█" * int(match.get('relevance', 0) * 10)

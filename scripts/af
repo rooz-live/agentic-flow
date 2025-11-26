@@ -12,16 +12,85 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Global Flags
+# Global Flags with enhanced validation
 export AF_ENABLE_IRIS_METRICS="${AF_ENABLE_IRIS_METRICS:-0}"
+export AF_PROD_CYCLE_MODE="${AF_PROD_CYCLE_MODE:-advisory}"
+export AF_IRIS_RATE_LIMIT="${AF_IRIS_RATE_LIMIT:-5}"
+export AF_IRIS_BUFFER_SIZE="${AF_IRIS_BUFFER_SIZE:-100}"
+export AF_IRIS_BATCH_TIMEOUT="${AF_IRIS_BATCH_TIMEOUT:-30}"
 
-# Check for --log-goalie flag
+# Enhanced flag validation with mutual exclusion checks
+validate_mutually_exclusive_flags() {
+    local conflicting_flags=()
+    local log_goalie_found=false
+    local dry_run_found=false
+    
+    for arg in "$@"; do
+        case "$arg" in
+            --log-goalie)
+                log_goalie_found=true
+                ;;
+            --dry-run)
+                dry_run_found=true
+                ;;
+        esac
+    done
+    
+    # Check for conflicts with environment variable precedence
+    if [ "${AF_ENABLE_IRIS_METRICS:-0}" = "1" ] && [ "$dry_run_found" = true ]; then
+        echo -e "${RED}Error: --log-goalie (enabled via environment) conflicts with --dry-run${NC}" >&2
+        echo -e "${YELLOW}Suggestion: Use AF_ENABLE_IRIS_METRICS=0 to disable metrics logging${NC}" >&2
+        exit 1
+    fi
+    
+    if [ "$log_goalie_found" = true ] && [ "$dry_run_found" = true ]; then
+        echo -e "${RED}Error: --log-goalie conflicts with --dry-run${NC}" >&2
+        echo -e "${YELLOW}Suggestion: Choose either metrics logging or dry-run mode${NC}" >&2
+        exit 1
+    fi
+}
+
+# Enhanced flag parsing with validation
+validate_mutually_exclusive_flags "$@"
+
+# Check for --log-goalie flag with environment variable precedence
 for arg in "$@"; do
     if [ "$arg" = "--log-goalie" ]; then
-        export AF_ENABLE_IRIS_METRICS="1"
+        if [ "${AF_ENABLE_IRIS_METRICS:-0}" = "1" ]; then
+            echo -e "${YELLOW}[af] IRIS metrics already enabled via environment variable${NC}"
+        else
+            export AF_ENABLE_IRIS_METRICS="1"
+            echo -e "${GREEN}[af] IRIS metrics logging enabled${NC}"
+        fi
         break
     fi
 done
+
+# Secure credential management setup
+setup_iris_credentials() {
+    if [ -n "${AF_IRIS_VAULT_TOKEN:-}" ]; then
+        # Vault-based credential injection
+        if command -v vault &> /dev/null; then
+            echo -e "${BLUE}[af] Retrieving IRIS credentials from vault...${NC}"
+            export AF_IRIS_CREDENTIALS=$(vault kv get -field=credentials secret/iris 2>/dev/null || echo "")
+        else
+            echo -e "${YELLOW}[af] Vault token found but vault CLI not available${NC}"
+        fi
+    elif [ -f "${PROJECT_ROOT}/.iris-credentials" ]; then
+        # Local credential file with restricted permissions
+        if [ "$(stat -c %a "${PROJECT_ROOT}/.iris-credentials" 2>/dev/null)" = "600" ]; then
+            echo -e "${BLUE}[af] Loading IRIS credentials from secure file...${NC}"
+            export AF_IRIS_CREDENTIALS=$(cat "${PROJECT_ROOT}/.iris-credentials")
+        else
+            echo -e "${RED}[af] Error: .iris-credentials file has insecure permissions${NC}" >&2
+            echo -e "${YELLOW}Suggestion: chmod 600 .iris-credentials${NC}" >&2
+            exit 1
+        fi
+    fi
+}
+
+# Initialize secure credentials
+setup_iris_credentials
 
 # Colors
 GREEN='\033[0;32m'
@@ -63,7 +132,7 @@ capture_iris_metrics() {
     fi
 }
 
-# Pattern metrics logging helper
+# Enhanced Pattern metrics logging helper with environment variable support
 log_pattern_event() {
     local pattern="$1"
     local mode="$2"
@@ -71,6 +140,15 @@ log_pattern_event() {
     local reason="$4"
     local action="$5"
     local context_json="${6:-}"
+
+    # Check pattern-specific environment variable activation
+    local pattern_env_var="AF_PROD_$(echo "$pattern" | tr '-' '_' | tr '[:lower:]' '[:upper:]')"
+    local pattern_enabled="${!pattern_env_var:-1}"
+    
+    # Skip if pattern is explicitly disabled
+    if [ "$pattern_enabled" = "0" ]; then
+        return 0
+    fi
 
     # Validate known patterns to keep metrics clean
     case "$pattern" in
@@ -91,6 +169,7 @@ log_pattern_event() {
     local depth="${AF_DEPTH_LEVEL:-0}"
     local framework="${AF_FRAMEWORK:-}"
     local scheduler="${AF_SCHEDULER:-}"
+    local prod_mode="${AF_PROD_CYCLE_MODE:-advisory}"
     local mutation="false"
     if [[ "$mode" == *"mutate"* ]] || [[ "$mode" == *"enforce"* ]] || [[ "$mode" == *"blocking"* ]]; then
         mutation="true"
@@ -99,17 +178,54 @@ log_pattern_event() {
     # Ensure .goalie directory exists
     mkdir -p "$PROJECT_ROOT/.goalie"
 
+    # Build pattern-specific metrics context
+    local pattern_metrics=""
+    case "$pattern" in
+        "safe-degrade")
+            pattern_metrics="{\"triggers\":${AF_PC_SAFE_DEGRADE_TRIGGERS:-0},\"actions\":${AF_PC_SAFE_DEGRADE_ACTIONS:-[]},\"recovery_cycles\":${AF_PC_SAFE_DEGRADE_RECOVERY_CYCLES:-0}}"
+            ;;
+        "circle-risk-focus")
+            pattern_metrics="{\"top_owner\":\"${AF_PC_CIRCLE_RISK_FOCUS_TOP_OWNER:-none}\",\"extra_iterations\":${AF_PC_CIRCLE_RISK_FOCUS_EXTRA_ITERATIONS:-0},\"roam_reduction\":${AF_PC_CIRCLE_RISK_FOCUS_ROAM_REDUCTION:-0}}"
+            ;;
+        "autocommit-shadow")
+            pattern_metrics="{\"candidates\":${AF_PC_AUTOCOMMIT_CANDIDATES:-0},\"manual_override\":${AF_PC_AUTOCOMMIT_SHADOW_MANUAL_OVERRIDE:-0},\"cycles_before_confidence\":${AF_PC_AUTOCOMMIT_CYCLES:-0}}"
+            ;;
+        "guardrail-lock")
+            pattern_metrics="{\"enforced\":${AF_PC_GUARDRAIL_LOCK_ENFORCED:-0},\"health_state\":\"${AF_PC_GUARDRAIL_LOCK_HEALTH_STATE:-unknown}\",\"user_requests\":${AF_PC_GUARDRAIL_LOCK_USER_REQUESTS:-0}}"
+            ;;
+        "failure-strategy")
+            pattern_metrics="{\"mode\":\"${AF_PC_FAILURE_STRATEGY_MODE:-none}\",\"abort_iteration_at\":${AF_PC_FAILURE_STRATEGY_ABORT_AT:-0},\"degrade_reason\":\"${AF_PC_FAILURE_STRATEGY_DEGRADE_REASON:-none}\"}"
+            ;;
+        "iteration-budget")
+            pattern_metrics="{\"requested\":${AF_PC_ITERATION_BUDGET_REQUESTED:-0},\"enforced\":${AF_PC_ITERATION_BUDGET_ENFORCED:-0},\"autocommit_runs\":${AF_PC_ITERATION_BUDGET_AUTOCOMMIT_RUNS:-0}}"
+            ;;
+        "observability-first")
+            pattern_metrics="{\"metrics_written\":${AF_PC_OBSERVABILITY_METRICS_WRITTEN:-0},\"missing_signals\":${AF_PC_OBSERVABILITY_MISSING_SIGNALS:-0},\"suggestion_made\":${AF_PC_OBSERVABILITY_SUGGESTION_MADE:-0}}"
+            ;;
+        "depth-ladder")
+            pattern_metrics="{\"current_depth\":${AF_DEPTH_LEVEL:-0},\"base_depth\":${AF_PROD_DEPTH_BASE:-0}}"
+            ;;
+    esac
+
+    # Convert pattern name to kebab-case for pattern:kebab-name field
+    local pattern_kebab="$pattern"
+
     # Base JSON fields
     printf "{\"ts\":\"%s\",\"run\":\"%s\",\"iteration\":%s," \
         "$ts" "$run_kind" "$iteration" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
     printf "\"circle\":\"%s\",\"depth\":%s," \
         "$circle" "$depth" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
-    printf "\"pattern\":\"%s\",\"mode\":\"%s\",\"mutation\":%s,\"gate\":\"%s\"," \
-        "$pattern" "$mode" "$mutation" "$gate" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    printf "\"pattern\":\"%s\",\"pattern:kebab-name\":\"%s\",\"mode\":\"%s\",\"mutation\":%s,\"gate\":\"%s\"," \
+        "$pattern" "$pattern_kebab" "$mode" "$mutation" "$gate" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
 
     # Final fields + optional context JSON (must be valid JSON value, typically an object)
-    printf "\"framework\":\"%s\",\"scheduler\":\"%s\",\"reason\":\"%s\",\"action\":\"%s\"" \
-        "$framework" "$scheduler" "$reason" "$action" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    printf "\"framework\":\"%s\",\"scheduler\":\"%s\",\"reason\":\"%s\",\"action\":\"%s\",\"prod_mode\":\"%s\"" \
+        "$framework" "$scheduler" "$reason" "$action" "$prod_mode" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+
+    # Add pattern-specific metrics
+    if [ -n "$pattern_metrics" ]; then
+        printf ",\"metrics\":%s" "$pattern_metrics" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    fi
 
     if [ -n "$context_json" ]; then
         printf ",\"context\":%s" "$context_json" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
@@ -501,6 +617,9 @@ cmd_full_cycle() {
         local do_autocommit="${AF_FULL_CYCLE_AUTOCOMMIT:-0}"
         if [ "$do_autocommit" = "1" ]; then
             echo -e "${BLUE}=== Autocommit Guardrails (iteration $i) ===${NC}\n"
+            
+            # Log autocommit-shadow pattern event
+            log_pattern_event "autocommit-shadow" "$AF_PROD_CYCLE_MODE" "guardrail" "autocommit-enabled" "shadow-mode-active" "{\"candidates\":0,\"manual_override\":0,\"cycles_before_confidence\":$i}"
 
             # Test-first guardrail (can be disabled with AF_FULL_CYCLE_TEST_FIRST=0)
             local run_tests="${AF_FULL_CYCLE_TEST_FIRST:-1}"
@@ -511,6 +630,9 @@ cmd_full_cycle() {
                 if [ "$test_status" -ne 0 ]; then
                     echo -e "${RED}Tests failed (status=$test_status); skipping autocommit for this iteration.${NC}"
                     METRIC_SAFE_DEGRADE_TRIGGERS=$((METRIC_SAFE_DEGRADE_TRIGGERS + 1))
+                    
+                    # Log guardrail-lock pattern event
+                    log_pattern_event "guardrail-lock" "$AF_PROD_CYCLE_MODE" "enforce" "test-failure" "block-autocommit" "{\"enforced\":1,\"health_state\":\"test-failure\",\"user_requests\":0}"
                     continue
                 fi
 
@@ -520,6 +642,9 @@ cmd_full_cycle() {
                 if [ "$validate_status" -ne 0 ]; then
                     echo -e "${RED}Governor validation failed (status=$validate_status); skipping autocommit for this iteration.${NC}"
                     METRIC_SAFE_DEGRADE_TRIGGERS=$((METRIC_SAFE_DEGRADE_TRIGGERS + 1))
+                    
+                    # Log guardrail-lock pattern event
+                    log_pattern_event "guardrail-lock" "$AF_PROD_CYCLE_MODE" "enforce" "validation-failure" "block-autocommit" "{\"enforced\":1,\"health_state\":\"validation-failure\",\"user_requests\":0}"
                     continue
                 fi
             fi
@@ -542,6 +667,9 @@ cmd_full_cycle() {
 
                 echo -e "${GREEN}Creating BML full-cycle auto-commit for safe paths (.goalie, .agentdb, logs, metrics).${NC}"
                 cmd_commit "BML full-cycle auto-commit (iteration $i of $iterations)"
+                
+                # Log iteration-budget pattern event
+                log_pattern_event "iteration-budget" "$AF_PROD_CYCLE_MODE" "completion" "autocommit-success" "track-usage" "{\"requested\":$iterations,\"enforced\":$i,\"autocommit_runs\":1}"
 
                 # Optional code-level autocommit under additional guardrails and policy
                 local allow_code="${AF_ALLOW_CODE_AUTOCOMMIT:-0}"
@@ -1158,6 +1286,40 @@ log_prod_cycle_iteration_metrics() {
         --average-score "$risk_score" \
         --risk-distribution "${AF_PC_RISK_DISTRIBUTION:-{}}" \
         --log-file "$out" || echo "${YELLOW}Warning: Failed to emit metrics via emit_metrics.py${NC}"
+    
+    # Log pattern events for prod-cycle using enhanced log_pattern_event
+    # Only log if pattern is enabled via environment variable
+    if [ "${AF_PROD_SAFE_DEGRADE:-1}" = "1" ] && [ "$safe_degrade_triggers" -gt 0 ]; then
+        log_pattern_event "safe-degrade" "$mode" "system-risk" "$safe_degrade_reason" "disable-autocommit" "{\"triggers\":$safe_degrade_triggers,\"actions\":$safe_degrade_actions,\"recovery_cycles\":$safe_degrade_recovery}"
+    fi
+    
+    if [ "${AF_PROD_CIRCLE_RISK_FOCUS:-1}" = "1" ] && [ -n "$circle_risk_owner" ]; then
+        log_pattern_event "circle-risk-focus" "$mode" "selection" "circle-focus" "select-$circle_risk_owner" "{\"top_owner\":\"$circle_risk_owner\",\"extra_iterations\":$extensions,\"roam_reduction\":$circle_risk_reduction}"
+    fi
+    
+    if [ "${AF_PROD_AUTOCOMMIT_SHADOW:-1}" = "1" ] && [ "$shadow_override" -gt 0 ]; then
+        log_pattern_event "autocommit-shadow" "$mode" "guardrail" "manual-override" "shadow-override" "{\"candidates\":0,\"manual_override\":$shadow_override,\"cycles_before_confidence\":$autocommit_runs}"
+    fi
+    
+    if [ "${AF_PROD_GUARDRAIL_LOCK:-1}" = "1" ] && [ "$guardrail_enforced" -gt 0 ]; then
+        log_pattern_event "guardrail-lock" "$mode" "enforce" "guardrail-active" "lock-enforced" "{\"enforced\":$guardrail_enforced,\"health_state\":\"$guardrail_health\",\"user_requests\":$guardrail_requests}"
+    fi
+    
+    if [ "${AF_PROD_FAILURE_STRATEGY:-1}" = "1" ] && [ "$fail_strat_mode" != "none" ]; then
+        log_pattern_event "failure-strategy" "$mode" "execution" "strategy-active" "log-strategy" "{\"mode\":\"$fail_strat_mode\",\"abort_iteration_at\":$fail_strat_abort,\"degrade_reason\":\"$fail_strat_reason\"}"
+    fi
+    
+    if [ "${AF_PROD_ITERATION_BUDGET:-1}" = "1" ]; then
+        log_pattern_event "iteration-budget" "$mode" "completion" "budget-tracking" "track-usage" "{\"requested\":$requested,\"enforced\":$max_iter,\"autocommit_runs\":$autocommit_runs}"
+    fi
+    
+    if [ "${AF_PROD_OBSERVABILITY_FIRST:-1}" = "1" ] && [ "$obs_written" -gt 0 ]; then
+        log_pattern_event "observability-first" "$mode" "telemetry" "metrics-collection" "log-metrics" "{\"metrics_written\":$obs_written,\"missing_signals\":$obs_missing,\"suggestion_made\":$obs_suggest}"
+    fi
+    
+    if [ "${AF_PROD_DEPTH_LADDER:-1}" = "1" ] && [ "$patt_depth_ladder" -gt 0 ]; then
+        log_pattern_event "depth-ladder" "$mode" "calibration" "depth-adjustment" "set-depth" "{\"current_depth\":$depth,\"base_depth\":$AF_PROD_DEPTH_BASE:-0}"
+    fi
 }
 
 # Main dispatch

@@ -30,10 +30,22 @@ RED='\033[0;31m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# IRIS Command (can be overridden for testing)
+# IRIS Integration Configuration
+# ================================
+# AF_ENABLE_IRIS_METRICS=1 : Enable IRIS metrics logging to .goalie/metrics_log.jsonl
+# AF_IRIS_STUB=1          : Use synthetic IRIS data (for testing without real IRIS CLI)
+# AF_IRIS_CMD="<cmd>"     : Override IRIS command (default: "npx iris")
+#
+# Usage examples:
+#   AF_ENABLE_IRIS_METRICS=1 ./scripts/af iris-health
+#   AF_ENABLE_IRIS_METRICS=1 AF_IRIS_STUB=1 ./scripts/af prod-cycle 5
+#   AF_IRIS_CMD="bash /path/to/mock.sh" ./scripts/af iris-evaluate
+
+# IRIS Command (can be overridden for testing, e.g., to use a mock script)
 export AF_IRIS_CMD="${AF_IRIS_CMD:-npx iris}"
 
 # IRIS Bridge Helper - Capture IRIS metrics to .goalie/metrics_log.jsonl
+# Calls iris_bridge.ts which transforms IRIS CLI output into structured events
 capture_iris_metrics() {
     local iris_command="$1"
     shift
@@ -44,6 +56,7 @@ capture_iris_metrics() {
         local goalie_dir="$PROJECT_ROOT/.goalie"
         mkdir -p "$goalie_dir"
         # Call iris_bridge.ts via npx tsx, forcing log file under PROJECT_ROOT/.goalie
+        # Note: iris_bridge.ts will use AF_IRIS_STUB=1 if set, providing synthetic data
         npx -y tsx "$PROJECT_ROOT/tools/federation/iris_bridge.ts" \
             "$iris_command" "${iris_args[@]}" --log-file "$goalie_dir/metrics_log.jsonl" 2>/dev/null || \
             echo -e "${YELLOW}[iris_bridge] Warning: Failed to log IRIS metrics${NC}" >&2

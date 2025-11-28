@@ -4,11 +4,12 @@
  * Tests batch insert/update performance and throughput
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import Database from 'better-sqlite3';
 import { BatchOperations } from '../../src/optimizations/BatchOperations.js';
 import { EmbeddingService } from '../../src/controllers/EmbeddingService.js';
 import { Episode } from '../../src/controllers/ReflexionMemory.js';
+import { loadAndValidateSchemas } from '../utils/schema-loader.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -29,16 +30,8 @@ describe('Batch Operations Performance', () => {
     db = new Database(TEST_DB_PATH);
     db.pragma('journal_mode = WAL');
 
-    // Load schemas
-    const schemaPath = path.join(__dirname, '../../src/schemas/schema.sql');
-    if (fs.existsSync(schemaPath)) {
-      db.exec(fs.readFileSync(schemaPath, 'utf-8'));
-    }
-
-    const frontierSchemaPath = path.join(__dirname, '../../src/schemas/frontier-schema.sql');
-    if (fs.existsSync(frontierSchemaPath)) {
-      db.exec(fs.readFileSync(frontierSchemaPath, 'utf-8'));
-    }
+    // Load schemas using centralized loader
+    loadAndValidateSchemas(db, {}, ['episodes']);
 
     embedder = new EmbeddingService({
       model: 'mock-model',

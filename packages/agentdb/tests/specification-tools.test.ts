@@ -8,7 +8,7 @@
  * Total: 60 tests
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from '@jest/globals';
 import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';

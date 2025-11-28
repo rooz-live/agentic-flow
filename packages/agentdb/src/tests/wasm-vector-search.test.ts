@@ -4,7 +4,7 @@
  * Integration tests for WASM-accelerated vector operations
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from '@jest/globals';
 import { WASMVectorSearch } from '../controllers/WASMVectorSearch.js';
 import { EnhancedEmbeddingService } from '../controllers/EnhancedEmbeddingService.js';
 

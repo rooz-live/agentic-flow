@@ -4,7 +4,7 @@
  * Tests reinforcement learning session management, action prediction, and policy training
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import Database from 'better-sqlite3';
 import { LearningSystem, ActionFeedback } from '../../../src/controllers/LearningSystem.js';
 import { EmbeddingService } from '../../../src/controllers/EmbeddingService.js';

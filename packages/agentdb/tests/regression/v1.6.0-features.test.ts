@@ -3,7 +3,7 @@
  * Tests vector-search, export/import, stats, and enhanced init command
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';

@@ -3,7 +3,7 @@
  * Tests TypeScript compilation, imports, and dependencies
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from '@jest/globals';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -176,7 +176,7 @@ describe('Build Validation Tests', () => {
 
       expect(packageJson.devDependencies).toHaveProperty('@types/node');
       expect(packageJson.devDependencies).toHaveProperty('typescript');
-      expect(packageJson.devDependencies).toHaveProperty('vitest');
+      expect(packageJson.devDependencies).toHaveProperty('jest');
     });
   });
 

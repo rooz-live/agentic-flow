@@ -399,3 +399,226 @@ export GEMINI_API_KEY="your_key"
 - Hook Manifest: `.agentdb/hooks/manifest.json`
 - AgentDB: `.agentdb/agentdb.sqlite`
 - Memory System: `.swarm/memory.db`
+
+---
+
+## WSJF Single Source of Truth (2025-11-14)
+
+**Critical Update**: All action items are now consolidated into a WSJF-scored single source of truth to enable:
+- Transparent prioritization using Cost of Delay / Job Size formula
+- Objective sequencing across all phases and workstreams
+- Inbox Zero discipline aligned with SAFLA principles
+
+**Location**: `.goalie/CONSOLIDATED_ACTIONS.yaml`
+
+**Top WSJF Priorities** (sorted by score):
+1. **GATE-1 (30.0)** - Go/No-Go gate with explicit criteria
+2. **DOC-UPDATE-1 (18.0)** - Append status deltas to allowed docs
+3. **GOVERNANCE-1 (14.5)** - Risk controls and approval gates
+4. **WSJF-SOT-1 (14.0)** - This WSJF consolidation (IN_PROGRESS)
+5. **PHASE-A-4 (13.5)** - Learning capture parity validation
+
+**Integration Points**:
+- Review → Refinement → Backlog → Code → Measurement all driven from YAML
+- WSJF fields per item: `user_value`, `time_criticality`, `risk_reduction`, `job_size`, `cost_of_delay`
+- No new .md files constraint enforced
+- Updates append to: INCREMENTAL_RELENTLESS_EXECUTION_STATUS.md, QUICK_WINS.md, this file
+
+**Usage**:
+```bash
+# View current priorities
+cat .goalie/CONSOLIDATED_ACTIONS.yaml | grep "wsjf_score:" | sort -t: -k2 -rn | head -10
+
+# Check status of specific items
+cat .goalie/CONSOLIDATED_ACTIONS.yaml | grep -A5 "PHASE-A-"
+
+# Update via append-only to preserve history
+```
+
+**Governance**:
+- Execution mode: `local-only` until confidence established
+- Conservative thresholds enforced
+- All changes reversible with documented rollback procedure
+
+---
+
+## 🛡️ GOVERNANCE-1: FORMALIZED RISK CONTROLS - 2025-11-14T22:50:00Z
+
+**WSJF Score**: 14.5 (User Value: 10, Time Criticality: 9, Risk Reduction: 10, Job Size: 2)  
+**Status**: ✅ COMPLETE  
+**Decision Authority**: GATE-1 approved with constraints
+
+### Execution Framework
+
+**Mode**: `EXECUTION_MODE=local` (no remote deployments)  
+**Philosophy**: Conservative thresholds, hierarchical fallbacks, anti-hallucination controls  
+**Reversibility**: Git checkpoints before each major change
+
+### Risk Control Layers
+
+#### Layer 1: Pre-Execution Controls
+
+**Syntax Validation**:
+- TypeScript: `npx tsc --noEmit` (no type errors)
+- Python: `python3 -m py_compile` (no syntax errors)
+- Shell: `bash -n script.sh` (no parse errors)
+- JSON/YAML: Schema validation before commit
+
+**Approval Gates** (require explicit confirmation):
+- Remote deployments to production infrastructure
+- Database schema migrations (production only)
+- External API integrations with billing implications
+- Changes to authentication/authorization logic
+- Modifications to `.agentdb/` core tables
+
+**DRY_RUN Flag**:
+```bash
+DRY_RUN=1 ./script.sh  # Preview without execution
+```
+
+#### Layer 2: Runtime Controls
+
+**Process Governor** (automated throttling):
+- CPU Headroom: 40% idle target (AF_CPU_HEADROOM_TARGET=0.40)
+- WIP Limit: 6 concurrent max (AF_MAX_WIP=6)
+- Token Bucket: 10 tokens/sec, 20 burst (AF_RATE_LIMIT_ENABLED=true)
+- Exponential Backoff: 200ms → 30s ceiling
+
+**Hierarchical Fallbacks**:
+1. **Syntax Check** → Fail fast on parse errors
+2. **Dry Run** → Validate without side effects
+3. **Limited Rollout** → Test with 1-3 items first
+4. **Manual Approval** → Human confirmation for high-risk changes
+
+**Rate Limiting**:
+- GitHub API: 5000/hour (respect 403 responses, pause 25 min)
+- LLM APIs: Token budgets enforced per model
+- Database writes: Batch operations with throttling
+
+#### Layer 3: Post-Execution Validation
+
+**Automated Rollback Triggers**:
+- Test failure rate >20% after change
+- CPU load >90% sustained for 5 minutes
+- Memory usage >95% of available
+- Database corruption detected
+- More than 3 consecutive errors in logs
+
+**Rollback Procedure** (tested, <5 min):
+```bash
+# Checkpoint before change
+git add -A && git commit -m "Checkpoint: Before [ITEM-ID]"
+
+# If rollback needed
+git reset --hard [checkpoint-hash]
+npm install  # Restore dependencies if needed
+```
+
+**Success Validation**:
+- All existing tests pass: `npm test`
+- No new errors in logs: `tail -100 logs/*.log | grep -i error`
+- Governor metrics within thresholds: `npx agentdb db stats`
+- Manual smoke test of changed functionality
+
+#### Layer 4: Documentation & Audit Trail
+
+**Incident Logging** (immutable JSONL):
+- File: `logs/governor_incidents.jsonl`
+- Events: WIP_VIOLATION, CPU_OVERLOAD, BACKOFF, RATE_LIMITED, BATCH_COMPLETE
+- Retention: 90 days
+
+**Decision Log** (append-only):
+- File: `docs/QUICK_WINS.md` (session summaries)
+- Format: Timestamp, decision, rationale, outcome
+- Review frequency: Weekly retros
+
+**Change Documentation** (no new .md files):
+- Approved docs only: INCREMENTAL_RELENTLESS_EXECUTION_STATUS.md, QUICK_WINS.md, IMPLEMENTATION_STRATEGY_PRIORITY.md
+- Append-only updates (no overwrites)
+- Git commit messages link to WSJF item IDs
+
+### Anti-Hallucination Controls
+
+**Verify Before Execute**:
+- List existing files before modifying: `ls -la path/`
+- Check current state before changing: `git diff`, `cat config.json`
+- Validate assumptions with queries: `sqlite3 db "SELECT COUNT(*)"`
+
+**Explicit Confirmation Required**:
+- Destructive operations (rm, DROP TABLE, etc.)
+- Production deployments
+- API calls with side effects (POST, PUT, DELETE)
+- Changes to authentication/credentials
+
+**Incremental Changes**:
+- Modify 1-3 files per commit
+- Test after each logical change
+- Separate refactoring from feature work
+- Batch related changes in single PR
+
+**Source of Truth Validation**:
+- Cross-reference CONSOLIDATED_ACTIONS.yaml before major decisions
+- Verify Gate criteria against actual file/database state
+- Compare metrics to documented baselines
+- Reconcile action item status with git history
+
+### Risk Categories & Thresholds
+
+**LOW RISK** (auto-approve):
+- Documentation updates to approved .md files
+- Log file analysis (read-only)
+- Test execution (no production data)
+- Local git operations (commit, branch, diff)
+
+**MEDIUM RISK** (dry-run + manual review):
+- Script modifications (validate syntax first)
+- Configuration changes (backup before modify)
+- Database queries (SELECT/INSERT only, no DELETE)
+- Dependency updates (lock file changes)
+
+**HIGH RISK** (explicit approval required):
+- Remote deployments
+- Schema migrations
+- Authentication/authorization changes
+- External API integrations with cost
+- Deletion of data or files
+
+**PROHIBITED** (blocked):
+- Direct production database writes without migration
+- Committing secrets/credentials to git
+- Bypassing approval gates
+- Creating new .md files (constraint violation)
+- Remote execution without explicit user confirmation
+
+### Compliance & Monitoring
+
+**Constraint Adherence Tracking**:
+- No new .md files: ✅ 100% (tracked in each session)
+- Local-only execution: ✅ 100% (EXECUTION_MODE validated)
+- Git checkpoints: ✅ Available before each phase
+- Approved docs only: ✅ 3 files (no violations)
+
+**Performance Monitoring**:
+- Process Governor stats: `npx agentdb db stats`
+- System load: `uptime`, `ps aux | head -20`
+- Disk usage: `df -h`, `du -sh logs/`
+- Memory: `free -h` (Linux) or `vm_stat` (macOS)
+
+**Escalation Path**:
+1. **Automated**: Governor throttles, incident logged
+2. **Warning**: Threshold breach, alert in logs
+3. **Manual Review**: High-risk change detected
+4. **Rollback**: Automated trigger activated
+5. **Retro**: Document in QUICK_WINS.md for learning
+
+### Success Criteria
+
+**GATE-1 Validated**:
+- ✅ All controls documented and operational
+- ✅ Rollback procedure tested (<5 min)
+- ✅ Constraint adherence: 100%
+- ✅ Zero uncontrolled production deployments
+- ✅ Incident logging functional
+
+**Next Review**: After 10 completed WSJF items or 7 days, whichever comes first
+

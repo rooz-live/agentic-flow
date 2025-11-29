@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic Flow Dashboard</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f7; color: #1d1d1f; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { font-size: 24px; font-weight: 600; margin-bottom: 20px; }
+        h2 { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+        .card { background: white; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+        .metric { display: flex; justify-content: space-between; margin-bottom: 10px; }
+        .metric-label { color: #86868b; }
+        .metric-value { font-weight: 600; }
+        .status-green { color: #28cd41; }
+        .status-yellow { color: #ffcc00; }
+        .status-red { color: #ff3b30; }
+        .alert { padding: 12px; margin: 8px 0; border-radius: 8px; font-size: 14px; }
+        .alert-critical { background: #ffe5e5; border-left: 4px solid #ff3b30; }
+        .alert-urgent { background: #fff3cd; border-left: 4px solid #ffcc00; }
+        .alert-info { background: #e5f3ff; border-left: 4px solid #007aff; }
+        .circle-tag { display: inline-block; padding: 4px 8px; margin: 2px; border-radius: 4px; font-size: 12px; background: #f5f5f7; }
+        .priority-critical { color: #ff3b30; font-weight: 600; }
+        .priority-urgent { color: #ff9500; font-weight: 600; }
+        .priority-important { color: #007aff; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Agentic Flow Live Metrics <span style="font-size: 14px; color: #86868b; font-weight: normal;">with IRIS Integration</span></h1>
+
+        <div class="grid-2">
+            <div class="card">
+                <h2>System Health</h2>
+                <div class="metric">
+                    <span class="metric-label">Status</span>
+                    <span class="metric-value status-green">Active</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Risk Score</span>
+                    <span class="metric-value" id="risk-score">--</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Recent Incidents</span>
+                    <span class="metric-value" id="incidents">--</span>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Cycle Progress</h2>
+                <div class="metric">
+                    <span class="metric-label">Current Iteration</span>
+                    <span class="metric-value" id="iteration">--</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Budget Remaining</span>
+                    <span class="metric-value" id="budget">--</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>🔍 IRIS Metrics (Last 24h)</h2>
+            <div class="grid-2">
+                <div>
+                    <div class="metric">
+                        <span class="metric-label">Total Evaluations</span>
+                        <span class="metric-value" id="iris-total">--</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Critical Actions</span>
+                        <span class="metric-value priority-critical" id="iris-critical">--</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-label">Urgent Actions</span>
+                        <span class="metric-value priority-urgent" id="iris-urgent">--</span>
+                    </div>
+                </div>
+                <div>
+                    <div class="metric-label" style="margin-bottom: 8px;">Active Circles</div>
+                    <div id="iris-circles">--</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>🚨 IRIS Pattern Detection & Alerts</h2>
+            <div id="iris-alerts">
+                <div class="alert alert-info">
+                    Loading IRIS metrics...
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>📊 Production Maturity Status</h2>
+            <div id="production-maturity">
+                <div class="metric">
+                    <span class="metric-label">Overall Health</span>
+                    <span class="metric-value" id="maturity-health">--</span>
+                </div>
+                <div id="maturity-components" style="margin-top: 12px;"></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>🔄 Replenishment Candidates</h2>
+            <div id="replenishment-list">
+                <p style="color: #86868b;">No candidates identified yet</p>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Patterns</h2>
+            <div id="patterns-list">
+                <!-- Patterns will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // IRIS Metrics Dashboard Integration
+        // This reads metrics_log.jsonl and displays IRIS evaluation data
+
+        const METRICS_LOG_PATH = '../../.goalie/metrics_log.jsonl';
+        const REFRESH_INTERVAL = 5000; // 5 seconds
+
+        // Parse JSONL data
+        function parseJSONL(text) {
+            return text.split('\n')
+                .filter(line => line.trim())
+                .map(line => {
+                    try {
+                        return JSON.parse(line);
+                    } catch (e) {
+                        return null;
+                    }
+                })
+                .filter(item => item !== null);
+        }
+
+        // Filter IRIS events from last 24 hours
+        function getRecentIrisEvents(events) {
+            const now = new Date();
+            const oneDayAgo = new Date(now - 24 * 60 * 60 * 1000);
+
+            return events.filter(event =>
+                event.type === 'iris_evaluation' &&
+                new Date(event.timestamp) > oneDayAgo
+            );
+        }
+
+        // Update IRIS metrics panel
+        function updateIrisMetrics(irisEvents) {
+            // Total evaluations
+            document.getElementById('iris-total').textContent = irisEvents.length;
+
+            // Count actions by priority
+            let criticalCount = 0;
+            let urgentCount = 0;
+            const circles = new Set();
+
+            irisEvents.forEach(event => {
+                event.circles_involved?.forEach(circle => circles.add(circle));
+                event.actions_taken?.forEach(action => {
+                    if (action.priority === 'critical') criticalCount++;
+                    if (action.priority === 'urgent') urgentCount++;
+                });
+            });
+
+            document.getElementById('iris-critical').textContent = criticalCount;
+            document.getElementById('iris-urgent').textContent = urgentCount;
+
+            // Display circles
+            const circlesHtml = Array.from(circles)
+                .map(circle => `<span class="circle-tag">${circle}</span>`)
+                .join('');
+            document.getElementById('iris-circles').innerHTML = circlesHtml || '<span style="color: #86868b;">None</span>';
+        }
+
+        // Update pattern detection alerts
+        function updateIrisAlerts(irisEvents) {
+            const alertsContainer = document.getElementById('iris-alerts');
+            const alerts = [];
+
+            // Check for degraded components
+            irisEvents.forEach(event => {
+                const maturity = event.production_maturity;
+                if (!maturity) return;
+
+                // Check infrastructure
+                ['starlingx_openstack', 'hostbill', 'loki_environments'].forEach(comp => {
+                    if (maturity[comp]?.status === 'degraded' || maturity[comp]?.status === 'critical') {
+                        alerts.push({
+                            type: 'critical',
+                            message: `Infrastructure: ${comp} is ${maturity[comp].status}`
+                        });
+                    }
+                });
+            });
+
+            // Check for critical actions
+            const criticalActions = [];
+            irisEvents.forEach(event => {
+                event.actions_taken?.forEach(action => {
+                    if (action.priority === 'critical') {
+                        criticalActions.push(action);
+                    }
+                });
+            });
+
+            if (criticalActions.length > 0) {
+                alerts.push({
+                    type: 'critical',
+                    message: `${criticalActions.length} critical action(s) require immediate attention`
+                });
+            }
+
+            // Render alerts
+            if (alerts.length === 0) {
+                alertsContainer.innerHTML = '<div class="alert alert-info">✅ All systems healthy - No critical patterns detected</div>';
+            } else {
+                alertsContainer.innerHTML = alerts.map(alert =>
+                    `<div class="alert alert-${alert.type}">${alert.message}</div>`
+                ).join('');
+            }
+        }
+
+        // Update production maturity status
+        function updateProductionMaturity(irisEvents) {
+            if (irisEvents.length === 0) return;
+
+            // Get latest event
+            const latest = irisEvents[irisEvents.length - 1];
+            const maturity = latest.production_maturity;
+            if (!maturity) return;
+
+            // Calculate overall health
+            const components = [
+                maturity.starlingx_openstack,
+                maturity.hostbill,
+                maturity.loki_environments
+            ];
+
+            const healthyCount = components.filter(c => c?.status === 'healthy').length;
+            const healthPct = Math.round((healthyCount / components.length) * 100);
+
+            let healthClass = 'status-green';
+            if (healthPct < 50) healthClass = 'status-red';
+            else if (healthPct < 100) healthClass = 'status-yellow';
+
+            document.getElementById('maturity-health').innerHTML =
+                `<span class="${healthClass}">${healthPct}% Healthy</span>`;
+
+            // Display component status
+            const componentsHtml = `
+                <div class="metric">
+                    <span class="metric-label">StarlingX OpenStack</span>
+                    <span class="${maturity.starlingx_openstack?.status === 'healthy' ? 'status-green' : 'status-red'}">${maturity.starlingx_openstack?.status || 'unknown'}</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">HostBill</span>
+                    <span class="${maturity.hostbill?.status === 'healthy' ? 'status-green' : 'status-red'}">${maturity.hostbill?.status || 'unknown'}</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Loki Environments</span>
+                    <span class="${maturity.loki_environments?.status === 'healthy' ? 'status-green' : 'status-red'}">${maturity.loki_environments?.status || 'unknown'}</span>
+                </div>
+            `;
+            document.getElementById('maturity-components').innerHTML = componentsHtml;
+        }
+
+        // Update replenishment candidates
+        function updateReplenishmentCandidates(irisEvents) {
+            const candidates = [];
+
+            irisEvents.forEach(event => {
+                event.actions_taken?.forEach(action => {
+                    if (['critical', 'urgent', 'important'].includes(action.priority) &&
+                        ['innovator', 'analyst'].includes(action.circle)) {
+                        candidates.push(action);
+                    }
+                });
+            });
+
+            const listHtml = candidates.length > 0
+                ? candidates.slice(0, 5).map(c => `
+                    <div class="metric">
+                        <span class="metric-label">[${c.priority.toUpperCase()}] ${c.circle}</span>
+                        <span>${c.action}</span>
+                    </div>
+                `).join('')
+                : '<p style="color: #86868b;">No candidates identified yet</p>';
+
+            document.getElementById('replenishment-list').innerHTML = listHtml;
+        }
+
+        // Load and parse metrics
+        async function loadMetrics() {
+            try {
+                // Note: In production, this would need a local server to serve the JSONL file
+                // For now, this is client-side only and won't work without file:// access or a server
+                const response = await fetch(METRICS_LOG_PATH);
+                const text = await response.text();
+                const events = parseJSONL(text);
+                const irisEvents = getRecentIrisEvents(events);
+
+                updateIrisMetrics(irisEvents);
+                updateIrisAlerts(irisEvents);
+                updateProductionMaturity(irisEvents);
+                updateReplenishmentCandidates(irisEvents);
+
+                console.log(`Loaded ${irisEvents.length} IRIS events from last 24h`);
+            } catch (error) {
+                console.warn('Could not load metrics_log.jsonl:', error.message);
+                console.log('To enable live updates, serve this dashboard from a local server or use file:// protocol with appropriate permissions');
+            }
+        }
+
+        // Initialize dashboard
+        console.log("Dashboard loaded with IRIS integration");
+        console.log("To view live IRIS metrics, run:");
+        console.log("  cd scripts/monitoring && python3 -m http.server 8000");
+        console.log("  Then open http://localhost:8000/dashboard.html");
+
+        // Load metrics immediately and refresh periodically
+        loadMetrics();
+        setInterval(loadMetrics, REFRESH_INTERVAL);
+    </script>
+</body>
+</html>

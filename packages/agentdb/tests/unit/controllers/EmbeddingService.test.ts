@@ -4,7 +4,7 @@
  * Tests text embedding generation, caching, and different providers
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from '@jest/globals';
 import { EmbeddingService } from '../../../src/controllers/EmbeddingService.js';
 
 describe('EmbeddingService', () => {

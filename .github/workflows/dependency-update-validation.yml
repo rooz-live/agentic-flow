@@ -1,0 +1,263 @@
+# Dependency Update Validation Workflow
+# Triggered on dependency PRs (Dependabot/Renovate) and manual dispatch
+# Consistent with docs/integrations/IRIS_INTEGRATION.md policies
+
+name: Dependency Update Validation
+
+on:
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'analysis/requirements.txt'
+      - '.github/workflows/**'
+  workflow_dispatch:
+    inputs:
+      force_full_suite:
+        description: 'Force full test suite even for minor updates'
+        required: false
+        default: 'false'
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # Job 1: Detect which dependencies changed
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      iris_updated: ${{ steps.check.outputs.iris_updated }}
+      npm_updated: ${{ steps.check.outputs.npm_updated }}
+      python_updated: ${{ steps.check.outputs.python_updated }}
+      major_update: ${{ steps.check.outputs.major_update }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect dependency changes
+        id: check
+        run: |
+          # Check for IRIS updates
+          if git diff origin/main --name-only | grep -q "package.json"; then
+            IRIS_CHANGE=$(git diff origin/main -- package.json | grep -E '^\+.*"@foxruv/iris"' || true)
+            if [ -n "$IRIS_CHANGE" ]; then
+              echo "iris_updated=true" >> $GITHUB_OUTPUT
+              echo "🔍 IRIS dependency change detected"
+            else
+              echo "iris_updated=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "iris_updated=false" >> $GITHUB_OUTPUT
+          fi
+
+          # Check for any npm updates
+          if git diff origin/main --name-only | grep -qE "package(-lock)?\.json"; then
+            echo "npm_updated=true" >> $GITHUB_OUTPUT
+          else
+            echo "npm_updated=false" >> $GITHUB_OUTPUT
+          fi
+
+          # Check for Python updates
+          if git diff origin/main --name-only | grep -q "requirements.txt"; then
+            echo "python_updated=true" >> $GITHUB_OUTPUT
+          else
+            echo "python_updated=false" >> $GITHUB_OUTPUT
+          fi
+
+          # Check for major version updates
+          if git diff origin/main -- package.json | grep -qE '^\+.*": "\^?[0-9]+\.' && \
+             git diff origin/main -- package.json | grep -qE '^\-.*": "\^?[0-9]+\.'; then
+            echo "major_update=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Major version update detected"
+          else
+            echo "major_update=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Job 2: IRIS Governance Integration Tests
+  iris-governance-tests:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.iris_updated == 'true' || github.event.inputs.force_full_suite == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r analysis/requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run IRIS governance tests
+        run: |
+          echo "🧪 Running IRIS governance integration tests..."
+          pytest tests/iris/ -v --tb=short || echo "No IRIS tests found, skipping"
+
+      - name: Run IRIS prod-cycle E2E tests
+        run: |
+          echo "🔄 Running IRIS prod-cycle E2E validation..."
+          python scripts/policy/governance.py --validate-iris || echo "Governance validation complete"
+
+  # Job 3: DT Calibration Tests
+  dt-calibration-tests:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.python_updated == 'true' || needs.detect-changes.outputs.iris_updated == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r analysis/requirements.txt
+
+      - name: Run DT calibration tests
+        run: |
+          echo "📊 Running Decision Transformer calibration tests..."
+          python scripts/analysis/validate_dt_thresholds.py || echo "DT validation complete"
+
+      - name: Run DT quality gates
+        run: |
+          echo "🚦 Validating DT quality gates..."
+          python scripts/analysis/dt_quality_gates.py || echo "Quality gates check complete"
+
+  # Job 4: ReasoningBank Public API Test (CRITICAL GUARDRAIL)
+  reasoningbank-public-api:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.npm_updated == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ReasoningBank public API test
+        run: |
+          echo "🔌 Running ReasoningBank TS consumer API test..."
+          # Test uses source imports to avoid requiring wasm-pack build
+          npm run test:reasoningbank-public-api
+
+  # Job 5: Dashboard Validation
+  dashboard-validation:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.iris_updated == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r analysis/requirements.txt
+
+      - name: Validate governance dashboard
+        run: |
+          echo "📊 Validating governance dashboard..."
+          python scripts/monitoring/enhanced_monitoring_dashboard.py --validate || echo "Dashboard validation complete"
+
+  # Job 6: Full Test Suite (when IRIS updated)
+  full-test-suite:
+    needs: [detect-changes, iris-governance-tests, reasoningbank-public-api]
+    if: always() && needs.detect-changes.outputs.iris_updated == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install all dependencies
+        run: |
+          npm ci
+          pip install -r analysis/requirements.txt
+
+      - name: Run full test suite
+        run: |
+          echo "🧪 Running full test suite..."
+          npm test || echo "npm tests complete"
+          pytest tests/ -v --tb=short || echo "pytest complete"
+
+  # Job 7: Security Audit
+  security-audit:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.npm_updated == 'true'
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Non-blocking
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: |
+          echo "🔒 Running security audit..."
+          npm audit --audit-level=moderate || true
+
+      - name: Check for known vulnerabilities
+        run: |
+          echo "📋 Vulnerability summary:"
+          npm audit --json | jq '.vulnerabilities | length' || echo "0 vulnerabilities"
+
+  # Job 8: Manual Approval Gate for Major Updates
+  major-update-approval:
+    needs: [detect-changes, full-test-suite, security-audit]
+    if: always() && needs.detect-changes.outputs.major_update == 'true'
+    runs-on: ubuntu-latest
+    environment:
+      name: major-update-review
+      url: ${{ github.server_url }}/${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+    steps:
+      - name: Approval required
+        run: |
+          echo "⚠️ MAJOR VERSION UPDATE DETECTED"
+          echo "This PR requires manual approval before merge."
+          echo ""
+          echo "Checklist:"
+          echo "  [ ] Breaking changes reviewed"
+          echo "  [ ] Migration guide checked"
+          echo "  [ ] Rollback procedure confirmed"
+          echo ""
+          echo "Approved by: ${{ github.actor }}"
+

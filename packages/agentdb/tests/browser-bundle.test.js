@@ -3,7 +3,7 @@
  * Tests all browser-specific features and ensures backward compatibility
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import initSqlJs from 'sql.js';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';

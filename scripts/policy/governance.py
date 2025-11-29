@@ -595,6 +595,169 @@ class GovernanceMiddleware:
         env["AF_PC_MAX_ITER"] = str(self.max_iterations)
         env["AF_PC_REQUESTED_ITERATIONS"] = str(self.max_iterations)
 
+    def load_governance_state(self) -> Dict[str, Any]:
+        """Load persisted governance state from governance_state.json."""
+        state_file = self.project_root / ".goalie" / "governance_state.json"
+        if state_file.exists():
+            try:
+                with open(state_file, "r") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError):
+                pass
+
+        # Default state
+        return {
+            "depth_ladder": {"base_depth": DEFAULT_DEPTH},
+            "circle_rotation": {"skipped_circles": [], "negative_delta_counts": {}},
+            "iteration_budget": {"max_iterations": DEFAULT_ITERATIONS, "extensions_history": []},
+            "safe_degrade": {"incident_threshold": SAFE_DEGRADE_THRESHOLD_INCIDENTS},
+            "last_updated": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        }
+
+    def save_governance_state(self, state: Dict[str, Any]):
+        """Persist governance state to governance_state.json."""
+        state_file = self.project_root / ".goalie" / "governance_state.json"
+        state["last_updated"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=2)
+
+    def adjust_parameters_from_retro(self):
+        """
+        Self-tune governance parameters based on retro feedback.
+
+        Adjustments:
+        1. Depth Ladder: If circle shows stagnation, reduce depth by 1 (min: 2)
+        2. Circle Rotation: If circle ROAM delta is negative for 3+ iterations, skip in next rotation
+        3. Iteration Budget: If extensions_used > 2 in last 5 runs, increase max_iterations by 10%
+        4. Safe Degrade Threshold: If safe_degrade_error_count > 5, increase incident threshold by 2
+
+        All adjustments are logged to pattern_metrics.jsonl with mutation=true for auditability.
+        """
+        state = self.load_governance_state()
+        adjustments_made = 0
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+        # 1. Depth Ladder adjustment: Check for stagnation
+        pattern_log = self.project_root / ".goalie" / "pattern_metrics.jsonl"
+        stagnation_count = 0
+        if pattern_log.exists():
+            with open(pattern_log, "r") as f:
+                for line in f:
+                    try:
+                        event = json.loads(line.strip())
+                        if event.get("detected_pattern") == "circle-stagnation":
+                            stagnation_count += 1
+                    except json.JSONDecodeError:
+                        continue
+
+        current_depth = state.get("depth_ladder", {}).get("base_depth", DEFAULT_DEPTH)
+        if stagnation_count >= 3 and current_depth > 2:
+            new_depth = current_depth - 1
+            old_depth = current_depth
+            state["depth_ladder"]["base_depth"] = new_depth
+            self.current_depth = new_depth  # Apply immediately
+
+            self.telemetry.log_pattern_event({
+                "run": "governance-tuning",
+                "run_id": self.run_id,
+                "iteration": self.current_iteration,
+                "pattern": "governance-tuning",
+                "mutation": True,
+                "reason": "retro-feedback",
+                "adjustment": "depth-ladder",
+                "old_value": old_depth,
+                "new_value": new_depth,
+                "trigger": f"stagnation_count={stagnation_count}",
+            })
+            adjustments_made += 1
+            print(f"[Governance] Tuning: Reduced depth {old_depth} → {new_depth} (stagnation detected)")
+
+        # 2. Circle Rotation adjustment: Track negative ROAM deltas
+        negative_counts = state.get("circle_rotation", {}).get("negative_delta_counts", {})
+        if self.active_circle and self.circle_risk_roam_delta < 0:
+            negative_counts[self.active_circle] = negative_counts.get(self.active_circle, 0) + 1
+            state["circle_rotation"]["negative_delta_counts"] = negative_counts
+
+            # Skip circle if negative for 3+ iterations
+            if negative_counts.get(self.active_circle, 0) >= 3:
+                skipped = state["circle_rotation"].get("skipped_circles", [])
+                if self.active_circle not in skipped:
+                    skipped.append(self.active_circle)
+                    state["circle_rotation"]["skipped_circles"] = skipped
+
+                    self.telemetry.log_pattern_event({
+                        "run": "governance-tuning",
+                        "run_id": self.run_id,
+                        "iteration": self.current_iteration,
+                        "pattern": "governance-tuning",
+                        "mutation": True,
+                        "reason": "retro-feedback",
+                        "adjustment": "circle-rotation-skip",
+                        "old_value": None,
+                        "new_value": self.active_circle,
+                        "trigger": f"negative_roam_delta_count={negative_counts[self.active_circle]}",
+                    })
+                    adjustments_made += 1
+                    print(f"[Governance] Tuning: Skipping circle '{self.active_circle}' (negative ROAM delta 3+ times)")
+
+        # 3. Iteration Budget adjustment
+        extensions_history = state.get("iteration_budget", {}).get("extensions_history", [])
+        extensions_history.append(self.extensions_used)
+        extensions_history = extensions_history[-5:]  # Keep last 5
+        state["iteration_budget"]["extensions_history"] = extensions_history
+
+        recent_extensions = sum(extensions_history)
+        current_max = state.get("iteration_budget", {}).get("max_iterations", DEFAULT_ITERATIONS)
+        if recent_extensions > 10:  # More than 2 per run average over 5 runs
+            new_max = int(current_max * 1.1)
+            old_max = current_max
+            state["iteration_budget"]["max_iterations"] = new_max
+
+            self.telemetry.log_pattern_event({
+                "run": "governance-tuning",
+                "run_id": self.run_id,
+                "iteration": self.current_iteration,
+                "pattern": "governance-tuning",
+                "mutation": True,
+                "reason": "retro-feedback",
+                "adjustment": "iteration-budget",
+                "old_value": old_max,
+                "new_value": new_max,
+                "trigger": f"recent_extensions_sum={recent_extensions}",
+            })
+            adjustments_made += 1
+            print(f"[Governance] Tuning: Increased iteration budget {old_max} → {new_max} (extensions overused)")
+
+        # 4. Safe Degrade threshold adjustment
+        current_threshold = state.get("safe_degrade", {}).get("incident_threshold", SAFE_DEGRADE_THRESHOLD_INCIDENTS)
+        if self.safe_degrade_error_count >= 5:
+            new_threshold = current_threshold + 2
+            old_threshold = current_threshold
+            state["safe_degrade"]["incident_threshold"] = new_threshold
+
+            self.telemetry.log_pattern_event({
+                "run": "governance-tuning",
+                "run_id": self.run_id,
+                "iteration": self.current_iteration,
+                "pattern": "governance-tuning",
+                "mutation": True,
+                "reason": "retro-feedback",
+                "adjustment": "safe-degrade-threshold",
+                "old_value": old_threshold,
+                "new_value": new_threshold,
+                "trigger": f"safe_degrade_error_count={self.safe_degrade_error_count}",
+            })
+            adjustments_made += 1
+            print(f"[Governance] Tuning: Increased safe-degrade threshold {old_threshold} → {new_threshold}")
+
+        # Save updated state
+        self.save_governance_state(state)
+
+        if adjustments_made > 0:
+            print(f"[Governance] Made {adjustments_made} parameter adjustment(s)")
+
+        return adjustments_made
+
     def run_iris_checks(self) -> None:
         """Invoke IRIS health/evaluate commands after each full-cycle iteration.
 
@@ -910,6 +1073,10 @@ class GovernanceMiddleware:
             # Execute
             self.run_cmd_full_cycle()
             self.run_iris_checks()
+
+            # Self-tune governance parameters based on retro feedback
+            # This implements closed-loop production maturity adjustment
+            self.adjust_parameters_from_retro()
 
             # Increment
             self.current_iteration += 1

@@ -1396,12 +1396,21 @@ cmd_retro_coach_with_metrics() {
     local run_id="${1:-}"
     local cycle_index="${2:-0}"
     local log_file="${3:-$PROJECT_ROOT/.goalie/metrics_log.jsonl}"
+    local iterative_mode="${AF_RETRO_ITERATIVE_MODE:-1}"
+
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local active_circle="${AF_CIRCLE:-${AF_PC_CIRCLE_RISK_FOCUS_TOP_OWNER:-governance}}"
 
     local tmp_json
     tmp_json="$(mktemp)"
 
-    # Run retro_coach in JSON mode
-    if ! cmd_retro_coach --json > "$tmp_json"; then
+    # Run retro_coach in JSON mode with iterative flag
+    local retro_args="--json"
+    if [ "$iterative_mode" = "1" ]; then
+        retro_args+=" --iteration $cycle_index --run-id $run_id"
+    fi
+
+    if ! cmd_retro_coach $retro_args > "$tmp_json"; then
         echo -e "${YELLOW}Retro Coach failed to generate JSON${NC}"
         rm -f "$tmp_json"
         return 1
@@ -1431,6 +1440,24 @@ cmd_retro_coach_with_metrics() {
 
     local error_tags
     error_tags=$(jq -r '.replenishment.error_tags[]? // empty' "$tmp_json" | sed 's/^/--retro-replenishment-error-tag /' | tr '\n' ' ')
+
+    # Extract verified count and unverified high-priority actions for priority replenishment
+    local verified_count
+    verified_count=$(jq -r '.forensicActionAnalysis.verifiedCount // 0' "$tmp_json")
+    local total_actions
+    total_actions=$(jq -r '.forensicActionAnalysis.totalActions // 0' "$tmp_json")
+    local unverified_actions
+    unverified_actions=$(jq -r '.forensicActionAnalysis.unverifiedHighPriorityActions // []' "$tmp_json")
+
+    # Emit iterative RCA event to pattern_metrics.jsonl for per-iteration analysis
+    local pattern_metrics_file="$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    local rca_methods_json=$(jq -c '.methods // []' "$tmp_json")
+    local rca_patterns_json=$(jq -c '.design_patterns // []' "$tmp_json")
+    local rca_prototypes_json=$(jq -c '.event_prototypes // []' "$tmp_json")
+    local rca_whys_json=$(jq -c '.rca_5_whys // []' "$tmp_json")
+
+    local rca_event="{\"ts\":\"$timestamp\",\"run\":\"prod-cycle\",\"run_id\":\"$run_id\",\"iteration\":$cycle_index,\"circle\":\"$active_circle\",\"pattern\":\"iterative-rca\",\"action\":\"analyze\",\"rca\":{\"methods\":$rca_methods_json,\"design_patterns\":$rca_patterns_json,\"event_prototypes\":$rca_prototypes_json,\"rca_5_whys\":$rca_whys_json},\"forensic\":{\"verified_count\":$verified_count,\"total_actions\":$total_actions},\"replenishment\":{\"merged\":$merged,\"refined\":$refined},\"mode\":\"iterative\",\"gate\":\"retro-analysis\"}"
+    echo "$rca_event" >> "$pattern_metrics_file"
 
     # Derive additional RCA hints from latest metrics entry (if present)
     local metrics_line
@@ -1532,8 +1559,122 @@ cmd_governance_executor() {
     rm -f "$tmp_json"
 }
 
+# Priority replenishment based on verified impact deltas
+# Updates CONSOLIDATED_ACTIONS.yaml with priority field based on forensic analysis
+replenish_priorities() {
+    local run_id="${1:-$(date +%s)-$$}"
+    local consolidated_file="$PROJECT_ROOT/.goalie/CONSOLIDATED_ACTIONS.yaml"
+    local pattern_metrics_file="$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+    if [ ! -f "$consolidated_file" ]; then
+        echo -e "${YELLOW}[replenish] CONSOLIDATED_ACTIONS.yaml not found${NC}"
+        return 1
+    fi
 
+    # Get retro coach forensic analysis via TypeScript
+    local tmp_forensic=$(mktemp)
+    if command -v npx &> /dev/null && [ -f "$PROJECT_ROOT/tools/federation/retro_coach.ts" ]; then
+        npx tsx "$PROJECT_ROOT/tools/federation/retro_coach.ts" --json --goalie-dir "$PROJECT_ROOT/.goalie" > "$tmp_forensic" 2>/dev/null || true
+    fi
+
+    # Extract unverified high-priority actions
+    local unverified_json=$(jq -c '.forensicActionAnalysis.unverifiedHighPriorityActions // []' "$tmp_forensic" 2>/dev/null || echo "[]")
+    local verified_count=$(jq -r '.forensicActionAnalysis.verifiedCount // 0' "$tmp_forensic" 2>/dev/null || echo "0")
+    local high_impact=$(jq -r '.forensicActionAnalysis.highImpactActions // 0' "$tmp_forensic" 2>/dev/null || echo "0")
+    local avg_cod_delta=$(jq -r '.forensicActionAnalysis.avgCodDeltaPct // 0' "$tmp_forensic" 2>/dev/null || echo "0")
+
+    echo -e "${BLUE}[replenish] Verified actions: $verified_count, High impact: $high_impact${NC}"
+    echo -e "${BLUE}[replenish] Avg CoD delta: $avg_cod_delta%${NC}"
+
+    # Update priorities in CONSOLIDATED_ACTIONS.yaml using yq if available
+    if command -v yq &> /dev/null; then
+        # Mark high-impact verified actions as critical
+        yq -i '(.items[] | select(.status == "COMPLETE" and .verified == true) | .priority) = "critical"' "$consolidated_file" 2>/dev/null || true
+
+        # Mark unverified high-CoD actions as urgent
+        for action_id in $(echo "$unverified_json" | jq -r '.[].actionId' 2>/dev/null); do
+            yq -i "(.items[] | select(.id == \"$action_id\") | .priority) = \"urgent\"" "$consolidated_file" 2>/dev/null || true
+        done
+
+        # Mark actions with no measurable delta as low priority
+        yq -i '(.items[] | select(.status == "COMPLETE" and .verified == false and .priority == null) | .priority) = "low"' "$consolidated_file" 2>/dev/null || true
+
+        echo -e "${GREEN}[replenish] Updated priorities in CONSOLIDATED_ACTIONS.yaml${NC}"
+    else
+        echo -e "${YELLOW}[replenish] yq not found; skipping YAML updates${NC}"
+    fi
+
+    # Emit replenishment event to pattern_metrics.jsonl
+    local replenish_event="{\"ts\":\"$timestamp\",\"run\":\"replenishment\",\"run_id\":\"$run_id\",\"pattern\":\"priority-replenishment\",\"action\":\"update-priorities\",\"forensic\":{\"verified_count\":$verified_count,\"high_impact\":$high_impact,\"avg_cod_delta_pct\":$avg_cod_delta},\"unverified_high_priority\":$unverified_json,\"mode\":\"advisory\",\"gate\":\"priority-update\"}"
+    echo "$replenish_event" >> "$pattern_metrics_file"
+
+    rm -f "$tmp_forensic"
+}
+
+# Trigger governance parameter adjustment based on retro feedback
+adjust_governance_from_retro() {
+    local run_id="${1:-$(date +%s)-$$}"
+    local iteration="${2:-0}"
+
+    local governance_state_file="$PROJECT_ROOT/.goalie/governance_state.json"
+    local pattern_metrics_file="$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    # Initialize governance state if not exists
+    if [ ! -f "$governance_state_file" ]; then
+        echo '{"depth_ladder":{"base_depth":4},"circle_rotation":{"skipped_circles":[]},"iteration_budget":{"max_iterations":100},"safe_degrade":{"incident_threshold":5},"last_updated":"'"$timestamp"'"}' > "$governance_state_file"
+    fi
+
+    # Read current state
+    local current_depth=$(jq -r '.depth_ladder.base_depth // 4' "$governance_state_file")
+    local skipped_circles=$(jq -r '.circle_rotation.skipped_circles // []' "$governance_state_file")
+    local max_iterations=$(jq -r '.iteration_budget.max_iterations // 100' "$governance_state_file")
+    local incident_threshold=$(jq -r '.safe_degrade.incident_threshold // 5' "$governance_state_file")
+
+    # Get retro metrics for adjustment decisions
+    local roam_delta="${AF_PC_CIRCLE_RISK_FOCUS_ROAM_REDUCTION:-0}"
+    local extensions_used="${AF_PC_CIRCLE_RISK_FOCUS_EXTRA_ITERATIONS:-0}"
+    local safe_degrade_triggers="${AF_PC_SAFE_DEGRADE_TRIGGERS:-0}"
+    local active_circle="${AF_CIRCLE:-governance}"
+
+    local adjustments_made=0
+
+    # Depth Ladder adjustment: reduce depth if stagnation detected
+    local stagnation=$(grep -c '"pattern":"circle-stagnation"' "$pattern_metrics_file" 2>/dev/null || echo "0")
+    if [ "$stagnation" -ge 3 ] && [ "$current_depth" -gt 2 ]; then
+        local new_depth=$((current_depth - 1))
+        jq ".depth_ladder.base_depth = $new_depth" "$governance_state_file" > "$governance_state_file.tmp" && mv "$governance_state_file.tmp" "$governance_state_file"
+
+        # Log adjustment
+        echo "{\"ts\":\"$timestamp\",\"run\":\"governance-tuning\",\"run_id\":\"$run_id\",\"iteration\":$iteration,\"pattern\":\"governance-tuning\",\"mutation\":true,\"reason\":\"retro-feedback\",\"adjustment\":\"depth-ladder\",\"old_value\":$current_depth,\"new_value\":$new_depth,\"trigger\":\"stagnation_count=$stagnation\"}" >> "$pattern_metrics_file"
+        adjustments_made=$((adjustments_made + 1))
+    fi
+
+    # Iteration Budget adjustment: increase if extensions overused
+    local recent_extensions=$(grep '"extensions_used"' "$pattern_metrics_file" 2>/dev/null | tail -5 | jq -s '[.[] | .extensions_used // 0] | add // 0' 2>/dev/null || echo "0")
+    if [ "$recent_extensions" -gt 10 ]; then
+        local new_max=$((max_iterations + max_iterations / 10))
+        jq ".iteration_budget.max_iterations = $new_max" "$governance_state_file" > "$governance_state_file.tmp" && mv "$governance_state_file.tmp" "$governance_state_file"
+
+        echo "{\"ts\":\"$timestamp\",\"run\":\"governance-tuning\",\"run_id\":\"$run_id\",\"iteration\":$iteration,\"pattern\":\"governance-tuning\",\"mutation\":true,\"reason\":\"retro-feedback\",\"adjustment\":\"iteration-budget\",\"old_value\":$max_iterations,\"new_value\":$new_max,\"trigger\":\"recent_extensions=$recent_extensions\"}" >> "$pattern_metrics_file"
+        adjustments_made=$((adjustments_made + 1))
+    fi
+
+    # Safe Degrade threshold adjustment
+    if [ "$safe_degrade_triggers" -ge 5 ]; then
+        local new_threshold=$((incident_threshold + 2))
+        jq ".safe_degrade.incident_threshold = $new_threshold" "$governance_state_file" > "$governance_state_file.tmp" && mv "$governance_state_file.tmp" "$governance_state_file"
+
+        echo "{\"ts\":\"$timestamp\",\"run\":\"governance-tuning\",\"run_id\":\"$run_id\",\"iteration\":$iteration,\"pattern\":\"governance-tuning\",\"mutation\":true,\"reason\":\"retro-feedback\",\"adjustment\":\"safe-degrade-threshold\",\"old_value\":$incident_threshold,\"new_value\":$new_threshold,\"trigger\":\"safe_degrade_triggers=$safe_degrade_triggers\"}" >> "$pattern_metrics_file"
+        adjustments_made=$((adjustments_made + 1))
+    fi
+
+    # Update last_updated timestamp
+    jq ".last_updated = \"$timestamp\"" "$governance_state_file" > "$governance_state_file.tmp" && mv "$governance_state_file.tmp" "$governance_state_file"
+
+    echo -e "${GREEN}[governance-tuning] Made $adjustments_made parameter adjustments${NC}"
+}
 
 # Production maturity cycle (Delegated to Governance Middleware)
 cmd_prod_cycle() {
@@ -1747,11 +1888,69 @@ capture_circle_participation() {
     local patterns_duration="$3"
 
     local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    local event="{\"type\":\"circle_participation\",\"timestamp\":\"$timestamp\",\"iteration\":\"$iteration\",\"circles\":[{\"circle\":\"governance\",\"role\":\"coordinator\",\"participation_level\":100,\"responsibilities\":[\"cycle_orchestration\",\"iris_integration\"]}],\"evaluation_duration_ms\":\"$evaluation_duration\",\"patterns_duration_ms\":\"$patterns_duration\"}"
+    local run_id="${AF_RUN_ID:-$(date +%s)-$$}"
+
+    # Get active circle from environment or default to governance
+    local active_circle="${AF_CIRCLE:-${AF_PC_CIRCLE_RISK_FOCUS_TOP_OWNER:-governance}}"
+    local current_depth="${AF_DEPTH:-${AF_PROD_DEPTH:-4}}"
+
+    # Calculate economic metrics from available state
+    local cod="${AF_PC_COST_OF_DELAY:-0}"
+    local wsjf="${AF_PC_WSJF_SCORE:-0}"
+    local risk_score="${AF_PC_CURRENT_RISK_SCORE:-100}"
+
+    # Get ROAM delta for this circle
+    local roam_delta="${AF_PC_CIRCLE_RISK_FOCUS_ROAM_REDUCTION:-0}"
+
+    # Determine outcome based on failed iris commands
+    local outcome="success"
+    if [ "${AF_LAST_IRIS_FAILED:-0}" = "1" ]; then
+        outcome="failure"
+    elif [ "${AF_LAST_IRIS_PARTIAL:-0}" = "1" ]; then
+        outcome="partial"
+    fi
+
+    # Capture pattern events triggered this iteration
+    local patterns_triggered="${AF_PATTERNS_TRIGGERED:-[]}"
+
+    # Build enhanced circle participation event for metrics_log.jsonl
+    local event="{\"type\":\"circle_participation\",\"timestamp\":\"$timestamp\",\"run_id\":\"$run_id\",\"iteration\":$iteration,\"circle\":\"$active_circle\",\"depth\":$current_depth,\"economic\":{\"cod\":$cod,\"wsjf_score\":$wsjf,\"risk_score\":$risk_score},\"roam_delta\":$roam_delta,\"outcome\":\"$outcome\",\"evaluation_duration_ms\":$evaluation_duration,\"patterns_duration_ms\":$patterns_duration,\"circles\":[{\"circle\":\"$active_circle\",\"role\":\"coordinator\",\"participation_level\":100,\"responsibilities\":[\"cycle_orchestration\",\"iris_integration\"]}]}"
 
     local metrics_file="$PROJECT_ROOT/.goalie/metrics_log.jsonl"
     mkdir -p "$(dirname "$metrics_file")"
     echo "$event" >> "$metrics_file"
+
+    # Emit structured pattern event to pattern_metrics.jsonl with full economic context
+    local pattern_metrics_file="$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    local pattern_event="{\"ts\":\"$timestamp\",\"run\":\"prod-cycle\",\"run_id\":\"$run_id\",\"iteration\":$iteration,\"circle\":\"$active_circle\",\"depth\":$current_depth,\"pattern\":\"circle-participation\",\"economic\":{\"cod\":$cod,\"wsjf_score\":$wsjf,\"risk_score\":$risk_score},\"roam_delta\":$roam_delta,\"action\":\"capture-participation\",\"outcome\":\"$outcome\",\"mode\":\"advisory\",\"gate\":\"observability\"}"
+    echo "$pattern_event" >> "$pattern_metrics_file"
+}
+
+# Emit circle output with full economic context to pattern_metrics.jsonl
+emit_circle_output() {
+    local iteration="$1"
+    local circle="$2"
+    local pattern="$3"
+    local action="$4"
+    local outcome="${5:-success}"
+    local extra_json="${6:-}"
+
+    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local run_id="${AF_RUN_ID:-$(date +%s)-$$}"
+    local depth="${AF_DEPTH:-${AF_PROD_DEPTH:-4}}"
+
+    # Economic metrics
+    local cod="${AF_PC_COST_OF_DELAY:-0}"
+    local wsjf="${AF_PC_WSJF_SCORE:-0}"
+    local risk_score="${AF_PC_CURRENT_RISK_SCORE:-100}"
+    local roam_delta="${AF_PC_CIRCLE_RISK_FOCUS_ROAM_REDUCTION:-0}"
+
+    # Build pattern event with linkable run_id
+    local pattern_event="{\"ts\":\"$timestamp\",\"run\":\"prod-cycle\",\"run_id\":\"$run_id\",\"iteration\":$iteration,\"circle\":\"$circle\",\"depth\":$depth,\"pattern\":\"$pattern\",\"economic\":{\"cod\":$cod,\"wsjf_score\":$wsjf,\"risk_score\":$risk_score},\"roam_delta\":$roam_delta,\"action\":\"$action\",\"outcome\":\"$outcome\",\"mode\":\"advisory\",\"gate\":\"circle-output\"$( [ -n "$extra_json" ] && echo ",$extra_json" )}"
+
+    local pattern_metrics_file="$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    mkdir -p "$(dirname "$pattern_metrics_file")"
+    echo "$pattern_event" >> "$pattern_metrics_file"
 }
 
 track_action_dependencies() {

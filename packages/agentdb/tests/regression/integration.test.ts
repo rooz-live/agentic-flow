@@ -3,7 +3,7 @@
  * Tests full workflows, persistence, and error handling
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createDatabase } from '../../src/db-fallback.js';

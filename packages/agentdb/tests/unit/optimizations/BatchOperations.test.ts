@@ -4,7 +4,7 @@
  * Tests bulk insert, batch processing, and database optimization
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import Database from 'better-sqlite3';
 import { BatchOperations } from '../../../src/optimizations/BatchOperations.js';
 import { EmbeddingService } from '../../../src/controllers/EmbeddingService.js';
@@ -295,7 +295,7 @@ describe('BatchOperations', () => {
       expect(stats).toHaveProperty('totalSize');
       expect(stats).toHaveProperty('tableStats');
       expect(stats.totalSize).toBeGreaterThan(0);
-      expect(stats.tableStats).toBeInstanceOf(Array);
+      expect(Array.isArray(stats.tableStats)).toBe(true);
     });
 
     it('should include table row counts', () => {

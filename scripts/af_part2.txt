@@ -1,0 +1,720 @@
+    cat <<EOF
+${BLUE}af - Agentic Flow Unified Command Interface${NC}
+
+${GREEN}Status & Analysis:${NC}
+  af status              Show comprehensive system status
+  af metrics             Display metrics dashboard
+  af analyze             Run doc_query analysis
+
+${GREEN}Feedback Loop:${NC}
+  af insight <text>      Capture retro insight
+  af action <title>      Create tracked action item
+  af quick-wins          Show Quick Wins progress
+  af wsjf                Calculate WSJF priorities
+
+${GREEN}Environment:${NC}
+  af snapshot [name]     Create environment snapshot
+  af restore [name]      Restore environment snapshot
+  af baseline            Capture baseline metrics
+
+${GREEN}Validation:${NC}
+  af validate            Run governor validation
+  af test                Run concurrent tests
+  af governor            Check governor stats
+  af governor-health     Validate governor + process tree + BML health
+
+${GREEN}Learning:${NC}
+  af hooks               Check hook discoverability
+  af events              Show recent learning events
+  af beam                Show BEAM dimensions
+
+${GREEN}Build-Measure-Learn:${NC}
+  af cycle               Show current BML cycle status
+  af commit              Create BML cycle commit
+  af feedback            Analyze feedback loops
+  af action              Create retro action item
+  af suggest-team        Suggest circle teams for NOW items (read-only)
+  af suggest-actions     Suggest actions from recent insights (read-only)
+  af full-cycle [n]      Run n full BML + health passes (default 1)
+
+${GREEN}Context Reduction:${NC}
+  af board               Show Kanban board (NOW/NEXT/LATER)
+  af blockers            List active blockers
+  af cpu                 Check CPU and governor health
+
+Examples:
+  af status                    # Quick health check
+  af insight "Reduce CPU load" # Capture retro insight
+  af action "Fix IPMI"         # Create tracked action
+  af snapshot baseline         # Save current state
+  af board                     # Show work in progress
+
+EOF
+}
+
+# Status command - comprehensive health check
+cmd_status() {
+    echo -e "${BLUE}=== Agentic Flow Status ===${NC}\n"
+
+    # Git status
+    echo -e "${GREEN}Git:${NC}"
+    git --no-pager log --oneline -1
+    echo ""
+
+    # AgentDB status
+    echo -e "${GREEN}AgentDB:${NC}"
+    if [ -f "$PROJECT_ROOT/.agentdb/agentdb.sqlite" ]; then
+        echo "  Tables: $(sqlite3 "$PROJECT_ROOT/.agentdb/agentdb.sqlite" "SELECT COUNT(*) FROM sqlite_master WHERE type='table';")"
+        echo "  execution_contexts: $(sqlite3 "$PROJECT_ROOT/.agentdb/agentdb.sqlite" "SELECT COUNT(*) FROM execution_contexts;" 2>/dev/null || echo "0")"
+        echo "  beam_dimensions: $(sqlite3 "$PROJECT_ROOT/.agentdb/agentdb.sqlite" "SELECT COUNT(*) FROM beam_dimensions;" 2>/dev/null || echo "0")"
+    else
+        echo "  ❌ AgentDB not found"
+    fi
+    echo ""
+
+    # Goalie status
+    echo -e "${GREEN}Goalie Tracking:${NC}"
+    if [ -f "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" ]; then
+        local now_count=$(grep -A 20 "NOW:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep "- id:" | wc -l | tr -d ' ')
+        local next_count=$(grep -A 20 "NEXT:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep "- id:" | wc -l | tr -d ' ')
+        local done_count=$(grep -A 100 "DONE:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep "- id:" | wc -l | tr -d ' ')
+        echo "  NOW: $now_count | NEXT: $next_count | DONE: $done_count"
+    fi
+    echo ""
+
+    # CPU & Governor
+    echo -e "${GREEN}System Health:${NC}"
+    local load=$(uptime | awk -F'load averages:' '{print $2}' | awk '{print $1}')
+    echo "  Load: $load"
+    if [ -f "$PROJECT_ROOT/logs/governor_incidents.jsonl" ]; then
+        local incidents=$(wc -l < "$PROJECT_ROOT/logs/governor_incidents.jsonl" | tr -d ' ')
+        echo "  Governor incidents: $incidents"
+    fi
+    echo ""
+
+    # Snapshots
+    echo -e "${GREEN}Snapshots:${NC}"
+    if [ -d "$PROJECT_ROOT/.snapshots" ]; then
+        ls -1 "$PROJECT_ROOT/.snapshots" | head -5
+    else
+        echo "  (no snapshots)"
+    fi
+}
+
+# Metrics dashboard
+cmd_metrics() {
+    if [ -f "$PROJECT_ROOT/.goalie/metrics_dashboard.md" ]; then
+        cat "$PROJECT_ROOT/.goalie/metrics_dashboard.md"
+    else
+        echo -e "${YELLOW}Metrics dashboard not found. Run: $SCRIPT_DIR/baseline-metrics.sh${NC}"
+    fi
+}
+
+# Doc query analysis
+cmd_analyze() {
+    local query="${1:-BLOCKER|retro|Quick Win}"
+    python3 "$SCRIPT_DIR/doc_query.py" "$query"
+}
+
+# Capture insight
+cmd_insight() {
+    local text="$*"
+    if [ -z "$text" ]; then
+        echo "Usage: af insight <text>"
+        exit 1
+    fi
+
+    local timestamp=$(date -u +%Y%m%d_%H%M%S)
+    echo "{\"timestamp\": \"$timestamp\", \"type\": \"retro_insight\", \"text\": \"$text\"}" | \
+        tee -a "$PROJECT_ROOT/.goalie/insights_log.jsonl"
+    echo -e "${GREEN}✓ Insight captured${NC}"
+}
+
+# Create action item
+cmd_action() {
+    local title="$*"
+    if [ -z "$title" ]; then
+        echo "Usage: af action <title>"
+        exit 1
+    fi
+
+    if [ -f "$SCRIPT_DIR/create_action_item.sh" ]; then
+        bash "$SCRIPT_DIR/create_action_item.sh" "$title"
+    else
+        echo -e "${YELLOW}create_action_item.sh not found${NC}"
+        # Fallback: append to CONSOLIDATED_ACTIONS.yaml
+        echo "  - title: \"$title\"" >> "$PROJECT_ROOT/.goalie/CONSOLIDATED_ACTIONS.yaml"
+        echo -e "${GREEN}✓ Action added to CONSOLIDATED_ACTIONS.yaml${NC}"
+    fi
+}
+
+# Suggest circle teams for NOW items (read-only)
+cmd_suggest_team() {
+    echo -e "${BLUE}=== Suggested Circle Teams (NOW lane) ===${NC}\n"
+    if [ -f "$SCRIPT_DIR/agentic/suggest_team.py" ]; then
+        python3 "$SCRIPT_DIR/agentic/suggest_team.py" || \
+            echo -e "${YELLOW}suggest_team.py failed${NC}"
+    else
+        echo -e "${YELLOW}suggest_team.py not found${NC}"
+    fi
+}
+
+# Suggest actions from recent insights (read-only)
+cmd_suggest_actions() {
+    echo -e "${BLUE}=== Suggested Actions from Recent Insights ===${NC}\n"
+    if [ -f "$SCRIPT_DIR/agentic/suggest_actions.py" ]; then
+        python3 "$SCRIPT_DIR/agentic/suggest_actions.py" || \
+            echo -e "${YELLOW}suggest_actions.py failed${NC}"
+    else
+        echo -e "${YELLOW}suggest_actions.py not found${NC}"
+    fi
+}
+
+# Quick wins progress
+cmd_quick_wins() {
+    if [ -f "$SCRIPT_DIR/show_quick_wins_progress.sh" ]; then
+        bash "$SCRIPT_DIR/show_quick_wins_progress.sh"
+    else
+        echo -e "${YELLOW}show_quick_wins_progress.sh not found${NC}"
+        if [ -f "$PROJECT_ROOT/docs/QUICK_WINS.md" ]; then
+            grep -E "^\- \[.\]" "$PROJECT_ROOT/docs/QUICK_WINS.md" | head -20
+        fi
+    fi
+}
+
+# WSJF calculation
+cmd_wsjf() {
+    if command -v npx &> /dev/null; then
+        cd "$PROJECT_ROOT" && npx goalie@latest recalc-wsjf 2>&1 || echo -e "${YELLOW}goalie not available${NC}"
+    else
+        echo -e "${YELLOW}npx not found${NC}"
+    fi
+}
+
+# Environment snapshot
+cmd_snapshot() {
+    local name="${1:-baseline}"
+    bash "$SCRIPT_DIR/restore-environment.sh" --snapshot "$name"
+}
+
+# Environment restore
+cmd_restore() {
+    local name="${1:-baseline}"
+    bash "$SCRIPT_DIR/restore-environment.sh" --snapshot "$name"
+}
+
+# Baseline metrics
+cmd_baseline() {
+    bash "$SCRIPT_DIR/baseline-metrics.sh" "$@"
+}
+
+# Governor validation
+cmd_validate() {
+    bash "$SCRIPT_DIR/validate-governor-integration.sh" "$@"
+}
+
+# Run tests
+cmd_test() {
+    if [ -f "$SCRIPT_DIR/run-concurrent-tests.sh" ]; then
+        bash "$SCRIPT_DIR/run-concurrent-tests.sh"
+    else
+        cd "$PROJECT_ROOT" && npm test
+    fi
+}
+
+# Governor stats
+cmd_governor() {
+    echo -e "${BLUE}=== Governor Stats ===${NC}\n"
+    if [ -f "$PROJECT_ROOT/logs/governor_incidents.jsonl" ]; then
+        local total=$(wc -l < "$PROJECT_ROOT/logs/governor_incidents.jsonl" | tr -d ' ')
+        local recent=$(tail -10 "$PROJECT_ROOT/logs/governor_incidents.jsonl")
+        echo "Total incidents: $total"
+        echo ""
+        echo "Recent (last 10):"
+        echo "$recent" | jq -r '"\(.timestamp) - \(.reason)"' 2>/dev/null || echo "$recent"
+    else
+        echo "No incidents logged"
+    fi
+}
+
+# Check hooks
+cmd_hooks() {
+    echo -e "${BLUE}=== Hook Discoverability ===${NC}\n"
+    if [ -d "$PROJECT_ROOT/.agentdb/hooks" ]; then
+        find "$PROJECT_ROOT/.agentdb/hooks" -type f
+    else
+        echo -e "${YELLOW}.agentdb/hooks not found${NC}"
+    fi
+}
+
+# Learning events
+cmd_events() {
+    local count="${1:-20}"
+    echo -e "${BLUE}=== Recent Learning Events ===${NC}\n"
+    if [ -f "$PROJECT_ROOT/logs/learning/events.jsonl" ]; then
+        tail -n "$count" "$PROJECT_ROOT/logs/learning/events.jsonl" | jq -r '"\(.timestamp) - \(.event)"' 2>/dev/null
+    else
+        echo -e "${YELLOW}logs/learning/events.jsonl not found${NC}"
+    fi
+}
+
+# BEAM dimensions
+cmd_beam() {
+    echo -e "${BLUE}=== BEAM Dimensions ===${NC}\n"
+    if [ -f "$PROJECT_ROOT/.agentdb/agentdb.sqlite" ]; then
+        sqlite3 "$PROJECT_ROOT/.agentdb/agentdb.sqlite" \
+            "SELECT * FROM beam_dimensions LIMIT 10;" 2>/dev/null || \
+            echo "No BEAM dimensions found"
+    else
+        echo -e "${YELLOW}AgentDB not found${NC}"
+    fi
+}
+
+# BML cycle status
+cmd_cycle() {
+    echo -e "${BLUE}=== Build-Measure-Learn Cycle ===${NC}\n"
+    if [ -f "$PROJECT_ROOT/.goalie/cycle_log.jsonl" ]; then
+        tail -5 "$PROJECT_ROOT/.goalie/cycle_log.jsonl" | jq -r 'select(.type == "BML-CYCLE") | "\(.id) - \(.status)"' 2>/dev/null
+    else
+        echo "No cycle log found"
+    fi
+}
+
+# BML commit
+cmd_commit() {
+    local msg="${*:-BML cycle $(date +%Y%m%d_%H%M%S)}"
+    cd "$PROJECT_ROOT"
+    git add .goalie/ .agentdb/ logs/ metrics/ 2>/dev/null || true
+    git commit -m "$msg" || echo -e "${YELLOW}Nothing to commit${NC}"
+}
+
+# Feedback analysis
+cmd_feedback() {
+    if [ -f "$SCRIPT_DIR/feedback-loop-analyzer.sh" ]; then
+        bash "$SCRIPT_DIR/feedback-loop-analyzer.sh"
+    else
+        echo -e "${YELLOW}feedback-loop-analyzer.sh not found${NC}"
+    fi
+}
+
+# Full BML + health cycle
+cmd_full_cycle() {
+    local iterations="${1:-1}"
+
+    case "$iterations" in
+        ''|*[!0-9]*)
+            echo -e "${YELLOW}Invalid iteration count: $iterations (must be positive integer)${NC}"
+            return 1
+            ;;
+    esac
+
+    if [ "$iterations" -le 0 ]; then
+        echo -e "${YELLOW}Iteration count must be > 0${NC}"
+        return 1
+    fi
+
+    local i
+    for i in $(seq 1 "$iterations"); do
+        echo -e "${BLUE}=== Full BML + Health Cycle $i/$iterations ===${NC}\n"
+
+        cmd_status
+        echo ""
+        cmd_board
+        echo ""
+        cmd_suggest_team
+        echo ""
+        cmd_metrics
+        echo ""
+        cmd_cycle
+        echo ""
+        cmd_governor_health
+        echo ""
+
+        if [ -f "$SCRIPT_DIR/doc_query.py" ]; then
+            echo -e "${BLUE}=== Circle Roles Snapshot (doc_query) ===${NC}\n"
+            python3 "$SCRIPT_DIR/doc_query.py" "Analyst|Assessor|Innovator|Intuitive|Seeker" --max-depth 6 || \
+                echo -e "${YELLOW}doc_query.py failed${NC}"
+        fi
+
+        cmd_suggest_actions
+        echo ""
+
+        # Optional autocommit path behind test-first guardrails
+        local do_autocommit="${AF_FULL_CYCLE_AUTOCOMMIT:-0}"
+        if [ "$do_autocommit" = "1" ]; then
+            echo -e "${BLUE}=== Autocommit Guardrails (iteration $i) ===${NC}\n"
+
+            # Test-first guardrail (can be disabled with AF_FULL_CYCLE_TEST_FIRST=0)
+            local run_tests="${AF_FULL_CYCLE_TEST_FIRST:-1}"
+            if [ "$run_tests" = "1" ]; then
+                echo -e "${BLUE}Running tests via af test...${NC}\n"
+                cmd_test
+                local test_status=$?
+                if [ "$test_status" -ne 0 ]; then
+                    echo -e "${RED}Tests failed (status=$test_status); skipping autocommit for this iteration.${NC}"
+                    METRIC_SAFE_DEGRADE_TRIGGERS=$((METRIC_SAFE_DEGRADE_TRIGGERS + 1))
+                    continue
+                fi
+
+                echo -e "${BLUE}Running governor validation via af validate...${NC}\n"
+                cmd_validate
+                local validate_status=$?
+                if [ "$validate_status" -ne 0 ]; then
+                    echo -e "${RED}Governor validation failed (status=$validate_status); skipping autocommit for this iteration.${NC}"
+                    METRIC_SAFE_DEGRADE_TRIGGERS=$((METRIC_SAFE_DEGRADE_TRIGGERS + 1))
+                    continue
+                fi
+            fi
+
+            # Only autocommit if there are changes, and warn if there are unsafe ones
+            cd "$PROJECT_ROOT"
+            local changed
+            changed=$(git status --porcelain 2>/dev/null || true)
+            METRIC_AUTOCOMMIT_CANDIDATES=$(echo "$changed" | grep -v "^$" | wc -l | tr -d ' ')
+            if [ -z "$changed" ]; then
+                echo -e "${YELLOW}No changes detected; nothing to autocommit.${NC}"
+            else
+                local unsafe
+                unsafe=$(echo "$changed" | awk '{print $2}' | grep -Ev '^(\.goalie/|\.agentdb/|logs/|metrics/)' || true)
+
+                if [ -n "$unsafe" ]; then
+                    echo -e "${YELLOW}Unsafe changes detected outside [.goalie, .agentdb, logs, metrics]; autocommit will include only safe paths via cmd_commit.${NC}"
+                    echo "$unsafe" | sed 's/^/  - /'
+                fi
+
+                echo -e "${GREEN}Creating BML full-cycle auto-commit for safe paths (.goalie, .agentdb, logs, metrics).${NC}"
+                cmd_commit "BML full-cycle auto-commit (iteration $i of $iterations)"
+
+                # Optional code-level autocommit under additional guardrails and policy
+                local allow_code="${AF_ALLOW_CODE_AUTOCOMMIT:-0}"
+                if [ "$allow_code" = "1" ] && [ -f "$PROJECT_ROOT/.goalie/autocommit_policy.yaml" ]; then
+                    echo -e "${BLUE}Evaluating code-level autocommit via code_guardrails...${NC}\n"
+
+                    local changed_paths
+                    changed_paths=$(echo "$changed" | awk '{print $2}')
+
+                    local safe_code_files
+                    safe_code_files=$(printf '%s\n' "$changed_paths" | \
+                        python3 "$SCRIPT_DIR/agentic/code_guardrails.py" --filter-code 2>/dev/null || true)
+
+                    if [ -n "$safe_code_files" ]; then
+                        echo -e "${GREEN}Staging code files approved by guardrails:${NC}"
+                        echo "$safe_code_files" | sed 's/^/  - /'
+
+                        while IFS= read -r f; do
+                            [ -n "$f" ] && git add "$f"
+                        done <<< "$safe_code_files"
+
+                        git commit -m "BML full-cycle code auto-commit (iteration $i of $iterations)" || \
+                            echo -e "${YELLOW}No code changes to commit (code-level).${NC}"
+                    else
+                        echo -e "${YELLOW}No eligible code files for auto-commit after guardrails.${NC}"
+                    fi
+                fi
+            fi
+        fi
+
+        if [ "$i" -lt "$iterations" ]; then
+            echo -e "\n${GREEN}--- End of iteration $i ---${NC}\n"
+        fi
+    done
+}
+
+# Kanban board
+cmd_board() {
+    if [ -f "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" ]; then
+        cat "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep -A 50 "NOW:" | head -60
+    else
+        echo -e "${YELLOW}KANBAN_BOARD.yaml not found${NC}"
+    fi
+}
+
+# Active blockers
+cmd_blockers() {
+    python3 "$SCRIPT_DIR/doc_query.py" "BLOCKER-[0-9]+" | head -50
+}
+
+# CPU check
+cmd_cpu() {
+    echo -e "${BLUE}=== CPU & Governor Health ===${NC}\n"
+    uptime
+    echo ""
+    if [ -f "$PROJECT_ROOT/logs/governor_incidents.jsonl" ]; then
+        echo "Governor incidents (last 24h): $(find "$PROJECT_ROOT/logs/governor_incidents.jsonl" -mtime -1 -exec wc -l {} \; 2>/dev/null || echo "0")"
+    fi
+}
+
+# Governor validation + health suite
+cmd_governor_health() {
+    echo -e "${BLUE}=== Governor Validation & Health Suite ===${NC}\n"
+
+    # 1) Run governor validation
+    if [ -f "$SCRIPT_DIR/validate-governor-integration.sh" ]; then
+        bash "$SCRIPT_DIR/validate-governor-integration.sh" "$@"
+    else
+        echo -e "${YELLOW}validate-governor-integration.sh not found${NC}"
+    fi
+
+    echo ""
+
+    # 2) Capture a single process tree snapshot
+    if [ -f "$SCRIPT_DIR/monitoring/process_tree_watch.js" ]; then
+        echo -e "${GREEN}Process tree snapshot (process_tree_watch --once):${NC}"
+        node "$SCRIPT_DIR/monitoring/process_tree_watch.js" --once || \
+            echo -e "${YELLOW}process_tree_watch.js failed${NC}"
+    fi
+
+    echo ""
+
+    # 3) Run BML health check
+    if [ -f "$SCRIPT_DIR/agentic/health_check.py" ]; then
+        echo -e "${GREEN}BML health check:${NC}"
+        python3 "$SCRIPT_DIR/agentic/health_check.py" || \
+            echo -e "${YELLOW}health_check.py failed${NC}"
+    else
+        echo -e "${YELLOW}health_check.py not found${NC}"
+    fi
+}
+# Governance federation helpers (Retro Coach + Governance Agent)
+cmd_retro_coach() {
+    cd "$PROJECT_ROOT"
+    if command -v npx &> /dev/null; then
+        npx tsx tools/federation/retro_coach.ts --goalie-dir "$PROJECT_ROOT/.goalie" "$@"
+    else
+        echo -e "${YELLOW}npx not found; cannot run retro_coach.ts${NC}"
+        return 1
+    fi
+}
+
+cmd_governance_agent() {
+    cd "$PROJECT_ROOT"
+    if command -v npx &> /dev/null; then
+        npx tsx tools/federation/governance_agent.ts --goalie-dir "$PROJECT_ROOT/.goalie" "$@"
+    else
+        echo -e "${YELLOW}npx not found; cannot run governance_agent.ts${NC}"
+        return 1
+    fi
+}
+
+
+
+
+# Production maturity cycle (Relentless Execution: Insight -> Action -> Commit)
+# Integrated with Dynamic Autocommit Policy & Smart Defaults
+cmd_prod_cycle() {
+    # 1. Smart Defaults (Max Config)
+    local iterations="${1:-12}"  # Default 12 if not provided
+    local depth=3                # Default 3 (DevOps safe) if not overridden
+    local circle=""
+    local rotate_circles=1       # Default rotation on
+    local flag_autocommit=1      # Default autocommit on
+
+    # 2. Parse Overrides
+    # Check if first arg is a number (iterations)
+    if [[ "$iterations" =~ ^[0-9]+$ ]]; then
+        shift 2>/dev/null || true
+    else
+        iterations=12 # Reset if first arg wasn't number
+    fi
+
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --depth) shift; depth="${1:-3}" ;;
+            --circle) shift; circle="${1:-}"; rotate_circles=0 ;; # Specific circle disables rotation
+            --rotate-circles) rotate_circles=1 ;;
+            --autocommit) flag_autocommit=1 ;;
+            --no-autocommit) flag_autocommit=0 ;;
+            --no-test-first) export AF_FULL_CYCLE_TEST_FIRST=0 ;;
+            --no-deploy) ;; # No-op, just flag
+            --) shift; break ;;
+            -*) echo -e "${YELLOW}Unknown prod-cycle option: $1${NC}" ;;
+            *) ;;
+        esac
+        shift
+    done
+
+    # 3. Dynamic Health Policy (System Load & Risk)
+    # Check System Load
+    local incidents_log="$PROJECT_ROOT/logs/governor_incidents.jsonl"
+    local recent_load_incidents=0
+    if [ -f "$incidents_log" ]; then
+        recent_load_incidents=$(grep "system_overload" "$incidents_log" | tail -n 10 | wc -l | tr -d " ")
+    fi
+
+    # Check Risk Score
+    local metrics_log="$PROJECT_ROOT/.goalie/metrics_log.jsonl"
+    local current_risk_score=0
+    if [ -f "$metrics_log" ]; then
+        # Extract last valid score, default to 0 if missing/null
+        current_risk_score=$(tail -n 10 "$metrics_log" | grep "average_score" | tail -n 1 | sed -E "s/.*\"average_score\":([0-9]+).*/\1/" || echo 0)
+    fi
+
+    # Enforce Policy
+    if [ "$recent_load_incidents" -gt 5 ]; then
+        echo -e "${RED}⚠️  High System Load ($recent_load_incidents incidents). Disabling Code Autocommit.${NC}"
+        export AF_ALLOW_CODE_AUTOCOMMIT=0
+    elif [ "$current_risk_score" -gt 0 ] && [ "$current_risk_score" -lt 50 ]; then
+        echo -e "${RED}⚠️  High Risk Score ($current_risk_score < 50). Disabling Code Autocommit.${NC}"
+        export AF_ALLOW_CODE_AUTOCOMMIT=0
+    else
+        echo -e "${GREEN}✅ System Healthy (Load OK, Risk $current_risk_score). Code Autocommit Allowed.${NC}"
+        export AF_ALLOW_CODE_AUTOCOMMIT=1
+    fi
+
+    export AF_FULL_CYCLE_AUTOCOMMIT="$flag_autocommit"
+    export AF_RUN_KIND="prod-cycle"
+
+    # 4. Execution Loop with Dynamic Extension
+    echo -e "${BLUE}=== Relentless Execution Cycle (Smart Defaults) ===${NC}"
+    echo "  Iterations: $iterations (Adaptive)"
+    echo "  Rotation: $( [ "$rotate_circles" = "1" ] && echo "Enabled" || echo "Fixed: $circle" )"
+    echo "  Depth: $depth"
+    echo ""
+
+    local circles=("analyst" "assessor" "innovator" "intuitive" "orchestrator" "seeker")
+    local current_iter=1
+    local max_iter="$iterations"
+    local extensions=0
+    local max_extensions=3
+
+    while [ "$current_iter" -le "$max_iter" ]; do
+        local i="$current_iter"
+
+        local this_circle="$circle"
+        if [ "$rotate_circles" -eq 1 ]; then
+            local idx=$(( (i - 1) % ${#circles[@]} ))
+            this_circle="${circles[$idx]}"
+        fi
+
+        export AF_RUN_ITERATION="$i"
+        export AF_CIRCLE="$this_circle"
+        export AF_DEPTH_LEVEL="$depth"
+
+        # Reset Iteration Metrics
+        METRIC_SAFE_DEGRADE_TRIGGERS=0
+        METRIC_AUTOCOMMIT_CANDIDATES=0
+        METRIC_AUTOCOMMIT_CYCLES=0
+
+        echo -e "${BLUE}>>> Iteration $i/$max_iter (Circle: $this_circle) <<<${NC}"
+
+        # Telemetry Hook for Pattern Metrics
+        if [ "${AF_ENABLE_PATTERN_TELEMETRY:-1}" == "1" ]; then
+             log_pattern_event "depth-ladder" "${AF_PROD_CYCLE_MODE:-advisory}" "health" "depth=${depth}" "iteration_start"
+             log_pattern_event "circle-risk-focus" "${AF_PROD_CYCLE_MODE:-advisory}" "focus" "circle=${this_circle}" "iteration_start"
+        fi
+
+        # Invoke full-cycle logic
+        cmd_full_cycle 1
+
+        # Emit Structured Metrics
+        local budget_consumed="$i"
+        local budget_remaining=$((max_iter - i))
+        local governor_status="green" # Default, could be refined by parsing governor output
+        
+        python3 "$SCRIPT_DIR/emit_metrics.py" \
+            --cycle-index "$i" \
+            --depth "$depth" \
+            --circle "$this_circle" \
+            --safe-degrade-triggers "$METRIC_SAFE_DEGRADE_TRIGGERS" \
+            --autocommit-candidates "$METRIC_AUTOCOMMIT_CANDIDATES" \
+            --autocommit-cycles "$METRIC_AUTOCOMMIT_CYCLES" \
+            --budget-remaining "$budget_remaining" \
+            --budget-consumed "$budget_consumed" \
+            --governor-status "$governor_status" \
+            --log-file "$PROJECT_ROOT/.goalie/metrics_log.jsonl"
+
+        # Dynamic Extension Logic
+        if [ "${AF_ALLOW_CODE_AUTOCOMMIT:-1}" == "0" ] && [ "$extensions" -lt "$max_extensions" ]; then
+             echo -e "${YELLOW}Autocommit disabled due to load/risk. Extending prod-cycle by 1 iteration to ensure completion.${NC}"
+             max_iter=$((max_iter + 1))
+             extensions=$((extensions + 1))
+        fi
+
+        current_iter=$((current_iter + 1))
+    done
+
+    echo -e "${BLUE}=== Relentless Execution Cycle Complete (Total: $((current_iter - 1))) ===${NC}"
+}
+
+# Dynamic Policy Hook
+if [ -f "$SCRIPT_DIR/policy/dynamic_autocommit.sh" ] && [ "$1" == "prod-cycle" ]; then
+    # Sourcing logic moved to wrapper, but leaving hook for future integration
+    :
+fi
+
+# Main dispatch
+case "${1:-help}" in
+    status) cmd_status ;;
+    metrics) cmd_metrics ;;
+    analyze) shift; cmd_analyze "$@" ;;
+    insight) shift; cmd_insight "$@" ;;
+    action) shift; cmd_action "$@" ;;
+    suggest-team) shift; cmd_suggest_team "$@" ;;
+    suggest-actions) shift; cmd_suggest_actions "$@" ;;
+    quick-wins) cmd_quick_wins ;;
+    wsjf) cmd_wsjf ;;
+    snapshot) shift; cmd_snapshot "$@" ;;
+    restore) shift; cmd_restore "$@" ;;
+    baseline) shift; cmd_baseline "$@" ;;
+    validate) shift; cmd_validate "$@" ;;
+    test) cmd_test ;;
+    governor) cmd_governor ;;
+    governor-health) shift; cmd_governor_health "$@" ;;
+    hooks) cmd_hooks ;;
+    events) shift; cmd_events "$@" ;;
+    beam) cmd_beam ;;
+    full-cycle) shift; cmd_full_cycle "${1:-1}" ;;
+    prod-cycle) shift; cmd_prod_cycle "$@" ;;
+    cycle) cmd_cycle ;;
+    commit) shift; cmd_commit "$@" ;;
+    feedback) cmd_feedback ;;
+    board) cmd_board ;;
+    blockers) cmd_blockers ;;
+    cpu) cmd_cpu ;;
+    goalie-gaps) shift; cmd_goalie_gaps "$@" ;;
+    sample-workloads) shift; cmd_sample_workloads "$@" ;;
+    retro-coach) shift; cmd_retro_coach "$@" ;;
+    governance-agent) shift; cmd_governance_agent "$@" ;;
+    help|--help|-h) show_help ;;
+    *)
+        echo -e "${RED}Unknown command: $1${NC}"
+        echo "Run 'af help' for usage"
+        exit 1
+        ;;
+esac
+
+# Pattern metrics logging helper
+log_pattern_event() {
+    local pattern="$1"
+    local mode="$2"
+    local gate="$3"
+    local reason="$4"
+    local action="$5"
+
+    local ts
+    ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+    local run_kind="${AF_RUN_KIND:-unknown}"
+    local iteration="${AF_RUN_ITERATION:-0}"
+    local circle="${AF_CIRCLE:-unknown}"
+    local depth="${AF_DEPTH_LEVEL:-0}"
+    local framework="${AF_FRAMEWORK:-}"
+    local scheduler="${AF_SCHEDULER:-}"
+    local mutation="false"
+    if [[ "$mode" == *"mutate"* ]] || [[ "$mode" == *"enforce"* ]] || [[ "$mode" == *"blocking"* ]]; then
+        mutation="true"
+    fi
+
+    # Ensure .goalie directory exists
+    mkdir -p "$PROJECT_ROOT/.goalie"
+
+    printf "{\"ts\":\"%s\",\"run\":\"%s\",\"iteration\":%s," \
+        "$ts" "$run_kind" "$iteration" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    printf "\"circle\":\"%s\",\"depth\":%s," \
+        "$circle" "$depth" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    printf "\"pattern\":\"%s\",\"mode\":\"%s\",\"mutation\":%s,\"gate\":\"%s\"," \
+        "$pattern" "$mode" "$mutation" "$gate" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    printf "\"framework\":\"%s\",\"scheduler\":\"%s\",\"reason\":\"%s\",\"action\":\"%s\"}\n" \
+        "$framework" "$scheduler" "$reason" "$action" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+}
+

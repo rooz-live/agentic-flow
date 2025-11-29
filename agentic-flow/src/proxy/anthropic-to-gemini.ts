@@ -116,7 +116,9 @@ export class AnthropicToGeminiProxy {
 
         // Determine endpoint based on streaming
         const endpoint = anthropicReq.stream ? 'streamGenerateContent' : 'generateContent';
-        const url = `${this.geminiBaseUrl}/models/${this.defaultModel}:${endpoint}?key=${this.geminiApiKey}`;
+        // BUG FIX: Add &alt=sse for streaming to get Server-Sent Events format
+        const streamParam = anthropicReq.stream ? '&alt=sse' : '';
+        const url = `${this.geminiBaseUrl}/models/${this.defaultModel}:${endpoint}?key=${this.geminiApiKey}${streamParam}`;
 
         // Forward to Gemini
         const response = await fetch(url, {
@@ -151,24 +153,44 @@ export class AnthropicToGeminiProxy {
           }
 
           const decoder = new TextDecoder();
+          let chunkCount = 0;
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
             const chunk = decoder.decode(value);
+            chunkCount++;
+            logger.info('Gemini stream chunk received', { chunkCount, chunkLength: chunk.length, chunkPreview: chunk.substring(0, 200) });
+
             const anthropicChunk = this.convertGeminiStreamToAnthropic(chunk);
+            logger.info('Anthropic stream chunk generated', { chunkCount, anthropicLength: anthropicChunk.length, anthropicPreview: anthropicChunk.substring(0, 200) });
+
             res.write(anthropicChunk);
           }
 
+          logger.info('Gemini stream complete', { totalChunks: chunkCount });
           res.end();
         } else {
           // Non-streaming response
           const geminiRes = await response.json();
+
+          // DEBUG: Log raw Gemini response
+          logger.info('Raw Gemini API response', {
+            hasResponse: !!geminiRes,
+            hasCandidates: !!geminiRes.candidates,
+            candidatesLength: geminiRes.candidates?.length,
+            firstCandidate: geminiRes.candidates?.[0],
+            fullResponse: JSON.stringify(geminiRes).substring(0, 500)
+          });
+
           const anthropicRes = this.convertGeminiToAnthropic(geminiRes);
 
           logger.info('Gemini proxy response sent', {
             model: this.defaultModel,
-            usage: anthropicRes.usage
+            usage: anthropicRes.usage,
+            contentBlocks: anthropicRes.content?.length,
+            hasText: anthropicRes.content?.some((c: any) => c.type === 'text'),
+            firstContent: anthropicRes.content?.[0]
           });
 
           res.json(anthropicRes);
@@ -282,11 +304,17 @@ The system will automatically execute these commands and provide results.
     if (anthropicReq.tools && anthropicReq.tools.length > 0) {
       geminiReq.tools = [{
         functionDeclarations: anthropicReq.tools.map(tool => {
-          // Clean schema: Remove $schema and additionalProperties fields that Gemini doesn't support
+          // Clean schema: Remove fields that Gemini doesn't support
           const cleanSchema = (schema: any): any => {
             if (!schema || typeof schema !== 'object') return schema;
 
-            const { $schema, additionalProperties, ...rest } = schema;
+            const {
+              $schema,
+              additionalProperties,
+              exclusiveMinimum,
+              exclusiveMaximum,
+              ...rest
+            } = schema;
             const cleaned: any = { ...rest };
 
             // Recursively clean nested objects
@@ -385,11 +413,18 @@ The system will automatically execute these commands and provide results.
   private convertGeminiToAnthropic(geminiRes: any): any {
     const candidate = geminiRes.candidates?.[0];
     if (!candidate) {
+      logger.error('No candidates in Gemini response', { geminiRes });
       throw new Error('No candidates in Gemini response');
     }
 
     const content = candidate.content;
     const parts = content?.parts || [];
+
+    logger.info('Converting Gemini to Anthropic', {
+      hasParts: !!parts,
+      partsCount: parts.length,
+      partTypes: parts.map((p: any) => Object.keys(p))
+    });
 
     // Extract text and function calls
     let rawText = '';
@@ -398,11 +433,18 @@ The system will automatically execute these commands and provide results.
     for (const part of parts) {
       if (part.text) {
         rawText += part.text;
+        logger.info('Found text in part', { textLength: part.text.length, textPreview: part.text.substring(0, 100) });
       }
       if (part.functionCall) {
         functionCalls.push(part.functionCall);
       }
     }
+
+    logger.info('Extracted content from Gemini', {
+      rawTextLength: rawText.length,
+      functionCallsCount: functionCalls.length,
+      rawTextPreview: rawText.substring(0, 200)
+    });
 
     // Parse structured commands from Gemini's text response
     const { cleanText, toolUses } = this.parseStructuredCommands(rawText);
@@ -457,31 +499,36 @@ The system will automatically execute these commands and provide results.
   }
 
   private convertGeminiStreamToAnthropic(chunk: string): string {
-    // Gemini streaming returns newline-delimited JSON
+    // Gemini streaming returns Server-Sent Events format: "data: {json}"
     const lines = chunk.split('\n').filter(line => line.trim());
     const anthropicChunks: string[] = [];
 
     for (const line of lines) {
       try {
-        const parsed = JSON.parse(line);
-        const candidate = parsed.candidates?.[0];
-        const text = candidate?.content?.parts?.[0]?.text;
+        // Parse SSE format: "data: {json}"
+        if (line.startsWith('data: ')) {
+          const jsonStr = line.substring(6); // Remove "data: " prefix
+          const parsed = JSON.parse(jsonStr);
+          const candidate = parsed.candidates?.[0];
+          const text = candidate?.content?.parts?.[0]?.text;
 
-        if (text) {
-          anthropicChunks.push(
-            `event: content_block_delta\ndata: ${JSON.stringify({
-              type: 'content_block_delta',
-              delta: { type: 'text_delta', text }
-            })}\n\n`
-          );
-        }
+          if (text) {
+            anthropicChunks.push(
+              `event: content_block_delta\ndata: ${JSON.stringify({
+                type: 'content_block_delta',
+                delta: { type: 'text_delta', text }
+              })}\n\n`
+            );
+          }
 
-        // Check for finish
-        if (candidate?.finishReason) {
-          anthropicChunks.push('event: message_stop\ndata: {}\n\n');
+          // Check for finish
+          if (candidate?.finishReason) {
+            anthropicChunks.push('event: message_stop\ndata: {}\n\n');
+          }
         }
       } catch (e) {
         // Ignore parse errors
+        logger.debug('Failed to parse Gemini stream chunk', { line, error: (e as Error).message });
       }
     }
 

@@ -17,7 +17,7 @@
  * - Performance benchmarks
  */
 
-import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, beforeAll, afterAll } from '@jest/globals';
 import Database from 'better-sqlite3';
 import { ReflexionMemory, Episode, ReflexionQuery } from '../src/controllers/ReflexionMemory.js';
 import { SkillLibrary, Skill, SkillQuery } from '../src/controllers/SkillLibrary.js';

@@ -1,0 +1,125 @@
+# Rollback Procedure
+# Last Updated: 2025-11-28
+# Status: Documented
+
+quick_reference:
+  - scenario: npm dependency rollback
+    recovery_time: 2 min
+    command: git checkout HEAD~1 -- package*.json && npm ci
+  - scenario: IRIS version rollback
+    recovery_time: 5 min
+    command: npm install @foxruv/iris@<previous_version>
+  - scenario: Git revert (single commit)
+    recovery_time: 1 min
+    command: git revert HEAD
+  - scenario: Full state restoration
+    recovery_time: 10 min
+    command: ./scripts/restore-environment-diagnostic.sh
+
+scenarios:
+  npm_dependency_rollback:
+    when: npm update breaks tests or introduces regressions
+    steps:
+      - name: Check current state
+        commands:
+          - npm test
+          - git diff package-lock.json
+      - name: Restore previous package files
+        command: git checkout HEAD~1 -- package.json package-lock.json
+      - name: Reinstall dependencies
+        command: npm ci
+      - name: Verify restoration
+        commands:
+          - npm test
+          - npm run test:reasoningbank-public-api
+    verification:
+      - All tests pass
+      - ReasoningBank public API test passes
+      - npm audit shows expected vulnerabilities
+
+  iris_version_rollback:
+    when: "@foxruv/iris update causes governance failures"
+    steps:
+      - name: Check current IRIS version
+        command: npm list @foxruv/iris
+      - name: Identify last known good version
+        command: git log --oneline -5 -- package.json
+      - name: Install previous version
+        command: npm install @foxruv/iris@<version>
+      - name: Verify IRIS functionality
+        command: python3 scripts/policy/governance.py --validate-iris
+      - name: Confirm DT calibration still works
+        command: python3 scripts/analysis/validate_dt_thresholds.py
+    version_history:
+      - version: 1.8.19
+        date: 2025-11-28
+        status: Current (Stable)
+      - version: 1.8.18
+        date: 2025-11-20
+        status: Previous
+
+  ci_configuration_rollback:
+    when: GitHub Actions or GitLab CI changes break pipelines
+    steps:
+      - name: Identify broken commit
+        command: git log --oneline -10 -- .github/ .gitlab-ci.yml
+      - name: Revert specific files
+        commands:
+          - git checkout <commit_hash> -- .github/workflows/dependency-update-validation.yml
+          - git checkout <commit_hash> -- .gitlab-ci.yml
+      - name: Validate YAML syntax
+        command: "node -e \"require('yaml').parse(require('fs').readFileSync('.gitlab-ci.yml', 'utf8'))\""
+      - name: Commit restoration
+        commands:
+          - git add .github/ .gitlab-ci.yml
+          - "git commit -m 'fix(ci): rollback to stable configuration'"
+
+  full_state_restoration:
+    when: Multiple components need restoration to a known good state
+    steps:
+      - name: Run diagnostic first
+        command: ./scripts/restore-environment-diagnostic.sh
+      - name: Restore critical files
+        command: |
+          git checkout HEAD~N -- \
+            package.json package-lock.json \
+            .github/dependabot.yml .github/workflows/ .gitlab-ci.yml
+      - name: Restore Goalie state (if corrupted)
+        command: |
+          git checkout HEAD~N -- \
+            .goalie/CONSOLIDATED_ACTIONS.yaml .goalie/KANBAN_BOARD.yaml
+      - name: Reinstall and verify
+        commands:
+          - npm ci
+          - npm test
+
+escalation_path:
+  - step: 1
+    action: Attempt auto-rollback (3 retries with exponential backoff)
+  - step: 2
+    action: Page on-call engineer (if auto-rollback fails)
+  - step: 3
+    action: "File incident report: docs/INCIDENTS/YYYYMMDD.md"
+  - step: 4
+    action: Root cause analysis (RCA) within 24 hours
+  - step: 5
+    action: Remediation plan before next deployment
+
+rto_rpo_targets:
+  rto:
+    target: "<= 15 min"
+    current_capability: "~10 min (manual)"
+  rpo:
+    target: "<= 1 commit"
+    current_capability: Git-based (0 commits)
+
+post_rollback_checklist:
+  - All tests passing (npm test)
+  - ReasoningBank API test passing
+  - IRIS governance validation passing
+  - DT calibration thresholds valid
+  - npm audit at expected level
+  - Incident documented (if applicable)
+  - Root cause identified
+  - Prevention measures documented
+

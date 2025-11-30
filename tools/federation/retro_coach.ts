@@ -359,6 +359,55 @@ interface IterativeRCARecommendation {
   recommended_action: string;
   priority: 'critical' | 'urgent' | 'important' | 'normal' | 'low';
   cod_impact?: number;
+  // MED-001: Evidence sources for RCA traceability
+  evidence_sources?: string[];
+  // MED-002: Verification thresholds for acceptance criteria
+  verification_threshold?: {
+    metric: string;
+    operator: 'gt' | 'gte' | 'lt' | 'lte' | 'eq' | 'neq';
+    value: number;
+    current_value?: number;
+  };
+}
+
+// MED-001: Known evidence sources for pattern-to-source mapping
+const PATTERN_EVIDENCE_SOURCES: Record<string, string[]> = {
+  'cascading-failure': ['logs/governor_incidents.jsonl', '.goalie/governance_state.json'],
+  'circuit-breaker': ['docs/designs/production_maturity_design.md'],
+  'depth-ladder-oscillation': ['.goalie/governance_state.json', 'scripts/policy/governance.py'],
+  'safe-degrade': ['.goalie/metrics_log.jsonl', 'logs/governor_incidents.jsonl'],
+  'throttling-excessive': ['src/runtime/processGovernor.ts', '.goalie/pattern_metrics.jsonl'],
+  'observability-gap': ['.goalie/pattern_metrics.jsonl', 'docs/PATTERN_EVENT_SCHEMA.md'],
+  'stagnation': ['.goalie/governance_state.json', '.goalie/CONSOLIDATED_ACTIONS.yaml'],
+  'wip-violation': ['logs/governor_incidents.jsonl', 'src/runtime/processGovernor.ts'],
+};
+
+// MED-002: Validation thresholds by priority
+const PRIORITY_VERIFICATION_THRESHOLDS: Record<string, { metric: string; operator: 'gt' | 'gte' | 'lt' | 'lte'; value: number }> = {
+  critical: { metric: 'resolution_time_hours', operator: 'lt', value: 4 },
+  urgent: { metric: 'resolution_time_hours', operator: 'lt', value: 24 },
+  important: { metric: 'resolution_time_hours', operator: 'lt', value: 72 },
+  normal: { metric: 'resolution_time_hours', operator: 'lt', value: 168 },
+  low: { metric: 'resolution_time_hours', operator: 'lt', value: 336 },
+};
+
+// MED-002: Validate verification threshold against current value
+function validateVerificationThreshold(
+  threshold: IterativeRCARecommendation['verification_threshold'],
+  currentValue: number
+): boolean {
+  if (!threshold) return true;
+
+  const { operator, value } = threshold;
+  switch (operator) {
+    case 'gt': return currentValue > value;
+    case 'gte': return currentValue >= value;
+    case 'lt': return currentValue < value;
+    case 'lte': return currentValue <= value;
+    case 'eq': return currentValue === value;
+    case 'neq': return currentValue !== value;
+    default: return true;
+  }
 }
 
 interface CircleStagnationTracker {
@@ -454,7 +503,7 @@ async function analyzeRCATriggers(goalieDir: string, currentIteration?: number):
     result.event_prototypes.push('cascading-failure');
     result.rca_5_whys.push(`Trigger: ${consecutiveFailures} consecutive failures in ${lastFailureContext}`);
 
-    // Add iterative recommendation
+    // Add iterative recommendation with MED-001 evidence_sources and MED-002 verification_threshold
     result.iterativeRecommendations?.push({
       iteration: currentIteration ?? 0,
       circle: 'orchestrator',
@@ -462,6 +511,8 @@ async function analyzeRCATriggers(goalieDir: string, currentIteration?: number):
       rca_method: '5-whys',
       recommended_action: `Apply circuit-breaker pattern to ${lastFailureContext}`,
       priority: 'critical',
+      evidence_sources: PATTERN_EVIDENCE_SOURCES['cascading-failure'] ?? [],
+      verification_threshold: PRIORITY_VERIFICATION_THRESHOLDS['critical'],
     });
   }
 
@@ -479,6 +530,8 @@ async function analyzeRCATriggers(goalieDir: string, currentIteration?: number):
         detected_pattern: 'retry-storm',
         rca_method: 'fishbone',
         recommended_action: `Implement backoff-retry with jitter for ${key}`,
+        evidence_sources: ['logs/governor_incidents.jsonl', 'src/runtime/processGovernor.ts'],
+        verification_threshold: PRIORITY_VERIFICATION_THRESHOLDS['urgent'],
         priority: 'urgent',
       });
     }
@@ -2031,8 +2084,8 @@ async function updateConsolidatedActionsFromRCA(
           updated++;
         }
       } else {
-        // Add new action with verified and highImpact fields
-        const newAction = {
+        // Add new action with verified, highImpact, evidence_sources (MED-001) and verification_threshold (MED-002)
+        const newAction: Record<string, unknown> = {
           id: `RCA-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
           title: rec.recommended_action,
           status: 'PENDING',
@@ -2046,6 +2099,10 @@ async function updateConsolidatedActionsFromRCA(
           verified: false,
           highImpact: false,
           cod_impact: rec.cod_impact,
+          // MED-001: Add evidence_sources for RCA traceability
+          evidence_sources: rec.evidence_sources ?? PATTERN_EVIDENCE_SOURCES[rec.detected_pattern] ?? [],
+          // MED-002: Add verification_threshold for acceptance criteria validation
+          verification_threshold: rec.verification_threshold ?? PRIORITY_VERIFICATION_THRESHOLDS[rec.priority],
         };
 
         doc.items.push(newAction);

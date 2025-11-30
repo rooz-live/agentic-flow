@@ -30,6 +30,31 @@ export const AF_RATE_LIMIT_ENABLED = process.env.AF_RATE_LIMIT_ENABLED !== 'fals
 export const AF_TOKENS_PER_SECOND = parseInt(process.env.AF_TOKENS_PER_SECOND || '10', 10);
 export const AF_MAX_BURST = parseInt(process.env.AF_MAX_BURST || '20', 10);
 
+// Circuit breaker configuration (RCA-1764385633682-ilghhf / DEEP-DIVE-3 Phase 1)
+export const AF_CIRCUIT_BREAKER_ENABLED = process.env.AF_CIRCUIT_BREAKER_ENABLED !== 'false';
+export const AF_CIRCUIT_BREAKER_THRESHOLD = parseInt(process.env.AF_CIRCUIT_BREAKER_THRESHOLD || '5', 10); // Failures to trip
+export const AF_CIRCUIT_BREAKER_WINDOW_MS = parseInt(process.env.AF_CIRCUIT_BREAKER_WINDOW_MS || '10000', 10); // 10 seconds
+export const AF_CIRCUIT_BREAKER_COOLDOWN_MS = parseInt(process.env.AF_CIRCUIT_BREAKER_COOLDOWN_MS || '30000', 10); // 30 seconds
+export const AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS = parseInt(process.env.AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS || '3', 10);
+
+// Circuit breaker states
+export enum CircuitBreakerState {
+  CLOSED = 'CLOSED',     // Normal operation, requests flow through
+  OPEN = 'OPEN',         // Circuit tripped, requests rejected
+  HALF_OPEN = 'HALF_OPEN' // Testing if circuit can be closed
+}
+
+// Circuit breaker state tracking
+interface CircuitBreakerStats {
+  state: CircuitBreakerState;
+  failures: number;
+  successes: number;
+  lastFailureTime: number;
+  lastStateChange: number;
+  halfOpenRequests: number;
+  windowStart: number;
+}
+
 // Governor state
 interface GovernorState {
   activeWork: number;
@@ -41,9 +66,11 @@ interface GovernorState {
   // Token bucket state
   availableTokens: number;
   lastTokenRefill: number;
+  // Circuit breaker state
+  circuitBreaker: CircuitBreakerStats;
   incidents: Array<{
     timestamp: string;
-    type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED';
+    type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' | 'CIRCUIT_CLOSED';
     details: Record<string, unknown>;
   }>;
 }
@@ -57,6 +84,15 @@ const state: GovernorState = {
   lastLoadCheck: Date.now(),
   availableTokens: AF_MAX_BURST,
   lastTokenRefill: Date.now(),
+  circuitBreaker: {
+    state: CircuitBreakerState.CLOSED,
+    failures: 0,
+    successes: 0,
+    lastFailureTime: 0,
+    lastStateChange: Date.now(),
+    halfOpenRequests: 0,
+    windowStart: Date.now(),
+  },
   incidents: [],
 };
 
@@ -122,16 +158,160 @@ function refillTokens(): void {
 
 function consumeToken(): boolean {
   refillTokens();
-  
+
   if (state.availableTokens >= 1) {
     state.availableTokens -= 1;
     return true;
   }
-  
+
   return false;
 }
 
+// ============================================================================
+// Circuit Breaker Implementation (RCA-1764385633682-ilghhf / DEEP-DIVE-3)
+// States: CLOSED → OPEN → HALF_OPEN → CLOSED
+// ============================================================================
+
+/**
+ * Check if circuit breaker allows requests to pass through
+ * @returns true if request is allowed, false if circuit is open
+ */
+export function isCircuitClosed(): boolean {
+  if (!AF_CIRCUIT_BREAKER_ENABLED) {
+    return true; // Always allow if disabled
+  }
+
+  const cb = state.circuitBreaker;
+  const now = Date.now();
+
+  // Reset window if expired
+  if (now - cb.windowStart > AF_CIRCUIT_BREAKER_WINDOW_MS) {
+    cb.failures = 0;
+    cb.windowStart = now;
+  }
+
+  switch (cb.state) {
+    case CircuitBreakerState.CLOSED:
+      return true;
+
+    case CircuitBreakerState.OPEN:
+      // Check if cooldown has expired
+      if (now - cb.lastStateChange >= AF_CIRCUIT_BREAKER_COOLDOWN_MS) {
+        // Transition to HALF_OPEN
+        cb.state = CircuitBreakerState.HALF_OPEN;
+        cb.halfOpenRequests = 0;
+        cb.lastStateChange = now;
+        logIncident('CIRCUIT_HALF_OPEN', {
+          cooldownMs: AF_CIRCUIT_BREAKER_COOLDOWN_MS,
+          previousFailures: cb.failures,
+        });
+        return true;
+      }
+      return false;
+
+    case CircuitBreakerState.HALF_OPEN:
+      // Allow limited requests in half-open state
+      if (cb.halfOpenRequests < AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS) {
+        cb.halfOpenRequests++;
+        return true;
+      }
+      return false;
+
+    default:
+      return true;
+  }
+}
+
+/**
+ * Record a successful operation for circuit breaker
+ */
+export function recordSuccess(): void {
+  if (!AF_CIRCUIT_BREAKER_ENABLED) return;
+
+  const cb = state.circuitBreaker;
+  cb.successes++;
+
+  if (cb.state === CircuitBreakerState.HALF_OPEN) {
+    // If all half-open requests succeeded, close the circuit
+    if (cb.successes >= AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS) {
+      cb.state = CircuitBreakerState.CLOSED;
+      cb.failures = 0;
+      cb.successes = 0;
+      cb.lastStateChange = Date.now();
+      cb.windowStart = Date.now();
+      logIncident('CIRCUIT_CLOSED', {
+        halfOpenSuccesses: AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS,
+        message: 'Circuit recovered after successful half-open requests',
+      });
+    }
+  }
+}
+
+/**
+ * Record a failed operation for circuit breaker
+ */
+export function recordFailure(): void {
+  if (!AF_CIRCUIT_BREAKER_ENABLED) return;
+
+  const cb = state.circuitBreaker;
+  const now = Date.now();
+
+  cb.failures++;
+  cb.lastFailureTime = now;
+
+  // Reset successes counter on failure
+  cb.successes = 0;
+
+  if (cb.state === CircuitBreakerState.HALF_OPEN) {
+    // Any failure in half-open state trips the circuit again
+    cb.state = CircuitBreakerState.OPEN;
+    cb.lastStateChange = now;
+    logIncident('CIRCUIT_OPEN', {
+      trigger: 'half-open-failure',
+      failures: cb.failures,
+    });
+  } else if (cb.state === CircuitBreakerState.CLOSED) {
+    // Check if we've exceeded the failure threshold
+    if (cb.failures >= AF_CIRCUIT_BREAKER_THRESHOLD) {
+      cb.state = CircuitBreakerState.OPEN;
+      cb.lastStateChange = now;
+      logIncident('CIRCUIT_OPEN', {
+        trigger: 'threshold-exceeded',
+        failures: cb.failures,
+        threshold: AF_CIRCUIT_BREAKER_THRESHOLD,
+        windowMs: AF_CIRCUIT_BREAKER_WINDOW_MS,
+      });
+    }
+  }
+}
+
+/**
+ * Get current circuit breaker state
+ */
+export function getCircuitBreakerState(): CircuitBreakerStats {
+  return { ...state.circuitBreaker };
+}
+
+/**
+ * Error thrown when circuit breaker is open
+ */
+export class CircuitBreakerOpenError extends Error {
+  constructor(message = 'Circuit breaker is open - request rejected') {
+    super(message);
+    this.name = 'CircuitBreakerOpenError';
+  }
+}
+
 async function waitForCapacity(): Promise<void> {
+  // Check circuit breaker first
+  if (!isCircuitClosed()) {
+    logIncident('CIRCUIT_OPEN', {
+      state: state.circuitBreaker.state,
+      failures: state.circuitBreaker.failures,
+      cooldownRemaining: AF_CIRCUIT_BREAKER_COOLDOWN_MS - (Date.now() - state.circuitBreaker.lastStateChange),
+    });
+    throw new CircuitBreakerOpenError();
+  }
   // Token bucket rate limiting
   while (!consumeToken()) {
     logIncident('RATE_LIMITED', {
@@ -221,11 +401,12 @@ export async function runBatched<T, R>(
     const batchPromises = batch.map(async (item, batchIndex) => {
       const itemIndex = i + batchIndex;
       let lastError: Error | undefined;
-      
+
       for (let retry = 0; retry <= maxRetries; retry++) {
         try {
           const result = await processor(item, itemIndex);
           state.completedWork++;
+          recordSuccess(); // Circuit breaker success tracking
           return result;
         } catch (err) {
           lastError = err as Error;
@@ -241,8 +422,10 @@ export async function runBatched<T, R>(
           }
         }
       }
-      
+
+      // Only record failure after all retries exhausted
       state.failedWork++;
+      recordFailure(); // Circuit breaker failure tracking
       throw lastError;
     });
     
@@ -272,16 +455,18 @@ export async function runBatched<T, R>(
  */
 export async function guarded<R>(operation: () => Promise<R>): Promise<R> {
   await waitForCapacity();
-  
+
   state.activeWork++;
   state.queuedWork--;
-  
+
   try {
     const result = await operation();
     state.completedWork++;
+    recordSuccess(); // Circuit breaker success tracking
     return result;
   } catch (err) {
     state.failedWork++;
+    recordFailure(); // Circuit breaker failure tracking
     throw err;
   } finally {
     state.activeWork--;
@@ -319,6 +504,16 @@ export function reset(): void {
   state.lastLoadCheck = Date.now();
   state.availableTokens = AF_MAX_BURST;
   state.lastTokenRefill = Date.now();
+  // Reset circuit breaker
+  state.circuitBreaker = {
+    state: CircuitBreakerState.CLOSED,
+    failures: 0,
+    successes: 0,
+    lastFailureTime: 0,
+    lastStateChange: Date.now(),
+    halfOpenRequests: 0,
+    windowStart: Date.now(),
+  };
   state.incidents = [];
 }
 
@@ -335,4 +530,10 @@ export const config = {
   AF_RATE_LIMIT_ENABLED,
   AF_TOKENS_PER_SECOND,
   AF_MAX_BURST,
+  // Circuit breaker configuration
+  AF_CIRCUIT_BREAKER_ENABLED,
+  AF_CIRCUIT_BREAKER_THRESHOLD,
+  AF_CIRCUIT_BREAKER_WINDOW_MS,
+  AF_CIRCUIT_BREAKER_COOLDOWN_MS,
+  AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS,
 };

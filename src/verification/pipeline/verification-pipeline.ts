@@ -71,7 +71,7 @@ export class VerificationPipeline {
     // Unsupported quantitative claims
     this.hallucinationPatterns.set(
       'unsupported-numbers',
-      /\b(\d+%|\d+\s*times?\s*(more|less|better|worse))\b/gi
+      /\b(\d+%|\d+\s*times?(\s+(more|less|better|worse))?)\b/gi
     );
 
     // Temporal hallucinations
@@ -319,14 +319,12 @@ export class VerificationPipeline {
 
     const result = await this.preOutputVerification(verificationInput);
 
-    // Add additional post-output checks
-    if (result.verified) {
-      // Check if output stayed faithful to input
-      const fidelityCheck = this.checkOutputFidelity(originalInput.claim, output);
-      if (!fidelityCheck.faithful) {
-        result.warnings.push(fidelityCheck.reason);
-        result.requiresReview = true;
-      }
+    // Add additional post-output checks (always run, regardless of verification status)
+    // Check if output stayed faithful to input
+    const fidelityCheck = this.checkOutputFidelity(originalInput.claim, output);
+    if (!fidelityCheck.faithful) {
+      result.warnings.push(fidelityCheck.reason);
+      result.requiresReview = true;
     }
 
     return result;

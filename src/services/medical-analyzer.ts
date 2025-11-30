@@ -12,13 +12,48 @@ export class MedicalAnalyzerService {
     this.knowledgeBase = new KnowledgeBaseService();
   }
 
+  /**
+   * Sanitize text to prevent XSS attacks
+   */
+  private sanitizeText(text: string | null | undefined): string {
+    if (text == null) {
+      return '';
+    }
+    return text
+      .replace(/<script[^>]*>.*?<\/script>/gi, '')
+      .replace(/<iframe[^>]*>.*?<\/iframe>/gi, '')
+      .replace(/<object[^>]*>.*?<\/object>/gi, '')
+      .replace(/<embed[^>]*>/gi, '')
+      .replace(/on\w+\s*=/gi, '')
+      .replace(/<img[^>]*>/gi, '')
+      .replace(/javascript:/gi, '')
+      .replace(/vbscript:/gi, '')
+      .replace(/data:text\/html/gi, '');
+  }
+
+  /**
+   * Sanitize patient data inputs
+   */
+  private sanitizePatientData(patientData: PatientData): PatientData {
+    return {
+      ...patientData,
+      id: this.sanitizeText(patientData.id),
+      symptoms: patientData.symptoms.map(s => this.sanitizeText(s)),
+      medicalHistory: patientData.medicalHistory.map(h => this.sanitizeText(h)),
+      medications: patientData.medications?.map(m => this.sanitizeText(m)) || [],
+    };
+  }
+
   async analyzePatient(patientData: PatientData): Promise<MedicalAnalysis> {
     const startTime = Date.now();
     const analysisId = this.generateAnalysisId();
 
+    // Sanitize inputs
+    const sanitizedData = this.sanitizePatientData(patientData);
+
     // Perform medical analysis
-    const analysis = await this.performAnalysis(patientData);
-    const diagnosis = await this.generateDiagnosis(patientData, analysis);
+    const analysis = this.sanitizeText(await this.performAnalysis(sanitizedData));
+    const diagnosis = (await this.generateDiagnosis(sanitizedData, analysis)).map(d => this.sanitizeText(d));
     const citations = await this.findCitations(diagnosis);
     const recommendations = await this.generateRecommendations(patientData, diagnosis);
     const riskFactors = await this.identifyRiskFactors(patientData, diagnosis);
@@ -30,7 +65,7 @@ export class MedicalAnalyzerService {
     const crossCheckCount = await this.knowledgeBase.crossCheckAnalysis(diagnosis, citations);
 
     // Calculate confidence and verification score
-    const confidence = this.calculateConfidence(hallucinationChecks, crossCheckCount, citations);
+    const confidence = this.calculateConfidence(hallucinationChecks, crossCheckCount, citations, diagnosis);
     const verificationScore = await this.verificationService.calculateVerificationScore({
       analysis,
       diagnosis,
@@ -114,20 +149,127 @@ export class MedicalAnalyzerService {
   private async identifyRiskFactors(patientData: PatientData, diagnosis: string[]): Promise<RiskFactor[]> {
     const riskFactors: RiskFactor[] = [];
 
+    // Age-related risk factors
     if (patientData.age > 65) {
       riskFactors.push({
         factor: 'Advanced age',
         severity: 'medium',
         confidence: 0.95,
       });
+    } else if (patientData.age > 45) {
+      riskFactors.push({
+        factor: 'Age over 45',
+        severity: 'low',
+        confidence: 0.90,
+      });
     }
 
+    // Diabetes-related risk factors
     if (patientData.medicalHistory.includes('diabetes')) {
       riskFactors.push({
         factor: 'Diabetes mellitus',
         severity: 'high',
         confidence: 0.99,
       });
+    }
+
+    // Family history of diabetes
+    if (patientData.medicalHistory.some(h => h.toLowerCase().includes('family history of diabetes'))) {
+      riskFactors.push({
+        factor: 'Family history of diabetes',
+        severity: 'medium',
+        confidence: 0.85,
+      });
+    }
+
+    // Diabetes symptoms
+    const diabetesSymptoms = ['increased thirst', 'frequent urination', 'fatigue', 'blurred vision'];
+    const matchedDiabetesSymptoms = patientData.symptoms.filter(s =>
+      diabetesSymptoms.some(ds => s.toLowerCase().includes(ds))
+    );
+    if (matchedDiabetesSymptoms.length >= 2) {
+      riskFactors.push({
+        factor: 'Diabetes risk indicators',
+        severity: 'medium',
+        confidence: 0.80,
+      });
+    }
+
+    // Obesity risk factor
+    if (patientData.medicalHistory.some(h => h.toLowerCase().includes('obesity'))) {
+      riskFactors.push({
+        factor: 'Obesity',
+        severity: 'medium',
+        confidence: 0.90,
+      });
+    }
+
+    // Vital signs risk factors
+    if (patientData.vitalSigns) {
+      const vs = patientData.vitalSigns;
+
+      // Critical blood pressure
+      if (vs.bloodPressure && (vs.bloodPressure.systolic > 180 || vs.bloodPressure.diastolic > 120)) {
+        riskFactors.push({
+          factor: 'Hypertensive crisis',
+          severity: 'critical',
+          confidence: 0.99,
+        });
+      } else if (vs.bloodPressure && (vs.bloodPressure.systolic > 140 || vs.bloodPressure.diastolic > 90)) {
+        riskFactors.push({
+          factor: 'Elevated blood pressure',
+          severity: 'medium',
+          confidence: 0.95,
+        });
+      }
+
+      // Heart rate abnormalities
+      if (vs.heartRate && (vs.heartRate > 150 || vs.heartRate < 40)) {
+        riskFactors.push({
+          factor: 'Critical heart rate',
+          severity: 'critical',
+          confidence: 0.99,
+        });
+      } else if (vs.heartRate && (vs.heartRate > 100 || vs.heartRate < 60)) {
+        riskFactors.push({
+          factor: 'Abnormal heart rate',
+          severity: 'medium',
+          confidence: 0.90,
+        });
+      }
+
+      // Temperature abnormalities
+      if (vs.temperature && (vs.temperature > 40 || vs.temperature < 35)) {
+        riskFactors.push({
+          factor: 'Critical body temperature',
+          severity: 'critical',
+          confidence: 0.99,
+        });
+      }
+
+      // Oxygen saturation
+      if (vs.oxygenSaturation && vs.oxygenSaturation < 90) {
+        riskFactors.push({
+          factor: 'Hypoxemia',
+          severity: 'critical',
+          confidence: 0.99,
+        });
+      } else if (vs.oxygenSaturation && vs.oxygenSaturation < 95) {
+        riskFactors.push({
+          factor: 'Low oxygen saturation',
+          severity: 'high',
+          confidence: 0.95,
+        });
+      }
+
+      // Respiratory rate
+      if (vs.respiratoryRate && (vs.respiratoryRate > 30 || vs.respiratoryRate < 8)) {
+        riskFactors.push({
+          factor: 'Abnormal respiratory rate',
+          severity: 'high',
+          confidence: 0.95,
+        });
+      }
     }
 
     return riskFactors;
@@ -178,14 +320,22 @@ export class MedicalAnalyzerService {
   private calculateConfidence(
     checks: HallucinationCheck[],
     crossCheckCount: number,
-    citations: Citation[]
+    citations: Citation[],
+    diagnosis: string[] = []
   ): number {
     const passedChecks = checks.filter(c => c.passed).length;
     const checkConfidence = passedChecks / checks.length;
     const citationConfidence = citations.length > 0 ? citations.reduce((sum, c) => sum + c.relevance, 0) / citations.length : 0;
     const crossCheckBonus = Math.min(crossCheckCount * 0.05, 0.2);
 
-    return Math.min(checkConfidence * 0.5 + citationConfidence * 0.3 + crossCheckBonus + 0.2, 1.0);
+    let baseConfidence = Math.min(checkConfidence * 0.5 + citationConfidence * 0.3 + crossCheckBonus + 0.2, 1.0);
+
+    // Reduce confidence for uncertain diagnoses
+    if (diagnosis.some(d => d.includes('Requires additional diagnostic testing') || d.includes('uncertain'))) {
+      baseConfidence = Math.min(baseConfidence, 0.75);
+    }
+
+    return baseConfidence;
   }
 
   private generateAnalysisId(): string {

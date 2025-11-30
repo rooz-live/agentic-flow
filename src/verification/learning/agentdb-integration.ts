@@ -349,7 +349,8 @@ export class AgentDBIntegration {
       source.successRate = (source.successRate * (source.sampleSize - 1) + success) / source.sampleSize;
 
       // Update reliability (weighted by sample size)
-      const weight = Math.min(1, source.sampleSize / 100);
+      // Use a more responsive weight that reaches 0.8 at 10 samples
+      const weight = Math.min(1, source.sampleSize / 12);
       source.reliability = weight * source.successRate + (1 - weight) * 0.5;
 
       source.lastUpdated = Date.now();
@@ -386,7 +387,8 @@ export class AgentDBIntegration {
     }
 
     // Check source reliability
-    for (const category of context) {
+    const contextArray = Array.isArray(context) ? context : [];
+    for (const category of contextArray) {
       const source = this.sourceReliability.get(category);
       if (source && source.sampleSize >= 10) {
         const sourceAdjustment = (source.reliability - 0.5) * 0.15; // Max ±0.075

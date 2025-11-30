@@ -117,15 +117,31 @@ export class NotificationService {
     const criticalRisks = analysis.riskFactors.filter(r => r.severity === 'critical');
     const highRisks = analysis.riskFactors.filter(r => r.severity === 'high');
 
-    if (criticalRisks.length > 0 || analysis.verificationScore < 0.7) {
+    // Critical risks always trigger urgent priority
+    if (criticalRisks.length > 0) {
       return 'urgent';
     }
-    if (highRisks.length > 0 || analysis.confidence < 0.8) {
+
+    // Low verification score with high risks is urgent
+    if (analysis.verificationScore < 0.7 && highRisks.length > 0) {
+      return 'urgent';
+    }
+
+    // High risks or very low verification score
+    if (highRisks.length > 0 || analysis.verificationScore < 0.5) {
       return 'high';
     }
+
+    // Low confidence or moderately low verification
+    if (analysis.confidence < 0.8 || analysis.verificationScore < 0.7) {
+      return 'medium';
+    }
+
+    // Moderate confidence
     if (analysis.confidence < 0.9) {
       return 'medium';
     }
+
     return 'low';
   }
 

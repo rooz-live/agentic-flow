@@ -59,7 +59,20 @@ SAFLA_WEIGHTS = {
 }
 
 # Delta improvement threshold: only apply changes if Δ_total > threshold
-DELTA_IMPROVEMENT_THRESHOLD = 0.05
+# PROD-003: Tuned from 0.05 to 0.10 based on observed delta distribution
+# Data: 87% of deltas exceed 0.05, mean=0.19, range=-0.4 to 0.79
+# The 0.10 threshold provides better discrimination for governance adjustments
+DELTA_IMPROVEMENT_THRESHOLD = 0.10
+
+# Capability tracking baseline for SAFLA evaluation (PROD-004)
+# Defines known capability categories for delta calculation
+CAPABILITY_CATEGORIES = [
+    "circles",       # Active circles (analyst, assessor, innovator, etc.)
+    "patterns",      # Detected governance patterns
+    "telemetry",     # Telemetry event types being logged
+    "adjustments",   # Parameter adjustment types available
+]
+BASELINE_TOTAL_CAPABILITIES = len(CAPABILITY_CATEGORIES) * 6  # 4 categories × 6 items each
 
 # Depth-ladder oscillation detection constants (PROD-002)
 # Detect when depth values oscillate without meaningful improvement
@@ -180,6 +193,94 @@ def detect_depth_oscillation(depth_history: List[int]) -> Dict[str, Any]:
         "pattern": pattern,
         "suggested_depth": suggested_depth,
         "recent_depths": recent,
+    }
+
+
+def count_observed_capabilities(project_root: Path, state: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Count observed capabilities for SAFLA delta evaluation (PROD-004).
+
+    Tracks actual capabilities in use rather than using static defaults:
+    - Circles: Number of circles that have been active
+    - Patterns: Unique governance patterns detected
+    - Telemetry: Types of telemetry events being logged
+    - Adjustments: Types of parameter adjustments made
+
+    Returns:
+        Dict with new_capabilities, total_capabilities, and breakdown
+    """
+    goalie_dir = project_root / ".goalie"
+    pattern_log = goalie_dir / "pattern_metrics.jsonl"
+
+    # Track unique items observed
+    observed_circles: set = set()
+    observed_patterns: set = set()
+    observed_events: set = set()
+    observed_adjustments: set = set()
+
+    # Parse pattern_metrics.jsonl for observed capabilities
+    if pattern_log.exists():
+        try:
+            with open(pattern_log, "r") as f:
+                for line in f:
+                    try:
+                        event = json.loads(line.strip())
+                        # Track circles
+                        if circle := event.get("circle"):
+                            observed_circles.add(circle)
+                        # Track patterns
+                        if pattern := event.get("detected_pattern"):
+                            observed_patterns.add(pattern)
+                        elif pattern := event.get("pattern"):
+                            observed_patterns.add(pattern)
+                        # Track adjustment types
+                        if adjustment := event.get("adjustment"):
+                            observed_adjustments.add(adjustment)
+                        # Track event types
+                        if event_type := event.get("event_type"):
+                            observed_events.add(event_type)
+                    except json.JSONDecodeError:
+                        continue
+        except Exception:
+            pass
+
+    # Also count from governance_state
+    depth_ladder = state.get("depth_ladder", {})
+    circle_rotation = state.get("circle_rotation", {})
+
+    # Circles from rotation tracking
+    for circle in circle_rotation.get("negative_delta_counts", {}).keys():
+        observed_circles.add(circle)
+    for circle in circle_rotation.get("skipped_circles", []):
+        observed_circles.add(circle)
+
+    # Calculate totals
+    total_circles = len(observed_circles)
+    total_patterns = len(observed_patterns)
+    total_events = len(observed_events)
+    total_adjustments = len(observed_adjustments)
+
+    # New capabilities = sum of observed capabilities
+    new_capabilities = total_circles + total_patterns + total_events + total_adjustments
+
+    # Use baseline or observed max, whichever is higher
+    total_capabilities = max(BASELINE_TOTAL_CAPABILITIES, new_capabilities)
+
+    return {
+        "new_capabilities": new_capabilities,
+        "total_capabilities": total_capabilities,
+        "breakdown": {
+            "circles": total_circles,
+            "patterns": total_patterns,
+            "telemetry_events": total_events,
+            "adjustments": total_adjustments,
+        },
+        "observed": {
+            "circles": list(observed_circles),
+            "patterns": list(observed_patterns),
+            "telemetry_events": list(observed_events),
+            "adjustments": list(observed_adjustments),
+        },
     }
 
 
@@ -792,14 +893,19 @@ class GovernanceMiddleware:
         successful_iterations = self.current_iteration - self.iterations_without_progress
         throughput = successful_iterations / max(self.current_iteration, 1)
 
+        # PROD-004: Dynamic capability tracking instead of static defaults
+        capability_info = count_observed_capabilities(self.project_root, state)
+
         current_metrics = {
             "reward": self.current_avg_score / 100.0,  # Normalize to [0, 1]
             "tokens_used": max(self.current_iteration, 1),
             "throughput": throughput,
             "resource_used": self.extensions_used + 1,
             "divergence_score": self.safe_degrade_error_count / 10.0,  # Normalize
-            "new_capabilities": adjustments_made,
-            "total_capabilities": 4,  # We have 4 tunable parameters
+            # PROD-004: Use observed capabilities instead of adjustments_made
+            "new_capabilities": capability_info["new_capabilities"],
+            "total_capabilities": capability_info["total_capabilities"],
+            "capability_breakdown": capability_info["breakdown"],
         }
 
         # Load previous metrics from delta_history (or use defaults)
@@ -814,7 +920,7 @@ class GovernanceMiddleware:
                 "resource_used": 1,
                 "divergence_score": 0.0,
                 "new_capabilities": 0,
-                "total_capabilities": 4,
+                "total_capabilities": BASELINE_TOTAL_CAPABILITIES,
             }
 
         # 1. Depth Ladder adjustment: Check for stagnation
@@ -994,8 +1100,10 @@ class GovernanceMiddleware:
             adjustments_made += 1
             print(f"[Governance] Tuning: Increased safe-degrade threshold {old_threshold} → {new_threshold}")
 
-        # Update current_metrics with actual adjustments made
-        current_metrics["new_capabilities"] = adjustments_made
+        # PROD-004: Update capability count to include adjustments made this iteration
+        # This combines observed capabilities with new adjustments for delta calculation
+        current_metrics["adjustments_this_iteration"] = adjustments_made
+        current_metrics["new_capabilities"] += adjustments_made
 
         # SAFLA Delta Evaluation: Calculate improvement before saving
         delta_improvement = calculate_delta_improvement(current_metrics, previous_metrics)

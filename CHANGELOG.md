@@ -5,6 +5,71 @@ All notable changes to agentic-flow will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2025-11-30
+
+### 🎉 Production Maturity Release: Closed-Loop Governance & CI/CD
+
+This release delivers comprehensive production maturity improvements including closed-loop telemetry, 
+multi-stage CI/CD pipelines, and enhanced governance patterns.
+
+### Added
+
+#### CI/CD Pipeline
+- **Multi-Stage Pipeline**: 5-stage GitHub Actions workflow (Source Control → Build → Test → Staging → Production)
+- **Release Workflow**: Automated semantic versioning, release notes generation, and GitHub Releases
+- **Build Orchestrator**: 4 execution modes (full, quick, test-only, validate) via `scripts/build-orchestrator.sh`
+- **pytest Configuration**: Comprehensive pytest.ini with 10 custom markers for test organization
+
+#### Telemetry & Governance
+- **Closed-Loop Telemetry**: Iterative RCA with pattern-triggered metrics
+- **8 Governance Patterns**: depth-ladder, safe-degrade, circle-risk-focus, autocommit-shadow, guardrail-lock, failure-strategy, iteration-budget, observability-first
+- **patterns_triggered Field**: Circle participation events now track which governance patterns fired
+- **CONSOLIDATED_ACTIONS.yaml**: Enhanced schema with `verified` and `highImpact` fields
+- **governance_state.json**: Proper versioning and schema documentation
+
+#### SAFLA Integration
+- **Throughput Metrics**: SAFLA delta evaluation for production quality gates
+- **Capability Tracking**: Enhanced capability monitoring with threshold tuning
+- **Depth-Ladder Oscillation Detection**: Automatic adjustment triggers for stability
+
+### Fixed
+
+#### Security (9 CVEs Addressed)
+- CVE-2025-13466, GHSA-67mh-4wv8-2f99, CVE-2024-5629 (Phase 3)
+- CVE-2025-53605, CVE-2024-12224, CVE-2024-47081, CVE-2024-35195 (Phase 2)
+- CVE-2025-6638, CVE-2025-64756 (Phase 1)
+
+#### Tests & CI
+- 14 test failures resolved for SAFLA throughput validation
+- ReasoningBank API consumer tests with static analysis
+- Build step ordering for public API tests
+
+### Changed
+
+#### Repository Hygiene
+- Reorganized `.gitignore` with proper sections and removed duplicates
+- Cleaned `__pycache__`, `.pytest_cache`, and temporary files
+- Updated npm scripts for build orchestration
+
+#### Dependencies
+- Dependency automation with GitHub Dependabot and validation workflow
+- GitLab CI/CD migration preparation
+
+### Documentation
+- `.goalie/README.md`: governance_state.json schema documentation
+- Integration tests for telemetry consumers (7/7 passing)
+
+---
+
+## [2.0.0] - 2025-11-06
+
+### Major Version Bump
+- Version alignment with major feature releases
+- ReasoningBank learning memory enhancements
+- Multi-agent coordination improvements
+
+---
+
 ## [1.9.2] - 2025-11-06
 
 ### Fixed

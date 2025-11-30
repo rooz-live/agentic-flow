@@ -11,16 +11,27 @@ export class VerificationService {
     citations: Citation[];
     recommendations?: string[];
   }): Promise<VerificationResult> {
+    // Handle null/undefined inputs gracefully
+    const safeAnalysis = data?.analysis || '';
+    const safeDiagnosis = data?.diagnosis || [];
+    const safeCitations = data?.citations || [];
+    const safeRecommendations = data?.recommendations || [];
+
     const checks = {
-      medicalAccuracy: await this.checkMedicalAccuracy(data.analysis, data.diagnosis),
-      citationValidity: await this.checkCitationValidity(data.citations),
-      logicalConsistency: await this.checkLogicalConsistency(data.analysis, data.diagnosis),
-      guidelineCompliance: await this.checkGuidelineCompliance(data.recommendations || []),
-      hallucinationFree: await this.checkHallucinationFree(data.analysis, data.citations),
+      medicalAccuracy: await this.checkMedicalAccuracy(safeAnalysis, safeDiagnosis),
+      citationValidity: await this.checkCitationValidity(safeCitations),
+      logicalConsistency: await this.checkLogicalConsistency(safeAnalysis, safeDiagnosis),
+      guidelineCompliance: await this.checkGuidelineCompliance(safeRecommendations),
+      hallucinationFree: await this.checkHallucinationFree(safeAnalysis, safeCitations),
     };
 
-    const issues = await this.identifyIssues(checks, data);
-    const score = this.calculateVerificationScore(checks);
+    const issues = await this.identifyIssues(checks, {
+      analysis: safeAnalysis,
+      diagnosis: safeDiagnosis,
+      citations: safeCitations,
+      recommendations: safeRecommendations,
+    });
+    const score = this.computeScore(checks);
     const passed = score >= this.VERIFICATION_THRESHOLD;
 
     return {
@@ -45,13 +56,13 @@ export class VerificationService {
       hallucinationFree: data.hallucinationChecks.every(c => c.passed),
     };
 
-    return this.calculateVerificationScore(checks);
+    return this.computeScore(checks);
   }
 
   private async checkMedicalAccuracy(analysis: string, diagnosis: string[]): Promise<boolean> {
     // Check if analysis contains medical terminology and valid diagnoses
-    const hasMedicalTerms = /patient|symptoms|diagnosis|treatment|medication/i.test(analysis);
-    const hasValidDiagnosis = diagnosis.length > 0 && diagnosis.every(d => d.length > 3);
+    const hasMedicalTerms = /patient|symptom|diagnos|condition|treatment|medication|disease|disorder|syndrome/i.test(analysis);
+    const hasValidDiagnosis = diagnosis.length > 0 && diagnosis.every(d => d.length >= 3);
     return hasMedicalTerms && hasValidDiagnosis;
   }
 
@@ -137,7 +148,7 @@ export class VerificationService {
     return issues;
   }
 
-  private calculateVerificationScore(checks: Record<string, boolean>): number {
+  private computeScore(checks: Record<string, boolean>): number {
     const weights = {
       medicalAccuracy: 0.3,
       citationValidity: 0.2,

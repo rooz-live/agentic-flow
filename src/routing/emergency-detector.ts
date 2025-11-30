@@ -77,19 +77,18 @@ export class EmergencyDetector {
 
   /**
    * Calculate keyword match score
+   * Returns the maximum weight of any matched keyword (0-1 scale)
    */
   private calculateKeywordScore(text: string, keywords: EmergencySignal[]): number {
-    let totalWeight = 0;
-    let matchedWeight = 0;
+    let maxMatchedWeight = 0;
 
     for (const signal of keywords) {
-      totalWeight += signal.weight;
       if (text.includes(signal.keyword)) {
-        matchedWeight += signal.weight;
+        maxMatchedWeight = Math.max(maxMatchedWeight, signal.weight);
       }
     }
 
-    return totalWeight > 0 ? matchedWeight / totalWeight : 0;
+    return maxMatchedWeight;
   }
 
   /**

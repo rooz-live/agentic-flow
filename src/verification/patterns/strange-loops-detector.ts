@@ -94,6 +94,47 @@ export class StrangeLoopsDetector {
       });
     }
 
+    // Also detect self-referential definitions
+    const selfRefPatterns = this.detectSelfReferentialPatterns(text);
+    patterns.push(...selfRefPatterns);
+
+    return patterns;
+  }
+
+  /**
+   * Detect self-referential definition patterns
+   */
+  private detectSelfReferentialPatterns(text: string): LogicalPattern[] {
+    const patterns: LogicalPattern[] = [];
+    const lowerText = text.toLowerCase();
+
+    // Pattern: "X is when something is X" or "X defines itself X-ly"
+    const selfRefPatterns = [
+      /(\w+)\s+is\s+(?:when|where|what)\s+(?:something|it)\s+is\s+\1/i,
+      /(\w+)\s+(?:defines?|describes?)\s+itself\s+\1/i,
+      /(\w+).*itself.*\1ly/i,
+      /(\w+).*\1.*itself/i,
+    ];
+
+    for (const pattern of selfRefPatterns) {
+      const match = pattern.exec(lowerText);
+      if (match) {
+        patterns.push({
+          type: 'self-reference',
+          severity: 'medium',
+          description: `Self-referential definition detected: "${match[1]}" is defined using itself`,
+          location: [{
+            start: match.index,
+            end: match.index + match[0].length,
+            context: text.substring(Math.max(0, match.index - 20), match.index + match[0].length + 20),
+          }],
+          chain: [match[0]],
+          suggestion: 'Define the term using independent concepts',
+        });
+        break; // Only report first match to avoid duplicates
+      }
+    }
+
     return patterns;
   }
 
@@ -132,23 +173,58 @@ export class StrangeLoopsDetector {
   } {
     const edges: CausalEdge[] = [];
 
-    // Identify relationships between claims
+    // Identify relationships between claims (check both directions)
     for (let i = 0; i < claims.length; i++) {
-      for (let j = i + 1; j < claims.length; j++) {
+      for (let j = 0; j < claims.length; j++) {
+        if (i === j) continue;
+
         const relationship = this.detectRelationship(claims[i], claims[j]);
 
         if (relationship) {
-          edges.push({
-            from: claims[i].id,
-            to: claims[j].id,
-            type: relationship.type,
-            strength: relationship.strength,
-          });
+          // Check if edge already exists
+          const exists = edges.some(e => e.from === claims[i].id && e.to === claims[j].id);
+          if (!exists) {
+            edges.push({
+              from: claims[i].id,
+              to: claims[j].id,
+              type: relationship.type,
+              strength: relationship.strength,
+            });
+          }
         }
       }
     }
 
+    // Also detect back-references within single claims (e.g., "A because B leads to A")
+    for (const claim of claims) {
+      if (this.hasBackReference(claim.claim)) {
+        // Create self-loop edge for circular reasoning within a single statement
+        edges.push({
+          from: claim.id,
+          to: claim.id,
+          type: 'causes',
+          strength: 0.8,
+        });
+      }
+    }
+
     return { nodes: claims, edges };
+  }
+
+  /**
+   * Check if a claim contains a back-reference pattern (circular within single statement)
+   */
+  private hasBackReference(text: string): boolean {
+    const lowerText = text.toLowerCase();
+
+    // Pattern: "X causes/leads to Y because Y causes/leads to X"
+    const backRefPatterns = [
+      /(\w+)\s+(?:causes?|leads?\s+to)\s+(\w+)\s+because\s+\2\s+(?:causes?|leads?\s+to)\s+\1/i,
+      /(\w+)\s+(?:causes?|leads?\s+to)\s+(\w+).*\2\s+(?:causes?|leads?\s+to)\s+\1/i,
+      /therefore\s+(\w+)\s+(?:causes?|leads?\s+to)\s+(\w+).*\1.*\2/i,
+    ];
+
+    return backRefPatterns.some(pattern => pattern.test(lowerText));
   }
 
   /**
@@ -273,10 +349,14 @@ export class StrangeLoopsDetector {
   ): Promise<LogicalPattern[]> {
     const patterns: LogicalPattern[] = [];
 
+    // Check for within-sentence contradictions first
+    const withinSentenceContradictions = this.detectWithinSentenceContradictions(text);
+    patterns.push(...withinSentenceContradictions);
+
     // Extract claims
     const claims = this.extractClaims(text);
 
-    // Check for keyword contradictions
+    // Check for keyword contradictions between claims
     for (let i = 0; i < claims.length; i++) {
       for (let j = i + 1; j < claims.length; j++) {
         const contradiction = this.checkContradiction(claims[i], claims[j]);
@@ -294,6 +374,51 @@ export class StrangeLoopsDetector {
             suggestion: 'Resolve contradictory statements with additional evidence',
           });
         }
+      }
+    }
+
+    return patterns;
+  }
+
+  /**
+   * Detect contradictions within a single sentence
+   */
+  private detectWithinSentenceContradictions(text: string): LogicalPattern[] {
+    const patterns: LogicalPattern[] = [];
+    const lowerText = text.toLowerCase();
+
+    // Check for contradictory keyword pairs within the same text
+    for (const [word1, word2] of this.CONTRADICTION_KEYWORDS) {
+      if (lowerText.includes(word1) && lowerText.includes(word2)) {
+        patterns.push({
+          type: 'contradiction',
+          severity: 'high',
+          description: `Contradictory terms in same statement: "${word1}" vs "${word2}"`,
+          location: [],
+          chain: [text],
+          suggestion: 'Remove contradictory terms or clarify the intended meaning',
+        });
+      }
+    }
+
+    // Check for "always/never" type contradictions
+    const alwaysNeverPairs = [
+      ['always', 'never'],
+      ['all', 'none'],
+      ['every', 'no'],
+      ['completely', 'not at all'],
+    ];
+
+    for (const [word1, word2] of alwaysNeverPairs) {
+      if (lowerText.includes(word1) && lowerText.includes(word2)) {
+        patterns.push({
+          type: 'contradiction',
+          severity: 'high',
+          description: `Absolute contradiction detected: "${word1}" and "${word2}" in same statement`,
+          location: [],
+          chain: [text],
+          suggestion: 'Clarify the intended meaning - absolute terms contradict each other',
+        });
       }
     }
 

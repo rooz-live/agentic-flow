@@ -3,7 +3,8 @@
  * @description Global test setup for QUIC test suite
  */
 
-import { beforeAll, afterAll, vi } from 'vitest';
+// Jest global setup - no imports needed, using global jest APIs
+// vscode mock is provided via moduleNameMapper in jest.config.js -> tests/__mocks__/vscode.ts
 
 // Global test configuration
 beforeAll(() => {
@@ -17,12 +18,12 @@ beforeAll(() => {
   // Mock console methods to reduce noise in tests
   global.console = {
     ...console,
-    log: vi.fn(),
-    debug: vi.fn(),
-    info: vi.fn(),
+    log: jest.fn(),
+    debug: jest.fn(),
+    info: jest.fn(),
     warn: console.warn, // Keep warnings
     error: console.error, // Keep errors
-  };
+  } as any;
 
   console.info('Test environment initialized');
 });

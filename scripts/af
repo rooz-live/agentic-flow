@@ -1910,11 +1910,53 @@ capture_circle_participation() {
         outcome="partial"
     fi
 
-    # Capture pattern events triggered this iteration
-    local patterns_triggered="${AF_PATTERNS_TRIGGERED:-[]}"
+    # Build patterns_triggered array from governance pattern flags
+    local patterns_triggered="["
+    local first=1
+    if [ "${AF_PROD_DEPTH_LADDER:-0}" = "1" ]; then
+        [ $first -eq 0 ] && patterns_triggered+=","
+        patterns_triggered+="\"depth-ladder\""
+        first=0
+    fi
+    if [ "${AF_PROD_SAFE_DEGRADE:-0}" = "1" ]; then
+        [ $first -eq 0 ] && patterns_triggered+=","
+        patterns_triggered+="\"safe-degrade\""
+        first=0
+    fi
+    if [ "${AF_PROD_CIRCLE_RISK_FOCUS:-0}" = "1" ]; then
+        [ $first -eq 0 ] && patterns_triggered+=","
+        patterns_triggered+="\"circle-risk-focus\""
+        first=0
+    fi
+    if [ "${AF_PROD_AUTOCOMMIT_SHADOW:-0}" = "1" ]; then
+        [ $first -eq 0 ] && patterns_triggered+=","
+        patterns_triggered+="\"autocommit-shadow\""
+        first=0
+    fi
+    if [ "${AF_PROD_GUARDRAIL_LOCK:-0}" = "1" ]; then
+        [ $first -eq 0 ] && patterns_triggered+=","
+        patterns_triggered+="\"guardrail-lock\""
+        first=0
+    fi
+    if [ "${AF_PROD_FAILURE_STRATEGY:-0}" = "1" ]; then
+        [ $first -eq 0 ] && patterns_triggered+=","
+        patterns_triggered+="\"failure-strategy\""
+        first=0
+    fi
+    if [ "${AF_PROD_ITERATION_BUDGET:-0}" = "1" ]; then
+        [ $first -eq 0 ] && patterns_triggered+=","
+        patterns_triggered+="\"iteration-budget\""
+        first=0
+    fi
+    if [ "${AF_PROD_OBSERVABILITY_FIRST:-0}" = "1" ]; then
+        [ $first -eq 0 ] && patterns_triggered+=","
+        patterns_triggered+="\"observability-first\""
+        first=0
+    fi
+    patterns_triggered+="]"
 
     # Build enhanced circle participation event for metrics_log.jsonl
-    local event="{\"type\":\"circle_participation\",\"timestamp\":\"$timestamp\",\"run_id\":\"$run_id\",\"iteration\":$iteration,\"circle\":\"$active_circle\",\"depth\":$current_depth,\"economic\":{\"cod\":$cod,\"wsjf_score\":$wsjf,\"risk_score\":$risk_score},\"roam_delta\":$roam_delta,\"outcome\":\"$outcome\",\"evaluation_duration_ms\":$evaluation_duration,\"patterns_duration_ms\":$patterns_duration,\"circles\":[{\"circle\":\"$active_circle\",\"role\":\"coordinator\",\"participation_level\":100,\"responsibilities\":[\"cycle_orchestration\",\"iris_integration\"]}]}"
+    local event="{\"type\":\"circle_participation\",\"timestamp\":\"$timestamp\",\"run_id\":\"$run_id\",\"iteration\":$iteration,\"circle\":\"$active_circle\",\"depth\":$current_depth,\"economic\":{\"cod\":$cod,\"wsjf_score\":$wsjf,\"risk_score\":$risk_score},\"roam_delta\":$roam_delta,\"outcome\":\"$outcome\",\"evaluation_duration_ms\":$evaluation_duration,\"patterns_duration_ms\":$patterns_duration,\"patterns_triggered\":$patterns_triggered,\"circles\":[{\"circle\":\"$active_circle\",\"role\":\"coordinator\",\"participation_level\":100,\"responsibilities\":[\"cycle_orchestration\",\"iris_integration\"]}]}"
 
     local metrics_file="$PROJECT_ROOT/.goalie/metrics_log.jsonl"
     mkdir -p "$(dirname "$metrics_file")"
@@ -1922,7 +1964,7 @@ capture_circle_participation() {
 
     # Emit structured pattern event to pattern_metrics.jsonl with full economic context
     local pattern_metrics_file="$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
-    local pattern_event="{\"ts\":\"$timestamp\",\"run\":\"prod-cycle\",\"run_id\":\"$run_id\",\"iteration\":$iteration,\"circle\":\"$active_circle\",\"depth\":$current_depth,\"pattern\":\"circle-participation\",\"economic\":{\"cod\":$cod,\"wsjf_score\":$wsjf,\"risk_score\":$risk_score},\"roam_delta\":$roam_delta,\"action\":\"capture-participation\",\"outcome\":\"$outcome\",\"mode\":\"advisory\",\"gate\":\"observability\"}"
+    local pattern_event="{\"ts\":\"$timestamp\",\"run\":\"prod-cycle\",\"run_id\":\"$run_id\",\"iteration\":$iteration,\"circle\":\"$active_circle\",\"depth\":$current_depth,\"pattern\":\"circle-participation\",\"economic\":{\"cod\":$cod,\"wsjf_score\":$wsjf,\"risk_score\":$risk_score},\"roam_delta\":$roam_delta,\"action\":\"capture-participation\",\"outcome\":\"$outcome\",\"patterns_triggered\":$patterns_triggered,\"mode\":\"advisory\",\"gate\":\"observability\"}"
     echo "$pattern_event" >> "$pattern_metrics_file"
 }
 
@@ -2120,7 +2162,7 @@ log_production_cycle_metrics() {
         circuit_breaker_active="true"
     fi
 
-    if [ "$AF_ENHANCED_AUTOCOMMIT" = "1" ]; then
+    if [ "${AF_ENHANCED_AUTOCOMMIT:-0}" = "1" ]; then
         rollback_capability="true"
     fi
 
@@ -2128,7 +2170,7 @@ log_production_cycle_metrics() {
         enterprise_features="true"
     fi
 
-    if [ "$AF_IRIS_PARALLEL_EXECUTION" = "1" ]; then
+    if [ "${AF_IRIS_PARALLEL_EXECUTION:-0}" = "1" ]; then
         parallel_execution="true"
     fi
 
@@ -2903,6 +2945,12 @@ PYEOF
 	        $AF_IRIS_CMD config show
 	        ;;
 
+	    dashboard)
+	        shift
+	        echo -e "${BLUE}=== Unified Dashboard ===${NC}"
+	        # Delegate to Python dashboard script
+	        python3 "$SCRIPT_DIR/af_dashboard.py" "$@"
+	        ;;
 
         help|--help|-h) show_help ;;
         *)

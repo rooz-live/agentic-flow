@@ -6,7 +6,7 @@ Part of BML-12: Establish Risk Controls & Health Checks
 
 import json
 import subprocess
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List
 
@@ -97,7 +97,9 @@ class BMLHealthCheck:
             
             last_entry = json.loads(lines[-1].strip())
             last_timestamp = datetime.fromisoformat(last_entry['timestamp'])
-            hours_since = (datetime.now() - last_timestamp).total_seconds() / 3600
+            # Use timezone-aware datetime to match UTC timestamps in cycle_log
+            now = datetime.now(timezone.utc) if last_timestamp.tzinfo else datetime.now()
+            hours_since = (now - last_timestamp).total_seconds() / 3600
             
             if hours_since > (self.thresholds['stale_days_max'] * 24):
                 return {

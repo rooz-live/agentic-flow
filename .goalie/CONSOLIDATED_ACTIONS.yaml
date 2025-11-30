@@ -1481,3 +1481,361 @@ next_sprint:
       - Low-confidence recommendations logged but not emitted
     evidence_sources:
       - gist.github.com/ruvnet/d09b5168a9cdb1ae0d7c5c21d2a37e81
+
+  # === Production Maturity Improvements (Initiative 1) ===
+  # Based on delta_history analysis: 100% zero-adjustment rate, Δ avg=0.1855
+  - id: PROD-001
+    title: Fix health_check.py datetime subtraction TypeError
+    status: complete
+    completed_at: 2025-11-30T19:22:00Z
+    priority: critical
+    circle: Orchestrator
+    wsjf_score: 30
+    cost_of_delay: 90
+    pattern: failure-strategy
+    rca_method: 5-whys
+    rca_iteration: 1
+    detected_pattern: cycle-failure-cascade
+    analysis: |
+      Root cause of throughput=0.0: All prod-cycle iterations are failing.
+      5-Whys Analysis:
+      1. Why is throughput 0? Because iterations_without_progress = current_iteration
+      2. Why is iwp = current_iteration? Because all cycles are failing
+      3. Why are cycles failing? health_check.py raises TypeError
+      4. Why TypeError? datetime.now() - offset-aware datetime subtraction
+      5. Why offset mismatch? cycle_log timestamps are UTC-aware, datetime.now() is naive
+      Fix: Use datetime.now(timezone.utc) in health_check.py line 100
+    affected_files:
+      - scripts/agentic/health_check.py
+    verification: ./scripts/af full-cycle 1 && echo "SUCCESS"
+    resolution: |
+      Fixed datetime subtraction by using timezone-aware datetime.now(timezone.utc)
+      Also fixed unbound variable AF_ENHANCED_AUTOCOMMIT and AF_IRIS_PARALLEL_EXECUTION
+      in scripts/af by adding default values with ${VAR:-0} syntax.
+    tags:
+      - critical
+      - blocking
+
+  - id: PROD-002
+    title: Add adjustment trigger for depth-ladder oscillation detection
+    status: TODO
+    priority: important
+    circle: Assessor
+    wsjf_score: 12
+    cost_of_delay: 36
+    pattern: governance-review
+    detected_pattern: depth-oscillation
+    analysis: |
+      Pattern metrics show depth-ladder oscillation:
+      - iter 2,8,14: assessor depth=5
+      - iter 5,11: orchestrator depth=4
+      This 3-iteration cycle suggests suboptimal depth configuration.
+      Add hysteresis to prevent thrashing between depth levels.
+    tags:
+      - governance
+      - pattern-recognition
+
+  - id: PROD-003
+    title: Tune DELTA_IMPROVEMENT_THRESHOLD based on observed delta distribution
+    status: TODO
+    priority: normal
+    circle: Analyst
+    wsjf_score: 10
+    cost_of_delay: 30
+    pattern: governance-review
+    detected_pattern: threshold-too-low
+    analysis: |
+      Observed: 93% of iterations (13/14) are above threshold=0.05
+      Delta range: -0.1 to 0.2975, avg=0.1855
+      Recommendation: Increase threshold to 0.10 to make delta evaluation
+      more discriminating and trigger actual governance adjustments.
+    tags:
+      - safla
+      - calibration
+
+  - id: PROD-004
+    title: Add capability metric tracking for new_capabilities calculation
+    status: TODO
+    priority: normal
+    circle: Orchestrator
+    wsjf_score: 8
+    cost_of_delay: 24
+    pattern: governance-review
+    detected_pattern: capability-metric-static
+    analysis: |
+      Current metrics show new_capabilities=0 across all iterations.
+      This is because adjustments_made=0 for all 14 entries.
+      Need to track actual capability expansions (new circles, new patterns,
+      new telemetry events) to provide meaningful capability delta.
+    tags:
+      - safla
+      - telemetry
+
+  # === Security Vulnerability Remediation (Initiative 2) ===
+  # WSJF-prioritized Dependabot alerts, top 10 by CoD/JobSize
+  - id: SEC-005
+    title: Upgrade transformers to fix CVE-2024-11393/11394/11392 (RCE via deserialization)
+    status: TODO
+    priority: critical
+    circle: Orchestrator
+    wsjf_score: 29.3
+    cost_of_delay: 88
+    job_size: 3
+    cvss_score: 8.8
+    cve_ids:
+      - CVE-2024-11393
+      - CVE-2024-11394
+      - CVE-2024-11392
+    affected_files:
+      - agentic-flow/examples/crispr-cas13-pipeline/docs/docker/off-target-service/requirements.txt
+    fix_version: ">=4.53.0"
+    verification: pip check transformers
+    evidence_sources:
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/13
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/14
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/15
+    tags:
+      - security
+      - critical
+
+  - id: SEC-006
+    title: Upgrade glob in research-swarm to fix CVE-2025-64756 (command injection)
+    status: TODO
+    priority: critical
+    circle: Orchestrator
+    wsjf_score: 25
+    cost_of_delay: 75
+    job_size: 3
+    cvss_score: 7.5
+    cve_ids:
+      - CVE-2025-64756
+    affected_files:
+      - examples/research-swarm/package-lock.json
+    fix_version: ">=10.5.0"
+    verification: npm audit --prefix examples/research-swarm
+    evidence_sources:
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/32
+    tags:
+      - security
+      - critical
+
+  - id: SEC-007
+    title: Upgrade protobuf in rights-preserving-platform to fix CVE-2025-53605 (stack overflow)
+    status: TODO
+    priority: urgent
+    circle: Orchestrator
+    wsjf_score: 22
+    cost_of_delay: 66
+    job_size: 3
+    cvss_score: 6.6
+    cve_ids:
+      - CVE-2025-53605
+    affected_files:
+      - examples/rights-preserving-platform/Cargo.lock
+    fix_version: ">=3.7.2"
+    verification: cargo audit
+    evidence_sources:
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/35
+    tags:
+      - security
+      - rust
+
+  - id: SEC-008
+    title: Upgrade idna in rights-preserving-platform to fix CVE-2024-12224 (URL spoofing)
+    status: TODO
+    priority: urgent
+    circle: Orchestrator
+    wsjf_score: 21
+    cost_of_delay: 63
+    job_size: 3
+    cvss_score: 6.3
+    cve_ids:
+      - CVE-2024-12224
+    affected_files:
+      - examples/rights-preserving-platform/Cargo.lock
+    fix_version: ">=1.0.0"
+    verification: cargo audit
+    evidence_sources:
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/34
+    tags:
+      - security
+      - rust
+
+  - id: SEC-009
+    title: Upgrade requests in CRISPR pipeline services to fix credential leak
+    status: TODO
+    priority: urgent
+    circle: Orchestrator
+    wsjf_score: 17.7
+    cost_of_delay: 53
+    job_size: 3
+    cvss_score: 5.3
+    cve_ids:
+      - CVE-2024-47081
+      - CVE-2024-35195
+    affected_files:
+      - agentic-flow/examples/crispr-cas13-pipeline/docs/docker/off-target-service/requirements.txt
+      - agentic-flow/examples/crispr-cas13-pipeline/docs/docker/diff-expr-service/requirements.txt
+      - agentic-flow/examples/crispr-cas13-pipeline/docs/docker/alignment-service/requirements.txt
+    fix_version: ">=2.32.4"
+    verification: pip check requests
+    evidence_sources:
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/4
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/5
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/6
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/7
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/9
+    tags:
+      - security
+      - python
+
+  - id: SEC-010
+    title: Upgrade body-parser in agentdb/agentic-flow to fix DoS
+    status: TODO
+    priority: important
+    circle: Orchestrator
+    wsjf_score: 17.7
+    cost_of_delay: 53
+    job_size: 3
+    cvss_score: 5.3
+    cve_ids:
+      - CVE-2025-13466
+    affected_files:
+      - packages/agentdb/package-lock.json
+      - agentic-flow/package-lock.json
+      - examples/research-swarm/package-lock.json
+    fix_version: ">=2.2.1"
+    verification: npm audit
+    evidence_sources:
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/31
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/33
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/40
+    tags:
+      - security
+      - npm
+
+  - id: SEC-011
+    title: Upgrade esbuild in agentdb to fix CORS origin leak
+    status: TODO
+    priority: important
+    circle: Orchestrator
+    wsjf_score: 17.7
+    cost_of_delay: 53
+    job_size: 3
+    cvss_score: 5.3
+    cve_ids: []
+    ghsa_id: GHSA-67mh-4wv8-2f99
+    affected_files:
+      - packages/agentdb/package-lock.json
+    fix_version: ">=0.25.0"
+    verification: npm audit --prefix packages/agentdb
+    evidence_sources:
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/39
+    tags:
+      - security
+      - npm
+      - dev-dependency
+
+  - id: SEC-012
+    title: Upgrade pymongo to fix CVE-2024-5629 (out-of-bounds read)
+    status: TODO
+    priority: important
+    circle: Orchestrator
+    wsjf_score: 15.7
+    cost_of_delay: 47
+    job_size: 3
+    cvss_score: 4.7
+    cve_ids:
+      - CVE-2024-5629
+    affected_files:
+      - agentic-flow/examples/crispr-cas13-pipeline/docs/docker/off-target-service/requirements.txt
+    fix_version: ">=4.6.3"
+    verification: pip check pymongo
+    evidence_sources:
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/10
+    tags:
+      - security
+      - python
+
+  - id: SEC-013
+    title: Upgrade js-yaml in baseline snapshot to fix prototype pollution
+    status: TODO
+    priority: normal
+    circle: Orchestrator
+    wsjf_score: 17.7
+    cost_of_delay: 53
+    job_size: 3
+    cvss_score: 5.3
+    cve_ids:
+      - CVE-2025-64718
+    affected_files:
+      - .snapshots/baseline/package-lock.json
+    fix_version: ">=4.1.1"
+    verification: npm audit
+    evidence_sources:
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/3
+    tags:
+      - security
+      - npm
+
+  - id: SEC-014
+    title: Address transformers ReDoS vulnerabilities
+    status: TODO
+    priority: normal
+    circle: Orchestrator
+    wsjf_score: 17.7
+    cost_of_delay: 53
+    job_size: 3
+    cvss_score: 5.3
+    cve_ids:
+      - CVE-2025-6921
+      - CVE-2025-6051
+      - CVE-2025-6638
+    affected_files:
+      - agentic-flow/examples/crispr-cas13-pipeline/docs/docker/off-target-service/requirements.txt
+    fix_version: ">=4.53.0"
+    verification: pip check transformers
+    note: "Combines multiple ReDoS issues - same fix version as SEC-005"
+    evidence_sources:
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/28
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/29
+      - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/30
+    tags:
+      - security
+      - python
+
+# === Swarm Execution Plan ===
+swarm_execution_plan:
+  strategy: hierarchical
+  coordinator: Orchestrator
+  phases:
+    - phase: 1
+      name: Critical Security (24h)
+      parallel_agents: 3
+      items: [SEC-005, SEC-006]
+      topology: mesh
+      note: "Critical RCE vulnerabilities - immediate remediation"
+    - phase: 2
+      name: Urgent Security (48h)
+      parallel_agents: 3
+      items: [SEC-007, SEC-008, SEC-009]
+      topology: hierarchical
+      note: "Rust and Python dependency updates"
+    - phase: 3
+      name: Important Security (72h)
+      parallel_agents: 2
+      items: [SEC-010, SEC-011, SEC-012]
+      topology: adaptive
+      note: "npm transitive dependencies"
+    - phase: 4
+      name: Normal Priority (1 week)
+      parallel_agents: 2
+      items: [SEC-013, SEC-014]
+      topology: mesh
+      note: "Snapshot and bundled fixes"
+    - phase: 5
+      name: Production Maturity (2 weeks)
+      parallel_agents: 2
+      items: [PROD-001, PROD-002, PROD-003, PROD-004]
+      topology: adaptive
+      note: "SAFLA calibration and governance tuning"

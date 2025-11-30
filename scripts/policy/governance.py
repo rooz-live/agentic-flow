@@ -49,6 +49,68 @@ CIRCLES = [
 SAFE_DEGRADE_THRESHOLD_SCORE = 50
 SAFE_DEGRADE_THRESHOLD_INCIDENTS = 8
 
+# SAFLA Delta Evaluation Weights (α coefficients)
+# See: https://github.com/ruvnet/SAFLA
+SAFLA_WEIGHTS = {
+    "performance": 0.30,  # α₁: Reward per token efficiency
+    "efficiency": 0.30,   # α₂: Throughput per resource
+    "stability": 0.20,    # α₃: 1 - divergence score
+    "capability": 0.20,   # α₄: New capabilities ratio
+}
+
+# Delta improvement threshold: only apply changes if Δ_total > threshold
+DELTA_IMPROVEMENT_THRESHOLD = 0.05
+
+
+def calculate_delta_improvement(current_metrics: Dict[str, Any], previous_metrics: Dict[str, Any]) -> float:
+    """
+    Calculate improvement delta using SAFLA's delta evaluation formula.
+
+    Formula: Δ_total = α₁×Δ_performance + α₂×Δ_efficiency + α₃×Δ_stability + α₄×Δ_capability
+
+    Where:
+    - Δ_performance = (current_reward - previous_reward) / tokens_used
+    - Δ_efficiency = (current_throughput - previous_throughput) / resource_used
+    - Δ_stability = 1 - divergence_score
+    - Δ_capability = new_capabilities / total_capabilities
+
+    Args:
+        current_metrics: Current cycle metrics (reward, tokens_used, throughput, etc.)
+        previous_metrics: Previous cycle metrics for comparison
+
+    Returns:
+        float: Delta improvement score in range [-1, 1], positive = improvement
+    """
+    # Extract metrics with safe defaults
+    current_reward = current_metrics.get("reward", 0.0)
+    previous_reward = previous_metrics.get("reward", 0.0)
+    tokens_used = max(current_metrics.get("tokens_used", 1), 1)
+
+    current_throughput = current_metrics.get("throughput", 0.0)
+    previous_throughput = previous_metrics.get("throughput", 0.0)
+    resource_used = max(current_metrics.get("resource_used", 1), 1)
+
+    divergence_score = current_metrics.get("divergence_score", 0.0)
+    new_capabilities = current_metrics.get("new_capabilities", 0)
+    total_capabilities = max(current_metrics.get("total_capabilities", 1), 1)
+
+    # Calculate individual delta components
+    delta_performance = (current_reward - previous_reward) / tokens_used
+    delta_efficiency = (current_throughput - previous_throughput) / resource_used
+    delta_stability = 1.0 - min(max(divergence_score, 0.0), 1.0)
+    delta_capability = new_capabilities / total_capabilities
+
+    # Apply SAFLA weights
+    delta_total = (
+        SAFLA_WEIGHTS["performance"] * delta_performance +
+        SAFLA_WEIGHTS["efficiency"] * delta_efficiency +
+        SAFLA_WEIGHTS["stability"] * delta_stability +
+        SAFLA_WEIGHTS["capability"] * delta_capability
+    )
+
+    # Clamp to [-1, 1] range for normalization
+    return max(min(delta_total, 1.0), -1.0)
+
 
 class TelemetryLogger:
     """Handles 'Observability First' pattern logging."""
@@ -623,7 +685,7 @@ class GovernanceMiddleware:
 
     def adjust_parameters_from_retro(self):
         """
-        Self-tune governance parameters based on retro feedback.
+        Self-tune governance parameters based on retro feedback with SAFLA delta evaluation.
 
         Adjustments:
         1. Depth Ladder: If circle shows stagnation, reduce depth by 1 (min: 2)
@@ -631,11 +693,43 @@ class GovernanceMiddleware:
         3. Iteration Budget: If extensions_used > 2 in last 5 runs, increase max_iterations by 10%
         4. Safe Degrade Threshold: If safe_degrade_error_count > 5, increase incident threshold by 2
 
+        SAFLA Integration:
+        - Calculate delta improvement before applying parameter changes
+        - Only apply changes if Δ_total > DELTA_IMPROVEMENT_THRESHOLD
+        - Track delta_history in governance_state.json for trend analysis
+        - Emit governance_delta_evaluation events to metrics_log.jsonl
+
         All adjustments are logged to pattern_metrics.jsonl with mutation=true for auditability.
         """
         state = self.load_governance_state()
         adjustments_made = 0
         timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+        # Build current metrics snapshot for SAFLA delta evaluation
+        current_metrics = {
+            "reward": self.current_avg_score / 100.0,  # Normalize to [0, 1]
+            "tokens_used": max(self.current_iteration, 1),
+            "throughput": (self.current_iteration - self.iterations_without_progress) / max(self.current_iteration, 1),
+            "resource_used": self.extensions_used + 1,
+            "divergence_score": self.safe_degrade_error_count / 10.0,  # Normalize
+            "new_capabilities": adjustments_made,
+            "total_capabilities": 4,  # We have 4 tunable parameters
+        }
+
+        # Load previous metrics from delta_history (or use defaults)
+        delta_history = state.get("delta_history", [])
+        if delta_history:
+            previous_metrics = delta_history[-1].get("metrics", {})
+        else:
+            previous_metrics = {
+                "reward": 0.5,
+                "tokens_used": 1,
+                "throughput": 0.5,
+                "resource_used": 1,
+                "divergence_score": 0.0,
+                "new_capabilities": 0,
+                "total_capabilities": 4,
+            }
 
         # 1. Depth Ladder adjustment: Check for stagnation
         pattern_log = self.project_root / ".goalie" / "pattern_metrics.jsonl"
@@ -749,6 +843,47 @@ class GovernanceMiddleware:
             })
             adjustments_made += 1
             print(f"[Governance] Tuning: Increased safe-degrade threshold {old_threshold} → {new_threshold}")
+
+        # Update current_metrics with actual adjustments made
+        current_metrics["new_capabilities"] = adjustments_made
+
+        # SAFLA Delta Evaluation: Calculate improvement before saving
+        delta_improvement = calculate_delta_improvement(current_metrics, previous_metrics)
+
+        # Emit governance_delta_evaluation event to metrics_log.jsonl
+        delta_event = {
+            "event_type": "governance_delta_evaluation",
+            "run_id": self.run_id,
+            "iteration": self.current_iteration,
+            "timestamp": timestamp,
+            "delta_total": delta_improvement,
+            "delta_threshold": DELTA_IMPROVEMENT_THRESHOLD,
+            "above_threshold": delta_improvement > DELTA_IMPROVEMENT_THRESHOLD,
+            "adjustments_proposed": adjustments_made,
+            "current_metrics": current_metrics,
+            "previous_metrics": previous_metrics,
+            "safla_weights": SAFLA_WEIGHTS,
+        }
+        self.telemetry.log_metric(delta_event)
+
+        # Log delta evaluation result
+        if delta_improvement > DELTA_IMPROVEMENT_THRESHOLD:
+            print(f"[Governance] SAFLA Δ={delta_improvement:.4f} > threshold={DELTA_IMPROVEMENT_THRESHOLD} ✓")
+        else:
+            print(f"[Governance] SAFLA Δ={delta_improvement:.4f} ≤ threshold={DELTA_IMPROVEMENT_THRESHOLD}")
+
+        # Track delta_history in governance_state.json
+        delta_entry = {
+            "timestamp": timestamp,
+            "run_id": self.run_id,
+            "iteration": self.current_iteration,
+            "delta_total": delta_improvement,
+            "adjustments_made": adjustments_made,
+            "metrics": current_metrics,
+        }
+        delta_history.append(delta_entry)
+        # Keep last 50 entries to prevent unbounded growth
+        state["delta_history"] = delta_history[-50:]
 
         # Save updated state
         self.save_governance_state(state)

@@ -61,6 +61,12 @@ SAFLA_WEIGHTS = {
 # Delta improvement threshold: only apply changes if Δ_total > threshold
 DELTA_IMPROVEMENT_THRESHOLD = 0.05
 
+# Depth-ladder oscillation detection constants (PROD-002)
+# Detect when depth values oscillate without meaningful improvement
+OSCILLATION_WINDOW = 6  # Number of recent iterations to analyze for oscillation
+OSCILLATION_THRESHOLD = 3  # Minimum direction changes to trigger oscillation detection
+OSCILLATION_HYSTERESIS = 2  # Iterations to wait before allowing another depth change after oscillation
+
 
 def calculate_delta_improvement(current_metrics: Dict[str, Any], previous_metrics: Dict[str, Any]) -> float:
     """
@@ -110,6 +116,71 @@ def calculate_delta_improvement(current_metrics: Dict[str, Any], previous_metric
 
     # Clamp to [-1, 1] range for normalization
     return max(min(delta_total, 1.0), -1.0)
+
+
+def detect_depth_oscillation(depth_history: List[int]) -> Dict[str, Any]:
+    """
+    Detect depth-ladder oscillation pattern (PROD-002).
+
+    Oscillation occurs when depth values repeatedly change direction without
+    achieving meaningful improvement (e.g., 4→5→4→5→4→5 indicates thrashing).
+
+    Args:
+        depth_history: List of recent depth values (most recent last)
+
+    Returns:
+        Dict with:
+        - oscillating: bool - True if oscillation detected
+        - direction_changes: int - Number of direction reversals
+        - pattern: str - Description of detected pattern
+        - suggested_depth: int - Recommended stable depth value
+    """
+    if len(depth_history) < OSCILLATION_WINDOW:
+        return {
+            "oscillating": False,
+            "direction_changes": 0,
+            "pattern": "insufficient-data",
+            "suggested_depth": depth_history[-1] if depth_history else DEFAULT_DEPTH,
+        }
+
+    # Analyze last OSCILLATION_WINDOW entries
+    recent = depth_history[-OSCILLATION_WINDOW:]
+    direction_changes = 0
+    last_direction = 0  # 0=none, 1=up, -1=down
+
+    for i in range(1, len(recent)):
+        diff = recent[i] - recent[i - 1]
+        if diff > 0:
+            current_direction = 1
+        elif diff < 0:
+            current_direction = -1
+        else:
+            continue  # No change
+
+        if last_direction != 0 and current_direction != last_direction:
+            direction_changes += 1
+        last_direction = current_direction
+
+    # Detect oscillation if direction changes exceed threshold
+    oscillating = direction_changes >= OSCILLATION_THRESHOLD
+
+    # Calculate suggested stable depth (median of oscillating values)
+    if oscillating:
+        unique_depths = sorted(set(recent))
+        # Use median as stable depth to avoid extremes
+        suggested_depth = unique_depths[len(unique_depths) // 2]
+        pattern = f"oscillation-{direction_changes}x-in-{OSCILLATION_WINDOW}"
+    else:
+        suggested_depth = recent[-1]
+        pattern = "stable"
+
+    return {
+        "oscillating": oscillating,
+        "direction_changes": direction_changes,
+        "pattern": pattern,
+        "suggested_depth": suggested_depth,
+        "recent_depths": recent,
+    }
 
 
 class TelemetryLogger:
@@ -760,11 +831,75 @@ class GovernanceMiddleware:
                         continue
 
         current_depth = state.get("depth_ladder", {}).get("base_depth", DEFAULT_DEPTH)
-        if stagnation_count >= 3 and current_depth > 2:
+
+        # PROD-002: Depth-Ladder Oscillation Detection
+        # Check for oscillation before allowing any depth changes
+        depth_history = state.get("depth_ladder", {}).get("depth_history", [])
+        depth_history.append(current_depth)
+        # Keep history bounded to 2x window for analysis
+        depth_history = depth_history[-(OSCILLATION_WINDOW * 2):]
+        state.setdefault("depth_ladder", {})["depth_history"] = depth_history
+
+        oscillation_result = detect_depth_oscillation(depth_history)
+        last_oscillation_iter = state.get("depth_ladder", {}).get(
+            "last_oscillation_adjustment_iter", -OSCILLATION_HYSTERESIS - 1
+        )
+        hysteresis_elapsed = (
+            self.current_iteration - last_oscillation_iter
+        ) >= OSCILLATION_HYSTERESIS
+
+        # Log oscillation detection event regardless of action
+        if oscillation_result["oscillating"]:
+            self.telemetry.log_pattern_event({
+                "run": "governance-tuning",
+                "run_id": self.run_id,
+                "iteration": self.current_iteration,
+                "pattern": "depth-oscillation",
+                "detected_pattern": "depth-oscillation",
+                "mutation": False,
+                "oscillation": oscillation_result,
+                "hysteresis_elapsed": hysteresis_elapsed,
+                "gate": "oscillation-detection",
+                "reason": oscillation_result["pattern"],
+                "action": "detect-oscillation",
+            })
+
+        # Handle oscillation: stabilize depth if oscillation detected and hysteresis allows
+        if oscillation_result["oscillating"] and hysteresis_elapsed:
+            suggested = oscillation_result["suggested_depth"]
+            if suggested != current_depth:
+                old_depth = current_depth
+                state["depth_ladder"]["base_depth"] = suggested
+                state["depth_ladder"]["last_oscillation_adjustment_iter"] = (
+                    self.current_iteration
+                )
+                self.current_depth = suggested
+
+                self.telemetry.log_pattern_event({
+                    "run": "governance-tuning",
+                    "run_id": self.run_id,
+                    "iteration": self.current_iteration,
+                    "pattern": "governance-tuning",
+                    "detected_pattern": "depth-oscillation",
+                    "mutation": True,
+                    "reason": "oscillation-stabilization",
+                    "adjustment": "depth-ladder-oscillation",
+                    "old_value": old_depth,
+                    "new_value": suggested,
+                    "trigger": f"oscillation={oscillation_result['pattern']}",
+                    "oscillation_details": oscillation_result,
+                })
+                adjustments_made += 1
+                print(
+                    f"[Governance] Oscillation detected: Stabilizing depth "
+                    f"{old_depth} → {suggested} (pattern: {oscillation_result['pattern']})"
+                )
+        elif stagnation_count >= 3 and current_depth > 2 and not oscillation_result["oscillating"]:
+            # Original stagnation logic - only if NOT oscillating
             new_depth = current_depth - 1
             old_depth = current_depth
             state["depth_ladder"]["base_depth"] = new_depth
-            self.current_depth = new_depth  # Apply immediately
+            self.current_depth = new_depth
 
             self.telemetry.log_pattern_event({
                 "run": "governance-tuning",

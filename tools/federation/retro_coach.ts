@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import * as yaml from 'yaml';
 import type {
     PatternBaselineDelta,
@@ -13,12 +14,341 @@ import {
 } from './shared_utils.js';
 import { publishStreamEvent, resolveStreamSocket } from './streamPublisher.js';
 
+// =============================================================================
+// SAFLA-002: Timeline Delta Tracking with Ed25519 Signatures
+//
+// Implements cryptographic verification for RCA event deltas:
+// - Ed25519 signatures for attestation of timeline events
+// - Merkle chain for cryptographic verification of audit trail
+// - Hash-based event linking for tamper detection
+// =============================================================================
+
+/**
+ * TimelineDelta interface for signed delta events (SAFLA-002)
+ * Represents a cryptographically signed change between two states
+ */
+interface TimelineDelta {
+  /** ISO 8601 timestamp of the delta event */
+  timestamp: string;
+  /** Unique identifier for this delta event */
+  eventId: string;
+  /** Type of delta: 'rca', 'action', 'metric', 'pattern' */
+  deltaType: 'rca' | 'action' | 'metric' | 'pattern';
+  /** SHA-256 hash of the previous delta in the chain */
+  previousHash: string;
+  /** The delta payload containing the actual change data */
+  payload: Record<string, unknown>;
+  /** SHA-256 hash of this delta's content (timestamp + eventId + deltaType + previousHash + payload) */
+  contentHash: string;
+  /** Ed25519 signature of the contentHash (hex-encoded) */
+  signature: string;
+  /** Public key used for signing (hex-encoded, for verification) */
+  publicKey: string;
+  /** Key identifier for key rotation support */
+  keyId: string;
+}
+
+/**
+ * Merkle chain node for audit trail verification (SAFLA-002)
+ */
+interface MerkleChainNode {
+  /** Position in the chain (0-indexed) */
+  index: number;
+  /** Hash of this node (combines contentHash and previousMerkleHash) */
+  merkleHash: string;
+  /** Reference to the TimelineDelta eventId */
+  deltaEventId: string;
+  /** Hash of the previous Merkle node (genesis has empty string) */
+  previousMerkleHash: string;
+}
+
+/**
+ * Timeline delta signing context for managing Ed25519 keys (SAFLA-002)
+ */
+interface TimelineDeltaContext {
+  /** Ed25519 private key (stored securely) */
+  privateKey: crypto.KeyObject | null;
+  /** Ed25519 public key */
+  publicKey: crypto.KeyObject | null;
+  /** Key identifier */
+  keyId: string;
+  /** Merkle chain state */
+  merkleChain: MerkleChainNode[];
+  /** Last delta hash for chaining */
+  lastDeltaHash: string;
+}
+
+// Global timeline delta context (initialized lazily)
+let timelineDeltaContext: TimelineDeltaContext | null = null;
+
+/**
+ * Initialize the timeline delta context with Ed25519 keys (SAFLA-002)
+ * Keys can be provided via environment variables or generated fresh.
+ *
+ * Environment variables:
+ * - TIMELINE_ED25519_PRIVATE_KEY: Base64-encoded private key
+ * - TIMELINE_ED25519_PUBLIC_KEY: Base64-encoded public key
+ * - TIMELINE_KEY_ID: Key identifier (defaults to 'retro-coach-default')
+ */
+function initializeTimelineDeltaContext(): TimelineDeltaContext {
+  if (timelineDeltaContext) {
+    return timelineDeltaContext;
+  }
+
+  const envPrivateKey = process.env.TIMELINE_ED25519_PRIVATE_KEY;
+  const envPublicKey = process.env.TIMELINE_ED25519_PUBLIC_KEY;
+  const keyId = process.env.TIMELINE_KEY_ID || 'retro-coach-default';
+
+  let privateKey: crypto.KeyObject | null = null;
+  let publicKey: crypto.KeyObject | null = null;
+
+  if (envPrivateKey && envPublicKey) {
+    // Use provided keys
+    try {
+      privateKey = crypto.createPrivateKey({
+        key: Buffer.from(envPrivateKey, 'base64'),
+        format: 'der',
+        type: 'pkcs8',
+      });
+      publicKey = crypto.createPublicKey({
+        key: Buffer.from(envPublicKey, 'base64'),
+        format: 'der',
+        type: 'spki',
+      });
+    } catch (err) {
+      console.warn('[SAFLA-002] Failed to load provided Ed25519 keys, generating new ones:', err);
+    }
+  }
+
+  if (!privateKey || !publicKey) {
+    // Generate fresh Ed25519 keypair
+    const keypair = crypto.generateKeyPairSync('ed25519');
+    privateKey = keypair.privateKey;
+    publicKey = keypair.publicKey;
+    console.log(`[SAFLA-002] Generated new Ed25519 keypair with keyId: ${keyId}`);
+  }
+
+  timelineDeltaContext = {
+    privateKey,
+    publicKey,
+    keyId,
+    merkleChain: [],
+    lastDeltaHash: '', // Genesis: empty previous hash
+  };
+
+  return timelineDeltaContext;
+}
+
+/**
+ * Compute SHA-256 hash of data (SAFLA-002)
+ */
+function computeHash(data: string): string {
+  return crypto.createHash('sha256').update(data).digest('hex');
+}
+
+/**
+ * Sign data using Ed25519 (SAFLA-002)
+ */
+function signData(data: string, privateKey: crypto.KeyObject): string {
+  const signature = crypto.sign(null, Buffer.from(data), privateKey);
+  return signature.toString('hex');
+}
+
+/**
+ * Verify Ed25519 signature (SAFLA-002)
+ */
+function verifySignature(data: string, signature: string, publicKey: crypto.KeyObject): boolean {
+  try {
+    return crypto.verify(null, Buffer.from(data), publicKey, Buffer.from(signature, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Create a signed timeline delta (SAFLA-002)
+ *
+ * This function creates a cryptographically signed delta event that:
+ * 1. Chains to the previous delta via hash linking
+ * 2. Signs the content hash with Ed25519
+ * 3. Updates the Merkle chain for audit verification
+ *
+ * @param deltaType - Type of delta event
+ * @param payload - The delta payload data
+ * @returns The signed TimelineDelta
+ */
+function createSignedTimelineDelta(
+  deltaType: TimelineDelta['deltaType'],
+  payload: Record<string, unknown>,
+): TimelineDelta {
+  const ctx = initializeTimelineDeltaContext();
+
+  const timestamp = new Date().toISOString();
+  const eventId = `delta-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`;
+  const previousHash = ctx.lastDeltaHash;
+
+  // Compute content hash (includes all fields except signature and publicKey)
+  const contentData = JSON.stringify({
+    timestamp,
+    eventId,
+    deltaType,
+    previousHash,
+    payload,
+  });
+  const contentHash = computeHash(contentData);
+
+  // Sign the content hash
+  const signature = ctx.privateKey
+    ? signData(contentHash, ctx.privateKey)
+    : '';
+
+  // Get public key in hex format for verification
+  const publicKeyHex = ctx.publicKey
+    ? ctx.publicKey.export({ format: 'der', type: 'spki' }).toString('hex')
+    : '';
+
+  const delta: TimelineDelta = {
+    timestamp,
+    eventId,
+    deltaType,
+    previousHash,
+    payload,
+    contentHash,
+    signature,
+    publicKey: publicKeyHex,
+    keyId: ctx.keyId,
+  };
+
+  // Update Merkle chain
+  const previousMerkleHash = ctx.merkleChain.length > 0
+    ? ctx.merkleChain[ctx.merkleChain.length - 1].merkleHash
+    : '';
+  const merkleHash = computeHash(contentHash + previousMerkleHash);
+
+  ctx.merkleChain.push({
+    index: ctx.merkleChain.length,
+    merkleHash,
+    deltaEventId: eventId,
+    previousMerkleHash,
+  });
+
+  // Update last delta hash for next chaining
+  ctx.lastDeltaHash = contentHash;
+
+  return delta;
+}
+
+/**
+ * Verify a timeline delta's signature and chain integrity (SAFLA-002)
+ */
+function verifyTimelineDelta(delta: TimelineDelta): { valid: boolean; error?: string } {
+  try {
+    // Reconstruct content hash
+    const contentData = JSON.stringify({
+      timestamp: delta.timestamp,
+      eventId: delta.eventId,
+      deltaType: delta.deltaType,
+      previousHash: delta.previousHash,
+      payload: delta.payload,
+    });
+    const expectedContentHash = computeHash(contentData);
+
+    // Verify content hash matches
+    if (expectedContentHash !== delta.contentHash) {
+      return { valid: false, error: 'Content hash mismatch - possible tampering' };
+    }
+
+    // Verify signature
+    if (delta.signature && delta.publicKey) {
+      const publicKey = crypto.createPublicKey({
+        key: Buffer.from(delta.publicKey, 'hex'),
+        format: 'der',
+        type: 'spki',
+      });
+      const signatureValid = verifySignature(delta.contentHash, delta.signature, publicKey);
+      if (!signatureValid) {
+        return { valid: false, error: 'Invalid Ed25519 signature' };
+      }
+    }
+
+    return { valid: true };
+  } catch (err) {
+    return { valid: false, error: `Verification error: ${err}` };
+  }
+}
+
+/**
+ * Verify Merkle chain integrity (SAFLA-002)
+ */
+function verifyMerkleChain(chain: MerkleChainNode[], deltas: Map<string, TimelineDelta>): {
+  valid: boolean;
+  error?: string;
+  lastValidIndex?: number;
+} {
+  for (let i = 0; i < chain.length; i++) {
+    const node = chain[i];
+    const delta = deltas.get(node.deltaEventId);
+
+    if (!delta) {
+      return { valid: false, error: `Missing delta for eventId: ${node.deltaEventId}`, lastValidIndex: i - 1 };
+    }
+
+    // Verify Merkle hash
+    const expectedMerkleHash = computeHash(delta.contentHash + node.previousMerkleHash);
+    if (expectedMerkleHash !== node.merkleHash) {
+      return { valid: false, error: `Merkle hash mismatch at index ${i}`, lastValidIndex: i - 1 };
+    }
+
+    // Verify chain linking
+    if (i > 0 && node.previousMerkleHash !== chain[i - 1].merkleHash) {
+      return { valid: false, error: `Merkle chain break at index ${i}`, lastValidIndex: i - 1 };
+    }
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Get the current Merkle root for audit purposes (SAFLA-002)
+ */
+function getMerkleRoot(): string {
+  const ctx = initializeTimelineDeltaContext();
+  if (ctx.merkleChain.length === 0) {
+    return '';
+  }
+  return ctx.merkleChain[ctx.merkleChain.length - 1].merkleHash;
+}
+
+/**
+ * Export timeline delta context state for persistence (SAFLA-002)
+ */
+function exportTimelineDeltaState(): {
+  merkleChain: MerkleChainNode[];
+  lastDeltaHash: string;
+  merkleRoot: string;
+  keyId: string;
+} {
+  const ctx = initializeTimelineDeltaContext();
+  return {
+    merkleChain: ctx.merkleChain,
+    lastDeltaHash: ctx.lastDeltaHash,
+    merkleRoot: getMerkleRoot(),
+    keyId: ctx.keyId,
+  };
+}
+
+// =============================================================================
+// End SAFLA-002 Timeline Delta Tracking
+// =============================================================================
+
 interface RCATriggerResult {
   methods: string[];
   design_patterns: string[];
   event_prototypes: string[];
   rca_5_whys: string[];
   iterativeRecommendations?: IterativeRCARecommendation[];
+  // SAFLA-002: Add timeline delta tracking to RCA results
+  timelineDelta?: TimelineDelta;
 }
 
 interface IterativeRCARecommendation {
@@ -285,11 +615,12 @@ function performEnhancedForensicVerification(
   medianFreqDeltaPct?: number;
   highImpactActions?: number;
   unverifiedHighPriorityActions?: Array<{ actionId: string; pattern: string; codAvg: number }>;
+  windows?: ForensicActionWindow[];
 } {
   const consolidatedPath = path.join(goalieDir, 'CONSOLIDATED_ACTIONS.yaml');
   if (!fs.existsSync(consolidatedPath)) {
     console.warn('[retro_coach] CONSOLIDATED_ACTIONS.yaml not found, falling back to simple verification');
-    return { verifiedCount: 0, totalActions: 0 };
+    return { verifiedCount: 0, totalActions: 0, windows: [] };
   }
 
   const rawYaml = fs.readFileSync(consolidatedPath, 'utf8');
@@ -465,6 +796,7 @@ function performEnhancedForensicVerification(
     medianFreqDeltaPct,
     highImpactActions,
     unverifiedHighPriorityActions,
+    windows,
   };
 }
 
@@ -561,6 +893,14 @@ interface RetroJsonOutput {
     merged: number;
     refined: number;
     error_tags: string[];
+  };
+  // SAFLA-002: Timeline delta tracking state
+  timelineAudit?: {
+    merkleRoot: string;
+    chainLength: number;
+    lastDeltaHash: string;
+    keyId: string;
+    signingEnabled: boolean;
   };
 }
 
@@ -1253,6 +1593,16 @@ async function buildRetroJsonOutput(
     };
   }
 
+  // SAFLA-002: Export timeline delta state for audit trail
+  const deltaState = exportTimelineDeltaState();
+  const timelineAudit = {
+    merkleRoot: deltaState.merkleRoot,
+    chainLength: deltaState.merkleChain.length,
+    lastDeltaHash: deltaState.lastDeltaHash,
+    keyId: deltaState.keyId,
+    signingEnabled: true,
+  };
+
   return {
     goalieDir,
     insightsSummary,
@@ -1271,6 +1621,8 @@ async function buildRetroJsonOutput(
       refined: 0,
       error_tags: [],
     },
+    // SAFLA-002: Include timeline audit state
+    timelineAudit,
   };
 }
 
@@ -1581,12 +1933,12 @@ async function generateIntelligentInsights(
   }
 }
 
-// Emit iterative RCA recommendation to pattern_metrics.jsonl
+// Emit iterative RCA recommendation to pattern_metrics.jsonl with Ed25519 signature (SAFLA-002)
 async function emitIterativeRCARecommendation(
   goalieDir: string,
   recommendation: IterativeRCARecommendation,
   runId: string,
-): Promise<void> {
+): Promise<TimelineDelta | undefined> {
   const patternMetricsPath = path.join(goalieDir, 'pattern_metrics.jsonl');
   const timestamp = new Date().toISOString();
 
@@ -1606,7 +1958,34 @@ async function emitIterativeRCARecommendation(
     gate: 'rca-analysis',
   };
 
-  fs.appendFileSync(patternMetricsPath, JSON.stringify(event) + '\n');
+  // SAFLA-002: Create signed timeline delta for this RCA event
+  let timelineDelta: TimelineDelta | undefined;
+  try {
+    timelineDelta = createSignedTimelineDelta('rca', {
+      ...event,
+      merkleRoot: getMerkleRoot(),
+    });
+
+    // Add signature info to the event for traceability
+    const signedEvent = {
+      ...event,
+      signed_delta: {
+        eventId: timelineDelta.eventId,
+        contentHash: timelineDelta.contentHash,
+        signature: timelineDelta.signature.substring(0, 32) + '...', // Truncated for log readability
+        keyId: timelineDelta.keyId,
+        previousHash: timelineDelta.previousHash || 'genesis',
+      },
+    };
+
+    fs.appendFileSync(patternMetricsPath, JSON.stringify(signedEvent) + '\n');
+  } catch (err) {
+    // Fallback: emit unsigned event if signing fails
+    console.warn('[SAFLA-002] Failed to sign RCA event, emitting unsigned:', err);
+    fs.appendFileSync(patternMetricsPath, JSON.stringify(event) + '\n');
+  }
+
+  return timelineDelta;
 }
 
 // Update CONSOLIDATED_ACTIONS.yaml with RCA-driven recommendations
@@ -1646,10 +2025,13 @@ async function updateConsolidatedActionsFromRCA(
           doc.items[existingIdx].priority = rec.priority;
           doc.items[existingIdx].updated_at = new Date().toISOString();
           doc.items[existingIdx].rca_iteration = rec.iteration;
+          // Initialize verified and highImpact as false for updated items
+          doc.items[existingIdx].verified = doc.items[existingIdx].verified ?? false;
+          doc.items[existingIdx].highImpact = doc.items[existingIdx].highImpact ?? false;
           updated++;
         }
       } else {
-        // Add new action
+        // Add new action with verified and highImpact fields
         const newAction = {
           id: `RCA-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
           title: rec.recommended_action,
@@ -1661,6 +2043,9 @@ async function updateConsolidatedActionsFromRCA(
           circle: rec.circle,
           rca_iteration: rec.iteration,
           source: 'iterative-rca',
+          verified: false,
+          highImpact: false,
+          cod_impact: rec.cod_impact,
         };
 
         doc.items.push(newAction);
@@ -1678,11 +2063,241 @@ async function updateConsolidatedActionsFromRCA(
   }
 }
 
+// Update CONSOLIDATED_ACTIONS.yaml with forensic verification results
+async function updateActionsWithForensicVerification(
+  goalieDir: string,
+  forensicWindows: ForensicActionWindow[],
+): Promise<{ verified: number; highImpact: number }> {
+  const consolidatedPath = path.join(goalieDir, 'CONSOLIDATED_ACTIONS.yaml');
+
+  if (!fs.existsSync(consolidatedPath)) {
+    return { verified: 0, highImpact: 0 };
+  }
+
+  try {
+    const rawYaml = fs.readFileSync(consolidatedPath, 'utf8');
+    const doc = yaml.parse(rawYaml) || {};
+
+    if (!doc.items) {
+      return { verified: 0, highImpact: 0 };
+    }
+
+    let verifiedCount = 0;
+    let highImpactCount = 0;
+    const timestamp = new Date().toISOString();
+
+    for (const window of forensicWindows) {
+      // Find matching action by actionId or pattern
+      const matchingIdx = doc.items.findIndex(
+        (item: any) => item.id === window.actionId || item.pattern === window.pattern
+      );
+
+      if (matchingIdx >= 0) {
+        const item = doc.items[matchingIdx];
+
+        // Update verified status
+        if (window.verified && !item.verified) {
+          doc.items[matchingIdx].verified = true;
+          doc.items[matchingIdx].verified_at = timestamp;
+          doc.items[matchingIdx].verification_method = 'forensic-24h-window';
+          verifiedCount++;
+        }
+
+        // Update highImpact status
+        if (window.highImpact && !item.highImpact) {
+          doc.items[matchingIdx].highImpact = true;
+          doc.items[matchingIdx].highImpact_detected_at = timestamp;
+          highImpactCount++;
+        }
+
+        // Add forensic metrics
+        doc.items[matchingIdx].forensic_metrics = {
+          cod_pre: window.codPre,
+          cod_post: window.codPost,
+          wsjf_pre: window.wsjfPre,
+          wsjf_post: window.wsjfPost,
+          freq_pre: window.freqPre,
+          freq_post: window.freqPost,
+          last_analyzed: timestamp,
+        };
+      }
+    }
+
+    // Write back
+    fs.writeFileSync(consolidatedPath, yaml.stringify(doc));
+
+    return { verified: verifiedCount, highImpact: highImpactCount };
+  } catch (e) {
+    console.warn('[retro_coach] Failed to update actions with forensic verification:', e);
+    return { verified: 0, highImpact: 0 };
+  }
+}
+
+// Ceremony output types for agile integration
+interface CeremonyOutputs {
+  rcaFindings?: string;
+  retroSummary?: string;
+  standupBlockers?: object;
+  replenishmentQueue?: object;
+  refinementCandidates?: object;
+  piSyncSummary?: string;
+  roamRisks?: object;
+}
+
+// Generate ceremony-specific outputs from retro coach analysis
+async function generateCeremonyOutputs(
+  goalieDir: string,
+  rcaTriggers: RCATriggerResult,
+  forensicResult: {
+    verifiedCount: number;
+    totalActions: number;
+    avgCodDeltaPct?: number;
+    highImpactActions?: number;
+    unverifiedHighPriorityActions?: Array<{ actionId: string; pattern: string; codAvg: number }>;
+  },
+  runId: string,
+  iteration: number,
+): Promise<CeremonyOutputs> {
+  const timestamp = new Date().toISOString();
+  const outputs: CeremonyOutputs = {};
+
+  // 1. RCA Findings (rca_findings.md) - for RCA ceremonies
+  if (rcaTriggers.methods.length > 0 || rcaTriggers.rca_5_whys.length > 0) {
+    const rcaLines = [
+      `# RCA Findings - ${timestamp}`,
+      '',
+      `**Run ID:** ${runId}`,
+      `**Iteration:** ${iteration}`,
+      '',
+      '## RCA Methods Applied',
+      ...rcaTriggers.methods.map(m => `- ${m}`),
+      '',
+      '## Root Cause Analysis (5-Whys)',
+      ...rcaTriggers.rca_5_whys.map(w => `- ${w}`),
+      '',
+      '## Design Patterns Recommended',
+      ...rcaTriggers.design_patterns.map(p => `- ${p}`),
+      '',
+      '## Event Prototypes Detected',
+      ...rcaTriggers.event_prototypes.map(e => `- ${e}`),
+    ];
+    outputs.rcaFindings = rcaLines.join('\n');
+    fs.writeFileSync(path.join(goalieDir, 'rca_findings.md'), outputs.rcaFindings);
+  }
+
+  // 2. Retro Summary (retro_summary.md) - for retrospective ceremonies
+  const retroLines = [
+    `# Retro Summary - ${timestamp}`,
+    '',
+    `**Run ID:** ${runId}`,
+    `**Iteration:** ${iteration}`,
+    '',
+    '## Verification Metrics',
+    `- Verified Actions: ${forensicResult.verifiedCount}/${forensicResult.totalActions}`,
+    `- High Impact Actions: ${forensicResult.highImpactActions ?? 0}`,
+    `- Avg CoD Delta: ${forensicResult.avgCodDeltaPct?.toFixed(2) ?? 'N/A'}%`,
+    '',
+    '## What Went Well',
+    forensicResult.verifiedCount > 0 ? `- ${forensicResult.verifiedCount} actions verified with measurable impact` : '- No verified actions this iteration',
+    '',
+    '## What Needs Improvement',
+    ...(forensicResult.unverifiedHighPriorityActions?.slice(0, 5).map(a => `- ${a.actionId}: ${a.pattern} (CoD avg: ${a.codAvg.toFixed(2)})`) ?? ['- No unverified high-priority actions']),
+    '',
+    '## Action Items',
+    ...(rcaTriggers.iterativeRecommendations?.slice(0, 5).map(r => `- [${r.priority.toUpperCase()}] ${r.recommended_action}`) ?? ['- No action items']),
+  ];
+  outputs.retroSummary = retroLines.join('\n');
+  fs.writeFileSync(path.join(goalieDir, 'retro_summary.md'), outputs.retroSummary);
+
+  // 3. Standup Blockers (standup_blockers.json) - for daily standups
+  const blockers = rcaTriggers.iterativeRecommendations
+    ?.filter(r => r.priority === 'critical' || r.priority === 'urgent')
+    .map(r => ({
+      id: `BLOCKER-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      description: r.recommended_action,
+      priority: r.priority,
+      circle: r.circle,
+      detected_pattern: r.detected_pattern,
+      rca_method: r.rca_method,
+      created_at: timestamp,
+    })) ?? [];
+  outputs.standupBlockers = { blockers, generated_at: timestamp, run_id: runId, iteration };
+  fs.writeFileSync(path.join(goalieDir, 'standup_blockers.json'), JSON.stringify(outputs.standupBlockers, null, 2));
+
+  // 4. Replenishment Queue (replenishment_queue.yaml) - for backlog replenishment
+  const replenishmentItems = forensicResult.unverifiedHighPriorityActions?.map(a => ({
+    id: a.actionId,
+    pattern: a.pattern,
+    cod_avg: a.codAvg,
+    priority: a.codAvg > 100 ? 'critical' : a.codAvg > 50 ? 'urgent' : 'normal',
+    status: 'PENDING_VERIFICATION',
+    source: 'forensic-analysis',
+  })) ?? [];
+  outputs.replenishmentQueue = { items: replenishmentItems, generated_at: timestamp, run_id: runId };
+  fs.writeFileSync(path.join(goalieDir, 'replenishment_queue.yaml'), yaml.stringify(outputs.replenishmentQueue));
+
+  // 5. Refinement Candidates (refinement_candidates.yaml) - for backlog refinement
+  const refinementItems = rcaTriggers.iterativeRecommendations
+    ?.filter(r => r.priority === 'important' || r.priority === 'normal')
+    .map(r => ({
+      title: r.recommended_action,
+      circle: r.circle,
+      detected_pattern: r.detected_pattern,
+      rca_method: r.rca_method,
+      priority: r.priority,
+      cod_impact: r.cod_impact,
+      status: 'NEEDS_REFINEMENT',
+    })) ?? [];
+  outputs.refinementCandidates = { items: refinementItems, generated_at: timestamp, run_id: runId };
+  fs.writeFileSync(path.join(goalieDir, 'refinement_candidates.yaml'), yaml.stringify(outputs.refinementCandidates));
+
+  // 6. PI Sync Summary (pi_sync_summary.md) - for PI planning sync
+  const piLines = [
+    `# PI Sync Summary - ${timestamp}`,
+    '',
+    `**Run ID:** ${runId}`,
+    `**Iteration:** ${iteration}`,
+    '',
+    '## Governance Pattern Status',
+    ...rcaTriggers.design_patterns.map(p => `- **${p}**: Active`),
+    '',
+    '## Cross-Circle Dependencies',
+    ...(rcaTriggers.event_prototypes.includes('cross-circle-cascade')
+      ? ['- ⚠️ Cross-circle cascade detected - review bulkhead isolation']
+      : ['- No cross-circle issues detected']),
+    '',
+    '## Velocity Indicators',
+    `- Verified Actions: ${forensicResult.verifiedCount}`,
+    `- High Impact: ${forensicResult.highImpactActions ?? 0}`,
+    `- Pending Verification: ${forensicResult.totalActions - forensicResult.verifiedCount}`,
+  ];
+  outputs.piSyncSummary = piLines.join('\n');
+  fs.writeFileSync(path.join(goalieDir, 'pi_sync_summary.md'), outputs.piSyncSummary);
+
+  // 7. ROAM Risks (roam_risks.yaml) - for risk management
+  const roamRisks = rcaTriggers.iterativeRecommendations
+    ?.filter(r => r.priority === 'critical')
+    .map(r => ({
+      id: `ROAM-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      description: r.recommended_action,
+      category: r.detected_pattern.includes('cascade') ? 'RESOLVED' : 'OWNED',
+      owner: r.circle,
+      mitigation: `Apply ${r.rca_method} analysis and implement ${rcaTriggers.design_patterns[0] ?? 'circuit-breaker'} pattern`,
+      created_at: timestamp,
+      iteration,
+    })) ?? [];
+  outputs.roamRisks = { risks: roamRisks, generated_at: timestamp, run_id: runId, last_updated: timestamp };
+  fs.writeFileSync(path.join(goalieDir, 'roam_risks.yaml'), yaml.stringify(outputs.roamRisks));
+
+  return outputs;
+}
+
 async function main() {
   const goalieDir = getGoalieDirFromArgs();
   ensureDspyIntegration(goalieDir);
   const jsonMode = process.argv.includes('--json');
   const iterativeMode = process.argv.includes('--iteration');
+  const ceremonyMode = process.argv.includes('--ceremony-outputs');
   const { iteration, runId } = getIterationFromArgs();
 
   const insightsPath = path.join(goalieDir, 'insights_log.jsonl');
@@ -1730,6 +2345,41 @@ async function main() {
         console.log(`  - Event prototypes: ${rcaTriggers.event_prototypes.join(', ') || 'none'}`);
         console.log(`  - Recommendations emitted: ${rcaTriggers.iterativeRecommendations.length}`);
         console.log(`  - Actions added: ${added}, updated: ${updated}`);
+      }
+    }
+
+    // Generate ceremony outputs if requested or in iterative mode
+    if (ceremonyMode || process.env.AF_CEREMONY_OUTPUTS === '1') {
+      const forensicResult = performEnhancedForensicVerification(goalieDir, patterns);
+
+      // Update CONSOLIDATED_ACTIONS.yaml with forensic verification results
+      if (forensicResult.windows && forensicResult.windows.length > 0) {
+        const { verified, highImpact } = await updateActionsWithForensicVerification(
+          goalieDir,
+          forensicResult.windows,
+        );
+        if (!jsonMode && (verified > 0 || highImpact > 0)) {
+          console.log(`[retro_coach] Forensic verification applied: ${verified} verified, ${highImpact} high-impact`);
+        }
+      }
+
+      const ceremonyOutputs = await generateCeremonyOutputs(
+        goalieDir,
+        rcaTriggers,
+        forensicResult,
+        runId,
+        iteration,
+      );
+
+      if (!jsonMode) {
+        console.log(`[retro_coach] Ceremony outputs generated:`);
+        console.log(`  - rca_findings.md: ${ceremonyOutputs.rcaFindings ? 'created' : 'skipped'}`);
+        console.log(`  - retro_summary.md: created`);
+        console.log(`  - standup_blockers.json: created`);
+        console.log(`  - replenishment_queue.yaml: created`);
+        console.log(`  - refinement_candidates.yaml: created`);
+        console.log(`  - pi_sync_summary.md: created`);
+        console.log(`  - roam_risks.yaml: created`);
       }
     }
   }

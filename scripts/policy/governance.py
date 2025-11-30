@@ -667,12 +667,19 @@ class GovernanceMiddleware:
             except (json.JSONDecodeError, IOError):
                 pass
 
-        # Default state
+        # Default state with schema version
         return {
+            "version": "1.1",
+            "schema": {
+                "description": "Governance state for prod-cycle self-tuning",
+                "patterns": ["depth-ladder", "circle-rotation", "iteration-budget", "safe-degrade"],
+                "delta_evaluation": "SAFLA-weighted",
+            },
             "depth_ladder": {"base_depth": DEFAULT_DEPTH},
             "circle_rotation": {"skipped_circles": [], "negative_delta_counts": {}},
             "iteration_budget": {"max_iterations": DEFAULT_ITERATIONS, "extensions_history": []},
             "safe_degrade": {"incident_threshold": SAFE_DEGRADE_THRESHOLD_INCIDENTS},
+            "delta_history": [],
             "last_updated": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
 
@@ -680,6 +687,9 @@ class GovernanceMiddleware:
         """Persist governance state to governance_state.json."""
         state_file = self.project_root / ".goalie" / "governance_state.json"
         state["last_updated"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        # Ensure version is always present
+        if "version" not in state:
+            state["version"] = "1.1"
         with open(state_file, "w") as f:
             json.dump(state, f, indent=2)
 
@@ -706,10 +716,15 @@ class GovernanceMiddleware:
         timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
         # Build current metrics snapshot for SAFLA delta evaluation
+        # Calculate throughput: successful iterations / total iterations
+        # Note: iterations_without_progress is reset to 0 on success, incremented on failure
+        successful_iterations = self.current_iteration - self.iterations_without_progress
+        throughput = successful_iterations / max(self.current_iteration, 1)
+
         current_metrics = {
             "reward": self.current_avg_score / 100.0,  # Normalize to [0, 1]
             "tokens_used": max(self.current_iteration, 1),
-            "throughput": (self.current_iteration - self.iterations_without_progress) / max(self.current_iteration, 1),
+            "throughput": throughput,
             "resource_used": self.extensions_used + 1,
             "divergence_score": self.safe_degrade_error_count / 10.0,  # Normalize
             "new_capabilities": adjustments_made,

@@ -97,7 +97,85 @@ class TechnicalAnalyzer:
             "resistance": round(resistance, 2),
             "range": round(resistance - support, 2)
         }
-    
+
+    def calculate_options_greeks(self, current_price: float, strike: float,
+                                  days_to_expiry: int, implied_vol: float = 0.30,
+                                  risk_free_rate: float = 0.05, is_call: bool = True) -> Dict[str, float]:
+        """
+        Calculate Options Greeks using Black-Scholes approximation.
+        Added per user feedback request: "Add options Greeks display" (2 requests)
+
+        Args:
+            current_price: Current stock price
+            strike: Option strike price
+            days_to_expiry: Days until expiration
+            implied_vol: Implied volatility (default 30%)
+            risk_free_rate: Risk-free interest rate (default 5%)
+            is_call: True for call, False for put
+
+        Returns:
+            Dictionary with delta, gamma, theta, vega, rho
+        """
+        import math
+
+        if days_to_expiry <= 0:
+            return {"delta": 0, "gamma": 0, "theta": 0, "vega": 0, "rho": 0, "type": "expired"}
+
+        S = current_price
+        K = strike
+        T = days_to_expiry / 365.0
+        r = risk_free_rate
+        sigma = implied_vol
+
+        # Standard normal CDF approximation
+        def norm_cdf(x):
+            return 0.5 * (1 + math.erf(x / math.sqrt(2)))
+
+        def norm_pdf(x):
+            return math.exp(-0.5 * x**2) / math.sqrt(2 * math.pi)
+
+        try:
+            d1 = (math.log(S / K) + (r + 0.5 * sigma**2) * T) / (sigma * math.sqrt(T))
+            d2 = d1 - sigma * math.sqrt(T)
+
+            # Delta
+            if is_call:
+                delta = norm_cdf(d1)
+            else:
+                delta = norm_cdf(d1) - 1
+
+            # Gamma (same for call and put)
+            gamma = norm_pdf(d1) / (S * sigma * math.sqrt(T))
+
+            # Theta (per day)
+            theta_common = -(S * norm_pdf(d1) * sigma) / (2 * math.sqrt(T))
+            if is_call:
+                theta = (theta_common - r * K * math.exp(-r * T) * norm_cdf(d2)) / 365
+            else:
+                theta = (theta_common + r * K * math.exp(-r * T) * norm_cdf(-d2)) / 365
+
+            # Vega (per 1% change in volatility)
+            vega = S * norm_pdf(d1) * math.sqrt(T) / 100
+
+            # Rho (per 1% change in interest rate)
+            if is_call:
+                rho = K * T * math.exp(-r * T) * norm_cdf(d2) / 100
+            else:
+                rho = -K * T * math.exp(-r * T) * norm_cdf(-d2) / 100
+
+            return {
+                "type": "call" if is_call else "put",
+                "delta": round(delta, 4),
+                "gamma": round(gamma, 6),
+                "theta": round(theta, 4),  # Daily decay
+                "vega": round(vega, 4),
+                "rho": round(rho, 4),
+                "iv": round(implied_vol * 100, 1),
+                "dte": days_to_expiry
+            }
+        except (ValueError, ZeroDivisionError):
+            return {"delta": 0, "gamma": 0, "theta": 0, "vega": 0, "rho": 0, "type": "error"}
+
     def calculate_volatility_score(self, prices: List[float]) -> Dict[str, any]:
         """Calculate volatility metrics"""
         if len(prices) < 2:
@@ -309,13 +387,28 @@ class TechnicalAnalyzer:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Portfolio Technical Analysis")
+    parser = argparse.ArgumentParser(
+        description="Portfolio Technical Analysis with Options Greeks",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s --demo                     # Run with demo data
+  %(prog)s --demo --greeks            # Include options Greeks analysis
+  %(prog)s --portfolio holdings.json  # Analyze from file
+  %(prog)s --demo --json              # Output as JSON
+
+Options Greeks display added per user feedback request.
+        """
+    )
     parser.add_argument("--portfolio", type=str, help="Path to portfolio JSON file")
     parser.add_argument("--output", type=str, help="Output file for results")
     parser.add_argument("--top", type=int, default=10, help="Number of top setups to display")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument("--demo", action="store_true", help="Run with demo data")
-    
+    parser.add_argument("--greeks", action="store_true", help="Include options Greeks analysis (BUFFER-2 feature)")
+    parser.add_argument("--dte", type=int, default=30, help="Days to expiration for Greeks calculation")
+    parser.add_argument("--iv", type=float, default=0.30, help="Implied volatility (default 0.30 = 30%%)")
+
     args = parser.parse_args()
     
     analyzer = TechnicalAnalyzer()
@@ -347,11 +440,33 @@ def main():
     
     # Run analysis
     results = analyzer.scan_portfolio(holdings)
-    
+
+    # Add Greeks if requested (BUFFER-2 user feedback feature)
+    if args.greeks:
+        for result in results:
+            price = result["current_price"]
+            # Calculate ATM call and put Greeks
+            result["options_greeks"] = {
+                "atm_call": analyzer.calculate_options_greeks(
+                    price, price, args.dte, args.iv, is_call=True),
+                "atm_put": analyzer.calculate_options_greeks(
+                    price, price, args.dte, args.iv, is_call=False),
+            }
+
     if args.json:
         output = json.dumps(results, indent=2)
     else:
         output = analyzer.generate_report(results, args.top)
+        if args.greeks:
+            output += "\n\n" + "=" * 80
+            output += "\nOPTIONS GREEKS (ATM, {} DTE, {}% IV):".format(
+                args.dte, int(args.iv * 100))
+            output += "\n" + "-" * 80
+            for r in results[:args.top]:
+                if "options_greeks" in r:
+                    g = r["options_greeks"]["atm_call"]
+                    output += f"\n{r['symbol']}: Δ={g['delta']:.3f} Γ={g['gamma']:.5f} "
+                    output += f"Θ={g['theta']:.3f} V={g['vega']:.3f}"
     
     if args.output:
         with open(args.output, 'w') as f:

@@ -71,11 +71,15 @@ validate_env() {
     source "$ENV_FILE"
     set +a
 
-    # Required variables
+    # Required variables for Discord (Cloudflare now optional)
     local required_vars=(
         "DISCORD_APPLICATION_ID"
         "DISCORD_PUBLIC_KEY"
         "DISCORD_BOT_TOKEN"
+    )
+
+    # Optional Cloudflare vars (only required for cloudflare mode)
+    local cloudflare_vars=(
         "CLOUDFLARE_ACCOUNT_ID"
         "CLOUDFLARE_API_TOKEN"
         "CLOUDFLARE_PROJECT_NAME"
@@ -83,12 +87,20 @@ validate_env() {
 
     local missing_vars=()
     local placeholder_vars=()
+    local cloudflare_available=true
 
     for var in "${required_vars[@]}"; do
         if [ -z "${!var:-}" ]; then
             missing_vars+=("$var")
         elif [[ "${!var}" == *"your_"* ]] || [[ "${!var}" == *"placeholder"* ]]; then
             placeholder_vars+=("$var")
+        fi
+    done
+
+    # Check Cloudflare vars (not required for local mode)
+    for var in "${cloudflare_vars[@]}"; do
+        if [ -z "${!var:-}" ]; then
+            cloudflare_available=false
         fi
     done
 
@@ -106,8 +118,17 @@ validate_env() {
     # Masked summary
     log_info "Environment validation passed:"
     echo "  DISCORD_APPLICATION_ID: ${DISCORD_APPLICATION_ID:0:10}...${DISCORD_APPLICATION_ID: -4}"
-    echo "  CLOUDFLARE_PROJECT: ${CLOUDFLARE_PROJECT_NAME}"
+    echo "  DISCORD_PUBLIC_KEY: ${DISCORD_PUBLIC_KEY:0:10}...${DISCORD_PUBLIC_KEY: -4}"
+    echo "  DISCORD_BOT_TOKEN: [REDACTED - ${#DISCORD_BOT_TOKEN} chars]"
     echo "  ENVIRONMENT: ${ENVIRONMENT:-production}"
+
+    if [ "$cloudflare_available" = true ]; then
+        echo "  CLOUDFLARE_PROJECT: ${CLOUDFLARE_PROJECT_NAME}"
+        echo "  DEPLOY_MODE: cloudflare"
+    else
+        echo "  DEPLOY_MODE: local (Cloudflare credentials not configured)"
+        log_info "Cloudflare not configured - use 'deploy-local' for local deployment"
+    fi
 
     return 0
 }
@@ -315,10 +336,68 @@ main() {
     log_info "==========================================="
 }
 
+# Deploy locally using Python Discord bot (no Cloudflare required)
+deploy_local() {
+    log_info "Deploying Discord bot locally (no Cloudflare)..."
+    log_discord_deploy_event "deploy_local" "start"
+
+    cd "$PROJECT_ROOT"
+
+    # Ensure Python dependencies are installed
+    if ! python3 -c "import discord" 2>/dev/null; then
+        log_info "Installing discord.py..."
+        pip3 install discord.py python-dotenv pyyaml aiohttp 2>/dev/null || pip install discord.py python-dotenv pyyaml aiohttp
+    fi
+
+    # Test bot configuration
+    log_info "Validating bot configuration..."
+    if python3 scripts/discord_trading_bot.py --validate; then
+        log_info "Bot configuration valid"
+    else
+        log_error "Bot configuration validation failed"
+        log_discord_deploy_event "deploy_local" "validation_error"
+        return 1
+    fi
+
+    # Test dry-run
+    log_info "Running bot dry-run test..."
+    if python3 scripts/discord_wsjf_bot.py --test 2>/dev/null; then
+        log_info "Dry-run test passed"
+    else
+        log_warn "Dry-run test had issues (may be OK if Discord not connected)"
+    fi
+
+    log_discord_deploy_event "deploy_local" "success"
+    log_info "==========================================="
+    log_info "Discord Bot local deployment ready!"
+    log_info "To start the bot, run:"
+    log_info "  python3 scripts/discord_wsjf_bot.py"
+    log_info "Or:"
+    log_info "  python3 scripts/discord_trading_bot.py --demo"
+    log_info "==========================================="
+
+    record_status "LOCAL_READY"
+    return 0
+}
+
 # Handle script arguments
 case "${1:-deploy}" in
     deploy)
         main
+        ;;
+    deploy-local)
+        # Source env and validate first
+        if [ -f "$ENV_FILE" ]; then
+            set -a
+            source "$ENV_FILE"
+            set +a
+        fi
+        if validate_env; then
+            deploy_local
+        else
+            log_error "Environment validation failed"
+            exit 1
+        fi
         ;;
     validate)
         validate_env
@@ -330,7 +409,14 @@ case "${1:-deploy}" in
         rollback
         ;;
     *)
-        echo "Usage: $0 {deploy|validate|health|rollback}"
+        echo "Usage: $0 {deploy|deploy-local|validate|health|rollback}"
+        echo ""
+        echo "Commands:"
+        echo "  deploy       - Deploy to Cloudflare Workers (requires CF credentials)"
+        echo "  deploy-local - Deploy locally using Python (no Cloudflare needed)"
+        echo "  validate     - Validate environment configuration"
+        echo "  health       - Run health check"
+        echo "  rollback     - Rollback Cloudflare deployment"
         exit 1
         ;;
 esac

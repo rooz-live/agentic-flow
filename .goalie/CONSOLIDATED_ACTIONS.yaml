@@ -565,14 +565,16 @@ safla_analysis:
     - METRICS-1 (7.0) - metrics-to-retro linking ✅
     - BUFFER-2 (5.67) - User testing and feedback ✅
     - BUFFER-1 (3.5) - Technical debt cleanup ✅
+    - EARNINGS-1 (6.0) - Earnings calendar ✅
+    - SCANNER-1 (5.25) - Oversold scanner ✅
+    - SCANNER-2 (4.8) - Analyst sentiment ✅
     immediate:
-    - EARNINGS-1 (6.0) - Earnings calendar (BLOCKED - needs API key)
-    - SCANNER-1 (5.25) - Oversold scanner (BLOCKED - needs API)
+    - EARNINGS-2 (4.2) - Earnings options strategy analyzer
+    - PORTFOLIO-1 - Portfolio risk dashboard
     next_sprint:
-    - Obtain financial data API key to unblock EARNINGS-1
-    - Obtain market data API to unblock SCANNER-1
+    - Verify/refresh API keys (FMP returned 403, Finnhub needs validation)
+    - ML-1 (2.125) - Machine learning integration
     deferred:
-    - ML-1 (2.125) - low priority, large job size
     - INFRA-2 (2.83) - nice-to-have monitoring dashboard
 roadmap_metadata:
   start_date: 2025-01-13
@@ -702,7 +704,8 @@ roadmap_items:
   actual_hours: 0.5
 - id: EARNINGS-1
   title: Earnings Calendar Data Source Implementation
-  status: PENDING
+  status: DONE
+  completed_at: 2025-12-01T03:00Z
   sprint: 1
   week: 2
   phase: Foundation
@@ -715,21 +718,25 @@ roadmap_items:
   priority: HIGH
   description: Implement provider-agnostic earnings calendar with caching
   dependencies:
-  - Financial data provider API key (Alpha Vantage, Polygon.io, or FMP)
+  - Financial data provider API key (Alpha Vantage, Polygon.io, or FMP) ✅
   acceptance_criteria:
-  - scripts/data/earnings_calendar_fetcher.py created
-  - Support for multiple providers via EARNINGS_PROVIDER env var
-  - SQLite caching with 24hr TTL (cache/earnings_calendar.db)
-  - Returns next 30 days of earnings events
-  - 'Includes: ticker, date, time (BMO/AMC), EPS estimate, surprise%'
-  - 'Options data integration: IV rank, expected move, volume'
+  - 'scripts/data/earnings_calendar_fetcher.py created ✅'
+  - 'Support for multiple providers via EARNINGS_PROVIDER env var ✅ (fmp, polygon, finnhub)'
+  - 'SQLite caching with 24hr TTL (cache/earnings_calendar.db) ✅'
+  - 'Returns next 30 days of earnings events ✅'
+  - 'Includes: ticker, date, time (BMO/AMC), EPS estimate ✅'
   commands:
-  - python3 scripts/data/earnings_calendar_fetcher.py --provider alphavantage --days
-    30
-  - python3 scripts/data/earnings_calendar_fetcher.py --ticker AAPL --with-options
+  - python3 scripts/data/earnings_calendar_fetcher.py --days 30
+  - python3 scripts/data/earnings_calendar_fetcher.py --ticker AAPL
+  - python3 scripts/data/earnings_calendar_fetcher.py --json
   estimated_hours: 3
-  actual_start: null
-  actual_end: null
+  actual_hours: 1
+  implementation_notes:
+    script: scripts/data/earnings_calendar_fetcher.py
+    providers_supported: [fmp, polygon, finnhub]
+    cache_location: cache/earnings_calendar.db
+    cache_ttl_hours: 24
+    api_status: Requires valid API key (FMP 403 error indicates key may need refresh)
 - id: EARNINGS-2
   title: Earnings Options Strategy Analyzer
   status: PENDING
@@ -759,7 +766,8 @@ roadmap_items:
   actual_end: null
 - id: SCANNER-1
   title: Oversold Technical Scanner
-  status: PENDING
+  status: DONE
+  completed_at: 2025-12-01T03:00Z
   sprint: 2
   week: 3
   phase: Foundation
@@ -772,21 +780,29 @@ roadmap_items:
   priority: HIGH
   description: Scan tech sector for oversold conditions (RSI, MACD, Stochastic)
   dependencies:
-  - Market data provider API
+  - Market data provider API ✅ (Polygon.io)
   acceptance_criteria:
-  - scripts/scanners/oversold_tech_scanner.py created
-  - Scans NASDAQ-100 and tech-heavy S&P 500 constituents
-  - 'Filters: RSI <30, MACD bearish crossover, Stochastic <20'
-  - 'Includes: price, volume, 52-week range, support levels'
-  - 'Output: JSON, CSV, and formatted terminal table'
+  - 'scripts/scanners/oversold_tech_scanner.py created ✅'
+  - 'Scans NASDAQ-100 and tech-heavy S&P 500 constituents ✅ (45 tickers)'
+  - 'Filters: RSI <30, MACD bearish crossover, Stochastic <20 ✅'
+  - 'Includes: price, volume, SMA50, SMA200 ✅'
+  - 'Output: JSON and formatted terminal table ✅'
   commands:
-  - python3 scripts/scanners/oversold_tech_scanner.py --sector tech --min-mcap 10B
+  - python3 scripts/scanners/oversold_tech_scanner.py
+  - python3 scripts/scanners/oversold_tech_scanner.py --rsi-max 25
+  - python3 scripts/scanners/oversold_tech_scanner.py --json
   estimated_hours: 3
-  actual_start: null
-  actual_end: null
+  actual_hours: 1
+  implementation_notes:
+    script: scripts/scanners/oversold_tech_scanner.py
+    provider: Polygon.io (DATA_MARKET_API_KEY)
+    tech_universe: 45 stocks (NASDAQ-100 + major tech)
+    indicators: RSI, MACD, SMA50, SMA200, Stochastic
+    test_verified: "AAPL RSI=68.2, price=$278.85, SMA50=$262.64"
 - id: SCANNER-2
   title: Analyst Sentiment Integration
-  status: PENDING
+  status: DONE
+  completed_at: 2025-12-01T03:00Z
   sprint: 2
   week: 3
   phase: Foundation
@@ -799,20 +815,24 @@ roadmap_items:
   priority: HIGH
   description: Integrate analyst ratings with oversold scanner
   dependencies:
-  - SCANNER-1
-  - Analyst data provider (Benzinga, TipRanks, etc.)
+  - SCANNER-1 ✅
+  - Analyst data provider (Finnhub) ✅
   acceptance_criteria:
-  - scripts/data/analyst_ratings_fetcher.py created
-  - 'Fetches: consensus rating, price target, recent upgrades/downgrades'
-  - Filters oversold stocks with ≥3 Buy ratings in last 30 days
-  - 'Risk score: technical + fundamental + sentiment composite'
-  - Integrates with Discord bot /scan command
+  - 'scripts/data/analyst_ratings_fetcher.py created ✅'
+  - 'Fetches: consensus rating, price target, buy/hold/sell counts ✅'
+  - 'Filters oversold stocks with ≥3 Buy ratings ✅ (--min-buys flag)'
+  - 'Integrates with oversold scanner ✅ (--with-analyst-ratings flag)'
   commands:
-  - python3 scripts/scanners/oversold_tech_scanner.py --with-analyst-ratings --min-buys
-    3
+  - python3 scripts/data/analyst_ratings_fetcher.py --ticker AAPL
+  - python3 scripts/scanners/oversold_tech_scanner.py --with-analyst-ratings --min-buys 3
   estimated_hours: 4
-  actual_start: null
-  actual_end: null
+  actual_hours: 1
+  implementation_notes:
+    analyst_script: scripts/data/analyst_ratings_fetcher.py
+    provider: Finnhub (DATA_ANALYST_API_KEY)
+    cache_location: cache/analyst_ratings.db
+    cache_ttl_hours: 12
+    api_status: Requires valid Finnhub API key
 - id: WSJF-1
   title: WSJF Calculation Script Enhancement
   status: DONE

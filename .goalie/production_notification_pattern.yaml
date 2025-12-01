@@ -1,0 +1,108 @@
+---
+title: "Production-Mature Notification Resource Management"
+date: "2025-11-30"
+status: "PROPOSED"
+priority: "HIGH"
+
+problem:
+  current_state: "Manual destroy() method requires explicit lifecycle management"
+  limitations:
+    - Requires developers to remember cleanup in production
+    - No automatic resource recovery
+    - Testing-focused, not production-optimized
+    - Abrupt shutdown without graceful degradation
+
+proposed_solutions:
+  option_1_lazy_initialization:
+    name: "Lazy Resource Initialization (RECOMMENDED)"
+    description: "Only start cleanup interval when first notification stored"
+    advantages:
+      - Automatic resource management
+      - No cleanup needed for unused instances
+      - Minimal memory footprint
+      - Production-safe by default
+    implementation:
+      - Start interval on first `send()` call
+      - Use unref() for test compatibility
+      - Add configurable cleanup scheduling
+      - Support manual trigger for tests
+    
+  option_2_singleton_lifecycle:
+    name: "Application Lifecycle Integration"
+    description: "Hook into Express/Fastify shutdown events"
+    advantages:
+      - Framework-native cleanup
+      - Graceful shutdown support
+      - Centralized resource management
+    tradeoffs:
+      - Framework coupling
+      - More complex testing setup
+    
+  option_3_resource_pool:
+    name: "Shared Cleanup Interval"
+    description: "Single global interval for all instances"
+    advantages:
+      - Minimal resource usage
+      - Automatic coordination
+    tradeoffs:
+      - Hidden global state
+      - Harder to reason about
+    
+  option_4_weak_references:
+    name: "Automatic GC-Based Cleanup"
+    description: "Use WeakMap and FinalizationRegistry"
+    advantages:
+      - Fully automatic
+      - No manual management
+    tradeoffs:
+      - Non-deterministic timing
+      - Complex debugging
+
+recommended_approach:
+  choice: "option_1_lazy_initialization"
+  rationale:
+    - Production-safe by default
+    - Test-friendly with unref()
+    - No breaking changes
+    - Minimal complexity increase
+  
+implementation_plan:
+  phase_1_core_pattern:
+    - Make cleanup interval lazy (start on first notification)
+    - Add configuration for cleanup schedule
+    - Use unref() for test compatibility
+    
+  phase_2_production_features:
+    - Add metrics for cleanup operations
+    - Implement graceful shutdown timeout
+    - Add health check for resource state
+    
+  phase_3_observability:
+    - Emit events for cleanup cycles
+    - Track memory usage trends
+    - Alert on cleanup failures
+
+configuration:
+  cleanup_config:
+    enabled: true
+    intervalMs: 3600000  # 1 hour (default)
+    gracefulShutdownTimeoutMs: 5000
+    maxNotificationsBeforeForceCleanup: 10000
+    
+  monitoring:
+    emitCleanupMetrics: true
+    trackMemoryUsage: true
+    alertOnFailures: true
+
+migration_strategy:
+  backwards_compatible: true
+  requires_code_changes: false
+  test_impact: "None - tests continue working with destroy()"
+  production_impact: "Positive - automatic resource management"
+
+success_criteria:
+  - No manual destroy() calls needed in production
+  - Tests pass without modification
+  - Memory usage stable under load
+  - No resource leaks detected
+  - Graceful shutdown < 5s

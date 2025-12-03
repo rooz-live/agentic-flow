@@ -94,8 +94,9 @@ class EarningsCalendarFetcher:
         return datetime.now() - fetched < timedelta(hours=CACHE_TTL_HOURS)
     
     def _fetch_from_fmp(self, from_date: str, to_date: str) -> List[Dict]:
-        """Fetch earnings from FinancialModelingPrep."""
-        url = (f"https://financialmodelingprep.com/api/v3/earning_calendar"
+        """Fetch earnings from FinancialModelingPrep (Stable API)."""
+        # Using Stable API (v3 legacy endpoints discontinued for free/new plans)
+        url = (f"https://financialmodelingprep.com/stable/earnings-calendar"
                f"?from={from_date}&to={to_date}&apikey={self.api_key}")
         try:
             req = Request(url, headers={"User-Agent": "EarningsBot/1.0"})

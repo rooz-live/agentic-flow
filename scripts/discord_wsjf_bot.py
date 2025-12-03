@@ -55,7 +55,9 @@ class WSJFDiscordBot:
         
         if not test_mode and DISCORD_AVAILABLE:
             intents = discord.Intents.default()
-            intents.message_content = True
+            # Note: message_content intent not needed for slash commands
+            # Only enable if you need to read message content directly
+            # intents.message_content = True
             self.bot = commands.Bot(command_prefix='/', intents=intents)
             self.setup_commands()
     
@@ -293,11 +295,12 @@ def main():
     parser = argparse.ArgumentParser(description="Discord WSJF Bot")
     parser.add_argument('--test', action='store_true', help='Test mode (console output)')
     parser.add_argument('--send-status', action='store_true', help='Send one-time status update')
+    parser.add_argument('--dry-run', action='store_true', help='Dry run mode (implies --test)')
     parser.add_argument('--repo-root', help='Repository root path')
     
     args = parser.parse_args()
     
-    bot = WSJFDiscordBot(repo_root=args.repo_root, test_mode=args.test)
+    bot = WSJFDiscordBot(repo_root=args.repo_root, test_mode=args.test or args.dry_run)
     
     if args.send_status:
         bot.send_status_once()

@@ -320,11 +320,89 @@
             }
         }
 
+        // WebSocket connection for real-time updates
+        let ws = null;
+        let reconnectAttempts = 0;
+        const MAX_RECONNECT_ATTEMPTS = 5;
+
+        function connectWebSocket() {
+            const wsUrl = `ws://${window.location.host}`;
+            console.log(`Connecting to WebSocket: ${wsUrl}`);
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+                reconnectAttempts = 0;
+                document.getElementById('ws-status')?.classList.add('status-green');
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    if (msg.type === 'update' || msg.type === 'init') {
+                        updateDashboardFromWS(msg.data);
+                    }
+                } catch (e) {
+                    console.warn('WebSocket message parse error:', e);
+                }
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket disconnected');
+                document.getElementById('ws-status')?.classList.remove('status-green');
+                if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+                    reconnectAttempts++;
+                    setTimeout(connectWebSocket, 2000 * reconnectAttempts);
+                }
+            };
+
+            ws.onerror = (err) => console.error('WebSocket error:', err);
+        }
+
+        function updateDashboardFromWS(data) {
+            // Update test metrics
+            if (data.tests) {
+                const testEl = document.getElementById('test-status');
+                if (testEl) testEl.textContent = `${data.tests.passed}/${data.tests.total} PASS`;
+            }
+
+            // Update API status
+            if (data.apis) {
+                ['polygon', 'fmp', 'finnhub'].forEach(api => {
+                    const el = document.getElementById(`api-${api}`);
+                    if (el) {
+                        el.textContent = data.apis[api];
+                        el.className = data.apis[api] === 'WORKING' ? 'metric-value status-green' : 'metric-value status-red';
+                    }
+                });
+            }
+
+            // Update Discord status
+            if (data.discord) {
+                const discordEl = document.getElementById('discord-status');
+                if (discordEl) {
+                    discordEl.textContent = `${data.discord.status} (PID: ${data.discord.pid})`;
+                    discordEl.className = data.discord.status === 'RUNNING' ? 'metric-value status-green' : 'metric-value status-red';
+                }
+            }
+
+            // Update throughput
+            if (data.throughput) {
+                const throughputEl = document.getElementById('throughput');
+                if (throughputEl) throughputEl.textContent = `${data.throughput.itemsPerDay} items/day`;
+            }
+        }
+
         // Initialize dashboard
-        console.log("Dashboard loaded with IRIS integration");
-        console.log("To view live IRIS metrics, run:");
-        console.log("  cd scripts/monitoring && python3 -m http.server 8000");
-        console.log("  Then open http://localhost:8000/dashboard.html");
+        console.log("Dashboard loaded with IRIS integration + WebSocket");
+
+        // Try WebSocket first, fallback to polling
+        if (window.location.protocol !== 'file:') {
+            connectWebSocket();
+        } else {
+            console.log("File protocol detected - using polling only");
+        }
 
         // Load metrics immediately and refresh periodically
         loadMetrics();

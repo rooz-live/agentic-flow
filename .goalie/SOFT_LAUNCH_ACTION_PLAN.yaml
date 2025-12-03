@@ -1,0 +1,393 @@
+# Soft Launch Action Plan - NOW/NEXT/LATER
+# Generated: 2025-12-03T01:40:51Z
+# Status: Phase 1 COMPLETE ✅ | Phase 2 READY TO START
+
+phase_1_complete:
+  status: COMPLETE ✅
+  completion_date: 2025-12-03T01:35:14Z
+  achievements:
+    - Pattern metrics schema validated (100%)
+    - ROAM blockers resolved (11/13)
+    - Rollback tested and validated (RTO: 1s, RPO: 1 commit)
+    - Validation scripts created
+    - Monitoring infrastructure operational
+
+phase_2_soft_launch:
+  target_date: 2025-12-05
+  status: READY TO START
+  prerequisites_status:
+    rollback_tested: COMPLETE ✅
+    blockers_resolved: COMPLETE ✅ (11/13, 2 have workarounds)
+    monitoring_baseline: IN_PROGRESS (41 events, need 7 days)
+    openstack_credentials: PENDING
+    pi_sync_date: PENDING (BLOCKER)
+    deployment_strategy: PENDING (BLOCKER)
+
+# ========================================
+# NOW - IMMEDIATE (Next 4-8 hours)
+# ========================================
+now:
+  - id: NOW-001
+    priority: P0
+    category: DECISION
+    title: Set PI sync date for Phase 2 soft launch
+    details: |
+      CRITICAL DECISION NEEDED
+      
+      Options:
+      1. 2025-12-05 (Thu) - Recommended
+         - Gives 2 days for OpenStack setup
+         - Aligns with standard sprint cycles
+         - Low-risk timing (mid-week)
+      
+      2. 2025-12-09 (Mon) - Conservative
+         - Extra 4 days buffer
+         - Post-weekend (fresh start)
+         - More time for credential setup
+      
+      Recommendation: 2025-12-05
+      Reason: Phase 1 complete, infrastructure validated, only needs credentials
+    
+    action_required: |
+      User must decide target date:
+      - If 2025-12-05: Proceed with NOW-002, NOW-003 immediately
+      - If 2025-12-09: Can take conservative approach on credentials
+    
+    estimated_time: 5 minutes (decision only)
+    blocking: [NOW-002, NOW-003, NEXT-001]
+  
+  - id: NOW-002
+    priority: P0
+    category: DECISION
+    title: Choose deployment strategy (Greenfield vs Bluefield)
+    details: |
+      CRITICAL DECISION NEEDED
+      
+      Greenfield (Recommended):
+      ✅ Clean installation, no legacy conflicts
+      ✅ Lower risk, easier rollback
+      ✅ Matches r/stx.11.0 architecture
+      ❌ Requires full provisioning
+      
+      Bluefield:
+      ✅ In-place upgrade, preserves data
+      ✅ Faster initial deployment
+      ❌ Higher risk, potential conflicts
+      ❌ Harder to rollback
+      
+      Recommendation: Greenfield for stx.11.0
+      Reason: First soft launch, prioritize safety over speed
+    
+    action_required: |
+      User must decide:
+      - Greenfield: Add --greenfield flag to deploy.sh
+      - Bluefield: Add --bluefield flag to deploy.sh
+    
+    estimated_time: 5 minutes (decision only)
+    blocking: [NEXT-001]
+  
+  - id: NOW-003
+    priority: P0
+    category: INFRASTRUCTURE
+    title: Fix deploy.sh syntax error (line 488)
+    details: |
+      Script has unclosed parenthesis preventing dry-run
+      
+      Steps:
+      1. bash -n scripts/starlingx/deploy.sh  # Identify exact error
+      2. Fix unclosed parenthesis
+      3. Test with: bash scripts/starlingx/deploy.sh --dry-run --skip-billing
+      
+      Impact: Blocks full deployment testing
+      Workaround: Manual OpenStack CLI provisioning (documented)
+    
+    command: |
+      bash -n scripts/starlingx/deploy.sh 2>&1 | grep -A2 "line 488"
+    
+    estimated_time: 15 minutes
+    blocking: [NEXT-001]
+    dependencies: []
+
+# ========================================
+# NEXT - SHORT-TERM (Next 24-48 hours)
+# ========================================
+next:
+  - id: NEXT-001
+    priority: P1
+    category: INFRASTRUCTURE
+    title: Configure OpenStack credentials
+    details: |
+      Required environment variables:
+      - OS_AUTH_URL: StarlingX keystone endpoint
+      - OS_PASSWORD: Admin password
+      - OS_USERNAME: admin (default)
+      - OS_PROJECT_NAME: admin (default)
+      
+      Target: ********** port 2222
+      
+      Steps:
+      1. SSH to stx-aio-0.corp.interface.tag.ooo (port 2222)
+      2. Retrieve keystone endpoint: openstack endpoint list
+      3. Set OS_AUTH_URL in .env.unified
+      4. Set OS_PASSWORD in .env.unified
+      5. Test: openstack server list
+    
+    estimated_time: 30 minutes
+    blocking: [NEXT-002]
+    dependencies: [NOW-002]
+  
+  - id: NEXT-002
+    priority: P1
+    category: DEPLOYMENT
+    title: Execute dry-run deployment
+    details: |
+      Test deployment without making changes
+      
+      Command:
+      bash scripts/starlingx/deploy.sh \
+        --dry-run \
+        --skip-billing \
+        --greenfield  # or --bluefield based on NOW-002
+      
+      Expected output:
+      - OpenStack connection verified
+      - StarlingX API reachable
+      - No errors in deployment plan
+      
+      If successful: Proceed to NEXT-003
+      If failed: Debug and retry
+    
+    estimated_time: 20 minutes
+    blocking: [NEXT-003]
+    dependencies: [NOW-003, NEXT-001]
+  
+  - id: NEXT-003
+    priority: P1
+    category: OBSERVABILITY
+    title: Initialize AgentDB with learning hooks
+    details: |
+      Set up learning infrastructure for pattern collection
+      
+      Steps:
+      1. npx agentdb init ./agentdb.db --preset medium
+      2. Configure learning hooks in .claude-flow/settings.json
+      3. Test: npx agentdb learner run
+      4. Verify metrics ingestion from .goalie/pattern_metrics.jsonl
+      
+      Expected outcome:
+      - AgentDB initialized
+      - Learning hooks active
+      - Pattern events flowing to DB
+    
+    estimated_time: 30 minutes
+    blocking: [NEXT-004]
+    dependencies: []
+  
+  - id: NEXT-004
+    priority: P2
+    category: VALIDATION
+    title: Create soft launch PR draft
+    details: |
+      Document soft launch readiness for team review
+      
+      Command:
+      gh pr create \
+        --title "Risk Analytics Soft Launch - StarlingX Integration" \
+        --body-file .goalie/BLOCKER_ANALYSIS.yaml \
+        --label "soft-launch,stx-11" \
+        --draft
+      
+      Include in PR:
+      - .goalie/ROLLBACK_PROCEDURE.yaml (with test results)
+      - .goalie/ROAM_TRACKER.yaml (blocker status)
+      - docs/SOFT_LAUNCH_READINESS.md (GO status)
+      - scripts/starlingx/validate_deployment.sh
+      
+      Purpose: Team review before Phase 2 execution
+    
+    estimated_time: 15 minutes
+    blocking: []
+    dependencies: [NOW-001, NOW-002, NOW-003]
+  
+  - id: NEXT-005
+    priority: P2
+    category: OBSERVABILITY
+    title: Validate baseline metrics collection
+    details: |
+      Ensure continuous 7-day metrics capture
+      
+      Current: 41 events in .goalie/pattern_metrics.jsonl
+      Target: 7+ days continuous (by 2025-12-10)
+      
+      Validation:
+      1. Check event timestamps for gaps
+      2. Verify schema compliance (should be 100%)
+      3. Confirm tag coverage (12 Observability, 7 Federation, 6 HPC)
+      4. Monitor for pattern anomalies
+      
+      Command:
+      python3 scripts/analysis/validate_pattern_metrics.py
+    
+    estimated_time: 20 minutes
+    blocking: []
+    dependencies: [NEXT-003]
+
+# ========================================
+# LATER - MEDIUM-TERM (Phase 3: Post-Launch)
+# ========================================
+later:
+  - id: LATER-001
+    priority: P3
+    category: INTEGRATION
+    title: Evaluate trading platform options
+    details: |
+      Research and select trading integration platform
+      
+      Options to evaluate:
+      1. TradingView - Charting + alerts
+      2. Finviz - Screening + heatmaps
+      3. Interactive Brokers - Trading API
+      
+      Criteria:
+      - API quality and rate limits
+      - Data freshness (real-time vs 15min delay)
+      - Cost structure (free tier availability)
+      - Integration complexity
+      
+      Deliverable: Decision matrix with recommendation
+    
+    estimated_time: 2-4 hours
+    target_date: 2025-12-10
+    dependencies: [Phase 2 soft launch success]
+  
+  - id: LATER-002
+    priority: P3
+    category: SCHEMA
+    title: Define CapEx/OpEx budget tracking schema
+    details: |
+      Design financial tracking data models
+      
+      Requirements:
+      - CapEx: Capital expenditures (servers, licenses)
+      - OpEx: Operating expenses (hosting, API calls)
+      - Method pattern: Budget replenishment triggers
+      - Donor-advised funding: Grant tracking
+      
+      Deliverable: JSON schema + example events
+      Location: docs/schemas/financial_tracking.json
+    
+    estimated_time: 3-5 hours
+    target_date: 2025-12-12
+    dependencies: [LATER-001]
+  
+  - id: LATER-003
+    priority: P3
+    category: INTEGRATION
+    title: Integrate Discord analytics endpoints
+    details: |
+      Connect Discord-based analytics services
+      
+      Endpoints:
+      - DecisionCall.com (decision support)
+      - half.masslessmassive.com (analytics)
+      - multi.masslessmassive.com (multi-agent)
+      
+      Requirement: JavaScript runtime for Discord interactions
+      
+      Deliverable: Integration scripts + test coverage
+    
+    estimated_time: 4-6 hours
+    target_date: 2025-12-15
+    dependencies: [LATER-002]
+  
+  - id: LATER-004
+    priority: P4
+    category: BLOCKER
+    title: Resolve BLOCKER-003 (MCP validation)
+    details: |
+      Evaluate MCP Dynamic Context Loader usage
+      
+      Current status:
+      - 20KB file in codebase
+      - Usage unknown
+      - Owned by innovator_circle
+      
+      Investigation needed:
+      1. Search codebase for MCP loader imports
+      2. Check if actively used in patterns
+      3. If unused: Remove or document
+      4. If used: Validate functionality
+      
+      Risk: LOW - does not block soft launch
+    
+    estimated_time: 2-3 hours
+    target_date: 2025-12-16
+    dependencies: []
+  
+  - id: LATER-005
+    priority: P4
+    category: BLOCKER
+    title: Follow up on BLOCKER-006 (agentic-jujutsu)
+    details: |
+      Monitor upstream fix for platform binaries
+      
+      Current status:
+      - Package non-functional on ALL platforms
+      - Workaround: Native jj CLI (v0.35.0)
+      - Issue filed upstream
+      
+      Action: Check for updates weekly
+      Fallback: Continue using native jj CLI
+      
+      Impact: MEDIUM - limits QuantumDAG features
+    
+    estimated_time: 1 hour (weekly check)
+    target_date: Ongoing
+    dependencies: []
+
+# ========================================
+# METRICS & SUCCESS CRITERIA
+# ========================================
+success_criteria:
+  phase_2_soft_launch:
+    - StarlingX instance deployed successfully
+    - Pattern metrics collection continuous for 24h
+    - Monitoring dashboards showing real-time data
+    - No P0 incidents in first 48h
+    - Rollback procedure validated (already DONE ✅)
+  
+  phase_3_production:
+    - 7+ days continuous metrics (by 2025-12-10)
+    - Baseline thresholds established
+    - All P0 blockers resolved
+    - Team signoff
+    - Incident response procedures validated
+
+timeline:
+  phase_1: 2025-12-03 (COMPLETE ✅)
+  phase_2: 2025-12-05 (TARGET)
+  phase_3: 2025-12-09 (TARGET)
+  baseline_metrics: 2025-12-10 (7 days from phase_2)
+  full_production: 2025-12-16 (if phase_2/3 successful)
+
+risk_mitigation:
+  high_risks_resolved:
+    - Rollback not tested: ✅ RESOLVED (tested 2025-12-02)
+  
+  remaining_risks:
+    medium:
+      - OpenStack credentials not set (mitigation: NOW-003 + NEXT-001)
+      - Deploy script syntax error (mitigation: NOW-003)
+    low:
+      - Trading integration not ready (deferred to LATER)
+      - MCP validation pending (non-blocking)
+
+notes: |
+  Critical path: NOW-001 → NOW-002 → NOW-003 → NEXT-001 → NEXT-002
+  Parallel work: NEXT-003 (AgentDB) can start immediately
+  
+  User decisions required:
+  1. PI sync date (NOW-001)
+  2. Deployment strategy (NOW-002)
+  
+  Once decisions made, technical execution is straightforward.

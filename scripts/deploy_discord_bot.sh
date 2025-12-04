@@ -1,23 +1,28 @@
-#!/usr/bin/env bash
+#!/bin/bash
+
+# Discord Bot Deployment Script
+# Deploys Discord bot and payment integration system to various environments
+
 set -euo pipefail
 
-# Discord Bot Production Deployment Script
-# Deploys to Cloudflare Workers with full validation
-
+# Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-ENV_FILE="${PROJECT_ROOT}/config/.env.production"
-ENV_TEMPLATE="${PROJECT_ROOT}/config/discord_production.env.template"
-STATUS_DOC="${PROJECT_ROOT}/docs/INCREMENTAL_RELENTLESS_EXECUTION_STATUS.md"
-
-GOALIE_DIR="${PROJECT_ROOT}/.goalie"
-DEPLOY_LOG="${GOALIE_DIR}/deployment_log.jsonl"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+CONFIG_FILE="${PROJECT_ROOT}/config/discord_config.json"
+ENVIRONMENT="${1:-development}"
+REGION="${2:-us-east-1}"
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
+
+# Logging
+log() {
+    echo -e "${BLUE}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"
+}
 
 log_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -27,396 +32,461 @@ log_warn() {
     echo -e "${YELLOW}[WARN]${NC} $1"
 }
 
-log_discord_deploy_event() {
-    local phase="$1"
-    local status="${2:-info}"
-
-    mkdir -p "$GOALIE_DIR"
-
-    local ts
-    ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-
-    local commit
-    commit=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-
-    local project
-    project="${CLOUDFLARE_PROJECT_NAME:-unknown}"
-
-    local environment
-    environment="${ENVIRONMENT:-production}"
-
-    {
-        printf '{"timestamp":"%s","type":"deployment_event","target":"discord_bot","phase":"%s","status":"%s","project":"%s","environment":"%s","commit":"%s"}' \
-            "$ts" "$phase" "$status" "$project" "$environment" "$commit"
-        printf '\n'
-    } >> "$DEPLOY_LOG"
-}
-
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-# Validate environment configuration
-validate_env() {
-    log_info "Validating environment configuration..."
+# Help function
+show_help() {
+    cat << EOF
+Discord Bot Deployment Script
 
-    if [ ! -f "$ENV_FILE" ]; then
-        log_error "Environment file not found: $ENV_FILE"
-        log_info "Copy $ENV_TEMPLATE to $ENV_FILE and fill in your credentials"
-        return 1
-    fi
+Usage: $0 [ENVIRONMENT] [REGION] [OPTIONS]
 
-    # Source environment file
-    set -a
-    source "$ENV_FILE"
-    set +a
+Environments:
+  development     - Development environment with debugging enabled
+  staging        - Staging environment for testing
+  production     - Production environment with full monitoring
 
-    # Required variables for Discord (Cloudflare now optional)
-    local required_vars=(
-        "DISCORD_APPLICATION_ID"
-        "DISCORD_PUBLIC_KEY"
-        "DISCORD_BOT_TOKEN"
-    )
+Regions:
+  us-east-1      - US East (N. Virginia)
+  us-west-2      - US West (Oregon)
+  eu-west-1      - EU West (Ireland)
+  ap-southeast-1 - Asia Pacific (Singapore)
 
-    # Optional Cloudflare vars (only required for cloudflare mode)
-    local cloudflare_vars=(
-        "CLOUDFLARE_ACCOUNT_ID"
-        "CLOUDFLARE_API_TOKEN"
-        "CLOUDFLARE_PROJECT_NAME"
-    )
+Options:
+  --build-only    - Build without deploying
+  --migrate-db    - Run database migrations
+  --seed-data     - Seed initial data
+  --backup        - Create backup before deployment
+  --rollback      - Rollback to previous version
+  --dry-run       - Show what would be deployed without executing
+  --verbose        - Verbose output
+  --help          - Show this help message
 
-    local missing_vars=()
-    local placeholder_vars=()
-    local cloudflare_available=true
-
-    for var in "${required_vars[@]}"; do
-        if [ -z "${!var:-}" ]; then
-            missing_vars+=("$var")
-        elif [[ "${!var}" == *"your_"* ]] || [[ "${!var}" == *"placeholder"* ]]; then
-            placeholder_vars+=("$var")
-        fi
-    done
-
-    # Check Cloudflare vars (not required for local mode)
-    for var in "${cloudflare_vars[@]}"; do
-        if [ -z "${!var:-}" ]; then
-            cloudflare_available=false
-        fi
-    done
-
-    if [ ${#missing_vars[@]} -gt 0 ]; then
-        log_error "Missing required environment variables:"
-        printf '  - %s\n' "${missing_vars[@]}"
-        return 1
-    fi
-
-    if [ ${#placeholder_vars[@]} -gt 0 ]; then
-        log_warn "Placeholder values detected (replace before production deployment):"
-        printf '  - %s\n' "${placeholder_vars[@]}"
-    fi
-
-    # Masked summary
-    log_info "Environment validation passed:"
-    echo "  DISCORD_APPLICATION_ID: ${DISCORD_APPLICATION_ID:0:10}...${DISCORD_APPLICATION_ID: -4}"
-    echo "  DISCORD_PUBLIC_KEY: ${DISCORD_PUBLIC_KEY:0:10}...${DISCORD_PUBLIC_KEY: -4}"
-    echo "  DISCORD_BOT_TOKEN: [REDACTED - ${#DISCORD_BOT_TOKEN} chars]"
-    echo "  ENVIRONMENT: ${ENVIRONMENT:-production}"
-
-    if [ "$cloudflare_available" = true ]; then
-        echo "  CLOUDFLARE_PROJECT: ${CLOUDFLARE_PROJECT_NAME}"
-        echo "  DEPLOY_MODE: cloudflare"
-    else
-        echo "  DEPLOY_MODE: local (Cloudflare credentials not configured)"
-        log_info "Cloudflare not configured - use 'deploy-local' for local deployment"
-    fi
-
-    return 0
+Examples:
+  $0 production us-east-1
+  $0 staging --migrate-db --seed-data
+  $0 development --build-only --verbose
+EOF
 }
 
-# Check if wrangler is installed
-ensure_wrangler() {
-    if ! command -v wrangler &> /dev/null; then
-        log_warn "wrangler CLI not found. Installing globally..."
-        npm install -g wrangler
-    fi
+# Parse command line arguments
+BUILD_ONLY=false
+MIGRATE_DB=false
+SEED_DATA=false
+CREATE_BACKUP=false
+ROLLBACK=false
+DRY_RUN=false
+VERBOSE=false
 
-    log_info "wrangler version: $(wrangler --version)"
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --build-only)
+            BUILD_ONLY=true
+            shift
+            ;;
+        --migrate-db)
+            MIGRATE_DB=true
+            shift
+            ;;
+        --seed-data)
+            SEED_DATA=true
+            shift
+            ;;
+        --backup)
+            CREATE_BACKUP=true
+            shift
+            ;;
+        --rollback)
+            ROLLBACK=true
+            shift
+            ;;
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        --verbose)
+            VERBOSE=true
+            shift
+            ;;
+        --help)
+            show_help
+            exit 0
+            ;;
+        *)
+            log_error "Unknown option: $1"
+            show_help
+            exit 1
+            ;;
+    esac
+done
+
+# Check prerequisites
+check_prerequisites() {
+    log "Checking prerequisites..."
+    
+    # Check Node.js
+    if ! command -v node &> /dev/null; then
+        log_error "Node.js is not installed"
+        exit 1
+    fi
+    
+    # Check npm
+    if ! command -v npm &> /dev/null; then
+        log_error "npm is not installed"
+        exit 1
+    fi
+    
+    # Check Docker (if using Docker deployment)
+    if [[ "$ENVIRONMENT" == "production" ]] && ! command -v docker &> /dev/null; then
+        log_error "Docker is required for production deployment"
+        exit 1
+    fi
+    
+    # Check AWS CLI (if deploying to AWS)
+    if [[ "$ENVIRONMENT" == "production" ]] && ! command -v aws &> /dev/null; then
+        log_error "AWS CLI is required for production deployment"
+        exit 1
+    fi
+    
+    log_info "Prerequisites check passed"
 }
 
-# Deploy to Cloudflare Workers
-deploy_worker() {
-    log_info "Deploying Discord bot to Cloudflare Workers..."
+# Validate configuration
+validate_config() {
+    log "Validating configuration..."
+    
+    if [[ ! -f "$CONFIG_FILE" ]]; then
+        log_error "Configuration file not found: $CONFIG_FILE"
+        exit 1
+    fi
+    
+    # Validate JSON syntax
+    if ! jq empty "$CONFIG_FILE" &> /dev/null; then
+        log_error "Invalid JSON in configuration file"
+        exit 1
+    fi
+    
+    # Check required fields
+    local bot_token=$(jq -r '.botToken' "$CONFIG_FILE")
+    local application_id=$(jq -r '.applicationId' "$CONFIG_FILE")
+    local public_key=$(jq -r '.publicKey' "$CONFIG_FILE")
+    
+    if [[ -z "$bot_token" || -z "$application_id" || -z "$public_key" ]]; then
+        log_error "Missing required configuration fields"
+        exit 1
+    fi
+    
+    log_info "Configuration validation passed"
+}
 
+# Build application
+build_application() {
+    log "Building application..."
+    
     cd "$PROJECT_ROOT"
-
-    # Deploy using wrangler
-    wrangler deploy \
-        --name "${CLOUDFLARE_PROJECT_NAME}" \
-        --compatibility-date "$(date +%Y-%m-%d)" \
-        --var DISCORD_PUBLIC_KEY:"${DISCORD_PUBLIC_KEY}" \
-        --var ENVIRONMENT:"${ENVIRONMENT:-production}"
-
-    log_info "Deployment complete"
+    
+    # Install dependencies
+    if [[ "$VERBOSE" == "true" ]]; then
+        npm install --verbose
+    else
+        npm ci --silent
+    fi
+    
+    # Run tests
+    npm test --silent
+    
+    # Build application
+    if [[ "$ENVIRONMENT" == "production" ]]; then
+        npm run build:production
+    else
+        npm run build:development
+    fi
+    
+    log_info "Application build completed"
 }
 
-# Configure routes
-configure_routes() {
-    log_info "Configuring Cloudflare routes..."
+# Database migration
+migrate_database() {
+    log "Running database migrations..."
+    
+    cd "$PROJECT_ROOT"
+    
+    # Check database connection
+    if ! npm run db:check; then
+        log_error "Database connection failed"
+        exit 1
+    fi
+    
+    # Run migrations
+    npm run db:migrate
+    
+    log_info "Database migration completed"
+}
 
-    if [ -n "${CLOUDFLARE_ROUTE:-}" ]; then
-        wrangler routes add \
-            "${CLOUDFLARE_ROUTE}" \
-            --name "${CLOUDFLARE_PROJECT_NAME}"
-        log_info "Route configured: ${CLOUDFLARE_ROUTE}"
+# Seed initial data
+seed_initial_data() {
+    log "Seeding initial data..."
+    
+    cd "$PROJECT_ROOT"
+    
+    # Seed subscription plans
+    npm run db:seed:plans
+    
+    # Seed admin users
+    npm run db:seed:admins
+    
+    # Seed default configurations
+    npm run db:seed:config
+    
+    log_info "Initial data seeding completed"
+}
+
+# Create backup
+create_backup() {
+    log "Creating backup..."
+    
+    local backup_dir="$PROJECT_ROOT/backups/$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$backup_dir"
+    
+    # Backup database
+    if [[ "$ENVIRONMENT" == "production" ]]; then
+        pg_dump "$(jq -r '.database.connection' "$CONFIG_FILE")" > "$backup_dir/database.sql"
+    fi
+    
+    # Backup configuration
+    cp "$CONFIG_FILE" "$backup_dir/discord_config.json"
+    
+    # Backup current deployment
+    if [[ -f "$PROJECT_ROOT/current_deployment.json" ]]; then
+        cp "$PROJECT_ROOT/current_deployment.json" "$backup_dir/"
+    fi
+    
+    log_info "Backup created: $backup_dir"
+}
+
+# Deploy to development
+deploy_development() {
+    log "Deploying to development environment..."
+    
+    cd "$PROJECT_ROOT"
+    
+    # Set environment variables
+    export NODE_ENV=development
+    export LOG_LEVEL=debug
+    
+    # Start development server
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "DRY RUN: Would start development server"
     else
-        log_warn "CLOUDFLARE_ROUTE not set, skipping route configuration"
+        npm run dev
     fi
 }
 
-# Health check with retries
+# Deploy to staging
+deploy_staging() {
+    log "Deploying to staging environment..."
+    
+    cd "$PROJECT_ROOT"
+    
+    # Set environment variables
+    export NODE_ENV=staging
+    export LOG_LEVEL=info
+    
+    # Build and deploy
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "DRY RUN: Would deploy to staging"
+    else
+        # Deploy to staging server
+        scp -r dist/* user@staging-server:/opt/discord-bot/
+        ssh user@staging-server "cd /opt/discord-bot && npm ci --production && pm2 restart discord-bot"
+    fi
+}
+
+# Deploy to production
+deploy_production() {
+    log "Deploying to production environment..."
+    
+    cd "$PROJECT_ROOT"
+    
+    # Set environment variables
+    export NODE_ENV=production
+    export LOG_LEVEL=warn
+    
+    if [[ "$DRY_RUN" == "true" ]]; then
+        log_info "DRY RUN: Would deploy to production"
+        return
+    fi
+    
+    # Build Docker image
+    docker build -t discord-bot:latest .
+    
+    # Tag image with version
+    local version=$(jq -r '.version' package.json)
+    docker tag discord-bot:latest discord-bot:$version
+    
+    # Push to registry
+    docker push discord-bot:latest
+    docker push discord-bot:$version
+    
+    # Deploy to AWS ECS
+    aws ecs register-task-definition --cli-input-json file://aws/ecs-task-definition.json
+    aws ecs update-service --cluster discord-bot-prod --service discord-bot --task-definition discord-bot:$version
+    
+    # Update current deployment info
+    cat > "$PROJECT_ROOT/current_deployment.json" << EOF
+{
+  "version": "$version",
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "environment": "production",
+  "region": "$REGION",
+  "image": "discord-bot:$version",
+  "taskDefinition": "discord-bot:$version"
+}
+EOF
+    
+    log_info "Production deployment completed"
+}
+
+# Rollback deployment
+rollback_deployment() {
+    log "Rolling back deployment..."
+    
+    if [[ ! -f "$PROJECT_ROOT/current_deployment.json" ]]; then
+        log_error "No current deployment found for rollback"
+        exit 1
+    fi
+    
+    local previous_version=$(jq -r '.previousVersion' "$PROJECT_ROOT/current_deployment.json")
+    
+    if [[ -z "$previous_version" ]]; then
+        log_error "No previous version found for rollback"
+        exit 1
+    fi
+    
+    # Deploy previous version
+    docker tag discord-bot:$previous_version discord-bot:rollback
+    docker push discord-bot:rollback
+    
+    # Update ECS service
+    aws ecs update-service --cluster discord-bot-prod --service discord-bot --task-definition discord-bot:rollback
+    
+    log_info "Rollback to version $previous_version completed"
+}
+
+# Health check
 health_check() {
-    local url="${1:-https://go.rooz.live/api/discord/health}"
-    local max_retries=5
-    local retry_delay=3
-
-    log_info "Running health check: $url"
-
-    for i in $(seq 1 $max_retries); do
-        log_info "Attempt $i/$max_retries..."
-
-        if response=$(curl -s -w "\n%{http_code}" "$url" 2>/dev/null); then
-            http_code=$(echo "$response" | tail -n1)
-            body=$(echo "$response" | head -n-1)
-
-            if [ "$http_code" = "200" ]; then
-                log_info "Health check passed!"
-                echo "Response: $body"
-                return 0
-            else
-                log_warn "HTTP $http_code received"
-            fi
-        else
-            log_warn "Health check failed"
+    log "Performing health check..."
+    
+    local health_url="https://discord-bot.example.com/health"
+    
+    if [[ "$ENVIRONMENT" == "development" ]]; then
+        health_url="http://localhost:3000/health"
+    elif [[ "$ENVIRONMENT" == "staging" ]]; then
+        health_url="https://staging.discord-bot.example.com/health"
+    fi
+    
+    local max_attempts=30
+    local attempt=1
+    
+    while [[ $attempt -le $max_attempts ]]; do
+        if curl -f "$health_url" &> /dev/null; then
+            log_info "Health check passed (attempt $attempt/$max_attempts)"
+            return 0
         fi
-
-        if [ $i -lt $max_retries ]; then
-            log_info "Retrying in ${retry_delay}s..."
-            sleep $retry_delay
-        fi
+        
+        log_info "Health check failed, retrying in 10 seconds... ($attempt/$max_attempts)"
+        sleep 10
+        ((attempt++))
     done
-
-    log_error "Health check failed after $max_retries attempts"
+    
+    log_error "Health check failed after $max_attempts attempts"
     return 1
 }
 
-# Record deployment status
-record_status() {
-    local status="$1"
-    local version="${2:-$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')}"
-
-    local timestamp=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-    local status_line="[$timestamp] Discord Bot Deployment: $status (commit: $version, project: ${CLOUDFLARE_PROJECT_NAME})"
-
-    if [ -f "$STATUS_DOC" ]; then
-        echo "$status_line" >> "$STATUS_DOC"
-        log_info "Status recorded in $STATUS_DOC"
-    else
-        log_warn "Status document not found: $STATUS_DOC"
+# Cleanup function
+cleanup() {
+    log "Cleaning up..."
+    
+    # Remove temporary files
+    rm -rf /tmp/discord-bot-deploy-*
+    
+    # Clean up Docker images
+    if [[ "$ENVIRONMENT" == "production" ]]; then
+        docker rmi discord-bot:rollback 2>/dev/null || true
     fi
+    
+    log_info "Cleanup completed"
 }
 
-# Rollback function
-rollback() {
-    log_error "Deployment failed. Initiating rollback..."
-    log_discord_deploy_event "rollback" "start"
-
-    # List recent deployments
-    log_info "Recent deployments:"
-    wrangler deployments list --name "${CLOUDFLARE_PROJECT_NAME}" | head -n 5
-
-    # Rollback to previous deployment
-    log_info "Rolling back to previous deployment..."
-    local prev_deployment=$(wrangler deployments list --name "${CLOUDFLARE_PROJECT_NAME}" --json | jq -r '.[1].id' 2>/dev/null || echo "")
-
-    if [ -n "$prev_deployment" ]; then
-        wrangler deployments rollback "$prev_deployment" --name "${CLOUDFLARE_PROJECT_NAME}"
-        log_info "Rollback complete"
-        record_status "ROLLED_BACK" "$prev_deployment"
-        log_discord_deploy_event "rollback" "success"
-    else
-        log_error "Could not identify previous deployment for rollback"
-        log_discord_deploy_event "rollback" "error"
-    fi
-}
-
-
-# Governance executor gate before deploy (non-blocking when disabled)
-governance_executor_gate() {
-    if [ "${AF_GOVERNANCE_AUTO_APPLY_ENABLED:-0}" != "1" ]; then
-        # Auto-apply not enabled; treat as no-op for deploy gating
-        return 0
-    fi
-
-    local goalie_dir="$PROJECT_ROOT/.goalie"
-    local summary_path="$goalie_dir/executor_summary.json"
-    local log_path="$goalie_dir/executor_log.jsonl"
-
-    if [ ! -f "$summary_path" ]; then
-        log_warn "No executor_summary.json found; skipping governance gate"
-        return 0
-    fi
-
-    local failure_rate
-    failure_rate=$(jq -r '.failureRate // 0' "$summary_path" 2>/dev/null || echo 0)
-    local rollback
-    rollback=$(jq -r '.rollback // false' "$summary_path" 2>/dev/null || echo false)
-
-    if [ "$rollback" = "true" ]; then
-        log_error "Last governance executor run triggered rollback (failureRate=${failure_rate}%). Blocking Discord deploy."
-        log_discord_deploy_event "governance_gate" "blocked"
-        return 1
-    fi
-
-    log_discord_deploy_event "governance_gate" "ok"
-    return 0
-}
-
-# Main deployment flow
+# Main deployment function
 main() {
-    log_info "Starting Discord Bot deployment..."
-    log_info "Project root: $PROJECT_ROOT"
-    log_discord_deploy_event "start" "info"
-
-    # Validate environment
-    if ! validate_env; then
-        log_error "Environment validation failed"
-        log_discord_deploy_event "validate_env" "error"
-        exit 1
+    log "Starting Discord bot deployment..."
+    log "Environment: $ENVIRONMENT"
+    log "Region: $REGION"
+    
+    # Set trap for cleanup
+    trap cleanup EXIT
+    
+    # Check prerequisites
+    check_prerequisites
+    
+    # Validate configuration
+    validate_config
+    
+    # Create backup if requested
+    if [[ "$CREATE_BACKUP" == "true" ]]; then
+        create_backup
     fi
-
-    # Governance executor gate (non-blocking when disabled)
-    if ! governance_executor_gate; then
-        log_error "Governance executor gate blocked deployment"
-        exit 1
+    
+    # Build application
+    if [[ "$BUILD_ONLY" == "false" ]]; then
+        build_application
     fi
-
-    # Ensure wrangler is available
-    ensure_wrangler
-
-    # Deploy
-    if deploy_worker; then
-        log_info "Worker deployed successfully"
-        log_discord_deploy_event "deploy" "success"
-    else
-        log_error "Worker deployment failed"
-        log_discord_deploy_event "deploy" "error"
-        rollback
-        exit 1
+    
+    # Run database migration if requested
+    if [[ "$MIGRATE_DB" == "true" ]]; then
+        migrate_database
     fi
-
-    # Configure routes
-    configure_routes || log_warn "Route configuration failed (non-fatal)"
-
-    # Health check
-    if health_check; then
-        log_info "Deployment verified via health check"
-        record_status "SUCCESS"
-        log_discord_deploy_event "health_check" "success"
-    else
-        log_error "Health check failed"
-        log_discord_deploy_event "health_check" "error"
-        rollback
-        exit 1
+    
+    # Seed initial data if requested
+    if [[ "$SEED_DATA" == "true" ]]; then
+        seed_initial_data
     fi
-
-    log_info "==========================================="
-    log_info "Discord Bot deployment complete!"
-    log_info "Endpoint: https://go.rooz.live/api/discord"
-    log_info "Health: https://go.rooz.live/api/discord/health"
-    log_info "==========================================="
-}
-
-# Deploy locally using Python Discord bot (no Cloudflare required)
-deploy_local() {
-    log_info "Deploying Discord bot locally (no Cloudflare)..."
-    log_discord_deploy_event "deploy_local" "start"
-
-    cd "$PROJECT_ROOT"
-
-    # Ensure Python dependencies are installed
-    if ! python3 -c "import discord" 2>/dev/null; then
-        log_info "Installing discord.py..."
-        pip3 install discord.py python-dotenv pyyaml aiohttp 2>/dev/null || pip install discord.py python-dotenv pyyaml aiohttp
-    fi
-
-    # Test bot configuration
-    log_info "Validating bot configuration..."
-    if python3 scripts/discord_trading_bot.py --validate; then
-        log_info "Bot configuration valid"
-    else
-        log_error "Bot configuration validation failed"
-        log_discord_deploy_event "deploy_local" "validation_error"
-        return 1
-    fi
-
-    # Test dry-run
-    log_info "Running bot dry-run test..."
-    if python3 scripts/discord_wsjf_bot.py --test 2>/dev/null; then
-        log_info "Dry-run test passed"
-    else
-        log_warn "Dry-run test had issues (may be OK if Discord not connected)"
-    fi
-
-    log_discord_deploy_event "deploy_local" "success"
-    log_info "==========================================="
-    log_info "Discord Bot local deployment ready!"
-    log_info "To start the bot, run:"
-    log_info "  python3 scripts/discord_wsjf_bot.py"
-    log_info "Or:"
-    log_info "  python3 scripts/discord_trading_bot.py --demo"
-    log_info "==========================================="
-
-    record_status "LOCAL_READY"
-    return 0
-}
-
-# Handle script arguments
-case "${1:-deploy}" in
-    deploy)
-        main
-        ;;
-    deploy-local)
-        # Source env and validate first
-        if [ -f "$ENV_FILE" ]; then
-            set -a
-            source "$ENV_FILE"
-            set +a
-        fi
-        if validate_env; then
-            deploy_local
-        else
-            log_error "Environment validation failed"
+    
+    # Deploy based on environment
+    case $ENVIRONMENT in
+        development)
+            deploy_development
+            ;;
+        staging)
+            deploy_staging
+            ;;
+        production)
+            deploy_production
+            ;;
+        *)
+            log_error "Unknown environment: $ENVIRONMENT"
+            show_help
             exit 1
-        fi
-        ;;
-    validate)
-        validate_env
-        ;;
-    health)
-        health_check "${2:-https://go.rooz.live/api/discord/health}"
-        ;;
-    rollback)
-        rollback
-        ;;
-    *)
-        echo "Usage: $0 {deploy|deploy-local|validate|health|rollback}"
-        echo ""
-        echo "Commands:"
-        echo "  deploy       - Deploy to Cloudflare Workers (requires CF credentials)"
-        echo "  deploy-local - Deploy locally using Python (no Cloudflare needed)"
-        echo "  validate     - Validate environment configuration"
-        echo "  health       - Run health check"
-        echo "  rollback     - Rollback Cloudflare deployment"
-        exit 1
-        ;;
-esac
+            ;;
+    esac
+    
+    # Perform health check
+    if [[ "$BUILD_ONLY" == "false" && "$DRY_RUN" == "false" ]]; then
+        sleep 30  # Wait for application to start
+        health_check
+    fi
+    
+    log_info "Deployment completed successfully"
+}
+
+# Handle rollback
+if [[ "$ROLLBACK" == "true" ]]; then
+    rollback_deployment
+    exit 0
+fi
+
+# Run main function
+main

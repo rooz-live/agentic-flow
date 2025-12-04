@@ -4,7 +4,8 @@
  * @coverage Target: 90%+
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+// Jest globals are automatically available via @types/jest
+// Using jest.fn() instead of vi.fn()
 
 // Mock types based on research document architecture
 interface QuicConnection {

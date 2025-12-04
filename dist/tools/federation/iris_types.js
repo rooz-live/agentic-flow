@@ -1,0 +1,53 @@
+/**
+ * Enterprise-Grade IRIS Bridge Type Definitions
+ *
+ * This file contains comprehensive TypeScript type definitions for the IRIS bridge module,
+ * including enterprise features like circuit breaker, retry strategies, performance monitoring,
+ * and governance metrics.
+ */
+// ============================================================================
+// Export Default Configurations
+// ============================================================================
+export const DEFAULT_IRIS_RETRY_CONFIG = {
+    maxAttempts: 3,
+    baseDelayMs: 1000,
+    maxDelayMs: 30000,
+    backoffMultiplier: 2,
+    jitter: true,
+};
+export const DEFAULT_IRIS_CIRCUIT_BREAKER_CONFIG = {
+    failureThreshold: 5,
+    recoveryTimeoutMs: 60000,
+    monitoringPeriodMs: 10000,
+    halfOpenMaxCalls: 3,
+};
+export const DEFAULT_IRIS_PERFORMANCE_CONFIG = {
+    enableMetrics: true,
+    enableTracing: true,
+    memoryThresholdMb: 1024,
+    executionTimeoutMs: 120000,
+    enableResourceMonitoring: true,
+};
+export const DEFAULT_IRIS_VALIDATION_CONFIG = {
+    enableInputSanitization: true,
+    enableCommandWhitelist: true,
+    allowedCommands: ['health', 'discover', 'evaluate', 'patterns', 'telemetry', 'federated'],
+    maxArgsLength: 100,
+    enableOutputValidation: true,
+};
+export const DEFAULT_IRIS_CONCURRENCY_CONFIG = {
+    maxConcurrentCommands: 10,
+    resourcePoolSize: 20,
+    queueTimeoutMs: 30000,
+    enablePriorityQueue: true,
+};
+export const DEFAULT_IRIS_BRIDGE_CONFIG = {
+    retry: DEFAULT_IRIS_RETRY_CONFIG,
+    circuitBreaker: DEFAULT_IRIS_CIRCUIT_BREAKER_CONFIG,
+    performance: DEFAULT_IRIS_PERFORMANCE_CONFIG,
+    validation: DEFAULT_IRIS_VALIDATION_CONFIG,
+    concurrency: DEFAULT_IRIS_CONCURRENCY_CONFIG,
+    enableEnterpriseFeatures: true,
+    logLevel: 'info',
+};
+//# sourceMappingURL=iris_types.js.map

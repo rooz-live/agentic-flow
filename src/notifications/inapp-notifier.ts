@@ -11,6 +11,8 @@ import {
   NotificationChannel,
   InAppConfig
 } from './types';
+import { EventEmitter } from 'events';
+import { Metrics, NoopMetrics } from './metrics';
 
 interface StoredNotification {
   payload: NotificationPayload;
@@ -24,12 +26,20 @@ export class InAppNotifier implements INotifier {
   private config: InAppConfig;
   private notifications: Map<string, StoredNotification>;
   private userNotifications: Map<string, Set<string>>;
+  private cleanupIntervalId?: NodeJS.Timeout;
+  private cleanupStarted: boolean = false;
+  private events: EventEmitter;
+  private metrics: Metrics;
 
-  constructor(config: InAppConfig) {
+  constructor(config: InAppConfig, deps?: { events?: EventEmitter; metrics?: Metrics }) {
     this.config = config;
     this.notifications = new Map();
     this.userNotifications = new Map();
-    this.startCleanupTask();
+    this.events = deps?.events ?? new EventEmitter();
+    this.metrics = deps?.metrics ?? new NoopMetrics();
+    // Lazy initialization - only start cleanup when needed
+    // This prevents resource waste for unused instances
+    this.events.emit('notifier.init', { configHash: this.hash(JSON.stringify(config)) });
   }
 
   /**
@@ -63,6 +73,13 @@ export class InAppNotifier implements INotifier {
       this.notifications.set(payload.id, stored);
       userNotifs.add(payload.id);
       this.userNotifications.set(payload.recipient.id, userNotifs);
+
+      // Start cleanup on first notification (lazy initialization)
+      this.ensureCleanupStarted();
+
+      // Update gauges for observability
+      this.metrics.gauge('notifications_in_store', this.notifications.size);
+      this.metrics.gauge('unread_total', this.getUnreadCount(payload.recipient.id));
 
       result.metadata = {
         stored: true,
@@ -238,36 +255,110 @@ export class InAppNotifier implements INotifier {
   }
 
   /**
-   * Start cleanup task to remove expired notifications
+   * Ensure cleanup task is running (lazy initialization)
+   * Only starts if notifications exist and cleanup not already started
    */
-  private startCleanupTask(): void {
-    setInterval(() => {
-      this.cleanupExpiredNotifications();
-    }, 60 * 60 * 1000); // Run every hour
+  private ensureCleanupStarted(): void {
+    if (this.cleanupStarted) return;
+    
+    this.cleanupStarted = true;
+    const intervalMs = 60 * 60 * 1000; // 1 hour default
+    
+    this.cleanupIntervalId = setInterval(() => {
+      const t0 = Date.now();
+      try {
+        const removed = this.cleanupExpiredNotifications();
+        const durationMs = Date.now() - t0;
+        this.metrics.inc('cleanup_cycles_total');
+        this.metrics.observe('cleanup_cycle_duration_ms', durationMs);
+        if (removed > 0) this.metrics.inc('notifications_removed_total', removed);
+        this.events.emit('cleanup.cycle.completed', {
+          removed,
+          scanned: this.notifications.size,
+          durationMs
+        });
+      } catch (error: any) {
+        this.metrics.inc('cleanup_errors_total');
+        this.events.emit('cleanup.error', {
+          errType: error?.name || 'Error',
+          message: String(error?.message || error),
+          stack: error?.stack
+        });
+        console.error('[INAPP] Cleanup error:', error);
+      }
+    }, intervalMs);
+    
+    // Allow Node.js to exit even if this timer is running
+    // This is crucial for graceful shutdown and test compatibility
+    this.cleanupIntervalId.unref();
+    this.events.emit('cleanup.started', { intervalMs });
+    console.log('[INAPP] Cleanup task started (lazy initialization)');
+  }
+
+  /**
+   * Stop cleanup task and release resources
+   * Should be called when shutting down the notifier
+   */
+  destroy(): void {
+    if (this.cleanupIntervalId) {
+      clearInterval(this.cleanupIntervalId);
+      this.cleanupIntervalId = undefined;
+    }
+    this.events.emit('notifier.destroyed', {});
+  }
+
+  /**
+   * Force a cleanup cycle now (useful for tests and admin paths)
+   */
+  runCleanupNow(): { removed: number } {
+    const t0 = Date.now();
+    const removed = this.cleanupExpiredNotifications();
+    const durationMs = Date.now() - t0;
+    this.metrics.inc('cleanup_cycles_total');
+    this.metrics.observe('cleanup_cycle_duration_ms', durationMs);
+    if (removed > 0) this.metrics.inc('notifications_removed_total', removed);
+    this.events.emit('cleanup.cycle.completed', {
+      removed,
+      scanned: this.notifications.size,
+      durationMs
+    });
+    return { removed };
+  }
+
+  private hash(s: string): string {
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h) ^ s.charCodeAt(i);
+    return (h >>> 0).toString(16);
   }
 
   /**
    * Clean up expired notifications based on retention policy
    */
-  private cleanupExpiredNotifications(): void {
+  private cleanupExpiredNotifications(): number {
     const now = new Date();
     const retentionMs = this.config.retentionDays * 24 * 60 * 60 * 1000;
+    let removed = 0;
 
     for (const [id, notification] of this.notifications.entries()) {
       const age = now.getTime() - notification.payload.createdAt.getTime();
 
       // Remove if expired or past retention period
-      const isExpired = notification.payload.expiresAt &&
-        now > notification.payload.expiresAt;
+      const isExpired = notification.payload.expiresAt && now > notification.payload.expiresAt;
       const isPastRetention = age > retentionMs;
-      const isDeleted = notification.deletedAt &&
-        (now.getTime() - notification.deletedAt.getTime()) > 24 * 60 * 60 * 1000; // 24h grace period
+      const isDeleted = notification.deletedAt && (now.getTime() - notification.deletedAt.getTime()) > 24 * 60 * 60 * 1000; // 24h grace period
 
       if (isExpired || isPastRetention || isDeleted) {
         this.removeNotification(id);
+        removed++;
         console.log(`[INAPP] Cleaned up notification: ${id}`);
       }
     }
+
+    // Update gauges post-cleanup
+    this.metrics.gauge('notifications_in_store', this.notifications.size);
+    // Note: unread_total gauge can be updated per-user if needed; omitted for O(1)
+
+    return removed;
   }
 
   /**

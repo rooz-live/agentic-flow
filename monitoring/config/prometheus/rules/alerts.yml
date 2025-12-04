@@ -1,0 +1,357 @@
+groups:
+  # System Health Alerts
+  - name: system_health
+    rules:
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is above 80% for more than 5 minutes on instance {{ $labels.instance }}"
+
+      - alert: CriticalCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 95
+        for: 2m
+        labels:
+          severity: critical
+          service: system
+        annotations:
+          summary: "Critical CPU usage detected"
+          description: "CPU usage is above 95% for more than 2 minutes on instance {{ $labels.instance }}"
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is above 85% for more than 5 minutes on instance {{ $labels.instance }}"
+
+      - alert: CriticalMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 95
+        for: 2m
+        labels:
+          severity: critical
+          service: system
+        annotations:
+          summary: "Critical memory usage detected"
+          description: "Memory usage is above 95% for more than 2 minutes on instance {{ $labels.instance }}"
+
+      - alert: DiskSpaceLow
+        expr: (1 - (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"})) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+          service: system
+        annotations:
+          summary: "Low disk space detected"
+          description: "Disk usage is above 85% on {{ $labels.instance }}:{{ $labels.mountpoint }}"
+
+      - alert: DiskSpaceCritical
+        expr: (1 - (node_filesystem_avail_bytes{fstype!="tmpfs"} / node_filesystem_size_bytes{fstype!="tmpfs"})) * 100 > 95
+        for: 5m
+        labels:
+          severity: critical
+          service: system
+        annotations:
+          summary: "Critical disk space detected"
+          description: "Disk usage is above 95% on {{ $labels.instance }}:{{ $labels.mountpoint }}"
+
+  # Application Health Alerts
+  - name: application_health
+    rules:
+      - alert: ApplicationDown
+        expr: up{job=~"agentic-flow-app|discord-bot|trading-engine|payment-system"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: application
+        annotations:
+          summary: "Application is down"
+          description: "{{ $labels.job }} on {{ $labels.instance }} has been down for more than 1 minute"
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: application
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is above 5% for {{ $labels.job }} on {{ $labels.instance }}"
+
+      - alert: CriticalErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          service: application
+        annotations:
+          summary: "Critical error rate detected"
+          description: "Error rate is above 10% for {{ $labels.job }} on {{ $labels.instance }}"
+
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: application
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time is above 2 seconds for {{ $labels.job }}"
+
+      - alert: CriticalResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 5
+        for: 2m
+        labels:
+          severity: critical
+          service: application
+        annotations:
+          summary: "Critical response time detected"
+          description: "95th percentile response time is above 5 seconds for {{ $labels.job }}"
+
+  # Discord Bot Specific Alerts
+  - name: discord_bot
+    rules:
+      - alert: DiscordBotDisconnected
+        expr: discord_bot_connected == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: discord
+        annotations:
+          summary: "Discord bot is disconnected"
+          description: "Discord bot has been disconnected for more than 2 minutes"
+
+      - alert: HighDiscordLatency
+        expr: discord_bot_latency_ms > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: discord
+        annotations:
+          summary: "High Discord API latency"
+          description: "Discord API latency is above 1000ms for more than 5 minutes"
+
+      - alert: DiscordCommandFailures
+        expr: rate(discord_commands_failed_total[5m]) / rate(discord_commands_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: discord
+        annotations:
+          summary: "High Discord command failure rate"
+          description: "Discord command failure rate is above 10% for more than 5 minutes"
+
+  # Trading Engine Specific Alerts
+  - name: trading_engine
+    rules:
+      - alert: TradingEngineDown
+        expr: trading_engine_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: trading
+        annotations:
+          summary: "Trading engine is down"
+          description: "Trading engine has been down for more than 1 minute"
+
+      - alert: HighTradingLatency
+        expr: histogram_quantile(0.95, rate(trading_execution_duration_seconds_bucket[5m])) > 1
+        for: 3m
+        labels:
+          severity: warning
+          service: trading
+        annotations:
+          summary: "High trading execution latency"
+          description: "95th percentile trading execution time is above 1 second"
+
+      - alert: TradingFailures
+        expr: rate(trading_orders_failed_total[5m]) / rate(trading_orders_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: trading
+        annotations:
+          summary: "High trading failure rate"
+          description: "Trading failure rate is above 5% for more than 5 minutes"
+
+      - alert: RiskLimitBreached
+        expr: trading_risk_utilization > 0.9
+        for: 1m
+        labels:
+          severity: critical
+          service: trading
+        annotations:
+          summary: "Risk limit breached"
+          description: "Risk utilization is above 90%"
+
+  # Payment System Specific Alerts
+  - name: payment_system
+    rules:
+      - alert: PaymentSystemDown
+        expr: payment_system_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: payment
+        annotations:
+          summary: "Payment system is down"
+          description: "Payment system has been down for more than 1 minute"
+
+      - alert: PaymentFailures
+        expr: rate(payment_transactions_failed_total[5m]) / rate(payment_transactions_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: payment
+        annotations:
+          summary: "High payment failure rate"
+          description: "Payment failure rate is above 5% for more than 5 minutes"
+
+      - alert: PaymentProcessingDelay
+        expr: histogram_quantile(0.95, rate(payment_processing_duration_seconds_bucket[5m])) > 30
+        for: 5m
+        labels:
+          severity: warning
+          service: payment
+        annotations:
+          summary: "Payment processing delay"
+          description: "95th percentile payment processing time is above 30 seconds"
+
+  # Database Alerts
+  - name: database
+    rules:
+      - alert: DatabaseDown
+        expr: up{job=~"redis|elasticsearch"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: database
+        annotations:
+          summary: "Database is down"
+          description: "{{ $labels.job }} database has been down for more than 1 minute"
+
+      - alert: HighDatabaseConnections
+        expr: redis_connected_clients > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "High database connections"
+          description: "Redis has more than 80 connected clients"
+
+      - alert: DatabaseMemoryHigh
+        expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "Database memory usage high"
+          description: "Redis memory usage is above 90%"
+
+  # Container Health Alerts
+  - name: container_health
+    rules:
+      - alert: ContainerDown
+        expr: container_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: container
+        annotations:
+          summary: "Container is down"
+          description: "Container {{ $labels.name }} has been down for more than 1 minute"
+
+      - alert: HighContainerCPU
+        expr: rate(container_cpu_usage_seconds_total[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: container
+        annotations:
+          summary: "High container CPU usage"
+          description: "Container {{ $labels.name }} CPU usage is above 80%"
+
+      - alert: HighContainerMemory
+        expr: container_memory_usage_bytes / container_spec_memory_limit_bytes * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          service: container
+        annotations:
+          summary: "High container memory usage"
+          description: "Container {{ $labels.name }} memory usage is above 85%"
+
+  # Business Metrics Alerts
+  - name: business_metrics
+    rules:
+      - alert: LowAgentActivity
+        expr: rate(agent_tasks_completed_total[5m]) < 1
+        for: 10m
+        labels:
+          severity: warning
+          service: business
+        annotations:
+          summary: "Low agent activity"
+          description: "Agent task completion rate is below 1 per minute for more than 10 minutes"
+
+      - alert: GovernanceDecisionDelay
+        expr: histogram_quantile(0.95, rate(governance_decision_duration_seconds_bucket[5m])) > 300
+        for: 10m
+        labels:
+          severity: warning
+          service: business
+        annotations:
+          summary: "Governance decision delay"
+          description: "95th percentile governance decision time is above 5 minutes"
+
+      - alert: SLABreach
+        expr: sla_compliance < 0.99
+        for: 5m
+        labels:
+          severity: critical
+          service: business
+        annotations:
+          summary: "SLA breach detected"
+          description: "SLA compliance has fallen below 99%"
+
+  # Security Alerts
+  - name: security
+    rules:
+      - alert: UnusualLoginActivity
+        expr: rate(auth_login_failures_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          service: security
+        annotations:
+          summary: "Unusual login activity detected"
+          description: "High rate of login failures detected"
+
+      - alert: SuspiciousAPIAccess
+        expr: rate(api_requests_blocked_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+          service: security
+        annotations:
+          summary: "Suspicious API access detected"
+          description: "High rate of blocked API requests detected"
+
+      - alert: SecurityEventDetected
+        expr: security_events_total > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: security
+        annotations:
+          summary: "Security event detected"
+          description: "Security event has been detected in the system"

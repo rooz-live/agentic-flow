@@ -30,6 +30,11 @@ describe('NotificationManager', () => {
     });
   });
 
+  afterEach(() => {
+    // Clean up resources to prevent Jest worker leaks
+    manager.destroy();
+  });
+
   describe('sendNotification', () => {
     it('should send notification via in-app channel', async () => {
       const payload: NotificationPayload = {

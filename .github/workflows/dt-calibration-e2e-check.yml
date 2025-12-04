@@ -1,0 +1,128 @@
+name: DT Calibration E2E Check
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/analysis/dt_*.py'
+      - 'scripts/analysis/evaluate_dt_model.py'
+      - 'scripts/analysis/build_trajectories.py'
+      - 'scripts/analysis/prepare_dt_dataset.py'
+      - 'scripts/analysis/train_dt_model.py'
+      - '.goalie/dt_validation_thresholds_*.yaml'
+      - 'tests/analysis/test_dt_*.py'
+      - 'tests/test_prepare_dt_dataset.py'
+      - 'tests/test_dt_schema.py'
+      - 'tests/test_preview_rewards.py'
+      - 'tests/test_reward_presets.py'
+  push:
+    branches:
+      - main
+      - master
+      - 'release/*'
+    paths:
+      - 'scripts/analysis/dt_*.py'
+      - 'scripts/analysis/evaluate_dt_model.py'
+      - 'scripts/analysis/build_trajectories.py'
+      - 'scripts/analysis/prepare_dt_dataset.py'
+      - 'scripts/analysis/train_dt_model.py'
+      - '.goalie/dt_validation_thresholds_*.yaml'
+      - 'tests/analysis/test_dt_*.py'
+      - 'tests/test_prepare_dt_dataset.py'
+      - 'tests/test_dt_schema.py'
+      - 'tests/test_preview_rewards.py'
+      - 'tests/test_reward_presets.py'
+
+jobs:
+  dt-calibration-e2e-check:
+    name: DT Calibration E2E Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r analysis/requirements.txt
+
+      - name: Run DT calibration end-to-end check and log CI history
+        id: dt-check
+        run: |
+          set -euo pipefail
+
+          mkdir -p .goalie
+
+          EXIT_CODE=0
+          if ! ./scripts/af dt-e2e-check --skip-prod-cycle; then
+            EXIT_CODE=$?
+          fi
+
+          SUMMARY_PATH=".goalie/dt_evaluation_summary.json"
+          HISTORY_PATH=".goalie/ci_dt_check_history.jsonl"
+
+          EXIT_CODE="$EXIT_CODE" python - << 'PY'
+          import json
+          import os
+          from datetime import datetime
+          from pathlib import Path
+
+          summary_path = Path(os.environ.get("SUMMARY_PATH", ".goalie/dt_evaluation_summary.json"))
+          history_path = Path(os.environ.get("HISTORY_PATH", ".goalie/ci_dt_check_history.jsonl"))
+
+          now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+          commit_sha = os.environ.get("GITHUB_SHA", "")
+          branch = os.environ.get("GITHUB_REF_NAME", "")
+
+          exit_code = int(os.environ.get("EXIT_CODE", "0"))
+
+          total_evals = None
+          suggested_prod_pass_rate = None
+
+          if summary_path.is_file():
+              try:
+                  data = json.loads(summary_path.read_text(encoding="utf-8"))
+                  total_evals = data.get("total_evaluations")
+
+                  prod_key = data.get("dry_run_config") or "dt_validation_thresholds_production_suggested.yaml"
+                  config_impact = data.get("config_impact") or {}
+                  entry = config_impact.get(prod_key) or {}
+                  suggested_prod_pass_rate = entry.get("pass_rate")
+              except Exception:
+                  pass
+
+          record = {
+              "timestamp": now,
+              "commit_sha": commit_sha,
+              "branch": branch,
+              "exit_code": exit_code,
+              "summary_path": str(summary_path),
+              "suggested_production_pass_rate": suggested_prod_pass_rate,
+              "total_evaluations": total_evals,
+          }
+
+          history_path.parent.mkdir(parents=True, exist_ok=True)
+          with history_path.open("a", encoding="utf-8") as f:
+              f.write(json.dumps(record) + "\n")
+          PY
+
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          exit "$EXIT_CODE"
+
+      - name: Upload DT CI history artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dt-ci-check-history
+          path: .goalie/ci_dt_check_history.jsonl
+          if-no-files-found: ignore
+
+    # NOTE: To enforce this as a merge gate, add "DT Calibration E2E Check" as a
+    # required status check for protected branches (e.g. main, release/*) in your
+    # GitHub branch protection settings.

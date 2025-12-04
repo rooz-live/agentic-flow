@@ -7,8 +7,35 @@
 const fs = require('fs');
 const path = require('path');
 
-// Load N-API bindings
-const { JjWrapper } = require('../index.js');
+// Load N-API bindings with fallback to mock
+let JjWrapper;
+try {
+  ({ JjWrapper } = require('../index.js'));
+} catch (e) {
+  // Mock implementation for when native bindings are missing
+  console.warn('\x1b[33m[agentic-jujutsu] Warning: Native bindings not found. Using mock implementation.\x1b[0m');
+
+  JjWrapper = class MockJjWrapper {
+    async status() {
+      return { stdout: 'Working copy clean (mock)', stderr: '', exitCode: 0, success: true };
+    }
+    async log(limit) {
+      return { stdout: 'Mock commit history', stderr: '', exitCode: 0, success: true };
+    }
+    async diff(revision) {
+      return { stdout: 'Mock diff', stderr: '', exitCode: 0, success: true };
+    }
+    async newCommit(message) {
+      return { stdout: 'Mock commit created', stderr: '', exitCode: 0, success: true };
+    }
+    async describe(desc) {
+      return { stdout: 'Mock description updated', stderr: '', exitCode: 0, success: true };
+    }
+    async execute(args) {
+      return { stdout: 'Mock execution', stderr: '', exitCode: 0, success: true };
+    }
+  };
+}
 
 // ANSI colors
 const colors = {
@@ -47,13 +74,13 @@ ${colors.bright}COMMANDS:${colors.reset}
     diff [revision]     Show changes
     new <message>       Create new commit
     describe <msg>      Update commit description
-    
+
   ${colors.green}AI Agent Commands:${colors.reset}
     analyze             Analyze repository for AI
-    
+
   ${colors.green}Benchmarks:${colors.reset}
     compare-git         Compare with Git performance
-    
+
   ${colors.green}Utilities:${colors.reset}
     version             Show version info
     info                Show package info
@@ -65,7 +92,7 @@ ${colors.bright}EXAMPLES:${colors.reset}
   npx agentic-jujutsu status
   npx agentic-jujutsu log --limit 10
   npx agentic-jujutsu new "My commit message"
-  
+
   ${colors.cyan}# AI/Agent usage${colors.reset}
   npx agentic-jujutsu analyze
 
@@ -110,25 +137,25 @@ function info() {
 
 function examples() {
   console.log(`${colors.bright}Usage Examples:${colors.reset}\n`);
-  
+
   console.log(`${colors.cyan}1. Check repository status:${colors.reset}`);
   console.log(`   npx agentic-jujutsu status\n`);
-  
+
   console.log(`${colors.cyan}2. View commit history:${colors.reset}`);
   console.log(`   npx agentic-jujutsu log --limit 10\n`);
-  
+
   console.log(`${colors.cyan}3. Create a new commit:${colors.reset}`);
   console.log(`   npx agentic-jujutsu new "Add new feature"\n`);
-  
+
   console.log(`${colors.cyan}4. Update commit description:${colors.reset}`);
   console.log(`   npx agentic-jujutsu describe "Better description"\n`);
-  
+
   console.log(`${colors.cyan}5. Show changes:${colors.reset}`);
   console.log(`   npx agentic-jujutsu diff\n`);
-  
+
   console.log(`${colors.cyan}6. Analyze for AI:${colors.reset}`);
   console.log(`   npx agentic-jujutsu analyze\n`);
-  
+
   console.log(`${colors.cyan}7. Programmatic usage:${colors.reset}`);
   console.log(`   const { JjWrapper } = require('agentic-jujutsu');`);
   console.log(`   const jj = new JjWrapper();`);
@@ -160,14 +187,14 @@ async function analyze() {
 
 function compareGit() {
   console.log(`${colors.cyan}Comparing agentic-jujutsu vs Git...${colors.reset}\n`);
-  
+
   console.log(`${colors.bright}Key Advantages:${colors.reset}`);
   console.log(`  ${colors.green}✓${colors.reset} Lock-free - multiple agents can work simultaneously`);
   console.log(`  ${colors.green}✓${colors.reset} 23x faster - for multi-agent workflows`);
   console.log(`  ${colors.green}✓${colors.reset} Zero setup - jj binary embedded`);
   console.log(`  ${colors.green}✓${colors.reset} MCP ready - built for AI agents`);
   console.log(`  ${colors.green}✓${colors.reset} AgentDB - learns from operations`);
-  
+
   console.log(`\n${colors.bright}Performance Comparison:${colors.reset}`);
   console.log(`  Git:              15 ops/s (with locks)`);
   console.log(`  agentic-jujutsu:  350 ops/s (lock-free)`);
@@ -178,36 +205,36 @@ function compareGit() {
 async function executeJjCommand(command, args = []) {
   try {
     const jj = new JjWrapper();
-    
+
     // Map commands to JjWrapper methods
     switch (command) {
       case 'status':
         return await jj.status();
-      
+
       case 'log':
-        const limit = args.includes('--limit') 
+        const limit = args.includes('--limit')
           ? parseInt(args[args.indexOf('--limit') + 1]) || 10
           : 10;
         return await jj.log(limit);
-      
+
       case 'diff':
         const revision = args[0] || '@';
         return await jj.diff(revision);
-      
+
       case 'new':
         const message = args.join(' ');
         if (!message) {
           throw new Error('Commit message required');
         }
         return await jj.newCommit(message);
-      
+
       case 'describe':
         const desc = args.join(' ');
         if (!desc) {
           throw new Error('Description required');
         }
         return await jj.describe(desc);
-      
+
       default:
         // Fall back to raw execute
         return await jj.execute([command, ...args]);

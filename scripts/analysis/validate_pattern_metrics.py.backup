@@ -1,0 +1,304 @@
+#!/usr/bin/env python3
+"""
+Validate pattern metrics against canonical schema.
+
+Checks:
+1. Required fields present
+2. Type correctness
+3. Tag coverage
+4. Economic metrics present
+5. Timestamp monotonicity within runs
+"""
+
+import json
+import sys
+from pathlib import Path
+from datetime import datetime
+from collections import defaultdict
+from typing import Dict, List, Any, Tuple
+
+# Required fields per canonical schema
+REQUIRED_FIELDS = [
+    "ts", "run", "run_id", "iteration", "circle", "depth",
+    "pattern", "mode", "mutation", "gate", "framework",
+    "scheduler", "tags", "economic"
+]
+
+# Valid values
+VALID_MODES = ["advisory", "enforcement", "mutation"]
+VALID_GATES = ["health", "governance", "wsjf", "focus", "retro-analysis"]
+VALID_CIRCLES = ["Analyst", "Assessor", "Innovator", "Intuitive", "Architect", "Orchestrator"]
+VALID_TAG_CATEGORIES = ["HPC", "ML", "Stats", "Device/Web", "Rust", "Federation"]
+
+class PatternMetricsValidator:
+    def __init__(self, file_path: Path):
+        self.file_path = file_path
+        self.errors: List[str] = []
+        self.warnings: List[str] = []
+        self.events: List[Dict[str, Any]] = []
+        self.stats = {
+            "total_events": 0,
+            "valid_events": 0,
+            "events_with_tags": 0,
+            "events_with_economic": 0,
+            "events_by_pattern": defaultdict(int),
+            "events_by_circle": defaultdict(int),
+        }
+
+    def load_events(self) -> bool:
+        """Load events from JSONL file."""
+        if not self.file_path.exists():
+            self.errors.append(f"File not found: {self.file_path}")
+            return False
+
+        line_num = 0
+        with open(self.file_path, 'r') as f:
+            for line in f:
+                line_num += 1
+                line = line.strip()
+                if not line:
+                    continue
+
+                try:
+                    event = json.loads(line)
+                    self.events.append(event)
+                    self.stats["total_events"] += 1
+                except json.JSONDecodeError as e:
+                    self.errors.append(f"Line {line_num}: JSON decode error: {e}")
+
+        return True
+
+    def validate_required_fields(self, event: Dict[str, Any], event_idx: int) -> bool:
+        """Check all required fields are present."""
+        missing = [field for field in REQUIRED_FIELDS if field not in event]
+        
+        if missing:
+            self.errors.append(f"Event {event_idx}: Missing required fields: {', '.join(missing)}")
+            return False
+        
+        return True
+
+    def validate_field_types(self, event: Dict[str, Any], event_idx: int) -> bool:
+        """Validate field types."""
+        valid = True
+
+        # Timestamp
+        if "ts" in event:
+            try:
+                datetime.fromisoformat(event["ts"].replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                self.errors.append(f"Event {event_idx}: Invalid timestamp format: {event.get('ts')}")
+                valid = False
+
+        # Numeric fields
+        if "iteration" in event and not isinstance(event["iteration"], int):
+            self.errors.append(f"Event {event_idx}: iteration must be integer")
+            valid = False
+
+        if "depth" in event:
+            if not isinstance(event["depth"], int) or event["depth"] < 1 or event["depth"] > 4:
+                self.errors.append(f"Event {event_idx}: depth must be 1-4")
+                valid = False
+
+        # Boolean
+        if "mutation" in event and not isinstance(event["mutation"], bool):
+            self.errors.append(f"Event {event_idx}: mutation must be boolean")
+            valid = False
+
+        # Arrays
+        if "tags" in event and not isinstance(event["tags"], list):
+            self.errors.append(f"Event {event_idx}: tags must be array")
+            valid = False
+
+        # Objects
+        if "economic" in event:
+            if not isinstance(event["economic"], dict):
+                self.errors.append(f"Event {event_idx}: economic must be object")
+                valid = False
+            elif "cod" not in event["economic"] or "wsjf_score" not in event["economic"]:
+                self.errors.append(f"Event {event_idx}: economic must contain cod and wsjf_score")
+                valid = False
+
+        return valid
+
+    def validate_field_values(self, event: Dict[str, Any], event_idx: int) -> None:
+        """Validate field values against allowed sets (warnings only)."""
+        
+        # Mode
+        if "mode" in event and event["mode"] not in VALID_MODES:
+            self.warnings.append(f"Event {event_idx}: Unexpected mode '{event['mode']}' (expected: {VALID_MODES})")
+
+        # Gate
+        if "gate" in event and event["gate"] not in VALID_GATES:
+            self.warnings.append(f"Event {event_idx}: Unexpected gate '{event['gate']}' (expected: {VALID_GATES})")
+
+        # Circle (case-insensitive check)
+        if "circle" in event:
+            circle_matches = [c for c in VALID_CIRCLES if c.lower() == event["circle"].lower()]
+            if not circle_matches:
+                self.warnings.append(f"Event {event_idx}: Unexpected circle '{event['circle']}' (expected: {VALID_CIRCLES})")
+
+    def check_tag_coverage(self) -> None:
+        """Check tag coverage across all events."""
+        events_with_tags = [e for e in self.events if e.get("tags") and len(e["tags"]) > 0]
+        self.stats["events_with_tags"] = len(events_with_tags)
+        
+        tag_coverage_pct = (len(events_with_tags) / max(len(self.events), 1)) * 100
+        
+        if tag_coverage_pct < 90:
+            self.warnings.append(f"Tag coverage is {tag_coverage_pct:.1f}% (target: ≥90%)")
+
+    def check_economic_coverage(self) -> None:
+        """Check economic metrics coverage."""
+        events_with_economic = [e for e in self.events 
+                                if e.get("economic") 
+                                and e["economic"].get("cod") is not None
+                                and e["economic"].get("wsjf_score") is not None]
+        
+        self.stats["events_with_economic"] = len(events_with_economic)
+        
+        economic_coverage_pct = (len(events_with_economic) / max(len(self.events), 1)) * 100
+        
+        if economic_coverage_pct < 100:
+            self.warnings.append(f"Economic metrics coverage is {economic_coverage_pct:.1f}% (target: 100%)")
+
+    def check_timestamp_monotonicity(self) -> None:
+        """Check timestamps are monotonic within each run."""
+        events_by_run = defaultdict(list)
+        
+        for event in self.events:
+            run_id = event.get("run_id")
+            if run_id:
+                events_by_run[run_id].append(event)
+
+        for run_id, run_events in events_by_run.items():
+            # Sort by iteration
+            sorted_events = sorted(run_events, key=lambda e: e.get("iteration", 0))
+            
+            for i in range(1, len(sorted_events)):
+                prev_ts = sorted_events[i-1].get("ts", "")
+                curr_ts = sorted_events[i].get("ts", "")
+                
+                if curr_ts < prev_ts:
+                    self.warnings.append(
+                        f"Run {run_id}: Timestamp decreased from iteration "
+                        f"{sorted_events[i-1].get('iteration')} to {sorted_events[i].get('iteration')}"
+                    )
+
+    def collect_stats(self) -> None:
+        """Collect statistics on patterns and circles."""
+        for event in self.events:
+            pattern = event.get("pattern", "unknown")
+            circle = event.get("circle", "unknown")
+            
+            self.stats["events_by_pattern"][pattern] += 1
+            self.stats["events_by_circle"][circle] += 1
+
+    def validate(self) -> Tuple[bool, Dict[str, Any]]:
+        """Run all validations."""
+        if not self.load_events():
+            return False, {"errors": self.errors, "warnings": self.warnings, "stats": self.stats}
+
+        # Validate each event
+        for idx, event in enumerate(self.events):
+            if self.validate_required_fields(event, idx):
+                if self.validate_field_types(event, idx):
+                    self.stats["valid_events"] += 1
+                    self.validate_field_values(event, idx)
+
+        # Aggregate checks
+        self.check_tag_coverage()
+        self.check_economic_coverage()
+        self.check_timestamp_monotonicity()
+        self.collect_stats()
+
+        success = len(self.errors) == 0
+        
+        return success, {
+            "errors": self.errors,
+            "warnings": self.warnings,
+            "stats": self.stats
+        }
+
+    def print_report(self, results: Dict[str, Any]) -> None:
+        """Print validation report."""
+        print("\n" + "=" * 60)
+        print("Pattern Metrics Validation Report")
+        print("=" * 60)
+        
+        print(f"\nFile: {self.file_path}")
+        print(f"Total events: {results['stats']['total_events']}")
+        print(f"Valid events: {results['stats']['valid_events']}")
+        
+        # Errors
+        if results["errors"]:
+            print(f"\n❌ ERRORS ({len(results['errors'])}):")
+            for error in results["errors"][:20]:  # Limit to first 20
+                print(f"  • {error}")
+            if len(results["errors"]) > 20:
+                print(f"  ... and {len(results['errors']) - 20} more")
+        else:
+            print("\n✅ No errors found")
+
+        # Warnings
+        if results["warnings"]:
+            print(f"\n⚠️  WARNINGS ({len(results['warnings'])}):")
+            for warning in results["warnings"][:10]:  # Limit to first 10
+                print(f"  • {warning}")
+            if len(results["warnings"]) > 10:
+                print(f"  ... and {len(results['warnings']) - 10} more")
+
+        # Statistics
+        print("\n📊 STATISTICS:")
+        print(f"  Tag coverage: {results['stats']['events_with_tags']}/{results['stats']['total_events']} "
+              f"({results['stats']['events_with_tags']/max(results['stats']['total_events'],1)*100:.1f}%)")
+        print(f"  Economic coverage: {results['stats']['events_with_economic']}/{results['stats']['total_events']} "
+              f"({results['stats']['events_with_economic']/max(results['stats']['total_events'],1)*100:.1f}%)")
+        
+        print("\n  Top patterns:")
+        top_patterns = sorted(results['stats']['events_by_pattern'].items(), key=lambda x: x[1], reverse=True)[:5]
+        for pattern, count in top_patterns:
+            print(f"    {pattern}: {count}")
+        
+        print("\n  Events by circle:")
+        for circle, count in sorted(results['stats']['events_by_circle'].items()):
+            print(f"    {circle}: {count}")
+
+        print("\n" + "=" * 60)
+
+def main():
+    """Main entry point."""
+    project_root = Path.cwd()
+    goalie_dir = project_root / ".goalie"
+    
+    files_to_validate = [
+        "pattern_metrics_append.jsonl",
+        "pattern_metrics_enhanced.jsonl",
+    ]
+    
+    all_success = True
+    
+    for filename in files_to_validate:
+        file_path = goalie_dir / filename
+        
+        if not file_path.exists():
+            print(f"\n⊘ Skipping {filename} (not found)")
+            continue
+        
+        validator = PatternMetricsValidator(file_path)
+        success, results = validator.validate()
+        validator.print_report(results)
+        
+        if not success:
+            all_success = False
+    
+    # Exit code
+    if all_success:
+        print("\n✅ All validations passed!")
+        sys.exit(0)
+    else:
+        print("\n❌ Validation failed - see errors above")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()

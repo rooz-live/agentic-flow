@@ -188,7 +188,7 @@ check_iris_prerequisites() {
     fi
 
     # Check network connectivity
-    if ! ping -c 1 8.8.8.8 &> /dev/null; then
+    if ! ping -c 1 "${AF_HEALTH_CHECK_HOST:-1.1.1.1}" &> /dev/null; then
         echo -e "${YELLOW}[iris_prerequisites] Network connectivity issues detected${NC}" >&2
     fi
 
@@ -280,6 +280,87 @@ manage_distributed_execution() {
             node_count: $node_count,
             status: "active"
         }' > "$federation_file"
+}
+
+# Pattern Event Logging - Canonical Schema
+# =========================================
+# Helper function to emit pattern events conforming to canonical schema
+# Usage: emit_pattern_event <pattern> <mode> <gate> <circle> <depth> [<mutation>] [<behavioral_type>] [<extra_fields>]
+emit_pattern_event() {
+    local pattern="$1"
+    local mode="$2"              # advisory, enforcement, mutate
+    local gate="$3"              # health, governance, wsjf, focus
+    local circle="${4:-Orchestrator}"
+    local depth="${5:-2}"
+    local mutation="${6:-false}"
+    local behavioral_type="${7:-observability}"  # mutation, advisory, observability, enforcement
+    local extra_fields="${8:-}"
+
+    # Generate required fields
+    local ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local run="${AF_CURRENT_RUN:-prod-cycle}"
+    local run_id="${AF_CURRENT_RUN_ID:-run-$(date +%Y%m%d%H%M%S)}"
+    local iteration="${AF_CURRENT_ITERATION:-1}"
+    local framework="${AF_FRAMEWORK:-}"
+    local scheduler="${AF_SCHEDULER:-}"
+
+    # Default tags based on pattern type
+    local tags='[]'
+    if [[ "$pattern" == *"ml-"* ]] || [[ "$pattern" == *"training"* ]]; then
+        tags='["ML"]'
+    elif [[ "$pattern" == *"hpc-"* ]] || [[ "$pattern" == *"batch"* ]]; then
+        tags='["HPC"]'
+    elif [[ "$pattern" == *"stat-"* ]]; then
+        tags='["Stats"]'
+    elif [[ "$pattern" == *"mobile-"* ]] || [[ "$pattern" == *"desktop-"* ]] || [[ "$pattern" == *"web-"* ]]; then
+        tags='["Device/Web"]'
+    elif [[ "$pattern" == *"governance"* ]] || [[ "$pattern" == *"retro"* ]]; then
+        tags='["Federation"]'
+    fi
+
+    # Default economic values (can be overridden in extra_fields)
+    local cod="${AF_PATTERN_COD:-0.0}"
+    local wsjf_score="${AF_PATTERN_WSJF:-0.0}"
+
+    # Build base event
+    local event=$(cat <<EOF
+{
+  "ts": "$ts",
+  "run": "$run",
+  "run_id": "$run_id",
+  "iteration": $iteration,
+  "circle": "$circle",
+  "depth": $depth,
+  "pattern": "$pattern",
+  "mode": "$mode",
+  "mutation": $mutation,
+  "gate": "$gate",
+  "framework": "$framework",
+  "scheduler": "$scheduler",
+  "tags": $tags,
+  "economic": {
+    "cod": $cod,
+    "wsjf_score": $wsjf_score
+  },
+  "behavioral_type": "$behavioral_type"$([[ -n "$extra_fields" ]] && echo "," || echo "")
+  $extra_fields
+}
+EOF
+)
+
+    # Write to pattern metrics and cycle log
+    local pattern_metrics_file="$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    local cycle_log_file="$PROJECT_ROOT/.goalie/cycle_log.jsonl"
+
+    mkdir -p "$(dirname "$pattern_metrics_file")"
+
+    # Minify JSON for storage
+    echo "$event" | jq -c '.' >> "$pattern_metrics_file" 2>/dev/null || echo "$event" >> "$pattern_metrics_file"
+    echo "$event" | jq -c '.' >> "$cycle_log_file" 2>/dev/null || echo "$event" >> "$cycle_log_file"
+
+    if [ "${AF_DEBUG_PATTERN_EVENTS:-0}" = "1" ]; then
+        echo -e "${BLUE}[pattern_event] Logged $pattern event to pattern_metrics.jsonl${NC}" >&2
+    fi
 }
 
 # Metrics buffering system for performance optimization
@@ -435,17 +516,68 @@ log_circuit_breaker_event() {
     echo "$event" >> "$audit_file"
 }
 
-# Enhanced Pattern metrics logging helper with environment variable support
+PATTERN_LOGGING_HELPER="$SCRIPT_DIR/agentic/pattern_logging_helper.py"
+
+# Schema validation for pattern events
+validate_pattern_event() {
+    local pattern="$1"
+    local mode="$2"
+    local gate="$3"
+
+    # Validate pattern name
+    case "$pattern" in
+        depth-ladder|safe-degrade|circle-risk-focus|autocommit-shadow|guardrail-lock|failure-strategy|iteration-budget|observability-first)
+            ;;
+        *)
+            echo -e "${YELLOW}[pattern-validation] Invalid pattern: $pattern${NC}" >&2
+            return 1
+            ;;
+    esac
+
+    # Validate mode
+    case "$mode" in
+        advisory|mutation|mutate|observe|enforcement|enforce)
+            ;;
+        *)
+            echo -e "${YELLOW}[pattern-validation] Invalid mode: $mode${NC}" >&2
+            return 1
+            ;;
+    esac
+
+    # Validate gate
+    case "$gate" in
+        health|governance|wsjf|focus|system-risk|selection|guardrail|execution|completion|telemetry|calibration|observability|retro-analysis|priority-update|circle-output|"")
+            ;;
+        *)
+            echo -e "${YELLOW}[pattern-validation] Invalid gate: $gate${NC}" >&2
+            return 1
+            ;;
+    esac
+
+    return 0
+}
+
 log_pattern_event() {
     local pattern="$1"
     local mode="$2"
     local gate="$3"
     local reason="$4"
     local action="$5"
-    local context_json="${6:-}"
+    local metrics_json="${6:-}"
+    local workload_json="${7:-}"
+    shift 7 || true
+    local extra_tags=("$@")
+
+    # Schema validation
+    if [ "${AF_PATTERN_SCHEMA_VALIDATION:-1}" = "1" ]; then
+        if ! validate_pattern_event "$pattern" "$mode" "$gate"; then
+            echo -e "${RED}[pattern-validation] Event rejected due to schema violation${NC}" >&2
+            return 1
+        fi
+    fi
 
     # Check pattern-specific environment variable activation
-    local pattern_env_var="AF_PROD_$(echo "$pattern" | tr '-' '_' | tr '[:lower:]' '[:upper:]')"
+    local pattern_env_var="AF_PATTERN_$(echo "$pattern" | tr '-' '_' | tr '[:lower:]' '[:upper:]')"
     local pattern_enabled="${!pattern_env_var:-1}"
 
     # Skip if pattern is explicitly disabled
@@ -463,78 +595,167 @@ log_pattern_event() {
             ;;
     esac
 
-    local ts
-    ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    # Determine mutation status based on mode and action
+    local mutation_status="false"
+    local behavioral_type="advisory"
 
-    local run_kind="${AF_RUN_KIND:-unknown}"
-    local iteration="${AF_RUN_ITERATION:-0}"
-    local circle="${AF_CIRCLE:-unknown}"
-    local depth="${AF_DEPTH_LEVEL:-0}"
-    local framework="${AF_FRAMEWORK:-}"
-    local scheduler="${AF_SCHEDULER:-}"
-    local prod_mode="${AF_PROD_CYCLE_MODE:-advisory}"
-    local mutation="false"
-    if [[ "$mode" == *"mutate"* ]] || [[ "$mode" == *"enforce"* ]] || [[ "$mode" == *"blocking"* ]]; then
-        mutation="true"
-    fi
-
-    # Ensure .goalie directory exists
-    mkdir -p "$PROJECT_ROOT/.goalie"
-
-    # Build pattern-specific metrics context
-    local pattern_metrics=""
-    case "$pattern" in
-        "safe-degrade")
-            pattern_metrics="{\"triggers\":${AF_PC_SAFE_DEGRADE_TRIGGERS:-0},\"actions\":${AF_PC_SAFE_DEGRADE_ACTIONS:-[]},\"recovery_cycles\":${AF_PC_SAFE_DEGRADE_RECOVERY_CYCLES:-0}}"
+    case "$mode" in
+        mutate|mutation|enforce)
+            mutation_status="true"
+            behavioral_type="mutation"
             ;;
-        "circle-risk-focus")
-            pattern_metrics="{\"top_owner\":\"${AF_PC_CIRCLE_RISK_FOCUS_TOP_OWNER:-none}\",\"extra_iterations\":${AF_PC_CIRCLE_RISK_FOCUS_EXTRA_ITERATIONS:-0},\"roam_reduction\":${AF_PC_CIRCLE_RISK_FOCUS_ROAM_REDUCTION:-0}}"
+        advisory|observe)
+            mutation_status="false"
+            behavioral_type="advisory"
             ;;
-        "autocommit-shadow")
-            pattern_metrics="{\"candidates\":${AF_PC_AUTOCOMMIT_CANDIDATES:-0},\"manual_override\":${AF_PC_AUTOCOMMIT_SHADOW_MANUAL_OVERRIDE:-0},\"cycles_before_confidence\":${AF_PC_AUTOCOMMIT_CYCLES:-0}}"
-            ;;
-        "guardrail-lock")
-            pattern_metrics="{\"enforced\":${AF_PC_GUARDRAIL_LOCK_ENFORCED:-0},\"health_state\":\"${AF_PC_GUARDRAIL_LOCK_HEALTH_STATE:-unknown}\",\"user_requests\":${AF_PC_GUARDRAIL_LOCK_USER_REQUESTS:-0}}"
-            ;;
-        "failure-strategy")
-            pattern_metrics="{\"mode\":\"${AF_PC_FAILURE_STRATEGY_MODE:-none}\",\"abort_iteration_at\":${AF_PC_FAILURE_STRATEGY_ABORT_AT:-0},\"degrade_reason\":\"${AF_PC_FAILURE_STRATEGY_DEGRADE_REASON:-none}\"}"
-            ;;
-        "iteration-budget")
-            pattern_metrics="{\"requested\":${AF_PC_ITERATION_BUDGET_REQUESTED:-0},\"enforced\":${AF_PC_ITERATION_BUDGET_ENFORCED:-0},\"autocommit_runs\":${AF_PC_ITERATION_BUDGET_AUTOCOMMIT_RUNS:-0}}"
-            ;;
-        "observability-first")
-            pattern_metrics="{\"metrics_written\":${AF_PC_OBSERVABILITY_METRICS_WRITTEN:-0},\"missing_signals\":${AF_PC_OBSERVABILITY_MISSING_SIGNALS:-0},\"suggestion_made\":${AF_PC_OBSERVABILITY_SUGGESTION_MADE:-0}}"
-            ;;
-        "depth-ladder")
-            pattern_metrics="{\"current_depth\":${AF_DEPTH_LEVEL:-0},\"base_depth\":${AF_PROD_DEPTH_BASE:-0}}"
+        enforcement)
+            # Enforcement can be behavioral (blocking) or mutating (changing state)
+            if [[ "$action" =~ ^(block|prevent|deny|throttle)- ]]; then
+                mutation_status="false"
+                behavioral_type="blocking"
+            elif [[ "$action" =~ ^(set|change|modify|update)- ]]; then
+                mutation_status="true"
+                behavioral_type="mutation"
+            else
+                mutation_status="false"
+                behavioral_type="enforcement"
+            fi
             ;;
     esac
 
-    # Convert pattern name to kebab-case for pattern:kebab-name field
-    local pattern_kebab="$pattern"
+    # Initialize context variables
+    local circle="${AF_CIRCLE:-unknown}"
+    local depth="${AF_DEPTH_LEVEL:-0}"
+    local run_id="${AF_RUN_ID:-$(date +%s)-$$}"
+    local iteration="${AF_RUN_ITERATION:-0}"
+    local framework="${AF_FRAMEWORK:-}"
+    local scheduler="${AF_SCHEDULER:-}"
+    local prod_mode="${AF_PROD_CYCLE_MODE:-advisory}"
+    local run_kind="${AF_RUN_KIND:-unknown}"
 
-    # Base JSON fields
-    printf "{\"ts\":\"%s\",\"run\":\"%s\",\"iteration\":%s," \
-        "$ts" "$run_kind" "$iteration" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
-    printf "\"circle\":\"%s\",\"depth\":%s," \
-        "$circle" "$depth" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
-    printf "\"pattern\":\"%s\",\"pattern:kebab-name\":\"%s\",\"mode\":\"%s\",\"mutation\":%s,\"gate\":\"%s\"," \
-        "$pattern" "$pattern_kebab" "$mode" "$mutation" "$gate" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    # Auto-detect HPC/ML/Stats tags based on pattern and framework
+    local auto_tags=()
+    case "$pattern" in
+        ml-training-guardrail)
+            auto_tags+=("ML")
+            if [ -z "$framework" ]; then
+                framework="${AF_ML_FRAMEWORK:-unknown}"
+            fi
+            ;;
+        hpc-batch-window)
+            auto_tags+=("HPC")
+            if [ -z "$scheduler" ]; then
+                scheduler="${AF_HPC_SCHEDULER:-local}"
+            fi
+            ;;
+        stat-robustness-sweep)
+            auto_tags+=("Stats")
+            ;;
+        safe-degrade|federation-runtime)
+            auto_tags+=("Federation")
+            ;;
+    esac
 
-    # Final fields + optional context JSON (must be valid JSON value, typically an object)
-    printf "\"framework\":\"%s\",\"scheduler\":\"%s\",\"reason\":\"%s\",\"action\":\"%s\",\"prod_mode\":\"%s\"" \
-        "$framework" "$scheduler" "$reason" "$action" "$prod_mode" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
-
-    # Add pattern-specific metrics
-    if [ -n "$pattern_metrics" ]; then
-        printf ",\"metrics\":%s" "$pattern_metrics" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    # Add tags based on framework if specified
+    if [ -n "$framework" ]; then
+        case "$framework" in
+            torch|tensorflow|sklearn)
+                auto_tags+=("ML")
+                ;;
+            rust)
+                auto_tags+=("Rust")
+                ;;
+        esac
     fi
 
-    if [ -n "$context_json" ]; then
-        printf ",\"context\":%s" "$context_json" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    # Add tags based on scheduler if specified
+    if [ -n "$scheduler" ]; then
+        case "$scheduler" in
+            slurm|k8s)
+                auto_tags+=("HPC")
+                ;;
+        esac
     fi
 
-    printf "}\n" >> "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
+    local circle="${AF_CIRCLE:-unknown}"
+    local depth="${AF_DEPTH_LEVEL:-0}"
+    local run_id="${AF_RUN_ID:-$(date +%s)-$$}"
+    local iteration="${AF_RUN_ITERATION:-0}"
+    local framework="${AF_FRAMEWORK:-}"
+    local scheduler="${AF_SCHEDULER:-}"
+    local prod_mode="${AF_PROD_CYCLE_MODE:-advisory}"
+    local run_kind="${AF_RUN_KIND:-unknown}"
+
+    local pattern_key
+    pattern_key=$(echo "$pattern" | tr '-' '_')
+    local pattern_state_json="{}"
+    if [ -n "$metrics_json" ]; then
+        pattern_state_json="{\"$pattern_key\":$metrics_json}"
+    fi
+
+    local metadata_json
+    metadata_json=$(python3 - "$reason" "$action" "$prod_mode" "$run_kind" "$framework" "$scheduler" "$behavioral_type" "$mutation_status" <<'PY'
+import json, sys
+reason, action, prod_mode, run_kind, framework, scheduler, behavioral_type, mutation_status = sys.argv[1:9]
+payload = {}
+if reason:
+    payload["reason"] = reason
+if action:
+    payload["action"] = action
+if prod_mode:
+    payload["prod_mode"] = prod_mode
+if run_kind:
+    payload["run_kind"] = run_kind
+if framework:
+    payload["framework"] = framework
+if scheduler:
+    payload["scheduler"] = scheduler
+if behavioral_type:
+    payload["behavioral_type"] = behavioral_type
+if mutation_status:
+    payload["mutation_status"] = mutation_status == "true"
+print(json.dumps(payload))
+PY
+    )
+
+    local tags=("pattern:$pattern")
+    if [ -n "$gate" ]; then
+        tags+=("gate:$gate")
+    fi
+    # Add auto-detected tags
+    if [ ${#auto_tags[@]} -gt 0 ]; then
+        tags+=("${auto_tags[@]}")
+    fi
+    if [ ${#extra_tags[@]} -gt 0 ]; then
+        tags+=("${extra_tags[@]}")
+    fi
+
+    local cmd=(python3 "$PATTERN_LOGGING_HELPER"
+        --pattern "$pattern"
+        --circle "$circle"
+        --depth "$depth"
+        --gate "$gate"
+        --mode "$mode"
+        --pattern-state "$pattern_state_json"
+        --run-id "$run_id"
+        --iteration "$iteration"
+        --metadata-json "$metadata_json")
+
+    if [ -n "$workload_json" ]; then
+        cmd+=(--workload-json "$workload_json")
+    fi
+
+    if [ ${#tags[@]} -gt 0 ]; then
+        cmd+=(--tags "${tags[@]}")
+    fi
+
+    if [ "${AF_PATTERN_MIRROR_METRICS:-1}" = "1" ]; then
+        cmd+=(--mirror-metrics)
+    fi
+
+    if ! "${cmd[@]}" >/dev/null 2>&1; then
+        echo -e "${YELLOW}[pattern-log] Failed to log $pattern via helper${NC}" >&2
+    fi
 }
 
 show_help() {
@@ -583,6 +804,40 @@ ${GREEN}Feedback Loop:${NC}
   af quick-wins          Show Quick Wins progress
   af wsjf                Calculate WSJF priorities
 
+${GREEN}Governance & Retrospective Agents (Federation):${NC}
+  af governance-agent [options]  Run governance agent with pattern telemetry
+    --goalie-dir <dir>            Goalie directory (default: .goalie)
+    --json                        Output JSON format
+    --prod-cycle                  Enable prod-cycle enforcement mode
+
+  af retro-coach [options]       Run retro coach with forensic analysis
+    --goalie-dir <dir>            Goalie directory (default: .goalie)
+    --json                        Output JSON format
+    --iteration <n>               Iteration number for iterative RCA
+    --run-id <id>                 Run identifier for tracking
+
+  af pattern-analysis            Analyze pattern metrics and detect anomalies
+    --output <file>              Write report to custom file
+    --json                       Output JSON format
+
+  af pattern-anomalies           Show detected anomalies in pattern behavior
+
+  Pattern telemetry automatically emitted to .goalie/pattern_metrics.jsonl
+  with tags: Federation, Observability, Forensic, ML, HPC, Stats
+
+${GREEN}GitHub Integration:${NC}
+  af github auth --check           Check GitHub CLI authentication status
+  af github auth --login-with-token  Authenticate via GH_TOKEN environment variable
+  af retro create-issue            Create GitHub issues from retro items
+    --from insights|yaml|quick-wins   Source (default: yaml)
+    --dry-run                         Preview without creating issues
+    --repo owner/name                 Target repository (default: AF_GITHUB_REPO)
+    --limit N                         Limit insights to N items
+  Environment Variables:
+    GH_TOKEN or GITHUB_TOKEN         GitHub authentication token
+    AF_GITHUB_REPO                   Default repository (owner/name)
+    AF_CPU_IDLE_MIN                  CPU idle threshold for automation (default: 50)
+
 ${GREEN}Environment:${NC}
   af snapshot [name]     Create environment snapshot
   af restore [name]      Restore environment snapshot
@@ -599,6 +854,21 @@ ${GREEN}Learning:${NC}
   af events              Show recent learning events
   af beam                Show BEAM dimensions
   af train-dt            Train Decision Transformer model from prepared dataset
+
+${GREEN}Visualization:${NC}
+  af visionflow [cmd]    VisionFlow 3D knowledge graph dashboard
+    dev                  Start development server (default)
+    build                Build for production
+    preview              Preview production build
+    install              Install dependencies
+
+${GREEN}Quality Engineering:${NC}
+  af lionagi-qe [cmd]    LionAGI QE Fleet - 18 specialized AI agents
+    start                Start QE Fleet API server
+    test                 Run QE Fleet tests
+    agents               List available agents
+    generate             Generate tests for a file
+    analyze              Analyze code quality
 
 ${GREEN}Build-Measure-Learn:${NC}
   af cycle               Show current BML cycle status
@@ -670,9 +940,9 @@ cmd_status() {
     # Goalie status
     echo -e "${GREEN}Goalie Tracking:${NC}"
     if [ -f "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" ]; then
-        local now_count=$(grep -A 20 "NOW:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep "- id:" | wc -l | tr -d ' ')
-        local next_count=$(grep -A 20 "NEXT:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep "- id:" | wc -l | tr -d ' ')
-        local done_count=$(grep -A 100 "DONE:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep "- id:" | wc -l | tr -d ' ')
+        local now_count=$(grep -A 20 "NOW:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep "\- id:" | wc -l | tr -d ' ')
+        local next_count=$(grep -A 20 "NEXT:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep "\- id:" | wc -l | tr -d ' ')
+        local done_count=$(grep -A 100 "DONE:" "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep "\- id:" | wc -l | tr -d ' ')
         echo "  NOW: $now_count | NEXT: $next_count | DONE: $done_count"
     fi
     echo ""
@@ -698,6 +968,12 @@ cmd_status() {
 
 # Metrics dashboard
 cmd_metrics() {
+    # Auto-initialize risk analytics DB if needed
+    local risk_db_script="$PROJECT_ROOT/scripts/metrics/init_risk_analytics_db.py"
+    if [ -f "$risk_db_script" ]; then
+        python3 "$risk_db_script" >/dev/null 2>&1 || true
+    fi
+
     if [ -f "$PROJECT_ROOT/.goalie/metrics_dashboard.md" ]; then
         cat "$PROJECT_ROOT/.goalie/metrics_dashboard.md"
     else
@@ -779,10 +1055,13 @@ cmd_quick_wins() {
 
 # WSJF calculation
 cmd_wsjf() {
-    if command -v npx &> /dev/null; then
-        cd "$PROJECT_ROOT" && npx goalie@latest recalc-wsjf 2>&1 || echo -e "${YELLOW}goalie not available${NC}"
+    local script_path="$PROJECT_ROOT/scripts/wsjf/aggregate_wsjf.sh"
+    if [ -f "$script_path" ]; then
+        bash "$script_path"
     else
-        echo -e "${YELLOW}npx not found${NC}"
+        echo -e "${YELLOW}WSJF aggregation script not found at $script_path${NC}"
+        # Fallback to legacy behavior if needed, or just error out
+        cd "$PROJECT_ROOT" && npx goalie@latest recalc-wsjf 2>&1 || echo -e "${YELLOW}goalie not available${NC}"
     fi
 }
 
@@ -918,6 +1197,8 @@ cmd_full_cycle() {
     echo -e "${BLUE}=== Enhanced Production Cycle Starting ===${NC}"
     echo -e "${BLUE}Iterations: $iterations | Mode: $AF_PROD_CYCLE_MODE${NC}"
     echo -e "${BLUE}IRIS Metrics: $([ "$AF_ENABLE_IRIS_METRICS" = "1" ] && echo "ENABLED" || echo "DISABLED")${NC}"
+
+    python3 "$PATTERN_LOGGING_HELPER" --ensure-risk-db >/dev/null 2>&1 || true
 
     local i
     for i in $(seq 1 "$iterations"); do
@@ -1201,6 +1482,104 @@ cmd_governor_health() {
     if [ "$trace_enabled" = "1" ]; then
         { set +x; } 2>/dev/null
     fi
+}
+
+cmd_pattern_coverage() {
+    local json_mode=0
+    local goalie_dir="${AF_GOALIE_DIR:-${PROJECT_ROOT}/.goalie}"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json)
+                json_mode=1
+                shift
+                ;;
+            --dir)
+                goalie_dir="${2:-}"
+                shift 2
+                ;;
+            *)
+                echo -e "${YELLOW}Ignoring unknown pattern-coverage option: $1${NC}" >&2
+                shift
+                ;;
+        esac
+    done
+
+    python3 - << 'PY'
+import json
+import os
+import sys
+from pathlib import Path
+from datetime import datetime
+
+project_root = os.environ.get("PROJECT_ROOT", os.getcwd())
+goalie_dir = os.environ.get("AF_GOALIE_DIR", os.path.join(project_root, ".goalie"))
+
+# Define expected patterns
+patterns = [
+    "data_pipeline_optimization",
+    "neural_enhancement",
+    "calibration_workflow",
+    "risk_analysis",
+    "performance_monitoring",
+    "error_handling",
+    "integration_testing",
+    "deployment_automation"
+]
+
+# Count events in cycle log
+cycle_log = Path(goalie_dir) / "cycle_log.jsonl"
+pattern_counts = {p: {"direct_events": 0, "inferred_events": 0} for p in patterns}
+
+if cycle_log.exists():
+    with open(cycle_log) as f:
+        for line in f:
+            try:
+                event = json.loads(line.strip())
+                event_type = event.get("type", "")
+
+                # Direct pattern matching
+                for pattern in patterns:
+                    if pattern in event_type or pattern in event.get("description", ""):
+                        pattern_counts[pattern]["direct_events"] += 1
+
+                    # Inferred from keywords
+                    keywords = event.get("keywords", [])
+                    if isinstance(keywords, list) and pattern in keywords:
+                        pattern_counts[pattern]["inferred_events"] += 1
+            except Exception:
+                continue
+
+logged_patterns = sum(1 for p in pattern_counts.values() if p["direct_events"] + p["inferred_events"] > 0)
+total_patterns = len(patterns)
+coverage_pct = (logged_patterns / total_patterns * 100.0) if total_patterns > 0 else 0.0
+
+total_direct = sum(p["direct_events"] for p in pattern_counts.values())
+total_inferred = sum(p["inferred_events"] for p in pattern_counts.values())
+
+result = {
+    "timestamp": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+    "coverage": {
+        "unique_patterns_logged": logged_patterns,
+        "total_patterns": total_patterns,
+        "coverage_percentage": coverage_pct,
+    },
+    "totals": {
+        "direct_events": total_direct,
+        "inferred_events": total_inferred,
+    },
+    "patterns": [
+        {
+            "name": name,
+            "direct_events": counts["direct_events"],
+            "inferred_events": counts["inferred_events"],
+        }
+        for name, counts in pattern_counts.items()
+    ],
+}
+
+print(json.dumps(result))
+PY
 }
 
 cmd_multi_pattern_coverage() {
@@ -1514,13 +1893,171 @@ cmd_retro_coach_with_metrics() {
     echo -e "${GREEN}Retro Coach Metrics Emitted.${NC}"
     jq -r '.insightsSummary.recentInsights[].text' "$tmp_json" | head -n 5 | sed 's/^/  - /'
 
+    # Add automated pattern recommendations based on RCA triggers
+    echo -e "\n${BLUE}=== Pattern Recommendations ===${NC}"
+
+    # Check for specific RCA methods and suggest patterns
+    if echo "$methods" | grep -q "5-whys"; then
+        echo -e "  ${YELLOW}→${NC} RCA Method '5-whys' detected"
+        echo "     Recommended patterns: root-cause-documentation, timeline-analysis"
+    fi
+
+    if echo "$methods" | grep -q "fishbone"; then
+        echo -e "  ${YELLOW}→${NC} RCA Method 'fishbone' detected"
+        echo "     Recommended patterns: multi-factor-analysis, dependency-mapping"
+    fi
+
+    if echo "$methods" | grep -q "timeline-analysis"; then
+        echo -e "  ${YELLOW}→${NC} RCA Method 'timeline-analysis' detected"
+        echo "     Recommended patterns: event-correlation, causality-chain"
+    fi
+
+    # Check for design patterns and suggest Method Patterns
+    if echo "$patterns" | grep -q "ml-training-guardrail"; then
+        echo -e "  ${YELLOW}→${NC} Pattern 'ml-training-guardrail' detected"
+        echo "     Method Pattern: Checkpoint early, validate gradients, monitor loss curves"
+        echo "     Tags: ML, HPC"
+    fi
+
+    if echo "$patterns" | grep -q "hpc-batch-window"; then
+        echo -e "  ${YELLOW}→${NC} Pattern 'hpc-batch-window' detected"
+        echo "     Method Pattern: Optimize batch size, tune SLURM/K8s limits, monitor GPU utilization"
+        echo "     Tags: HPC"
+    fi
+
+    if echo "$patterns" | grep -q "stat-robustness-sweep"; then
+        echo -e "  ${YELLOW}→${NC} Pattern 'stat-robustness-sweep' detected"
+        echo "     Method Pattern: Run sensitivity analysis, validate assumptions, check for outliers"
+        echo "     Tags: Stats"
+    fi
+
+    if echo "$patterns" | grep -q "safe-degrade"; then
+        echo -e "  ${YELLOW}→${NC} Pattern 'safe-degrade' detected"
+        echo "     Method Pattern: Implement fallback, log degradation events, monitor blast radius"
+        echo "     Tags: Federation"
+    fi
+
+    # Check for event prototypes and suggest mitigations
+    if echo "$prototypes" | grep -q "cascading-failure"; then
+        echo -e "  ${YELLOW}→${NC} Event prototype 'cascading-failure' detected"
+        echo "     Mitigation: Apply circuit-breaker pattern, implement bulkheads"
+    fi
+
+    if echo "$prototypes" | grep -q "retry-storm"; then
+        echo -e "  ${YELLOW}→${NC} Event prototype 'retry-storm' detected"
+        echo "     Mitigation: Implement exponential backoff with jitter, add retry budgets"
+    fi
+
+    if echo "$prototypes" | grep -q "cross-circle-cascade"; then
+        echo -e "  ${YELLOW}→${NC} Event prototype 'cross-circle-cascade' detected"
+        echo "     Mitigation: Isolate circles with bulkhead pattern, review dependencies"
+    fi
+
+    # Check forensic verification results
+    if [ "$verified_count" -gt 0 ]; then
+        echo -e "\n${GREEN}✓${NC} Forensic verification: $verified_count/$total_actions actions verified"
+    else
+        echo -e "\n${YELLOW}⚠${NC} No verified actions - consider instrumenting pattern events"
+    fi
+
+    echo ""
+
     rm -f "$tmp_json"
 }
 
 cmd_governance_agent() {
     cd "$PROJECT_ROOT"
     if command -v npx &> /dev/null; then
-        npx tsx tools/federation/governance_agent.ts --goalie-dir "$PROJECT_ROOT/.goalie" "$@"
+        local goalie_dir="$PROJECT_ROOT/.goalie"
+        mkdir -p "$goalie_dir"
+
+        local expect_json=0
+        for arg in "$@"; do
+            if [ "$arg" = "--json" ]; then
+                expect_json=1
+                break
+            fi
+        done
+
+        local output_file
+        output_file=$(mktemp /tmp/governance_agent_output.XXXXXX) || {
+            echo "Error: Failed to create temp file" >&2
+            return 1
+        }
+
+        if ! cmd_governance_agent --json > "$output_file"; then
+            cat "$output_file" 2>/dev/null || true
+            rm -f "$output_file"
+            return 1
+        fi
+
+        if [ "$expect_json" -eq 1 ]; then
+            if ! python3 - "$output_file" "$goalie_dir" <<'PY'; then
+import json
+import sys
+from pathlib import Path
+import yaml
+
+output_path = Path(sys.argv[1])
+goalie_dir = Path(sys.argv[2])
+
+text = output_path.read_text().strip()
+start = text.find('{')
+if start == -1:
+    sys.stderr.write("[WSJF Guard] Governance output missing JSON body.\n")
+    sys.exit(1)
+
+try:
+    data = json.loads(text[start:])
+except json.JSONDecodeError as exc:
+    sys.stderr.write(f"[WSJF Guard] Failed to parse governance JSON: {exc}\n")
+    sys.exit(1)
+
+top_items = data.get("wsjfAnalysis", {}).get("topPriorityItems", [])
+wsjf_ids = {item.get("id") for item in top_items if item.get("id")}
+
+if not wsjf_ids:
+    sys.exit(0)
+
+actions_path = goalie_dir / "CONSOLIDATED_ACTIONS.yaml"
+if not actions_path.exists():
+    sys.stderr.write("[WSJF Guard] .goalie/CONSOLIDATED_ACTIONS.yaml not found.\n")
+    sys.exit(1)
+
+with actions_path.open() as fh:
+    content = yaml.safe_load(fh) or {}
+
+if isinstance(content, dict):
+    board_actions = content.get("items") or content.get("actions") or []
+else:
+    board_actions = content
+
+board_ids = set()
+for action in board_actions:
+    if not isinstance(action, dict):
+        continue
+    tags = action.get("tags") or []
+    if any(str(tag).startswith("pattern:wsjf") for tag in tags):
+        for key in ("id", "wsjf_id", "slug", "title"):
+            value = action.get(key)
+            if value:
+                board_ids.add(str(value))
+                break
+
+missing = sorted(wsjf_ids - board_ids)
+if missing:
+    sys.stderr.write("[WSJF Guard] Missing WSJF actions on board: " + ", ".join(missing) + "\n")
+    sys.stderr.write("[WSJF Guard] Add pattern:wsjf entries to .goalie/CONSOLIDATED_ACTIONS.yaml before continuing.\n")
+    sys.exit(1)
+PY
+
+                rm -f "$output_file"
+                return 1
+            fi
+        fi
+
+        cat "$output_file"
+        rm -f "$output_file"
     else
         echo -e "${YELLOW}npx not found; cannot run governance_agent.ts${NC}"
         return 1
@@ -1681,9 +2218,43 @@ cmd_prod_cycle() {
     local middleware_script="$SCRIPT_DIR/policy/governance.py"
 
     if [ ! -f "$middleware_script" ]; then
-        echo -e "${RED}Error: Governance middleware not found at $middleware_script${NC}"
-        exit 1
+        echo -e "${RED}[af] Governance middleware not found at $middleware_script${NC}" >&2
+        return 1
     fi
+
+    python3 "$PATTERN_LOGGING_HELPER" --ensure-risk-db >/dev/null 2>&1 || true
+
+    local iterations="${1:-5}"
+
+    # Agentic Jujutsu Integration
+# ===========================
+# Check if agentic-jujutsu is installed locally or globally
+if [ -f "$PROJECT_ROOT/packages/agentic-jujutsu/bin/cli.js" ]; then
+    AGENTIC_JUJUTSU_CMD="node $PROJECT_ROOT/packages/agentic-jujutsu/bin/cli.js"
+elif ! command -v agentic-jujutsu &> /dev/null; then
+    # Fallback to npx if not in PATH
+    AGENTIC_JUJUTSU_CMD="npx agentic-jujutsu"
+else
+    AGENTIC_JUJUTSU_CMD="agentic-jujutsu"
+fi
+
+    if [ -n "$AGENTIC_JUJUTSU_CMD" ]; then
+        echo -e "${BLUE}[prod-cycle] Verifying agentic-jujutsu status...${NC}"
+        if ! $AGENTIC_JUJUTSU_CMD status >/dev/null 2>&1; then
+             echo -e "${YELLOW}[prod-cycle] Warning: agentic-jujutsu status check failed. Proceeding with caution.${NC}"
+        else
+             echo -e "${GREEN}[prod-cycle] agentic-jujutsu active${NC}"
+        fi
+    fi
+
+    # Set run context for pattern event tracking
+    export AF_CURRENT_RUN="prod-cycle"
+    export AF_CURRENT_RUN_ID="prod-$(date +%Y%m%d%H%M%S)-$$"
+    export AF_CURRENT_ITERATION=0
+
+    # Log prod-cycle start event with observability-first pattern
+    emit_pattern_event "observability-first" "advisory" "health" "Orchestrator" 2 false "observability" \
+        '"metrics_written": 1, "missing_signals": [], "suggestion_made": "Starting prod-cycle with telemetry enabled"'
 
     # Normalize shorthand positional iteration argument:
     #   af prod-cycle 100  ->  governance.py --iterations 100
@@ -1712,7 +2283,7 @@ cmd_prod_cycle() {
         normalized+=("--environment" "$environment")
     fi
 
-    if [[ "${remaining[0]}" =~ ^[0-9]+$ ]]; then
+    if [ ${#remaining[@]} -gt 0 ] && [[ "${remaining[0]}" =~ ^[0-9]+$ ]]; then
         normalized+=("--iterations" "${remaining[0]}")
         # Append remaining arguments (skipping the first one)
         if [ ${#remaining[@]} -gt 1 ]; then
@@ -1729,8 +2300,82 @@ cmd_prod_cycle() {
         export AF_SKIP_GOVERNOR_HEALTH="1"
     fi
 
+    # Extract iteration count for budget tracking
+    local requested_iterations=100
+    for ((i=0; i<${#normalized[@]}; i++)); do
+        if [ "${normalized[$i]}" = "--iterations" ] && [ $((i+1)) -lt ${#normalized[@]} ]; then
+            requested_iterations="${normalized[$((i+1))]}"
+            break
+        fi
+    done
+
     # Invoke Python Middleware with normalized arguments
-    python3 "$middleware_script" "${normalized[@]}"
+    local prod_exit_code=0
+    local prod_start_time=$(date +%s)
+    python3 "$middleware_script" "${normalized[@]}" || prod_exit_code=$?
+    local prod_end_time=$(date +%s)
+    local prod_duration=$((prod_end_time - prod_start_time))
+
+    # Determine deployment status for metrics
+    local deployment_status="success"
+    if [ $prod_exit_code -ne 0 ]; then
+        deployment_status="failure"
+    fi
+
+    # Log iteration-budget completion event
+    emit_pattern_event "iteration-budget" "advisory" "governance" "Orchestrator" 2 false "advisory" \
+        "\"requested\": $requested_iterations, \"enforced\": $requested_iterations, \"remaining\": 0, \"consumed\": $requested_iterations, \"autocommit_runs\": 0"
+
+    # Log completion observability event with deployment tracking
+    emit_pattern_event "observability-first" "advisory" "health" "Orchestrator" 2 false "observability" \
+        "\"metrics_written\": 2, \"missing_signals\": [], \"suggestion_made\": \"Prod-cycle completed\", \"deployment_status\": \"$deployment_status\", \"duration_seconds\": $prod_duration, \"exit_code\": $prod_exit_code"
+
+    # Log deployment metrics to metrics_log.jsonl for success rate tracking
+    local ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    echo "{\"timestamp\":\"$ts\",\"type\":\"deployment_metrics\",\"run_id\":\"$AF_CURRENT_RUN_ID\",\"status\":\"$deployment_status\",\"duration_seconds\":$prod_duration,\"iterations\":$requested_iterations,\"exit_code\":$prod_exit_code}" >> "$PROJECT_ROOT/.goalie/metrics_log.jsonl"
+
+    # Auto-run pattern analysis unless explicitly skipped
+    if [[ " ${normalized[*]} " != *" --skip-pattern-analysis "* ]] && [ "${AF_SKIP_PATTERN_ANALYSIS:-0}" != "1" ]; then
+        echo -e "\n${BLUE}=== Pattern Analysis ===${NC}"
+
+        local pattern_report="$PROJECT_ROOT/.goalie/pattern_analysis_report.json"
+
+        if npx tsx "$PROJECT_ROOT/tools/federation/pattern_metrics_analyzer.ts" \
+            --goalie-dir="$PROJECT_ROOT/.goalie" \
+            --output="$pattern_report" 2>&1 | grep -v "^Analyzing" | grep -v "^Loaded"; then
+
+            # Display summary
+            if [ -f "$pattern_report" ]; then
+                local anomaly_count=$(jq -r '.summary.anomalies_detected // 0' "$pattern_report")
+                local retro_count=$(jq -r '.summary.retro_questions_generated // 0' "$pattern_report")
+
+                echo -e "${GREEN}✓ Pattern analysis complete${NC}"
+                echo -e "  Anomalies detected: $anomaly_count"
+                echo -e "  Retro questions: $retro_count"
+
+                # Show anomalies if any
+                if [ "$anomaly_count" -gt 0 ]; then
+                    echo -e "\n${YELLOW}Anomalies Detected:${NC}"
+                    jq -r '.anomalies[] | "  [\(.severity | ascii_upcase)] \(.pattern): \(.description)"' "$pattern_report"
+                fi
+
+                # Show retro questions if any
+                if [ "$retro_count" -gt 0 ]; then
+                    echo -e "\n${BLUE}Retro Questions:${NC}"
+                    jq -r '.retro_questions[] | "  [\(.category)] \(.question)"' "$pattern_report" | head -3
+                    if [ "$retro_count" -gt 3 ]; then
+                        echo -e "  ... and $((retro_count - 3)) more (see $pattern_report)"
+                    fi
+                fi
+
+                echo -e "\n${BLUE}Full report: $pattern_report${NC}"
+            fi
+        else
+            echo -e "${YELLOW}⚠ Pattern analysis failed (non-blocking)${NC}"
+        fi
+    fi
+
+    return $prod_exit_code
 }
 
 # Dynamic Policy Hook
@@ -2192,6 +2837,118 @@ cmd_sample_workloads() {
     fi
 }
 
+# Affiliate System Health Check
+cmd_affiliate_health() {
+    local json_mode=0
+    local db_path="$PROJECT_ROOT/logs/device_state_tracking.db"
+
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json) json_mode=1; shift ;;
+            --db) db_path="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    if [ ! -f "$db_path" ]; then
+        if [ "$json_mode" = "1" ]; then
+            echo '{"status":"error","message":"Database not found","database":"'"$db_path"'"}'
+        else
+            echo -e "${RED}Error: Affiliate database not found at $db_path${NC}"
+            echo -e "${YELLOW}Run: ./scripts/migrations/run_migrations.sh${NC}"
+        fi
+        return 1
+    fi
+
+    # Get table counts
+    local affiliate_count=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM affiliate_states;" 2>/dev/null || echo "0")
+    local activity_count=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM affiliate_activities;" 2>/dev/null || echo "0")
+    local risk_count=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM affiliate_risks;" 2>/dev/null || echo "0")
+    local affinity_count=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM affiliate_affinities;" 2>/dev/null || echo "0")
+
+    # Get state distribution
+    local pending_count=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM affiliate_states WHERE status='pending';" 2>/dev/null || echo "0")
+    local active_count=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM affiliate_states WHERE status='active';" 2>/dev/null || echo "0")
+    local suspended_count=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM affiliate_states WHERE status='suspended';" 2>/dev/null || echo "0")
+
+    # Get risk severity distribution
+    local critical_risks=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM affiliate_risks WHERE severity='critical' AND status='open';" 2>/dev/null || echo "0")
+    local high_risks=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM affiliate_risks WHERE severity='high' AND status='open';" 2>/dev/null || echo "0")
+
+    # Get high affinity pairs
+    local high_affinity_count=$(sqlite3 "$db_path" "SELECT COUNT(*) FROM affiliate_affinities WHERE score >= 0.8;" 2>/dev/null || echo "0")
+
+    # Determine overall health status
+    local health_status="healthy"
+    local health_score=100
+
+    if [ "$affiliate_count" = "0" ]; then
+        health_status="warning"
+        health_score=$((health_score - 30))
+    fi
+
+    if [ "$critical_risks" -gt 0 ]; then
+        health_status="critical"
+        health_score=$((health_score - 40))
+    elif [ "$high_risks" -gt 2 ]; then
+        health_status="warning"
+        health_score=$((health_score - 20))
+    fi
+
+    if [ "$json_mode" = "1" ]; then
+        cat <<EOF
+{
+  "status": "$health_status",
+  "health_score": $health_score,
+  "database": "$db_path",
+  "tables": {
+    "affiliate_states": $affiliate_count,
+    "affiliate_activities": $activity_count,
+    "affiliate_risks": $risk_count,
+    "affiliate_affinities": $affinity_count
+  },
+  "state_distribution": {
+    "pending": $pending_count,
+    "active": $active_count,
+    "suspended": $suspended_count
+  },
+  "risk_summary": {
+    "critical_open": $critical_risks,
+    "high_open": $high_risks
+  },
+  "affinity_summary": {
+    "high_affinity_pairs": $high_affinity_count
+  }
+}
+EOF
+    else
+        echo -e "${GREEN}Affiliate System Health Report${NC}"
+        echo "================================"
+        echo ""
+        echo -e "Status: ${health_status^^}"
+        echo -e "Health Score: $health_score/100"
+        echo ""
+        echo "Table Counts:"
+        echo "  - affiliate_states: $affiliate_count"
+        echo "  - affiliate_activities: $activity_count"
+        echo "  - affiliate_risks: $risk_count"
+        echo "  - affiliate_affinities: $affinity_count"
+        echo ""
+        echo "State Distribution:"
+        echo "  - Pending: $pending_count"
+        echo "  - Active: $active_count"
+        echo "  - Suspended: $suspended_count"
+        echo ""
+        echo "Risk Summary:"
+        echo "  - Critical (open): $critical_risks"
+        echo "  - High (open): $high_risks"
+        echo ""
+        echo "Affinity Summary:"
+        echo "  - High affinity pairs (≥0.8): $high_affinity_count"
+    fi
+}
+
 # Enhanced log rotation and archival policies
 rotate_logs() {
     local max_file_size="${AF_LOG_MAX_SIZE:-10485760}"  # 10MB default
@@ -2409,6 +3166,91 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         sample-workloads) shift; cmd_sample_workloads "$@" ;;
         retro-coach) shift; cmd_retro_coach "$@" ;;
         governance-agent) shift; cmd_governance_agent "$@" ;;
+        pattern-analysis)
+            shift
+            echo -e "${BLUE}=== Pattern Metrics Analysis ===${NC}\n"
+            npx tsx "$PROJECT_ROOT/tools/federation/pattern_metrics_analyzer.ts" --goalie-dir="$PROJECT_ROOT/.goalie" "$@"
+            ;;
+        pattern-anomalies)
+            shift
+            echo -e "${BLUE}=== Pattern Anomaly Detection ===${NC}\n"
+            npx tsx "$PROJECT_ROOT/tools/federation/pattern_metrics_analyzer.ts" --goalie-dir="$PROJECT_ROOT/.goalie" --json "$@" 2>/dev/null | jq '.anomalies'
+            ;;
+        pattern-dashboard)
+            shift
+            echo -e "${BLUE}=== Opening Pattern Metrics Dashboard ===${NC}\n"
+            dashboard_path="$PROJECT_ROOT/tools/federation/pattern_dashboard.html"
+            if [ -f "$dashboard_path" ]; then
+                # Open in default browser
+                if command -v open &> /dev/null; then
+                    open "$dashboard_path"
+                elif command -v xdg-open &> /dev/null; then
+                    xdg-open "$dashboard_path"
+                else
+                    echo -e "${GREEN}Dashboard available at: file://$dashboard_path${NC}"
+                fi
+                echo -e "${GREEN}Dashboard opened in browser${NC}"
+                echo -e "${BLUE}Note: Run 'af pattern-analysis' first to generate data${NC}"
+            else
+                echo -e "${RED}Dashboard not found at $dashboard_path${NC}"
+            fi
+            ;;
+
+        # GitHub integration
+        github)
+            shift
+            subcommand="${1:-help}"
+            case "$subcommand" in
+                auth)
+                    shift
+                    action="${1:---check}"
+                    case "$action" in
+                        --check)
+                            gh auth status
+                            if [ -n "${AF_GITHUB_REPO:-}" ]; then
+                                echo ""
+                                echo "Repository context:"
+                                gh repo view "$AF_GITHUB_REPO" --json name,owner
+                            fi
+                            ;;
+                        --login-with-token)
+                            if [ -z "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ]; then
+                                echo -e "${RED}Error: GH_TOKEN or GITHUB_TOKEN environment variable required${NC}" >&2
+                                exit 1
+                            fi
+                            echo "${GH_TOKEN:-$GITHUB_TOKEN}" | gh auth login --with-token
+                            ;;
+                        *)
+                            echo -e "${RED}Unknown auth action: $action${NC}" >&2
+                            echo "Try: af github auth --check | --login-with-token" >&2
+                            exit 1
+                            ;;
+                    esac
+                    ;;
+                *)
+                    echo -e "${RED}Unknown github subcommand: $subcommand${NC}" >&2
+                    echo "Try: af github auth" >&2
+                    exit 1
+                    ;;
+            esac
+            ;;
+
+        # Retro automation
+        retro)
+            shift
+            subcommand="${1:-help}"
+            case "$subcommand" in
+                create-issue)
+                    shift
+                    python3 "$SCRIPT_DIR/github_issue_automation.py" "$@"
+                    ;;
+                *)
+                    echo -e "${RED}Unknown retro subcommand: $subcommand${NC}" >&2
+                    echo "Try: af retro create-issue [--from insights|quick-wins|yaml] [--dry-run] [--repo owner/repo]" >&2
+                    exit 1
+                    ;;
+            esac
+            ;;
         dt-e2e-check)
             shift
             if [ -f "$SCRIPT_DIR/analysis/dt_e2e_check.py" ]; then
@@ -2952,7 +3794,122 @@ PYEOF
 	        python3 "$SCRIPT_DIR/af_dashboard.py" "$@"
 	        ;;
 
-        help|--help|-h) show_help ;;
+	governance-agent)
+		shift
+		echo -e "${BLUE}=== Governance Agent ===${NC}"
+		# Delegate to TypeScript governance agent with pattern telemetry
+		cmd_governance_agent "$@"
+		;;
+
+	retro-coach)
+		shift
+		echo -e "${BLUE}=== Retro Coach ===${NC}"
+		# Delegate to TypeScript retro coach with forensic analysis
+		cmd_retro_coach "$@"
+		;;
+
+	affiliate-health)
+		shift
+		echo -e "${BLUE}=== Affiliate System Health ===${NC}"
+		cmd_affiliate_health "$@"
+		;;
+
+	visionflow)
+		shift
+		echo -e "${BLUE}=== VisionFlow Dashboard ===${NC}"
+		visionflow_dir="$PROJECT_ROOT/VisionFlow/client"
+		if [ -d "$visionflow_dir" ]; then
+			case "${1:-dev}" in
+				dev)
+					echo -e "${GREEN}Starting VisionFlow development server...${NC}"
+					cd "$visionflow_dir" && npm run dev
+					;;
+				build)
+					echo -e "${GREEN}Building VisionFlow for production...${NC}"
+					cd "$visionflow_dir" && npm run build
+					;;
+				preview)
+					echo -e "${GREEN}Previewing VisionFlow production build...${NC}"
+					cd "$visionflow_dir" && npm run preview
+					;;
+				install)
+					echo -e "${GREEN}Installing VisionFlow dependencies...${NC}"
+					cd "$visionflow_dir" && npm install
+					;;
+				*)
+					echo "Usage: af visionflow [dev|build|preview|install]"
+					echo "  dev     - Start development server (default)"
+					echo "  build   - Build for production"
+					echo "  preview - Preview production build"
+					echo "  install - Install dependencies"
+					;;
+			esac
+		else
+			echo -e "${RED}VisionFlow not found at $visionflow_dir${NC}"
+			exit 1
+		fi
+		;;
+
+	lionagi-qe)
+		shift
+		echo -e "${BLUE}=== LionAGI QE Fleet ===${NC}"
+		lionagi_dir="$PROJECT_ROOT/lionagi-qe-fleet"
+		if [ -d "$lionagi_dir" ]; then
+			case "${1:-help}" in
+				start)
+					echo -e "${GREEN}Starting LionAGI QE Fleet API server...${NC}"
+					cd "$lionagi_dir" && python -m lionagi_qe.api.server
+					;;
+				test)
+					echo -e "${GREEN}Running LionAGI QE Fleet tests...${NC}"
+					cd "$lionagi_dir" && python -m pytest tests/ -v
+					;;
+				agents)
+					echo -e "${GREEN}Available QE Agents:${NC}"
+					echo "  1. TestGeneratorAgent - Generate unit/integration tests"
+					echo "  2. CoverageAnalyzerAgent - Analyze test coverage"
+					echo "  3. SecurityScannerAgent - Security vulnerability scanning"
+					echo "  4. PerformanceTestAgent - Performance testing"
+					echo "  5. ContractTestAgent - Consumer-driven contract testing"
+					echo "  6. ChaosEngineerAgent - Resilience testing"
+					echo "  7. QualityGateAgent - Quality gate enforcement"
+					echo "  8. DeploymentReadinessAgent - Deployment validation"
+					echo "  ... and 10 more specialized agents"
+					;;
+				generate)
+					shift
+					if [ -n "$1" ]; then
+						echo -e "${GREEN}Generating tests for: $1${NC}"
+						cd "$lionagi_dir" && python -c "from lionagi_qe.agents import TestGeneratorAgent; import asyncio; asyncio.run(TestGeneratorAgent().generate('$1'))"
+					else
+						echo "Usage: af lionagi-qe generate <file_path>"
+					fi
+					;;
+				analyze)
+					shift
+					if [ -n "$1" ]; then
+						echo -e "${GREEN}Analyzing code quality for: $1${NC}"
+						cd "$lionagi_dir" && python -c "from lionagi_qe.core.code_analyzer import CodeAnalyzer; print(CodeAnalyzer().analyze('$1'))"
+					else
+						echo "Usage: af lionagi-qe analyze <file_path>"
+					fi
+					;;
+				*)
+					echo "Usage: af lionagi-qe [start|test|agents|generate|analyze]"
+					echo "  start    - Start QE Fleet API server"
+					echo "  test     - Run QE Fleet tests"
+					echo "  agents   - List available agents"
+					echo "  generate - Generate tests for a file"
+					echo "  analyze  - Analyze code quality"
+					;;
+			esac
+		else
+			echo -e "${RED}LionAGI QE Fleet not found at $lionagi_dir${NC}"
+			exit 1
+		fi
+		;;
+
+	    help|--help|-h) show_help ;;
         *)
             echo -e "${RED}Unknown command: $1${NC}"
             echo "Run 'af help' for usage"

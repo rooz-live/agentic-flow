@@ -4,15 +4,15 @@
  * Provides CLI commands for medical condition analysis with anti-hallucination features
  */
 
-import { Command } from 'commander';
 import chalk from 'chalk';
-import ora from 'ora';
+import { Command } from 'commander';
 import inquirer from 'inquirer';
-import { MedicalAnalysisService } from '../services/medical-analysis.service';
-import { AntiHallucinationService } from '../services/anti-hallucination.service';
+import ora from 'ora';
 import { AgentDBLearningService } from '../services/agentdb-learning.service';
+import { AntiHallucinationService } from '../services/anti-hallucination.service';
+import { MedicalAnalysisService } from '../services/medical-analysis.service';
 import { ProviderService } from '../services/provider.service';
-import type { AnalysisRequest, AnalysisOptions } from '../types/medical.types';
+import type { AnalysisRequest } from '../types/medical.types';
 
 const program = new Command();
 const analysisService = new MedicalAnalysisService();
@@ -360,6 +360,51 @@ configCmd
   .action((key, value) => {
     console.log(chalk.green(`✓ Configuration updated: ${key} = ${value}`));
   });
+
+/**
+ * medai ci-validate - CI/CD Pipeline Validation
+ */
+program
+  .command('ci-validate')
+  .description('Validate CI/CD pipeline with synthetic test data')
+  .action(async () => {
+    console.log(chalk.blue('🚀 Starting CI/CD Validation...'));
+    const { spawn } = await import('child_process');
+    const path = await import('path');
+
+    const scriptPath = path.join(process.cwd(), 'scripts', 'generate-test-data.ts');
+    console.log(chalk.gray(`Running script: ${scriptPath}`));
+
+    const child = spawn('npx', ['tsx', scriptPath], { stdio: 'inherit' });
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        console.log(chalk.green('\n✅ CI Validation Completed Successfully'));
+      } else {
+        console.log(chalk.red(`\n❌ CI Validation Failed with code ${code}`));
+        process.exit(code || 1);
+      }
+    });
+  });
+
+// Telemetry bootstrap for CLI (disabled in tests)
+import { startTelemetry, stopTelemetry } from '../telemetry/bootstrap';
+let __cliTelemetryStarted = false;
+if (process.env.NODE_ENV !== 'test') {
+  try {
+    startTelemetry({
+      filePath: process.env.GOALIE_METRICS_PATH || '.goalie/metrics_log.jsonl',
+      flushIntervalMs: parseInt(process.env.GOALIE_METRICS_FLUSH_MS || '1000', 10),
+      batchSize: parseInt(process.env.GOALIE_METRICS_BATCH || '100', 10),
+      maxPerMinute: parseInt(process.env.GOALIE_METRICS_MAX_PER_MIN || '240', 10)
+    });
+    __cliTelemetryStarted = true;
+    const shutdown = () => { try { stopTelemetry(); } catch {} };
+    process.on('exit', shutdown);
+    process.on('SIGINT', () => { shutdown(); process.exit(0); });
+    process.on('SIGTERM', () => { shutdown(); process.exit(0); });
+  } catch {}
+}
 
 // Helper functions
 function displayAnalysisResults(result: any, patterns: any): void {

@@ -1,0 +1,158 @@
+# ============================================================================
+# GitLab Environment Toolkit (GET) Migration Configuration
+# ============================================================================
+# Migration: gitlab.yocloud.com -> gitlab.interface.splitcite.com
+# Date: Saturday, November 29, 2025, 06:00-14:00 EST
+# ============================================================================
+
+---
+migration:
+  name: "gitlab-yocloud-to-splitcite"
+  description: "Production GitLab migration"
+  scheduled_date: "2025-11-29"
+  scheduled_time: "06:00:00"
+  timezone: "America/New_York"
+  owner: "rooz-live"
+  estimated_downtime_hours: 4
+  method: "backup-restore"
+
+source:
+  url: "https://gitlab.yocloud.com"
+  ssh_host: "gitlab.yocloud.com"
+  ssh_user: "root"
+  ssh_key_path: "~/.ssh/id_rsa"
+  version: "16.x.x"  # Update from: gitlab-rake gitlab:env:info
+  
+  backup:
+    path: "/var/opt/gitlab/backups"
+    strategy: "copy"
+    max_age_hours: 24
+    compression: "gzip"
+    
+  config:
+    gitlab_rb: "/etc/gitlab/gitlab.rb"
+    secrets_json: "/etc/gitlab/gitlab-secrets.json"
+    ssl_certs: "/etc/gitlab/ssl"
+    
+  storage:
+    git_data: "/var/opt/gitlab/git-data/repositories"
+    uploads: "/var/opt/gitlab/gitlab-rails/uploads"
+    artifacts: "/var/opt/gitlab/gitlab-rails/shared/artifacts"
+    lfs: "/var/opt/gitlab/gitlab-rails/shared/lfs-objects"
+    packages: "/var/opt/gitlab/gitlab-rails/shared/packages"
+    registry: "/var/opt/gitlab/gitlab-rails/shared/registry"
+
+target:
+  url: "https://gitlab.interface.splitcite.com"
+  ssh_host: "gitlab.interface.splitcite.com"
+  ssh_user: "root"
+  ssh_key_path: "~/.ssh/id_rsa"
+  version: "16.x.x"
+  
+  infrastructure:
+    provider: "aws"
+    region: "us-east-1"
+    availability_zone: "us-east-1a"
+    
+    compute:
+      instance_type: "m5.xlarge"
+      root_volume_size_gb: 100
+      root_volume_type: "gp3"
+      root_volume_iops: 3000
+      
+    storage:
+      type: "ebs"
+      data_volume_size_gb: 500
+      data_volume_type: "gp3"
+      data_volume_iops: 6000
+      backup_retention_days: 30
+      
+    networking:
+      vpc_id: "${VPC_ID}"
+      subnet_id: "${SUBNET_ID}"
+      security_group_ids:
+        - "${SG_GITLAB}"
+      associate_public_ip: true
+      
+    tags:
+      Environment: "production"
+      Application: "gitlab"
+      MigrationDate: "2025-11-29"
+      Owner: "rooz-live"
+      
+  ssl:
+    provider: "letsencrypt"
+    email: "admin@splitcite.com"
+    domains:
+      - "gitlab.interface.splitcite.com"
+    auto_renew: true
+    
+  dns:
+    provider: "route53"
+    zone_id: "${ROUTE53_ZONE_ID}"
+    record_type: "A"
+    ttl: 300
+    
+  gitlab_config:
+    external_url: "https://gitlab.interface.splitcite.com"
+    letsencrypt:
+      enable: true
+    nginx:
+      redirect_http_to_https: true
+      ssl_protocols: "TLSv1.2 TLSv1.3"
+    prometheus_monitoring:
+      enable: true
+    grafana:
+      enable: true
+
+components:
+  include:
+    - repositories
+    - users
+    - groups
+    - projects
+    - issues
+    - merge_requests
+    - ci_cd_variables
+    - ci_cd_pipelines
+    - runners
+    - webhooks
+    - deploy_keys
+    - access_tokens
+    - uploads
+    - lfs_objects
+    - artifacts
+    - packages
+    
+  exclude:
+    - container_registry  # Migrate separately if large
+    
+  selective:
+    groups: []
+    projects: []
+
+rollback:
+  enabled: true
+  automatic_triggers:
+    - "backup_restore_failure"
+    - "repository_access_failure_rate > 50"
+    - "authentication_failure"
+  manual_confirmation_required:
+    - "dns_cutover"
+  preserve_source_until: "2025-12-29"
+  
+validation:
+  pre_migration:
+    - ssh_connectivity
+    - gitlab_version_check
+    - storage_capacity
+    - runner_verification
+    - backup_test
+  post_migration:
+    - repository_clone_test
+    - user_authentication
+    - cicd_pipeline_trigger
+    - webhook_delivery
+    - iris_governance_tests
+    - dependabot_config
+    - url_reference_check

@@ -63,7 +63,7 @@ TOTAL_FILES=$(git ls-files | wc -l | xargs)
 TS_FILES=$(git ls-files '*.ts' '*.tsx' | wc -l | xargs)
 JS_FILES=$(git ls-files '*.js' '*.jsx' | wc -l | xargs)
 TEST_FILES=$(git ls-files '*test.ts' '*test.js' '*spec.ts' '*spec.js' | wc -l | xargs)
-TOTAL_LINES=$(git ls-files | xargs wc -l 2>/dev/null | tail -1 | awk '{print $1}')
+TOTAL_LINES=$(git ls-files -z | xargs -0 wc -l 2>/dev/null | tail -1 | awk '{print $1}')
 
 # Governor metrics
 echo "Collecting governor metrics..."

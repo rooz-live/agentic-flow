@@ -7,9 +7,9 @@ import json
 import sys
 import sqlite3
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
-AGENTDB_PATH = Path("./agentdb.db")
+AGENTDB_PATH = Path(".agentdb/agentdb.sqlite")
 
 def connect_agentdb():
     """Connect to AgentDB database"""
@@ -49,11 +49,11 @@ def import_samples(samples_file: str):
     imported_count = 0
     for sample in samples:
         try:
-            # Extract sample data
-            sample_id = sample.get("sample_id", 0)
-            timestamp = sample.get("timestamp", datetime.now(datetime.UTC).isoformat())
-            risk_score = sample.get("risk_score", 0)
-            confidence = sample.get("confidence", 0.0)
+            # Extract sample data (handle both calibration and generic sample formats)
+            sample_id = sample.get("sample_id", sample.get("commit_hash", "unknown"))
+            timestamp = sample.get("timestamp", datetime.now(timezone.utc).isoformat())
+            risk_score = sample.get("risk_score", sample.get("enhanced_risk_score", 0))
+            confidence = sample.get("confidence", sample.get("claude_confidence", 0.0))
             
             # Create episode data
             episode_data = {
@@ -69,33 +69,31 @@ def import_samples(samples_file: str):
             # High confidence + appropriate risk detection = high reward
             reward = confidence * (1.0 if risk_score > 70 else 0.8)
             
-            # Insert into episodes table (matching AgentDB schema)
+            # Insert into learning_events table (matching AgentDB schema)
             cursor.execute("""
-                INSERT INTO episodes (
-                    session_id,
-                    task,
-                    input,
-                    output,
-                    critique,
-                    reward,
-                    success,
-                    latency_ms,
-                    tokens_used,
-                    tags,
-                    metadata
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO learning_events (
+                    agent_id,
+                    event_type,
+                    context,
+                    verdict,
+                    confidence,
+                    beam_tags,
+                    command,
+                    args,
+                    exit_code,
+                    duration_ms
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                "calibration",  # session_id
-                "risk_analysis",  # task
-                json.dumps({"sample_id": sample_id}),  # input
-                json.dumps({"risk_score": risk_score, "confidence": confidence}),  # output
-                json.dumps(episode_data),  # critique
-                reward,
-                1,  # success
-                None,  # latency_ms
-                None,  # tokens_used
-                json.dumps(["calibration", "neural" if sample.get("neural_processed") else "standard"]),  # tags
-                json.dumps(episode_data)  # metadata
+                "calibration-agent",  # agent_id
+                "risk_analysis",  # event_type
+                json.dumps({"commit_hash": sample_id, "risk_score": risk_score}),  # context
+                json.dumps({"risk_level": sample.get("risk_level", "HIGH")}),  # verdict
+                confidence / 100.0 if confidence > 1 else confidence,  # confidence (normalize to 0-1)
+                json.dumps(["calibration", "neural" if sample.get("neural_score", 0) > 0 else "standard"]),  # beam_tags
+                "git commit analysis",  # command
+                json.dumps(episode_data),  # args
+                0,  # exit_code (success)
+                None  # duration_ms
             ))
             
             imported_count += 1
@@ -117,9 +115,12 @@ def import_samples(samples_file: str):
     return True
 
 def main():
-    if len(sys.argv) < 2:
+    if len(sys.argv) < 2 or sys.argv[1] in ['-h', '--help']:
         print("Usage: python3 import_calibration_to_agentdb.py <samples_file.json>", file=sys.stderr)
-        sys.exit(1)
+        print("\nImport calibration samples into AgentDB for learning", file=sys.stderr)
+        print("\nArguments:", file=sys.stderr)
+        print("  <samples_file.json>  Path to JSON file containing calibration samples", file=sys.stderr)
+        sys.exit(0 if len(sys.argv) > 1 else 1)
     
     samples_file = sys.argv[1]
     

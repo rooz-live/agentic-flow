@@ -4,7 +4,7 @@
  * @coverage Target: 90%+
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+// Jest globals are automatically available via @types/jest
 
 // Mock workflow orchestration
 interface WorkflowStep {

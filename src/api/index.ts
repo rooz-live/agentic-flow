@@ -349,6 +349,52 @@ export class MedicalAnalysisAPI {
       }
     });
 
+    // Prometheus metrics exposition (if prom-client present)
+    router.get('/prom-metrics', async (req: Request, res: Response) => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const prom = require('prom-client');
+        res.set('Content-Type', prom.register.contentType);
+        res.end(await prom.register.metrics());
+      } catch {
+        res.status(501).json({ success: false, error: { code: 'NOT_IMPLEMENTED', message: 'prom-client not installed' } });
+      }
+    });
+
+    // OTLP/OTel health check
+    router.get('/otel/health', (req: Request, res: Response) => {
+      try {
+        const { getOtelStatus } = require('../telemetry/otel');
+        const status = getOtelStatus();
+        res.json({
+          success: true,
+          data: {
+            otel: status,
+            jsonl: {
+              enabled: !!process.env.GOALIE_METRICS_PATH || process.env.NODE_ENV !== 'test',
+              path: process.env.GOALIE_METRICS_PATH || '.goalie/metrics_log.jsonl'
+            },
+            prometheus: {
+              available: (() => { try { require('prom-client'); return true; } catch { return false; } })(),
+              endpoint: '/api/prom-metrics'
+            }
+          },
+          metadata: {
+            requestId: uuidv4(),
+            timestamp: new Date(),
+            processingTimeMs: 0,
+            version: '1.0.0'
+          }
+        });
+      } catch (error) {
+        res.status(500).json(this.createErrorResponse(
+          'OTEL_HEALTH_ERROR',
+          error instanceof Error ? error.message : 'Unknown error',
+          uuidv4()
+        ));
+      }
+    });
+
     this.app.use('/api', router);
   }
 
@@ -460,6 +506,27 @@ export class MedicalAnalysisAPI {
    * Start the server
    */
   public start(): void {
+    // Start telemetry sink (JSONL + Prom metrics adapter) if not in test mode
+    let telemetry: ReturnType<typeof import('../telemetry/bootstrap').startTelemetry> | undefined;
+    if (process.env.NODE_ENV !== 'test') {
+      const { startTelemetry } = require('../telemetry/bootstrap');
+      telemetry = startTelemetry({
+        filePath: process.env.GOALIE_METRICS_PATH || '.goalie/metrics_log.jsonl',
+        flushIntervalMs: 1000,
+        batchSize: 200,
+        maxPerMinute: 300
+      });
+
+      // Graceful shutdown hooks
+      const stop = async () => {
+        try { telemetry?.stop(); } catch {}
+        await this.stop();
+        process.exit(0);
+      };
+      process.on('SIGINT', stop);
+      process.on('SIGTERM', stop);
+    }
+
     this.server.listen(this.port, () => {
       console.log(`🏥 MedAI Analysis API started on port ${this.port}`);
       console.log(`📡 WebSocket endpoint: ws://localhost:${this.port}`);

@@ -39,6 +39,18 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.append(str(SCRIPT_DIR))
+AGENTIC_DIR = SCRIPT_DIR.parent / "agentic"
+if AGENTIC_DIR.exists() and str(AGENTIC_DIR) not in sys.path:
+    sys.path.append(str(AGENTIC_DIR))
+
+from pattern_logging_helper import (  # type: ignore  # pylint: disable=import-error
+    build_pattern_event as helper_build_pattern_event,
+    log_pattern_event as helper_log_pattern_event,
+)
+
 # Constants
 DEFAULT_ITERATIONS = 100
 DEFAULT_DEPTH = 3
@@ -294,15 +306,65 @@ class TelemetryLogger:
         self.pattern_log = self.goalie_dir / "pattern_metrics.jsonl"
         self.test_log = self.goalie_dir / "test_results.jsonl"
 
-    def log_pattern_event(self, event: Dict[str, Any]):
-        """Log a governance pattern event."""
-        # Ensure ISO8601 timestamp
-        if "ts" not in event:
-            now = datetime.now(timezone.utc)
-            event["ts"] = now.isoformat().replace("+00:00", "Z")
+        # Initialize state attributes
+        self.current_depth = DEFAULT_DEPTH
+        self.active_circle = None
+        self.run_id = f"run-{int(time.time())}"
+        self.current_iteration = 0
 
-        with open(self.pattern_log, "a") as f:
-            f.write(json.dumps(event) + "\n")
+    def log_pattern_event(self, event: Dict[str, Any]) -> None:
+        """Log a governance pattern event via shared helper."""
+        pattern = event.get("pattern")
+        if not pattern:
+            return
+
+        gate = event.get("gate")
+        circle = event.get("circle") or self.active_circle or "unknown"
+        depth = event.get("depth", self.current_depth)
+        mode = event.get("mode", "advisory")
+        behavioral_type = event.get("behavioral_type", "observability")
+        tags = event.get("tags") or [f"pattern:{pattern}"]
+
+        run_id = event.get("run_id") or self.run_id
+        iteration = event.get("iteration", self.current_iteration)
+
+        pattern_state = event.get("pattern_state", {})
+        workload = event.get("workload")
+
+        metadata: Dict[str, Any] = {}
+        preserved_keys = {
+            "pattern",
+            "circle",
+            "depth",
+            "mode",
+            "behavioral_type",
+            "gate",
+            "tags",
+            "pattern_state",
+            "workload",
+            "run",
+            "run_id",
+            "iteration",
+        }
+        for key, value in event.items():
+            if key not in preserved_keys:
+                metadata[key] = value
+
+        helper_event = helper_build_pattern_event(
+            pattern=pattern,
+            circle=circle,
+            depth=depth,
+            gate=gate,
+            mode=mode,
+            behavioral_type=behavioral_type,
+            tags=tags,
+            pattern_state=pattern_state,
+            workload=workload,
+            run_id=run_id,
+            iteration=iteration,
+            metadata=metadata if metadata else None,
+        )
+        helper_log_pattern_event(helper_event, mirror_metrics=True)
 
     def log_metric(self, metric: Dict[str, Any]):
         """Log a quantitative metric."""
@@ -311,7 +373,44 @@ class TelemetryLogger:
             metric["timestamp"] = now.isoformat().replace("+00:00", "Z")
 
         with open(self.metrics_log, "a") as f:
-            f.write(json.dumps(metric) + "\n")
+            f.write(json.dumps(metric))
+
+
+class AdmissionController:
+    """
+    Proactive Admission Control for High System Load (R-001).
+    Implements a 'Token Bucket' style backoff when system load is critical.
+    """
+    def __init__(self, threshold_pct: float = 80.0, backoff_sec: int = 30):
+        self.threshold_pct = threshold_pct
+        self.backoff_sec = backoff_sec
+        self.consecutive_high_load = 0
+
+    def check_admission(self) -> bool:
+        """
+        Check system load and determine if a new iteration should be admitted.
+        Returns True if admitted, False if rejected (should wait).
+        """
+        try:
+            # Get 1-minute load average
+            load1, _, _ = os.getloadavg()
+            cpu_count = os.cpu_count() or 1
+            load_pct = (load1 / cpu_count) * 100
+
+            if load_pct > self.threshold_pct:
+                self.consecutive_high_load += 1
+                wait_time = self.backoff_sec * self.consecutive_high_load
+                print(f"[Admission] High System Load ({load_pct:.1f}%). Backing off for {wait_time}s...")
+                time.sleep(wait_time)
+                return False
+
+            # Reset backoff on healthy load
+            self.consecutive_high_load = 0
+            return True
+
+        except Exception as e:
+            print(f"[Admission] Warning: Failed to check load: {e}")
+            return True
 
 
 class GovernanceMiddleware:
@@ -319,6 +418,7 @@ class GovernanceMiddleware:
         self.args = args
         self.project_root = project_root
         self.telemetry = TelemetryLogger(project_root)
+        self.admission = AdmissionController()
         self.run_id = str(uuid.uuid4())
         self.environment = getattr(args, "environment", None)
 
@@ -658,6 +758,33 @@ class GovernanceMiddleware:
             "incident_tail": incident_tail,
         })
 
+        # Log guardrail-lock pattern event (schema v1.0 compliant)
+        self.guardrail_lock_enforced = 1 if not self.is_safe else 0
+        self.guardrail_lock_health = "degraded" if not self.is_safe else "healthy"
+        self.telemetry.log_pattern_event({
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "run": "prod-cycle",
+            "run_id": self.run_id,
+            "iteration": self.current_iteration,
+            "circle": self.active_circle if self.active_circle else "orchestrator",
+            "depth": self.current_depth,
+            "pattern": "guardrail-lock",
+            "mode": "enforcement" if not self.is_safe else "advisory",
+            "mutation": not self.is_safe,
+            "gate": "health",
+            "framework": "",
+            "scheduler": "",
+            "tags": ["HPC"],
+            "economic": {"cod": 5000.0 if not self.is_safe else 0.0, "wsjf_score": 5000.0 if not self.is_safe else 0.0},
+            "enforced": self.guardrail_lock_enforced,
+            "health_state": self.guardrail_lock_health,
+            "user_requests": self.guardrail_lock_requests,
+            "lock_reason": self.safe_degrade_reason,
+        })
+
+        # Increment observability metrics
+        self.observability_metrics_written += 2  # safe-degrade + guardrail-lock
+
         return self.is_safe
 
     def determine_circle_focus(self):
@@ -681,18 +808,27 @@ class GovernanceMiddleware:
 
         # TODO: Implement Risk-Aware priority query here in future
 
+        # Schema v1.0 compliant circle-risk-focus event
         self.telemetry.log_pattern_event({
+            "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "run": "prod-cycle",
+            "run_id": self.run_id,
             "iteration": self.current_iteration,
             "circle": self.active_circle,
             "depth": self.current_depth,
             "pattern": "circle-risk-focus",
-            "mode": "enforce",
+            "mode": "advisory",
             "mutation": False,
-            "gate": "selection",
-            "reason": mode,
-            "action": f"select-{self.active_circle}"
+            "gate": "focus",
+            "framework": "",
+            "scheduler": "",
+            "tags": [],
+            "economic": {"cod": abs(self.circle_risk_roam_delta) * 10, "wsjf_score": abs(self.circle_risk_roam_delta)},
+            "top_owner": self.active_circle,
+            "extra_iterations": self.extensions_used,
+            "roam_reduction": int(self.circle_risk_roam_delta),
         })
+        self.observability_metrics_written += 1
 
     def calculate_depth_ladder(self):
         """
@@ -740,18 +876,29 @@ class GovernanceMiddleware:
                 self.max_iterations += 1
                 self.extensions_used += 1
 
+                # Schema v1.0 compliant iteration-budget event
                 self.telemetry.log_pattern_event({
+                    "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "run": "prod-cycle",
+                    "run_id": self.run_id,
                     "iteration": self.current_iteration,
                     "circle": self.active_circle,
                     "depth": self.current_depth,
                     "pattern": "iteration-budget",
-                    "mode": "mutate",
+                    "mode": "enforcement",
                     "mutation": True,
-                    "gate": "completion-check",
-                    "reason": "unfinished-business-unsafe",
-                    "action": "extend-budget"
+                    "gate": "health",
+                    "framework": "",
+                    "scheduler": "",
+                    "tags": [],
+                    "economic": {"cod": 100.0, "wsjf_score": 50.0},
+                    "requested": self.max_iterations - self.extensions_used,
+                    "enforced": self.max_iterations,
+                    "remaining": max(0, self.max_iterations - self.current_iteration),
+                    "consumed": self.current_iteration,
+                    "autocommit_runs": self.autocommit_runs,
                 })
+                self.observability_metrics_written += 1
                 return True # Continue
             else:
                 return False # Stop
@@ -1184,6 +1331,100 @@ class GovernanceMiddleware:
             except Exception as exc:
                 print(f"[Governance] IRIS hook failed but was ignored: {exc}")
 
+    def run_governance_agent(self) -> None:
+        """Run governance agent for policy enforcement and recommendations.
+        
+        Integrates governance agent TypeScript module to perform policy checks,
+        generate recommendations, and emit governance-review pattern events.
+        """
+        gov_agent_script = self.project_root / "tools" / "federation" / "governance_agent.ts"
+        if not gov_agent_script.exists():
+            # Gracefully skip if governance agent not available
+            return
+
+        goalie_dir = self.project_root / ".goalie"
+        env = os.environ.copy()
+        env["AF_CIRCLE"] = self.active_circle or "governance"
+        env["AF_DEPTH_LEVEL"] = str(self.current_depth)
+        env["AF_RUN_ID"] = self.run_id
+        env["AF_RUN_ITERATION"] = str(self.current_iteration)
+        env["AF_PROD_CYCLE_MODE"] = "advisory" if self.args.dry_run else "enforcement"
+        env["AF_CONTEXT"] = "prod-cycle"
+
+        # Run governance agent with JSON output and prod-cycle context
+        cmd = ["npx", "tsx", str(gov_agent_script), "--goalie-dir", str(goalie_dir), "--json", "--prod-cycle"]
+        
+        print(f"[Governance] Running governance agent...")
+        try:
+            result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60, check=False)
+            
+            if result.returncode == 0 and result.stdout.strip():
+                # Parse JSON output
+                try:
+                    gov_data = json.loads(result.stdout)
+                    
+                    # Extract key metrics from governance agent output
+                    policies_checked = len(gov_data.get("policies", []))
+                    violations_found = len(gov_data.get("violations", []))
+                    recommendations = len(gov_data.get("recommendations", []))
+                    wsjf_priorities = len(gov_data.get("wsjfPriorities", []))
+                    
+                    # Emit governance-review pattern event (schema v1.0 compliant)
+                    self.telemetry.log_pattern_event({
+                        "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "run": "prod-cycle",
+                        "run_id": self.run_id,
+                        "iteration": self.current_iteration,
+                        "circle": "governance",
+                        "depth": 0,
+                        "pattern": "governance-review",
+                        "mode": "enforcement" if not self.args.dry_run else "advisory",
+                        "behavioral_type": "enforcement",
+                        "mutation": False,
+                        "gate": "governance",
+                        "framework": "",
+                        "scheduler": "",
+                        "tags": ["Federation"],
+                        "economic": {
+                            "cod": violations_found * 100.0, 
+                            "wsjf_score": wsjf_priorities * 10.0 if wsjf_priorities else 0.0
+                        },
+                        "reason": "policy-enforcement-check",
+                        "action": "review-complete",
+                        "prod_mode": env["AF_PROD_CYCLE_MODE"],
+                        "metrics": {
+                            "policies_checked": policies_checked,
+                            "violations_found": violations_found,
+                            "recommendations": recommendations,
+                            "wsjf_priorities": wsjf_priorities,
+                            "auto_fixes_applied": 0,  # Reserved for future code fix proposal implementation
+                        },
+                    })
+                    
+                    print(
+                        f"[Governance] Policy enforcement: {policies_checked} policies checked, "
+                        f"{violations_found} violations, {recommendations} recommendations"
+                    )
+                    
+                    # Persist governance agent output for downstream consumers
+                    gov_output_path = goalie_dir / f"governance_output_{self.run_id}_{self.current_iteration}.json"
+                    with open(gov_output_path, "w") as f:
+                        json.dump(gov_data, f, indent=2)
+                    
+                except json.JSONDecodeError as e:
+                    print(f"[Governance] Warning: governance agent output was not valid JSON: {e}")
+            elif result.returncode != 0:
+                print(f"[Governance] Warning: governance agent exited with code {result.returncode}")
+                if result.stderr:
+                    print(f"[Governance] Governance agent stderr: {result.stderr[:200]}")
+                    
+        except subprocess.TimeoutExpired:
+            print("[Governance] Warning: governance agent timed out after 60s")
+        except FileNotFoundError:
+            print("[Governance] Warning: npx or tsx not found, skipping governance agent")
+        except Exception as e:
+            print(f"[Governance] Warning: governance agent failed: {e}")
+
     def run_cmd_full_cycle(self):
         """
         Executes the `af full-cycle 1` command with appropriate environment variables.
@@ -1279,6 +1520,7 @@ class GovernanceMiddleware:
                 "depth": self.current_depth,
                 "pattern": "failure-strategy",
                 "mode": "enforce",
+                "behavioral_type": "advisory",
                 "mutation": False,
                 "gate": "cycle-execution",
                 "reason": f"exit-code-{e.returncode}",
@@ -1451,6 +1693,10 @@ class GovernanceMiddleware:
         )
 
         while self.check_iteration_budget():
+            # R-001: Proactive Admission Control
+            if not self.admission.check_admission():
+                continue
+
             print(
                 f"[Governance] Iteration {self.current_iteration}/{self.max_iterations} "
                 f"| safe={self.is_safe} | circle={self.active_circle or 'unknown'}"
@@ -1467,9 +1713,33 @@ class GovernanceMiddleware:
             self.run_cmd_full_cycle()
             self.run_iris_checks()
 
+            # Run governance agent for policy enforcement and recommendations
+            self.run_governance_agent()
+
             # Self-tune governance parameters based on retro feedback
             # This implements closed-loop production maturity adjustment
             self.adjust_parameters_from_retro()
+
+            # Log observability-first event (schema v1.0) for this iteration
+            self.telemetry.log_pattern_event({
+                "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "run": "prod-cycle",
+                "run_id": self.run_id,
+                "iteration": self.current_iteration,
+                "circle": self.active_circle if self.active_circle else "orchestrator",
+                "depth": self.current_depth,
+                "pattern": "observability-first",
+                "mode": "advisory",
+                "mutation": False,
+                "gate": "health",
+                "framework": "",
+                "scheduler": "",
+                "tags": ["Federation"],
+                "economic": {"cod": 0.0, "wsjf_score": 0.0},
+                "metrics_written": self.observability_metrics_written,
+                "missing_signals": self.observability_missing_signals,
+                "suggestion_made": self.observability_suggestions,
+            })
 
             # Increment
             self.current_iteration += 1

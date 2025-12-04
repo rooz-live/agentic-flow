@@ -2,6 +2,76 @@
 """
 Workflow Orchestrator: Cycle-based automation for git operations
 Handles AUTO-GIT actions with timestamp tracking
+
+=== ORCHESTRATOR PATTERN DOCUMENTATION (BML-14) ===
+
+This module implements the **Cycle-Based Workflow Orchestrator** pattern, which is
+one of several orchestration patterns in the agentic-flow system:
+
+ORCHESTRATOR PATTERNS IN THIS REPOSITORY:
+------------------------------------------
+
+1. **Cycle-Based Workflow Orchestrator** (this file)
+   - Pattern: Sequential cycle execution with action dispatch
+   - Use Case: Automated git operations, metrics snapshots, BML cycles
+   - Integration: .goalie/ tracking, git operations, doc_query.py
+   - Decision Criteria: Use when you need deterministic, time-stamped workflow automation
+
+2. **Hierarchical Coordinator** (.claude/agents/swarm/hierarchical-coordinator.md)
+   - Pattern: Queen-led swarm with specialized workers
+   - Roles: Research 🔬, Code 💻, Analyst 📊, Test 🧪
+   - Use Case: Complex multi-phase projects requiring central coordination
+   - Decision Criteria: High complexity, need for accountability chains
+
+3. **Mesh Coordinator** (.claude/agents/swarm/mesh-coordinator.md)
+   - Pattern: Peer-to-peer distributed coordination
+   - Algorithms: Work Stealing, DHT routing, Auction-based assignment
+   - Consensus: pBFT (3-phase), Raft (leader election), Gossip (epidemic)
+   - Use Case: Highly parallelizable tasks, fault-tolerant systems
+   - Decision Criteria: High parallelizability, need for redundancy
+
+4. **Adaptive Coordinator** (.claude/agents/swarm/adaptive-coordinator.md)
+   - Pattern: ML-based dynamic topology switching
+   - Topologies: Hierarchical, Mesh, Ring, Star (auto-selected)
+   - Use Case: Variable workloads, unknown task characteristics
+   - Decision Criteria: Unpredictable complexity, need for optimization
+
+5. **Collective Intelligence Coordinator** (.claude/agents/hive-mind/)
+   - Pattern: Neural nexus with memory synchronization
+   - Features: Consensus building, cognitive load balancing, knowledge integration
+   - Use Case: Distributed decision-making, emergent intelligence
+   - Decision Criteria: Need for collective wisdom, weighted voting
+
+6. **Task Orchestrator** (.claude/agents/templates/orchestrator-task.md)
+   - Pattern: Central task decomposition and execution planning
+   - Strategies: Parallel, Sequential, Adaptive, Balanced
+   - Use Case: Feature development, bug fixes, refactoring
+   - Decision Criteria: Complex objectives requiring subtask management
+
+7. **QUIC Swarm Coordinator** (agentic-flow/src/swarm/quic-coordinator.ts)
+   - Pattern: Transport-layer coordination with QUIC/HTTP2
+   - Topologies: mesh, hierarchical, ring, star
+   - Use Case: Low-latency agent-to-agent communication
+   - Decision Criteria: Performance-critical swarm operations
+
+INTEGRATION POINTS:
+-------------------
+- claude-flow v2.0.0: MCP tools (swarm_init, agent_spawn, task_orchestrate)
+- ReasoningBank: Memory storage via mcp__claude-flow__memory_usage
+- Hive Mind: Collective intelligence via swarm/shared/* namespace
+- .goalie/: Metrics tracking via metrics_log.jsonl, cycle_log.jsonl
+
+DECISION MATRIX:
+----------------
+| Characteristic      | Hierarchical | Mesh    | Adaptive | Ring     | Star     |
+|---------------------|--------------|---------|----------|----------|----------|
+| Complexity: High    | ✓ Best       | ○ OK    | ✓ Best   | ✗ Avoid  | ○ OK     |
+| Parallelizability   | ○ OK         | ✓ Best  | ✓ Best   | ✗ Avoid  | ○ OK     |
+| Sequential deps     | ○ OK         | ✗ Avoid | ○ OK     | ✓ Best   | ✗ Avoid  |
+| Fault tolerance     | ✗ Avoid      | ✓ Best  | ✓ Best   | ○ OK     | ✗ Avoid  |
+| Central control     | ✓ Best       | ✗ Avoid | ○ OK     | ✗ Avoid  | ✓ Best   |
+
+=== END ORCHESTRATOR PATTERN DOCUMENTATION ===
 """
 
 import argparse
@@ -15,8 +85,25 @@ from typing import Dict, List, Optional
 
 
 class WorkflowOrchestrator:
-    """Orchestrate workflow cycles with automated git operations."""
-    
+    """
+    Orchestrate workflow cycles with automated git operations.
+
+    This class implements the Cycle-Based Workflow Orchestrator pattern.
+    It dispatches actions based on type (AUTO-GIT, BML-CYCLE, etc.) and
+    logs all cycles to .goalie/cycle_log.jsonl for tracking.
+
+    Supported Actions:
+        - AUTO-GIT: Automated git add/commit with timestamp
+        - RETRO-REFINEMENT: Extract action items from documentation
+        - BML-CYCLE: Build-Measure-Learn cycle tracking
+        - METRICS-SNAPSHOT: Capture current metrics state
+
+    Integration:
+        - .goalie/cycle_log.jsonl: Cycle execution history
+        - .goalie/metrics_log.jsonl: Metrics events
+        - git: Version control operations
+    """
+
     def __init__(self, project_root: str = "."):
         self.project_root = Path(project_root).resolve()
         self.goalie_dir = self.project_root / ".goalie"

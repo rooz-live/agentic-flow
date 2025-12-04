@@ -13,6 +13,7 @@ import {
     summarizePatterns,
 } from './shared_utils.js';
 import { publishStreamEvent, resolveStreamSocket } from './streamPublisher.js';
+import { WSJFCalculator, type WSJFResult, type BatchRecommendation } from './wsjf_calculator.js';
 
 // =============================================================================
 // SAFLA-002: Timeline Delta Tracking with Ed25519 Signatures
@@ -341,6 +342,87 @@ function exportTimelineDeltaState(): {
 // End SAFLA-002 Timeline Delta Tracking
 // =============================================================================
 
+/**
+ * Emit pattern telemetry event to .goalie/pattern_metrics.jsonl
+ * Conforms to canonical schema with all required fields
+ */
+function emitPatternMetric(
+  pattern: string,
+  mode: 'advisory' | 'mutate' | 'enforcement',
+  gate: string,
+  reason: string,
+  action: string,
+  metrics?: Record<string, unknown>,
+  tags: string[] = ['Federation'],
+): void {
+  const goalieDir = getGoalieDirFromArgs();
+  const metricsFile = path.join(goalieDir, 'pattern_metrics.jsonl');
+  
+  const ts = new Date().toISOString();
+  const { iteration, runId } = getIterationFromArgs();
+  const circle = process.env.AF_CIRCLE || 'retro';
+  const depth = parseInt(process.env.AF_DEPTH_LEVEL || '0', 10);
+  const framework = process.env.AF_FRAMEWORK || '';
+  const scheduler = process.env.AF_SCHEDULER || '';
+  const prodMode = process.env.AF_PROD_CYCLE_MODE || 'advisory';
+  const mutation = mode === 'mutate' || mode === 'enforcement';
+  
+  // Economic scoring (can be enhanced with actual COD/WSJF calculation)
+  const cod = parseFloat(process.env.AF_PATTERN_COD || '0.0');
+  const wsjf = parseFloat(process.env.AF_PATTERN_WSJF || '0.0');
+  
+  const event = {
+    ts,
+    run: 'retro-coach',
+    run_id: runId,
+    iteration,
+    circle,
+    depth,
+    pattern,
+    'pattern:kebab-name': pattern,
+    mode,
+    mutation,
+    gate,
+    framework,
+    scheduler,
+    tags,
+    economic: { cod, wsjf_score: wsjf },
+    reason,
+    action,
+    prod_mode: prodMode,
+    ...(metrics && { metrics }),
+  };
+  
+  try {
+    fs.appendFileSync(metricsFile, JSON.stringify(event) + '\n');
+  } catch (err) {
+    console.error('[retro_coach] Failed to emit pattern metric:', err);
+  }
+}
+
+function getGoalieDirFromArgs(): string {
+  const argIndex = process.argv.indexOf('--goalie-dir');
+  if (argIndex !== -1 && process.argv[argIndex + 1]) {
+    return path.resolve(process.argv[argIndex + 1]);
+  }
+  if (process.env.GOALIE_DIR) {
+    return path.resolve(process.env.GOALIE_DIR);
+  }
+  return path.resolve(process.cwd(), 'investing/agentic-flow/.goalie');
+}
+
+function isProdCycle(): boolean {
+  // Check command line args
+  if (process.argv.includes('--prod-cycle') || process.argv.includes('--context=prod-cycle')) {
+    return true;
+  }
+  // Check environment variable
+  if (process.env.AF_CONTEXT === 'prod-cycle' || process.env.PROD_CYCLE === 'true') {
+    return true;
+  }
+  return false;
+}
+
 interface RCATriggerResult {
   methods: string[];
   design_patterns: string[];
@@ -603,16 +685,6 @@ interface BaselineMetrics {
   riskDistribution?: { [tier: string]: number };
   rawMetrics?: any[];
   analysisTimestamp?: string;
-}
-
-function isProdCycle(): boolean {
-  if (process.argv.includes('--prod-cycle') || process.argv.includes('--context=prod-cycle')) {
-    return true;
-  }
-  if (process.env.AF_CONTEXT === 'prod-cycle' || process.env.PROD_CYCLE === 'true') {
-    return true;
-  }
-  return false;
 }
 
 interface ForensicActionWindow {
@@ -955,22 +1027,6 @@ interface RetroJsonOutput {
     keyId: string;
     signingEnabled: boolean;
   };
-}
-
-function getGoalieDirFromArgs(): string {
-  const argIndex = process.argv.indexOf('--goalie-dir');
-  if (argIndex !== -1 && process.argv[argIndex + 1]) {
-    return path.resolve(process.argv[argIndex + 1]);
-  }
-  if (process.env.GOALIE_DIR) {
-    return path.resolve(process.env.GOALIE_DIR);
-  }
-  // Default: repo layout used in this workspace
-  const cwd = process.cwd();
-  if (fs.existsSync(path.join(cwd, '.goalie'))) {
-    return path.join(cwd, '.goalie');
-  }
-  return path.resolve(cwd, 'investing/agentic-flow/.goalie');
 }
 
 function extractMetricsFromPatterns(patterns: PatternEvent[]): BaselineMetrics | null {
@@ -1738,6 +1794,23 @@ async function printRetroRecommendations(
   if (observabilityRisks.length > 0) {
     const highRisk = observabilityRisks.filter(r => r.risk_level === 'high').length;
     const mediumRisk = observabilityRisks.filter(r => r.risk_level === 'medium').length;
+    
+    // Emit forensic pattern telemetry for observability gaps
+    emitPatternMetric(
+      'observability-first',
+      'advisory',
+      'retro-analysis',
+      `Detected ${highRisk} high-risk and ${mediumRisk} medium-risk observability gaps`,
+      'analyze-and-recommend',
+      {
+        high_risk_gaps: highRisk,
+        medium_risk_gaps: mediumRisk,
+        total_gaps: observabilityRisks.length,
+        recommendation: 'detect-observability-gaps',
+      },
+      ['Federation', 'Observability', 'Forensic'],
+    );
+    
     // eslint-disable-next-line no-console
     console.log('\n⚠️  OBSERVABILITY GAPS DETECTED ⚠️');
     // eslint-disable-next-line no-console
@@ -1783,6 +1856,28 @@ async function printRetroRecommendations(
 
   if (forensic.totalActions === 0) {
     forensic = performSimpleForensicVerification(insights, current?.rawMetrics || []);
+  }
+  
+  // Emit forensic verification pattern telemetry
+  if (forensic.totalActions > 0) {
+    const verificationRate = (forensic.verifiedCount / forensic.totalActions) * 100;
+    emitPatternMetric(
+      'forensic-verification',
+      'advisory',
+      'retro-analysis',
+      `Verified ${forensic.verifiedCount}/${forensic.totalActions} actions (${verificationRate.toFixed(1)}%)`,
+      'forensic-analysis',
+      {
+        verified_count: forensic.verifiedCount,
+        total_actions: forensic.totalActions,
+        verification_rate_pct: verificationRate,
+        avg_cod_delta_pct: enhancedForensic.avgCodDeltaPct,
+        median_freq_delta_pct: enhancedForensic.medianFreqDeltaPct,
+        high_impact_actions: enhancedForensic.highImpactActions,
+        unverified_high_priority: enhancedForensic.unverifiedHighPriorityActions?.length || 0,
+      },
+      ['Federation', 'Forensic'],
+    );
   }
 
   console.log('=== Retro Coach Summary (Goalie + Pattern Metrics + Economics) ===');
@@ -2349,6 +2444,22 @@ async function generateCeremonyOutputs(
   return outputs;
 }
 
+/**
+ * Load pattern analysis report generated by pattern_metrics_analyzer
+ */
+function loadPatternAnalysisReport(goalieDir: string): any | null {
+  const reportPath = path.join(goalieDir, 'pattern_analysis_report.json');
+  if (!fs.existsSync(reportPath)) {
+    return null;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+  } catch (err) {
+    console.warn('[retro_coach] Failed to parse pattern_analysis_report.json:', err);
+    return null;
+  }
+}
+
 async function main() {
   const goalieDir = getGoalieDirFromArgs();
   ensureDspyIntegration(goalieDir);
@@ -2359,6 +2470,9 @@ async function main() {
 
   const insightsPath = path.join(goalieDir, 'insights_log.jsonl');
   const patternsPath = path.join(goalieDir, 'pattern_metrics.jsonl');
+  
+  // Load pattern analysis report if available
+  const patternAnalysis = loadPatternAnalysisReport(goalieDir);
 
   const insights = await readJsonl<Insight>(insightsPath);
   const patterns = await readJsonl<PatternEvent>(patternsPath);
@@ -2372,6 +2486,11 @@ async function main() {
   const actionKeys = getActionKeys(goalieDir);
   const gaps = await computeTopEconomicGaps(patterns, actionKeys);
   const baseline = await loadBaselineMetrics(goalieDir);
+
+  // Enhanced WSJF Analysis for retro insights
+  const wsjfCalculator = new WSJFCalculator(goalieDir);
+  const wsjfResults = wsjfCalculator.calculateAndRank(patterns);
+  const batchRecommendations = wsjfCalculator.generateRiskAwareBatches(wsjfResults);
 
   // Recursive Review: Prioritize metrics from patterns if available
   const metricsFromPatterns = extractMetricsFromPatterns(patterns);
@@ -2457,6 +2576,16 @@ async function main() {
         recommendations: rcaTriggers.iterativeRecommendations,
       };
     }
+    
+    // Add pattern analysis if available
+    if (patternAnalysis) {
+      (payload as any).patternAnalysis = {
+        anomalies: patternAnalysis.anomalies || [],
+        governance_adjustments: patternAnalysis.governance_adjustments || [],
+        retro_questions: patternAnalysis.retro_questions || [],
+        summary: patternAnalysis.summary || {},
+      };
+    }
 
     console.log(JSON.stringify(payload, null, 2));
 
@@ -2472,6 +2601,35 @@ async function main() {
 
   printRetroRecommendations(insights, patterns, gaps, baseline, current);
   await generateIntelligentInsights(gaps, insights, baseline, current);
+  
+  // Display pattern analysis findings if available
+  if (patternAnalysis) {
+    console.log('\n=== Pattern Analysis Findings ===');
+    
+    const anomalyCount = patternAnalysis.anomalies?.length || 0;
+    const retroQuestionCount = patternAnalysis.retro_questions?.length || 0;
+    const adjustmentCount = patternAnalysis.governance_adjustments?.length || 0;
+    
+    console.log(`Anomalies: ${anomalyCount}, Governance Adjustments: ${adjustmentCount}, Retro Questions: ${retroQuestionCount}`);
+    
+    if (anomalyCount > 0) {
+      console.log('\nAnomalies Detected:');
+      for (const anomaly of patternAnalysis.anomalies.slice(0, 3)) {
+        console.log(`  [${anomaly.severity.toUpperCase()}] ${anomaly.pattern}: ${anomaly.description}`);
+        console.log(`    → ${anomaly.recommendation}`);
+      }
+      if (anomalyCount > 3) {
+        console.log(`  ... and ${anomalyCount - 3} more (see pattern_analysis_report.json)`);
+      }
+    }
+    
+    if (retroQuestionCount > 0) {
+      console.log('\nPattern-Based Retro Questions:');
+      for (const q of patternAnalysis.retro_questions) {
+        console.log(`  [${q.category}] ${q.question}`);
+      }
+    }
+  }
 }
 
 main();

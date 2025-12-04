@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Swarm Visualization | Cosmograph</title>
+  <script type="importmap">
+    { "imports": { "@cosmograph/cosmograph": "https://esm.sh/@cosmograph/cosmograph@2" } }
+  </script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); min-height: 100vh; font-family: system-ui; }
+    #app { padding: 20px; }
+    h1 { color: #fff; margin-bottom: 20px; font-size: 24px; }
+    #graph-container { width: 100%; height: calc(100vh - 100px); position: relative; border-radius: 12px; overflow: hidden; }
+    .panel { position: absolute; background: rgba(0,0,0,0.8); padding: 12px; border-radius: 8px; color: #fff; font-size: 12px; backdrop-filter: blur(10px); }
+    .legend { bottom: 10px; left: 10px; }
+    .stats { top: 10px; right: 10px; }
+    .legend-item { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+    .legend-dot { width: 12px; height: 12px; border-radius: 50%; }
+    .panel-title { font-weight: bold; margin-bottom: 8px; font-size: 14px; }
+    #controls { position: absolute; top: 10px; left: 10px; }
+    button { background: #4ECDC4; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; margin-right: 8px; font-weight: bold; }
+    button:hover { background: #45B7D1; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <h1>🤖 Agent Swarm Visualization</h1>
+    <div id="graph-container">
+      <div id="cosmograph"></div>
+      <div class="panel legend">
+        <div class="panel-title">Agent Roles</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#FF6B6B"></div>Coordinator</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#4ECDC4"></div>Worker</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#45B7D1"></div>Analyzer</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#96CEB4"></div>Optimizer</div>
+      </div>
+      <div class="panel stats" id="stats">
+        <div class="panel-title">Swarm Stats</div>
+        <div>Loading...</div>
+      </div>
+      <div class="panel" id="controls">
+        <button onclick="regenerateLinks()">🔗 Regenerate Links</button>
+        <button onclick="resetZoom()">🔍 Reset View</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { Cosmograph } from '@cosmograph/cosmograph';
+
+    const ROLE_COLORS = {
+      coordinator: '#FF6B6B',
+      worker: '#4ECDC4',
+      analyzer: '#45B7D1',
+      optimizer: '#96CEB4',
+    };
+
+    // Sample swarm data (embedded for standalone use)
+    const swarmData = [
+      { agent_id: "agent_001", role: "coordinator", status: "active", tasks_completed: 120, success_rate: 0.95, coordination_score: 0.98, memory_usage_mb: 256, cpu_usage_percent: 15 },
+      { agent_id: "agent_002", role: "worker", status: "active", tasks_completed: 350, success_rate: 0.92, coordination_score: 0.85, memory_usage_mb: 128, cpu_usage_percent: 45 },
+      { agent_id: "agent_003", role: "worker", status: "active", tasks_completed: 280, success_rate: 0.88, coordination_score: 0.82, memory_usage_mb: 192, cpu_usage_percent: 60 },
+      { agent_id: "agent_004", role: "analyzer", status: "active", tasks_completed: 95, success_rate: 0.96, coordination_score: 0.90, memory_usage_mb: 384, cpu_usage_percent: 30 },
+      { agent_id: "agent_005", role: "optimizer", status: "active", tasks_completed: 42, success_rate: 0.99, coordination_score: 0.88, memory_usage_mb: 512, cpu_usage_percent: 25 },
+      { agent_id: "agent_006", role: "worker", status: "idle", tasks_completed: 180, success_rate: 0.85, coordination_score: 0.75, memory_usage_mb: 64, cpu_usage_percent: 5 },
+      { agent_id: "agent_007", role: "coordinator", status: "active", tasks_completed: 200, success_rate: 0.97, coordination_score: 0.95, memory_usage_mb: 320, cpu_usage_percent: 20 },
+      { agent_id: "agent_008", role: "worker", status: "terminated", tasks_completed: 520, success_rate: 0.80, coordination_score: 0.60, memory_usage_mb: 0, cpu_usage_percent: 0 },
+    ];
+
+    // Build nodes
+    const nodes = swarmData.map(agent => ({
+      id: agent.agent_id,
+      ...agent,
+    }));
+
+    // Build links between coordinators and workers
+    function buildLinks() {
+      const links = [];
+      const coordinators = nodes.filter(n => n.role === 'coordinator');
+      const workers = nodes.filter(n => n.role !== 'coordinator');
+
+      coordinators.forEach(coord => {
+        workers.forEach(worker => {
+          if (worker.coordination_score > 0.7 && worker.status !== 'terminated') {
+            links.push({
+              source: coord.id,
+              target: worker.id,
+              weight: worker.coordination_score,
+            });
+          }
+        });
+      });
+      return links;
+    }
+
+    let links = buildLinks();
+
+    // Update stats panel
+    function updateStats() {
+      const activeAgents = nodes.filter(n => n.status === 'active').length;
+      const totalTasks = nodes.reduce((sum, n) => sum + n.tasks_completed, 0);
+      const avgSuccess = nodes.reduce((sum, n) => sum + n.success_rate, 0) / nodes.length;
+
+      document.getElementById('stats').innerHTML = `
+        <div class="panel-title">Swarm Stats</div>
+        <div>Total Agents: ${nodes.length}</div>
+        <div>Active: ${activeAgents}</div>
+        <div>Connections: ${links.length}</div>
+        <div>Total Tasks: ${totalTasks}</div>
+        <div>Avg Success: ${(avgSuccess * 100).toFixed(1)}%</div>
+      `;
+    }
+
+    // Initialize Cosmograph
+    const container = document.getElementById('cosmograph');
+    const cosmograph = new Cosmograph(container, {
+      nodes,
+      links,
+      nodeColor: n => ROLE_COLORS[n.role] || '#999',
+      nodeSize: n => Math.max(8, Math.min(40, n.tasks_completed / 20)),
+      linkWidth: l => l.weight * 3,
+      linkColor: () => 'rgba(255,255,255,0.4)',
+      backgroundColor: 'transparent',
+      simulationGravity: 0.25,
+      simulationRepulsion: 2.0,
+      simulationLinkDistance: 100,
+      nodeLabelAccessor: n => `${n.agent_id} (${n.role})`,
+      showDynamicLabels: true,
+      onClick: (node) => {
+        if (node) {
+          alert(`Agent: ${node.agent_id}\nRole: ${node.role}\nStatus: ${node.status}\nTasks: ${node.tasks_completed}\nSuccess: ${(node.success_rate * 100).toFixed(1)}%\nCPU: ${node.cpu_usage_percent}%`);
+        }
+      },
+    });
+
+    window.regenerateLinks = function() {
+      links = buildLinks();
+      cosmograph.setLinks(links);
+      updateStats();
+    };
+
+    window.resetZoom = function() {
+      cosmograph.fitView();
+    };
+
+    updateStats();
+  </script>
+</body>
+</html>

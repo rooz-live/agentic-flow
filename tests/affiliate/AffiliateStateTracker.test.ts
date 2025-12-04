@@ -5,26 +5,16 @@
  * Target: >90% coverage for src/affiliate/AffiliateStateTracker.ts
  */
 
-import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
-import { jest as vi } from '@jest/globals';
-import Database from 'better-sqlite3';
+import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
+import { randomUUID } from 'crypto';
 import { AffiliateStateTracker } from '../../src/affiliate/AffiliateStateTracker';
-import { 
-  AffiliateState, 
-  AffiliateActivity, 
-  AffiliateRisk, 
-  AffiliateAffinity,
-  STATE_TRANSITIONS 
-} from '../../src/affiliate/types';
 
 describe('AffiliateStateTracker', () => {
   let tracker: AffiliateStateTracker;
-  let testDbPath: string;
 
   beforeEach(() => {
     // Use in-memory database for tests
-    testDbPath = ':memory:';
-    tracker = new AffiliateStateTracker(testDbPath);
+    tracker = new AffiliateStateTracker({ dbPath: ':memory:', enableLearning: false });
   });
 
   afterEach(() => {
@@ -33,109 +23,208 @@ describe('AffiliateStateTracker', () => {
 
   describe('Affiliate CRUD Operations', () => {
     it('should create a new affiliate with default state', () => {
+      const affiliateId = randomUUID();
       const affiliate = tracker.createAffiliate({
+        affiliateId,
         name: 'Test Affiliate',
-        tier: 'bronze',
+        tier: 'standard',
         metadata: { source: 'test' }
       });
 
       expect(affiliate).toBeDefined();
       expect(affiliate.id).toBeDefined();
       expect(affiliate.name).toBe('Test Affiliate');
-      expect(affiliate.tier).toBe('bronze');
-      expect(affiliate.state).toBe('pending');
+      expect(affiliate.tier).toBe('standard');
+      expect(affiliate.status).toBe('pending');
     });
 
     it('should get affiliate by ID', () => {
-      const created = tracker.createAffiliate({ name: 'Get Test', tier: 'silver' });
-      const retrieved = tracker.getAffiliate(created.id);
+      const affiliateId = randomUUID();
+      const created = tracker.createAffiliate({ affiliateId, name: 'Get Test', tier: 'premium' });
+      const retrieved = tracker.getAffiliateById(affiliateId);
 
       expect(retrieved).toBeDefined();
-      expect(retrieved?.id).toBe(created.id);
+      expect(retrieved?.affiliateId).toBe(affiliateId);
       expect(retrieved?.name).toBe('Get Test');
     });
 
-    it('should return undefined for non-existent affiliate', () => {
-      const result = tracker.getAffiliate('non-existent-id');
-      expect(result).toBeUndefined();
+    it('should return null for non-existent affiliate', () => {
+      const result = tracker.getAffiliateById('non-existent-id');
+      expect(result).toBeNull();
     });
 
     it('should update affiliate properties', () => {
-      const affiliate = tracker.createAffiliate({ name: 'Update Test', tier: 'bronze' });
-      
-      const updated = tracker.updateAffiliate(affiliate.id, {
+      const affiliateId = randomUUID();
+      tracker.createAffiliate({ affiliateId, name: 'Update Test', tier: 'standard' });
+
+      const updated = tracker.updateAffiliate(affiliateId, {
         name: 'Updated Name',
-        tier: 'gold'
+        tier: 'enterprise'
       });
 
       expect(updated).toBeDefined();
       expect(updated?.name).toBe('Updated Name');
-      expect(updated?.tier).toBe('gold');
+      expect(updated?.tier).toBe('enterprise');
     });
 
     it('should list all affiliates', () => {
-      tracker.createAffiliate({ name: 'Affiliate 1', tier: 'bronze' });
-      tracker.createAffiliate({ name: 'Affiliate 2', tier: 'silver' });
-      tracker.createAffiliate({ name: 'Affiliate 3', tier: 'gold' });
+      tracker.createAffiliate({ affiliateId: randomUUID(), name: 'Affiliate 1', tier: 'standard' });
+      tracker.createAffiliate({ affiliateId: randomUUID(), name: 'Affiliate 2', tier: 'premium' });
+      tracker.createAffiliate({ affiliateId: randomUUID(), name: 'Affiliate 3', tier: 'enterprise' });
 
-      const affiliates = tracker.listAffiliates();
+      const affiliates = tracker.getAllAffiliates();
       expect(affiliates.length).toBe(3);
     });
 
-    it('should filter affiliates by state', () => {
-      const aff1 = tracker.createAffiliate({ name: 'Pending', tier: 'bronze' });
-      const aff2 = tracker.createAffiliate({ name: 'Active', tier: 'silver' });
-      
-      // Transition one to active
-      tracker.transitionState(aff2.id, 'active');
+    it('should filter affiliates by status', () => {
+      const aff1Id = randomUUID();
+      const aff2Id = randomUUID();
+      tracker.createAffiliate({ affiliateId: aff1Id, name: 'Pending', tier: 'standard' });
+      tracker.createAffiliate({ affiliateId: aff2Id, name: 'Active', tier: 'premium' });
 
-      const pendingAffiliates = tracker.listAffiliates({ state: 'pending' });
-      const activeAffiliates = tracker.listAffiliates({ state: 'active' });
+      // Transition one to active
+      tracker.transitionStatus(aff2Id, 'active');
+
+      const pendingAffiliates = tracker.getAffiliatesByStatus('pending');
+      const activeAffiliates = tracker.getAffiliatesByStatus('active');
 
       expect(pendingAffiliates.length).toBe(1);
       expect(activeAffiliates.length).toBe(1);
     });
 
     it('should filter affiliates by tier', () => {
-      tracker.createAffiliate({ name: 'Bronze 1', tier: 'bronze' });
-      tracker.createAffiliate({ name: 'Bronze 2', tier: 'bronze' });
-      tracker.createAffiliate({ name: 'Gold 1', tier: 'gold' });
+      tracker.createAffiliate({ affiliateId: randomUUID(), name: 'Standard 1', tier: 'standard' });
+      tracker.createAffiliate({ affiliateId: randomUUID(), name: 'Standard 2', tier: 'standard' });
+      tracker.createAffiliate({ affiliateId: randomUUID(), name: 'Enterprise 1', tier: 'enterprise' });
 
-      const bronzeAffiliates = tracker.listAffiliates({ tier: 'bronze' });
-      expect(bronzeAffiliates.length).toBe(2);
+      const standardAffiliates = tracker.getAffiliatesByTier('standard');
+      expect(standardAffiliates.length).toBe(2);
     });
   });
 
   describe('State Machine Transitions', () => {
     it('should allow valid state transitions', () => {
-      const affiliate = tracker.createAffiliate({ name: 'Transition Test', tier: 'bronze' });
-      
+      const affiliateId = randomUUID();
+      tracker.createAffiliate({ affiliateId, name: 'Transition Test', tier: 'standard' });
+
       // pending -> active is valid
-      const result = tracker.transitionState(affiliate.id, 'active');
+      const result = tracker.transitionStatus(affiliateId, 'active');
       expect(result.success).toBe(true);
-      expect(result.newState).toBe('active');
+      expect(result.newStatus).toBe('active');
     });
 
     it('should reject invalid state transitions', () => {
-      const affiliate = tracker.createAffiliate({ name: 'Invalid Transition', tier: 'bronze' });
-      
-      // pending -> archived is not valid (must go through active first)
-      const result = tracker.transitionState(affiliate.id, 'archived');
+      const affiliateId = randomUUID();
+      tracker.createAffiliate({ affiliateId, name: 'Invalid Transition', tier: 'standard' });
+
+      // First transition to active, then archived
+      tracker.transitionStatus(affiliateId, 'active');
+      tracker.transitionStatus(affiliateId, 'archived');
+
+      // archived -> active is not valid (archived is terminal)
+      const result = tracker.transitionStatus(affiliateId, 'active');
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Invalid transition');
+      expect(result.error).toContain('Invalid');
     });
 
-    it('should track state transition history', () => {
-      const affiliate = tracker.createAffiliate({ name: 'History Test', tier: 'bronze' });
-      
-      tracker.transitionState(affiliate.id, 'active');
-      tracker.transitionState(affiliate.id, 'suspended');
-      
-      const activities = tracker.getAffiliateActivities(affiliate.id);
-      const stateChanges = activities.filter(a => a.activity_type === 'state_change');
-      
-      expect(stateChanges.length).toBeGreaterThanOrEqual(2);
+    it('should track state transition history via activities', () => {
+      const affiliateId = randomUUID();
+      tracker.createAffiliate({ affiliateId, name: 'History Test', tier: 'standard' });
+
+      tracker.transitionStatus(affiliateId, 'active');
+      tracker.transitionStatus(affiliateId, 'suspended');
+
+      const activities = tracker.getActivitiesByAffiliateId(affiliateId);
+
+      expect(activities.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe('Delete Operations', () => {
+    it('should delete an affiliate', () => {
+      const affiliateId = randomUUID();
+      tracker.createAffiliate({ affiliateId, name: 'Delete Test', tier: 'standard' });
+
+      const result = tracker.deleteAffiliate(affiliateId);
+      expect(result).toBe(true);
+
+      const deleted = tracker.getAffiliateById(affiliateId);
+      expect(deleted).toBeNull();
+    });
+
+    it('should return false when deleting non-existent affiliate', () => {
+      const result = tracker.deleteAffiliate('non-existent-id');
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('State Machine Helpers', () => {
+    it('should check if transition is allowed', () => {
+      expect(tracker.canTransition('pending', 'active')).toBe(true);
+      expect(tracker.canTransition('archived', 'active')).toBe(false);
+    });
+
+    it('should get valid transitions for a status', () => {
+      const validFromPending = tracker.getValidTransitions('pending');
+      expect(validFromPending).toContain('active');
+      expect(validFromPending).toContain('archived');
+
+      const validFromArchived = tracker.getValidTransitions('archived');
+      expect(validFromArchived.length).toBe(0);
+    });
+  });
+
+  describe('Event Handling', () => {
+    it('should register and trigger event handlers', () => {
+      let eventReceived = false;
+      tracker.onEvent('state_created', () => {
+        eventReceived = true;
+      });
+
+      const affiliateId = randomUUID();
+      tracker.createAffiliate({ affiliateId, name: 'Event Test', tier: 'standard' });
+
+      expect(eventReceived).toBe(true);
+    });
+
+    it('should handle multiple event handlers for same event type', () => {
+      let handler1Called = false;
+      let handler2Called = false;
+
+      tracker.onEvent('state_created', () => { handler1Called = true; });
+      tracker.onEvent('state_created', () => { handler2Called = true; });
+
+      const affiliateId = randomUUID();
+      tracker.createAffiliate({ affiliateId, name: 'Multi Handler Test', tier: 'standard' });
+
+      expect(handler1Called).toBe(true);
+      expect(handler2Called).toBe(true);
+    });
+  });
+
+  describe('Statistics', () => {
+    it('should return statistics', () => {
+      const aff1 = randomUUID();
+      const aff2 = randomUUID();
+      tracker.createAffiliate({ affiliateId: aff1, name: 'Stats 1', tier: 'standard' });
+      tracker.createAffiliate({ affiliateId: aff2, name: 'Stats 2', tier: 'premium' });
+      tracker.transitionStatus(aff1, 'active');
+
+      tracker.createRisk({ affiliateId: aff1, riskType: 'compliance', severity: 'high' });
+      tracker.createAffinity({ affiliateId1: aff1, affiliateId2: aff2, affinityScore: 0.8 });
+
+      const stats = tracker.getStatistics();
+      expect(stats).toBeDefined();
+      expect(stats.affiliates).toBeDefined();
+      expect(stats.risks).toBeDefined();
+      expect(stats.affinities).toBeDefined();
+    });
+  });
+
+  describe('Affinity Edge Cases', () => {
+    it('should return false when updating non-existent affinity', () => {
+      const result = tracker.updateAffinityScore('non-existent-1', 'non-existent-2', 0.9);
+      expect(result).toBe(false);
     });
   });
 });
-

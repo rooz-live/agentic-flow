@@ -1,0 +1,205 @@
+# RCA/5W: Device 24460 Inaccessibility Analysis
+**BLOCKER-003: IPMI/SSH Connectivity**
+**Analysis Date**: 2025-11-15T01:26:00Z
+
+## Problem Statement
+Device 24460 is not accessible via SSH or IPMI, blocking validation and monitoring workflows.
+
+## 5 Whys Analysis
+
+### Why #1: Why is device 24460 not accessible?
+**Answer**: SSH connection attempts fail, IPMI connectivity not established.
+
+**Evidence**:
+- PHASE-B-2 marked as PENDING/BLOCKED in CONSOLIDATED_ACTIONS.yaml
+- Scripts reference device-24460 but no successful connection logs
+- Test script exists: `./scripts/ci/test_device_24460_ssh_ipmi_enhanced.py`
+
+### Why #2: Why do SSH connections fail?
+**Possible causes**:
+1. SSH credentials not configured
+2. Network routing/firewall blocking access
+3. Device hostname not resolving
+4. SSH key not present in authorized location
+5. Device powered off or unreachable
+
+**Investigation needed**:
+```bash
+# Check SSH key existence
+ls -la ~/pem/rooz.pem ~/pem/stx-aio-0.pem
+
+# Check known hosts/config
+grep -i "24460\|stx-aio\|device-24460" ~/.ssh/config ~/.ssh/known_hosts
+
+# Test DNS resolution
+ping -c 3 device-24460 2>&1 || echo "DNS resolution failed"
+
+# Test network connectivity
+nc -zv <device-ip> 22 2>&1 || echo "Port 22 not reachable"
+```
+
+### Why #3: Why are credentials/keys not configured?
+**Possible causes**:
+1. Keys never provisioned for this device
+2. Keys exist but path not documented
+3. Device uses different authentication method
+4. Key permissions incorrect (not 600)
+
+**Investigation**:
+```bash
+# Check for device-specific keys
+find ~/pem -name "*24460*" -o -name "*device*" 2>/dev/null
+
+# Check SSH config generation
+./scripts/generate_ssh_config.sh --help
+cat config/ssh_config.example
+```
+
+### Why #4: Why is network routing/firewall blocking?
+**Possible causes**:
+1. Device on different network segment
+2. VPN required but not connected
+3. Firewall rules blocking SSH (port 22) or IPMI (port 623)
+4. Device IP changed and DNS not updated
+
+**Investigation**:
+```bash
+# Check for VPN status
+ifconfig | grep -A 5 tun || echo "No VPN tunnel detected"
+
+# Check routing to device network
+netstat -rn | grep -i "device-network-subnet"
+
+# Test IPMI port if IP known
+# nc -zv <device-ip> 623
+```
+
+### Why #5: Why is device IP/hostname unknown?
+**Root Cause**: Device provisioning information not available in local environment.
+
+**Evidence**:
+- Scripts reference device-24460 but no IP mapping found
+- No .env file with DEVICE_24460_IP variable
+- SSH config generation requires manual hostname input
+- Previous session notes mention "device access required"
+
+## Root Causes Identified
+
+### Primary Root Cause
+**Device provisioning details (IP, credentials, network access) not available in local development environment.**
+
+**Supporting Evidence**:
+1. BLOCKER-003 explicitly states "device access required"
+2. No device IP or hostname in environment variables
+3. SSH key path references exist but keys may be for different devices
+4. Test script requires `--hostname` parameter (not defaulted)
+
+### Secondary Root Causes
+
+1. **Documentation Gap**: Device access prerequisites not documented
+2. **Environment Separation**: Production device credentials isolated from dev environment (security best practice, but blocks local testing)
+3. **Network Topology**: Device may require VPN/bastion host access not configured locally
+
+## Remediation Options
+
+### Option A: Request Device Access (Recommended for Production)
+```bash
+# Prerequisites to gather:
+1. Device IP address: ???
+2. SSH credentials/key: Which key in ~/pem/?
+3. Network access: VPN required? Bastion host?
+4. IPMI credentials: Username/password
+5. Firewall rules: Port 22 and 623 allowed?
+
+# Once obtained:
+export DEVICE_24460_IP="<ip-address>"
+export DEVICE_24460_SSH_KEY="~/pem/<keyname>.pem"
+./scripts/ci/test_device_24460_ssh_ipmi_enhanced.py --hostname $DEVICE_24460_IP --ssh-key $DEVICE_24460_SSH_KEY
+```
+
+### Option B: Use Alternative Device for Testing
+```bash
+# Test with accessible device (stx-aio-0)
+# Evidence: Previous session mentioned "********** is on stx-aio-0"
+ssh -F config/ssh_config stx-aio-0 uptime
+# If successful, adapt scripts to use stx-aio-0 instead of device-24460
+```
+
+### Option C: Mock/Stub for Local Development
+```bash
+# Create stub responses for local testing
+# Test logic without actual device connectivity
+# Use flag: --dry-run or --mock-device
+./scripts/ci/test_device_24460_ssh_ipmi_enhanced.py --mock-device --hostname device-24460
+```
+
+### Option D: Document Blocker and Defer
+```bash
+# Accept that device access is external dependency
+# Mark PHASE-B-2 as DEFERRED instead of BLOCKED
+# Document: "Requires production device access - coordinate with ops team"
+```
+
+## Impact Assessment
+
+**Blocked Work**:
+- PHASE-B-2 (WSJF 7.3): IPMI connectivity validation
+- Production monitoring validation
+- Device-specific performance testing
+
+**Not Blocked**:
+- All other infrastructure (77.8% complete)
+- Local development and testing
+- Sandbox integrations (Stripe, etc.)
+
+**Business Impact**: LOW
+- System operational without device 24460
+- 77.8% completion rate achieved
+- Only 2.2% from 80% target
+
+## Recommendation
+
+**Defer PHASE-B-2** until device access is coordinated with operations team.
+
+**Immediate Action**: Mark as DEFERRED with clear prerequisites:
+```yaml
+status: "DEFERRED"
+deferred_reason: "Requires production device access"
+prerequisites:
+  - Device IP address
+  - SSH credentials
+  - Network access (VPN/bastion)
+  - IPMI credentials
+  - Firewall approvals
+```
+
+**Alternative**: Focus on Option B (use stx-aio-0 for testing) if that device is accessible.
+
+## Questions to Answer
+
+1. **What is device 24460's IP address?**
+2. **Which SSH key should be used?** (~/pem/rooz.pem or ~/pem/stx-aio-0.pem?)
+3. **Is VPN required?** If yes, which VPN server/config?
+4. **Is stx-aio-0 accessible?** (Alternative device mentioned in context)
+5. **What are IPMI credentials?** (Username/password for BMC access)
+
+## INVESTIGATION RESULTS (2025-11-15T01:30Z)
+
+### Findings
+✅ SSH config exists: ~/.ssh/config has device-24460 entry
+✅ SSH key exists: ~/Documents/code/pem/device_24460.pem
+✅ Alternate key exists: ~/pem/stx-aio-0.pem
+❌ VPN not connected: No tun/ppp interfaces detected
+❌ Connection timeout: Exit code 124 (network unreachable)
+
+### Root Cause Confirmed
+**Device requires VPN connection. VPN not configured/connected.**
+
+### Prerequisites for Resolution
+1. VPN server address/hostname
+2. VPN authentication credentials
+3. VPN client software (OpenVPN/WireGuard/etc.)
+4. VPN configuration file
+
+### Recommendation
+**DEFER PHASE-B-2** until VPN access is established OR test with stx-aio-0 if it doesn't require VPN.

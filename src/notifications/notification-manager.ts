@@ -24,11 +24,15 @@ export class NotificationManager {
     payload: NotificationPayload;
     results: NotificationResult[];
   }>;
+  private events?: import('events').EventEmitter;
+  private metrics?: import('./metrics').Metrics;
 
-  constructor(config: NotificationConfig) {
+  constructor(config: NotificationConfig, deps?: { events?: import('events').EventEmitter; metrics?: import('./metrics').Metrics }) {
     this.config = config;
     this.notifiers = new Map();
     this.auditLog = [];
+    this.events = deps?.events;
+    this.metrics = deps?.metrics;
     this.initializeNotifiers();
   }
 
@@ -67,7 +71,7 @@ export class NotificationManager {
     if (this.config.channels.inapp) {
       this.notifiers.set(
         NotificationChannel.INAPP,
-        new InAppNotifier(this.config.channels.inapp)
+        new InAppNotifier(this.config.channels.inapp, { events: this.events, metrics: this.metrics })
       );
     }
   }
@@ -364,5 +368,20 @@ export class NotificationManager {
       successRate: totalSent > 0 ? totalSuccess / totalSent : 0,
       channelStats
     };
+  }
+
+  /**
+   * Clean up resources and stop background tasks
+   * Should be called when shutting down the notification manager
+   */
+  destroy(): void {
+    // Clean up InAppNotifier if it exists
+    const inappNotifier = this.notifiers.get(NotificationChannel.INAPP) as InAppNotifier;
+    if (inappNotifier && typeof inappNotifier.destroy === 'function') {
+      inappNotifier.destroy();
+    }
+
+    // Clear all notifiers
+    this.notifiers.clear();
   }
 }

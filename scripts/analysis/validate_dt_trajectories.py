@@ -449,7 +449,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=0.01,
         help=(
             "Maximum tolerated malformed reward fraction in strict mode "
-            "(e.g. 0.01 for 1%)."
+            "(e.g. 0.01 for 1%%)."
         ),
     )
     return parser.parse_args(argv)

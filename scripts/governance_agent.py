@@ -240,6 +240,10 @@ class GovernanceAgent:
         return read_yaml_file(GOALIE / "KANBAN_BOARD.yaml")
     
     def _load_pattern_metrics(self) -> List[Dict[str, Any]]:
+        # Use pattern_metrics.jsonl (primary) with fallback to append variant
+        primary = read_jsonl(GOALIE / "pattern_metrics.jsonl", self.since)
+        if primary:
+            return primary
         return read_jsonl(GOALIE / "pattern_metrics_append.jsonl", self.since)
     
     def _load_governor_incidents(self) -> List[Dict[str, Any]]:
@@ -414,6 +418,67 @@ class GovernanceAgent:
             }
             self.insights.append(insight)
     
+    def calculate_pattern_economics(self) -> Dict[str, Any]:
+        """Calculate economic impact per governance pattern"""
+        pattern_stats = defaultdict(lambda: {
+            "event_count": 0,
+            "total_cod": 0.0,
+            "total_wsjf": 0.0,
+            "total_risk": 0,
+            "circles": Counter(),
+            "gates": Counter()
+        })
+        
+        for event in self.pattern_metrics:
+            pattern = event.get("pattern")
+            if not pattern:
+                continue
+            
+            stats = pattern_stats[pattern]
+            stats["event_count"] += 1
+            
+            # Extract economic metrics
+            economic = event.get("economic", {})
+            stats["total_cod"] += economic.get("cod", 0)
+            stats["total_wsjf"] += economic.get("wsjf_score", 0)
+            stats["total_risk"] += economic.get("risk_score", 0)
+            
+            # Track usage by circle and gate
+            circle = event.get("circle")
+            gate = event.get("gate")
+            if circle:
+                stats["circles"][circle] += 1
+            if gate:
+                stats["gates"][gate] += 1
+        
+        # Calculate ROI metrics per pattern
+        pattern_economics = []
+        for pattern, stats in pattern_stats.items():
+            avg_cod = stats["total_cod"] / max(stats["event_count"], 1)
+            avg_wsjf = stats["total_wsjf"] / max(stats["event_count"], 1)
+            avg_risk = stats["total_risk"] / max(stats["event_count"], 1)
+            
+            pattern_economics.append({
+                "pattern": pattern,
+                "event_count": stats["event_count"],
+                "total_economic_impact": stats["total_cod"] + stats["total_wsjf"],
+                "avg_cod": round(avg_cod, 2),
+                "avg_wsjf": round(avg_wsjf, 2),
+                "avg_risk": round(avg_risk, 2),
+                "primary_circle": stats["circles"].most_common(1)[0][0] if stats["circles"] else "unknown",
+                "primary_gate": stats["gates"].most_common(1)[0][0] if stats["gates"] else "unknown"
+            })
+        
+        # Sort by total economic impact (descending)
+        pattern_economics.sort(key=lambda p: p["total_economic_impact"], reverse=True)
+        
+        return {
+            "patterns": pattern_economics,
+            "total_patterns_tracked": len(pattern_economics),
+            "total_events": sum(p["event_count"] for p in pattern_economics),
+            "total_economic_value": sum(p["total_economic_impact"] for p in pattern_economics)
+        }
+    
     def calculate_economic_risk_score(self) -> Dict[str, Any]:
         """Calculate economic risk score (ROAM framework)"""
         risk_score = 0
@@ -574,6 +639,10 @@ class GovernanceAgent:
         print("  ✓ Calculating economic risk score...")
         risk_score = self.calculate_economic_risk_score()
         
+        # Pattern economics analysis
+        print("  ✓ Analyzing pattern economics...")
+        pattern_economics = self.calculate_pattern_economics()
+        
         # Auto-fix
         print("  ✓ Applying auto-fixes...")
         applied_fixes = self.auto_apply_fixes()
@@ -589,13 +658,17 @@ class GovernanceAgent:
             "violations": [v.to_dict() for v in self.violations],
             "insights": self.insights,
             "risk_score": risk_score,
+            "pattern_economics": pattern_economics,
             "applied_fixes": applied_fixes,
             "action_items": action_items,
             "summary": {
                 "total_violations": len(self.violations),
                 "critical_violations": len([v for v in self.violations if v.severity == "CRITICAL"]),
                 "auto_fixed": len([f for f in applied_fixes if f["status"] == "APPLIED"]),
-                "action_items_generated": len(action_items)
+                "action_items_generated": len(action_items),
+                "patterns_tracked": pattern_economics["total_patterns_tracked"],
+                "total_pattern_events": pattern_economics["total_events"],
+                "total_economic_value": pattern_economics["total_economic_value"]
             }
         }
         
@@ -640,6 +713,12 @@ def main():
             print(f"  Action Items: {results['summary']['action_items_generated']}")
             print(f"  Risk Level: {results['risk_score']['risk_level']}")
             print(f"  Risk Score: {results['risk_score']['total_risk_score']}")
+            print(f"  Patterns Tracked: {results['summary']['patterns_tracked']}")
+            print(f"  Pattern Events: {results['summary']['total_pattern_events']}")
+            print(f"  Economic Value: ${results['summary']['total_economic_value']:.2f}")
+            print("\n  📈 Top 3 Patterns by Economic Impact:")
+            for i, pattern in enumerate(results['pattern_economics']['patterns'][:3], 1):
+                print(f"    {i}. {pattern['pattern']}: ${pattern['total_economic_impact']:.2f} ({pattern['event_count']} events)")
             print("=" * 80 + "\n")
     else:
         parser.print_help()

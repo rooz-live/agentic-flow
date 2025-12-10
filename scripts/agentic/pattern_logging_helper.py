@@ -96,6 +96,125 @@ def _write_line(path: Path, payload: Dict[str, Any]) -> None:
         handle.write(_serialize(payload) + "\n")
 
 
+def _calculate_economic_context(
+    pattern: str,
+    mode: str,
+    pattern_state: Dict[str, Any],
+    circle: str,
+    depth: int,
+) -> Dict[str, Any]:
+    """Calculate economic context (COD, WSJF, risk_score) for pattern events.
+    
+    Economic scoring is based on:
+    - Pattern type and severity
+    - Mode (mutation vs advisory)
+    - Pattern-specific metrics (e.g., safe_degrade triggers)
+    - Circle ownership and depth level
+    """
+    cod = 0.0
+    wsjf_score = 0.0
+    risk_score = 0
+    
+    # Base scoring by pattern type
+    pattern_base_economics = {
+        "safe-degrade": {"cod_multiplier": 5000.0, "wsjf_multiplier": 5000.0, "risk": 9},
+        "guardrail-lock": {"cod_multiplier": 5000.0, "wsjf_multiplier": 5000.0, "risk": 9},
+        "failure-strategy": {"cod_multiplier": 2500.0, "wsjf_multiplier": 3000.0, "risk": 8},
+        "iteration-budget": {"cod_multiplier": 100.0, "wsjf_multiplier": 50.0, "risk": 5},
+        "circle-risk-focus": {"cod_multiplier": 10.0, "wsjf_multiplier": 1.0, "risk": 4},
+        "depth-ladder": {"cod_multiplier": 50.0, "wsjf_multiplier": 25.0, "risk": 3},
+        "observability-first": {"cod_multiplier": 200.0, "wsjf_multiplier": 150.0, "risk": 6},
+        "autocommit-shadow": {"cod_multiplier": 300.0, "wsjf_multiplier": 200.0, "risk": 7},
+        # LionAGI QE patterns
+        "quality-gate-decision": {"cod_multiplier": 3000.0, "wsjf_multiplier": 2500.0, "risk": 8},
+        "deployment-readiness": {"cod_multiplier": 4000.0, "wsjf_multiplier": 3500.0, "risk": 9},
+        "regression-risk": {"cod_multiplier": 2000.0, "wsjf_multiplier": 1800.0, "risk": 7},
+    }
+    
+    economics = pattern_base_economics.get(
+        pattern,
+        {"cod_multiplier": 100.0, "wsjf_multiplier": 50.0, "risk": 5}  # default
+    )
+    
+    # Pattern-specific economic calculation
+    if pattern == "safe-degrade":
+        safe_degrade_state = pattern_state.get("safe_degrade", {})
+        triggers = safe_degrade_state.get("triggers", 0)
+        # High COD/WSJF if actively degraded
+        if triggers > 0:
+            cod = economics["cod_multiplier"]
+            wsjf_score = economics["wsjf_multiplier"]
+        risk_score = economics["risk"]
+    
+    elif pattern == "guardrail-lock":
+        guardrail_state = pattern_state.get("guardrail_lock", {})
+        enforced = guardrail_state.get("enforced", 0)
+        if enforced:
+            cod = economics["cod_multiplier"]
+            wsjf_score = economics["wsjf_multiplier"]
+        risk_score = economics["risk"]
+    
+    elif pattern == "failure-strategy":
+        failure_state = pattern_state.get("failure_strategy", {})
+        degrade_reason = failure_state.get("degrade_reason", "")
+        if degrade_reason:
+            # Failed validation or tests - high economic impact
+            cod = economics["cod_multiplier"]
+            wsjf_score = economics["wsjf_multiplier"]
+        risk_score = economics["risk"]
+    
+    elif pattern == "iteration-budget":
+        budget_state = pattern_state.get("iteration_budget", {})
+        requested = budget_state.get("requested", 0)
+        enforced = budget_state.get("enforced", 0)
+        # COD/WSJF when budget is constrained
+        if requested > enforced:
+            cod = economics["cod_multiplier"] * (requested - enforced)
+            wsjf_score = economics["wsjf_multiplier"] * (requested - enforced)
+        risk_score = economics["risk"]
+    
+    elif pattern == "circle-risk-focus":
+        # ROAM delta drives economic value
+        roam_reduction = pattern_state.get("roam_reduction", 0)
+        cod = economics["cod_multiplier"] * abs(roam_reduction)
+        wsjf_score = economics["wsjf_multiplier"] * abs(roam_reduction)
+        risk_score = economics["risk"]
+    
+    elif pattern == "observability-first":
+        obs_state = pattern_state.get("observability_first", {})
+        missing_signals = obs_state.get("missing_signals", 0)
+        metrics_written = obs_state.get("metrics_written", 0)
+        if missing_signals > 0:
+            # Missing metrics = technical debt
+            cod = economics["cod_multiplier"] * missing_signals
+            wsjf_score = economics["wsjf_multiplier"] * missing_signals
+        elif metrics_written > 0:
+            # Value created by adding observability
+            cod = economics["cod_multiplier"] * 0.1 * metrics_written
+            wsjf_score = economics["wsjf_multiplier"] * 0.1 * metrics_written
+        risk_score = economics["risk"]
+    
+    else:
+        # Default: use base multipliers scaled by mode and depth
+        mode_factor = 1.0
+        if mode in ["mutate", "mutation", "enforcement"]:
+            mode_factor = 1.5
+        elif mode == "advisory":
+            mode_factor = 0.5
+        
+        depth_factor = 1.0 + (depth * 0.1)  # Deeper = higher impact
+        
+        cod = economics["cod_multiplier"] * mode_factor * depth_factor
+        wsjf_score = economics["wsjf_multiplier"] * mode_factor * depth_factor
+        risk_score = economics["risk"]
+    
+    return {
+        "cod": round(cod, 2),
+        "wsjf_score": round(wsjf_score, 2),
+        "risk_score": risk_score,
+    }
+
+
 def build_pattern_event(
     *,
     pattern: str,
@@ -111,6 +230,7 @@ def build_pattern_event(
     metadata: Optional[Dict[str, Any]] = None,
     behavioral_type: str = "observability",
     include_observability: bool = True,
+    economic: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     event: Dict[str, Any] = {
         "ts": _ts(),
@@ -126,6 +246,11 @@ def build_pattern_event(
     # Add observability context by default
     if include_observability:
         event["observability"] = _get_observability_context()
+
+    # Add economic context (auto-calculate if not provided)
+    if economic is None:
+        economic = _calculate_economic_context(pattern, mode, pattern_state, circle, depth)
+    event["economic"] = economic
 
     if gate:
         event["gate"] = gate
@@ -281,6 +406,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--pattern-state", dest="pattern_state_json", help="JSON blob with pattern metrics")
     parser.add_argument("--workload-json", dest="workload_json")
     parser.add_argument("--metadata-json", dest="metadata_json")
+    parser.add_argument("--economic-json", dest="economic_json", help="JSON blob with economic context (cod, wsjf_score, risk_score) - auto-calculated if omitted")
     parser.add_argument("--mirror-metrics", action="store_true", help="Also append summary to metrics_log.jsonl")
     parser.add_argument(
         "--generate-samples",
@@ -314,6 +440,7 @@ def main() -> int:
 
     workload = _parse_metrics_json(args.workload_json)
     metadata = _parse_metrics_json(args.metadata_json)
+    economic = _parse_metrics_json(args.economic_json)
 
     event = build_pattern_event(
         pattern=args.pattern,
@@ -328,6 +455,7 @@ def main() -> int:
         run_id=args.run_id,
         iteration=args.iteration,
         metadata=metadata or None,
+        economic=economic or None,  # Auto-calculated if None
     )
     log_pattern_event(event, mirror_metrics=args.mirror_metrics)
     print(f"Logged pattern event for {args.pattern} (circle={args.circle}, depth={args.depth}).")

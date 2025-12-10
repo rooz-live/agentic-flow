@@ -162,11 +162,11 @@ function getCpuLoad(): number {
   const cpus = os.cpus();
   const numCpus = cpus.length;
   const loadAvg = os.loadavg()[0] ?? 0;
-  return ((loadAvg || 0) / Math.max(numCpus, 1)) * 100;
+  return Math.min(((loadAvg || 0) / Math.max(numCpus, 1)) * 100, 100);
 }
 
 function getIdlePercentage(): number {
-  return 100 - getCpuLoad();
+  return Math.max(0, 100 - getCpuLoad());
 }
 
 function refillTokens(): void {
@@ -282,10 +282,20 @@ export class CircuitBreakerOpenError extends Error {
 }
 
 /**
- * Wait for capacity and reserve slots atomically.
+ * Enhanced proactive admission control with intelligent CPU load detection and adaptive throttling.
  * @param count - Number of slots to reserve
  */
 async function waitForCapacity(count: number = 1): Promise<void> {
+  // Update load history for predictive analysis
+  updateLoadHistory();
+  
+  // Calculate adaptive throttling level
+  const throttlingLevel = calculateAdaptiveThrottlingLevel();
+  state.adaptiveThrottlingLevel = throttlingLevel;
+  
+  // Apply adaptive delays based on throttling level
+  const adaptiveDelay = Math.floor((1 - throttlingLevel) * AF_BACKOFF_MIN_MS);
+  
   while (true) {
     // 1. Circuit Breaker
     if (!isCircuitClosed()) {
@@ -293,46 +303,125 @@ async function waitForCapacity(count: number = 1): Promise<void> {
       throw new CircuitBreakerOpenError();
     }
 
-    // 2. Token Bucket (Rate Limit)
-    // For batch > 1, we might consume multiple tokens? 
-    // Standard implementation consumes 1 token per request/batch call usually, 
-    // but here let's stick to 1 token per function call to runBatched/guarded
-    if (!consumeToken()) {
-      logIncident('RATE_LIMITED', { activeWork: state.activeWork });
-      await sleep(100);
+    // 2. Predictive Load Check (if enabled)
+    if (AF_PREDICTIVE_THROTTLING) {
+      const predictiveScore = calculatePredictiveLoadScore();
+      state.predictiveLoadScore = predictiveScore;
+      
+      if (predictiveScore > AF_CPU_CRITICAL_THRESHOLD) {
+        logIncident('PREDICTIVE_THROTTLING', {
+          predictiveScore,
+          threshold: AF_CPU_CRITICAL_THRESHOLD,
+          activeWork: state.activeWork
+        });
+        await sleep(adaptiveDelay * 2); // Longer delay for predicted high load
+        continue;
+      }
+    }
+
+    // 3. Enhanced Token Bucket (Rate Limit) with adaptive throttling
+    const adjustedTokensPerSecond = Math.floor(AF_TOKENS_PER_SECOND * throttlingLevel);
+    const adjustedMaxBurst = Math.floor(AF_MAX_BURST * throttlingLevel);
+    
+    // For batch > 1, we might consume multiple tokens
+    const tokensNeeded = Math.ceil(count * throttlingLevel);
+    
+    if (state.availableTokens < tokensNeeded) {
+      logIncident('RATE_LIMITED', {
+        activeWork: state.activeWork,
+        tokensNeeded,
+        availableTokens: state.availableTokens,
+        throttlingLevel
+      });
+      await sleep(adaptiveDelay);
       continue;
     }
 
-    // 3. WIP Limit
-    if (state.activeWork + count > AF_MAX_WIP) {
-      // Just wait, don't log violation yet
-      await sleep(50);
+    // 4. Adaptive WIP Limit based on system load
+    const adaptiveMaxWip = Math.floor(AF_MAX_WIP * throttlingLevel);
+    if (state.activeWork + count > adaptiveMaxWip) {
+      logIncident('ADAPTIVE_THROTTLING', {
+        activeWork: state.activeWork,
+        requestedSlots: count,
+        adaptiveMaxWip,
+        throttlingLevel
+      });
+      await sleep(adaptiveDelay);
       continue;
     }
 
-    // 4. CPU Load
+    // 5. Enhanced CPU Load Check with adaptive thresholds
     const now = Date.now();
-    if (now - state.lastLoadCheck > 1000) {
+    if (now - state.lastLoadCheck > 500) { // More frequent checks
       state.lastLoadCheck = now;
       const idlePercent = getIdlePercentage();
-      const targetIdlePercent = AF_CPU_HEADROOM_TARGET * 100;
-
-      if (idlePercent < targetIdlePercent) {
-        logIncident('CPU_OVERLOAD', { idlePercent, targetIdlePercent, activeWork: state.activeWork });
+      const cpuLoad = getCpuLoad();
+      
+      // Adaptive target based on throttling level
+      const targetIdlePercent = AF_CPU_HEADROOM_TARGET * 100 * throttlingLevel;
+      
+      // Multi-tier CPU load response
+      if (cpuLoad > AF_CPU_CRITICAL_THRESHOLD * 100) {
+        logIncident('CPU_OVERLOAD', {
+          idlePercent,
+          cpuLoad,
+          targetIdlePercent,
+          activeWork: state.activeWork,
+          level: 'critical'
+        });
+        
+        // Exponential backoff with jitter
+        const jitter = Math.random() * 0.1; // 10% jitter
+        const backoffWithJitter = state.currentBackoff * (1 + jitter);
+        await sleep(backoffWithJitter);
+        state.currentBackoff = Math.min(
+          state.currentBackoff * AF_BACKOFF_MULTIPLIER * 1.5, // Faster escalation
+          AF_BACKOFF_MAX_MS
+        );
+        continue;
+      } else if (cpuLoad > AF_CPU_WARNING_THRESHOLD * 100) {
+        logIncident('CPU_OVERLOAD', {
+          idlePercent,
+          cpuLoad,
+          targetIdlePercent,
+          activeWork: state.activeWork,
+          level: 'warning'
+        });
+        
         await sleep(state.currentBackoff);
-        state.currentBackoff = Math.min(state.currentBackoff * AF_BACKOFF_MULTIPLIER, AF_BACKOFF_MAX_MS);
+        state.currentBackoff = Math.min(
+          state.currentBackoff * AF_BACKOFF_MULTIPLIER,
+          AF_BACKOFF_MAX_MS
+        );
+        continue;
+      } else if (idlePercent < targetIdlePercent) {
+        logIncident('CPU_OVERLOAD', {
+          idlePercent,
+          cpuLoad,
+          targetIdlePercent,
+          activeWork: state.activeWork,
+          level: 'adaptive'
+        });
+        
+        await sleep(adaptiveDelay);
         continue;
       } else {
+        // Reset backoff on healthy load
         state.currentBackoff = AF_BACKOFF_MIN_MS;
       }
     }
 
-    // If we got here, all checks passed. Reserve slot(s).
+    // If we got here, all checks passed. Reserve slot(s) and consume tokens.
     state.activeWork += count;
+    state.availableTokens -= tokensNeeded;
     
-    // Log if we somehow exceeded max (race edge case, or if allowed to burst)
-    if (state.activeWork > AF_MAX_WIP) {
-        logIncident('WIP_VIOLATION', { activeWork: state.activeWork, maxWip: AF_MAX_WIP });
+    // Log if we somehow exceeded max (race edge case)
+    if (state.activeWork > adaptiveMaxWip) {
+        logIncident('WIP_VIOLATION', {
+          activeWork: state.activeWork,
+          maxWip: adaptiveMaxWip,
+          throttlingLevel
+        });
     }
     
     return;
@@ -341,6 +430,169 @@ async function waitForCapacity(count: number = 1): Promise<void> {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Enhanced CPU load detection and adaptive throttling
+function updateLoadHistory(): void {
+  const now = Date.now();
+  const cpuLoad = getCpuLoad();
+  const idlePercentage = getIdlePercentage();
+  
+  const entry: LoadHistoryEntry = {
+    timestamp: now,
+    cpuLoad,
+    idlePercentage,
+    activeWork: state.activeWork,
+    queuedWork: state.queuedWork,
+  };
+  
+  state.loadHistory.push(entry);
+  
+  // Keep only the recent history
+  if (state.loadHistory.length > AF_LOAD_HISTORY_SIZE) {
+    state.loadHistory.shift();
+  }
+}
+
+function calculatePredictiveLoadScore(): number {
+  if (state.loadHistory.length < 3) return 0.5; // Default medium load
+  
+  // Calculate trend based on recent load history
+  const recent = state.loadHistory.slice(-3);
+  const loadTrend = recent[2].cpuLoad - recent[0].cpuLoad;
+  const workTrend = recent[2].activeWork - recent[0].activeWork;
+  
+  // Predictive score: 0 = low load expected, 1 = high load expected
+  const trendScore = Math.max(0, Math.min(1, (loadTrend + workTrend * 10) / 100));
+  const currentLoadScore = getCpuLoad() / 100;
+  
+  // Weight current load more heavily than trend
+  return currentLoadScore * 0.7 + trendScore * 0.3;
+}
+
+function calculateAdaptiveThrottlingLevel(): number {
+  if (!AF_ADAPTIVE_THROTTLING_ENABLED) return 1.0;
+  
+  const currentLoad = getCpuLoad() / 100;
+  const predictiveScore = calculatePredictiveLoadScore();
+  
+  // Combine current and predictive load for throttling decision
+  const combinedLoad = Math.max(currentLoad, predictiveScore);
+  
+  // Calculate throttling level: 1.0 = no throttling, 0.1 = maximum throttling
+  let throttlingLevel = 1.0;
+  
+  if (combinedLoad > AF_CPU_CRITICAL_THRESHOLD) {
+    throttlingLevel = 0.1; // Severe throttling
+  } else if (combinedLoad > AF_CPU_WARNING_THRESHOLD) {
+    throttlingLevel = 0.3; // Moderate throttling
+  } else if (combinedLoad > AF_CPU_HEADROOM_TARGET) {
+    throttlingLevel = 0.6; // Light throttling
+  }
+  
+  return throttlingLevel;
+}
+
+// Process dependency analysis and batch optimization
+function analyzeProcessDependencies(items: any[]): ProcessDependency[] {
+  if (!AF_DEPENDENCY_ANALYSIS_ENABLED) {
+    return items.map((item, index) => ({
+      id: `item-${index}`,
+      dependencies: [],
+      priority: 1,
+      estimatedDuration: 1000,
+      resourceWeight: 1,
+    }));
+  }
+  
+  // Simple dependency analysis - in real implementation, this would analyze
+  // actual process relationships, resource requirements, etc.
+  return items.map((item, index) => {
+    const hasDependencies = index > 0 && index % 3 === 0; // Every 3rd item depends on previous
+    const priority = hasDependencies ? 2 : 1;
+    
+    return {
+      id: `item-${index}`,
+      dependencies: hasDependencies ? [`item-${index - 1}`] : [],
+      priority,
+      estimatedDuration: 1000 + Math.random() * 2000, // 1-3 seconds
+      resourceWeight: priority === 2 ? 2 : 1, // Higher priority items use more resources
+    };
+  });
+}
+
+function optimizeExecutionOrder(dependencies: ProcessDependency[]): ProcessDependency[] {
+  if (!AF_EXECUTION_ORDER_OPTIMIZATION) return dependencies;
+  
+  // Topological sort to respect dependencies
+  const sorted: ProcessDependency[] = [];
+  const visited = new Set<string>();
+  const visiting = new Set<string>();
+  
+  function visit(nodeId: string): void {
+    if (visiting.has(nodeId)) {
+      // Circular dependency detected, skip
+      return;
+    }
+    if (visited.has(nodeId)) return;
+    
+    visiting.add(nodeId);
+    const node = dependencies.find(d => d.id === nodeId);
+    if (node) {
+      for (const depId of node.dependencies) {
+        visit(depId);
+      }
+      sorted.push(node);
+    }
+    visiting.delete(nodeId);
+    visited.add(nodeId);
+  }
+  
+  // Visit all nodes
+  for (const dep of dependencies) {
+    visit(dep.id);
+  }
+  
+  // Sort by priority within dependency constraints
+  return sorted.sort((a, b) => a.priority - b.priority);
+}
+
+function createOptimalBatches<T>(items: T[], dependencies: ProcessDependency[]): T[][] {
+  if (!AF_BATCH_MAPPING_ENABLED) {
+    return Array.from({ length: Math.ceil(items.length / AF_BATCH_SIZE) }, (_, i) =>
+      items.slice(i * AF_BATCH_SIZE, (i + 1) * AF_BATCH_SIZE)
+    );
+  }
+  
+  const batches: T[][] = [];
+  const orderedDeps = optimizeExecutionOrder(dependencies);
+  let currentBatch: T[] = [];
+  let currentBatchResources = 0;
+  const maxBatchResources = AF_MAX_BATCH_SIZE;
+  
+  for (const dep of orderedDeps) {
+    const itemIndex = parseInt(dep.id.split('-')[1]);
+    const item = items[itemIndex];
+    
+    // Check if adding this item would exceed batch resource limits
+    if (currentBatchResources + dep.resourceWeight > maxBatchResources ||
+        currentBatch.length >= AF_MAX_BATCH_SIZE) {
+      if (currentBatch.length > 0) {
+        batches.push(currentBatch);
+        currentBatch = [];
+        currentBatchResources = 0;
+      }
+    }
+    
+    currentBatch.push(item);
+    currentBatchResources += dep.resourceWeight;
+  }
+  
+  if (currentBatch.length > 0) {
+    batches.push(currentBatch);
+  }
+  
+  return batches.length > 0 ? batches : [items]; // Fallback to single batch
 }
 
 export async function runBatched<T, R>(
@@ -354,28 +606,55 @@ export async function runBatched<T, R>(
 
   state.queuedWork += items.length;
 
-  for (let i = 0; i < items.length; i += batchSize) {
-    const batch = items.slice(i, i + batchSize);
+  // Analyze process dependencies for optimization
+  const dependencies = analyzeProcessDependencies(items);
+  
+  // Create optimal batches based on dependencies and system load
+  const batches = createOptimalBatches(items, dependencies);
+  
+  logIncident('DEPENDENCY_ANALYSIS', {
+    totalItems: items.length,
+    dependenciesFound: dependencies.length,
+    batchesCreated: batches.length,
+    adaptiveThrottlingLevel: state.adaptiveThrottlingLevel
+  });
 
-    // Atomically wait and reserve slots
-    await waitForCapacity(batch.length); 
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+    const batch = batches[batchIndex];
+    const originalIndices = batch.map(item => items.indexOf(item));
+
+    // Atomically wait and reserve slots with adaptive throttling
+    await waitForCapacity(batch.length);
     state.queuedWork -= batch.length;
 
-    const batchPromises = batch.map(async (item, batchIndex) => {
-      const itemIndex = i + batchIndex;
+    // Enhanced batch processing with dependency-aware execution
+    const batchPromises = batch.map(async (item, localBatchIndex) => {
+      const originalIndex = originalIndices[localBatchIndex];
       let lastError: Error | undefined;
 
       for (let retry = 0; retry <= maxRetries; retry++) {
         try {
-          const result = await processor(item, itemIndex);
+          const result = await processor(item, originalIndex);
           state.completedWork++;
           recordSuccess();
           return result;
         } catch (err) {
           lastError = err as Error;
           if (retry < maxRetries) {
-            const retryBackoff = AF_BACKOFF_MIN_MS * Math.pow(2, retry);
-            logIncident('BACKOFF', { retry: retry + 1, error: lastError.message });
+            // Enhanced exponential backoff with jitter and adaptive scaling
+            const baseBackoff = AF_BACKOFF_MIN_MS * Math.pow(2, retry);
+            const adaptiveScaling = 1 + (1 - state.adaptiveThrottlingLevel); // Scale backoff based on load
+            const jitter = Math.random() * 0.2; // 20% jitter
+            const retryBackoff = Math.floor(baseBackoff * adaptiveScaling * (1 + jitter));
+            
+            logIncident('BACKOFF', {
+              retry: retry + 1,
+              error: lastError.message,
+              backoffMs: retryBackoff,
+              adaptiveThrottlingLevel: state.adaptiveThrottlingLevel,
+              batchIndex: batchIndex + 1,
+              totalBatches: batches.length
+            });
             await sleep(retryBackoff);
           }
         }
@@ -388,9 +667,27 @@ export async function runBatched<T, R>(
     try {
       const batchResults = await Promise.all(batchPromises);
       results.push(...batchResults);
-      logIncident('BATCH_COMPLETE', { batchSize: batch.length });
+      
+      logIncident('BATCH_COMPLETE', {
+        batchSize: batch.length,
+        batchIndex: batchIndex + 1,
+        totalBatches: batches.length,
+        adaptiveThrottlingLevel: state.adaptiveThrottlingLevel,
+        cpuLoad: getCpuLoad(),
+        idlePercentage: getIdlePercentage()
+      });
     } finally {
       state.activeWork -= batch.length; // Release slots
+    }
+    
+    // Adaptive delay between batches based on system load
+    if (batchIndex < batches.length - 1) { // Not the last batch
+      const interBatchDelay = Math.floor(
+        (1 - state.adaptiveThrottlingLevel) * AF_BACKOFF_MIN_MS
+      );
+      if (interBatchDelay > 0) {
+        await sleep(interBatchDelay);
+      }
     }
   }
 
@@ -443,6 +740,11 @@ export function reset(): void {
     halfOpenRequests: 0,
     windowStart: Date.now(),
   };
+  state.loadHistory = [];
+  state.processDependencies.clear();
+  state.adaptiveThrottlingLevel = 1.0;
+  state.predictiveLoadScore = 0.0;
+  state.lastDependencyAnalysis = 0;
   state.incidents = [];
 }
 

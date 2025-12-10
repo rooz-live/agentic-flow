@@ -26,39 +26,269 @@ metadata:
     - evidence_sources
     - verification_threshold
 items:
-- id: observability-first-b2JzZXJ2
-  title: Observability First (WSJF alignment)
-  status: VALIDATED
-  created_at: 2025-12-04T05:38Z
-  validated_at: 2025-12-08T20:53Z
-  validation_notes: "Cycle 42 - 100% pattern coverage, 0 observability gaps, 595 metrics"
-  phase: NOW
-  priority: important
-  wsjf_score: 4.08
-  user_value: 12
-  time_criticality: 7.8
-  risk_reduction: 10.8
+- id: PHASE-A-4
+  title: Validate learning capture parity vs governor events
+  status: COMPLETE
+  completed_at: 2025-11-14T22:55Z
+  note: 1:1287 ratio validated as appropriate - semantic events vs telemetry
+  phase: A
+  user_value: 8
+  time_criticality: 9
+  risk_reduction: 10
+  job_size: 2
+  wsjf_score: 13.5
+  cost_of_delay: 27
+  pattern: ml-training-guardrail
+  description: Close the 4326:1 learning signal gap
+  commands:
+  - ./.agentdb/hooks/pre_command.sh noop && ./.agentdb/hooks/post_command.sh noop
+  - wc -l logs/learning/events.jsonl
+  - wc -l logs/governor_incidents.jsonl
+  target: Learning events capture rate approaches governor rate
+  circle_owner: analyst
+  circle_roam_risk: 0.0
+- id: PHASE-A-1
+  title: Establish initial measurable baselines
+  status: COMPLETE
+  completed_at: 2025-11-15T02:15Z
+  phase: A
+  user_value: 8
+  time_criticality: 9
+  risk_reduction: 10
   job_size: 3
-  cost_of_delay: 30.6
-  pattern: observability-first
-  tags:
-  - pattern:wsjf
-  - pattern:observability-first
-  - circle:orchestrator
-  description: >-
-    Close observability gaps surfaced by governance agent; ensure metrics capture and
-    dashboards exist before enabling mutation mode.
-  circle_owner: orchestrator
+  wsjf_score: 9
+  cost_of_delay: 27
+  pattern: depth-ladder
+  description: Seed baseline metrics for later validation
+  commands:
+  - python3 ./scripts/agentic/bootstrap_local_metrics.py --count 50 2>&1 | tee -a
+    logs/bootstrap_local_metrics.log
+  - test -f ./metrics/performance_baselines.json || echo '{"created":"now","note":"seed
+    baseline ready"}' > ./metrics/performance_baselines.json
   validation:
-  - Run af governance-agent --json and confirm observability-first entries remain in sync
-  - Update metrics_dashboard.md with new metrics_written counts
+  - performance_baselines.json exists
+  - Contains seed metrics
+  circle_owner: analyst
+  circle_roam_risk: 0.0
+- id: PHASE-A-3
+  title: Populate AgentDB with baseline data from existing logs
+  status: COMPLETE
+  completed_at: 2025-11-15T02:18Z
+  note: Imported 9 learning events, AgentDB now has 10 events, 28 contexts, 15 BEAM
+    dimensions
+  phase: A
+  user_value: 6
+  time_criticality: 7
+  risk_reduction: 8
+  job_size: 3
+  wsjf_score: 7
+  cost_of_delay: 21
+  pattern: ml-training-guardrail
+  description: Import calibration and episode data to seed AgentDB tables
+  commands:
+  - python3 ./scripts/ci/import_calibration_to_agentdb.py --limit 50 2>&1 | tee -a
+    logs/agentdb_import.log
+  - node ./scripts/learning/import_episodes_to_agentdb.mjs --limit 50 2>&1 | tee -a
+    logs/agentdb_import_episodes.log
+  - npx agentdb db stats
+  validation:
+  - AgentDB tables have rows > 0
+  circle_owner: analyst
+  circle_roam_risk: 0.0
+- id: ROLE-REPLENISH-001
+  title: Role Replenishment & Structure
+  status: DONE
+  created_at: 2025-11-30T23:00Z
+  completed_at: 2025-12-01T01:00Z
+  phase: NOW
+  priority: critical
+  wsjf_score: 20
+  user_value: 10
+  time_criticality: 10
+  risk_reduction: 10
+  job_size: 2
+  cost_of_delay: 30
+  pattern: organizational-structure
+  tags:
+  - Holacracy
+  - Roles
+  description: Audit and replenish Holacracy circle roles and directory structure.
+  circle_owner: assessor
+  resolution: 'Role structure validated and aligned with current priorities.
 
+    DISCORD-1/2 completed, security items resolved.
+
+    '
+  routed_at: '2025-12-10T10:55:40Z'
+  routed_by: circle_orchestrator
+  circle_roam_risk: 0.0
+- id: TOOL-VALIDATE-001
+  title: Critical Tool Validation
+  status: DONE
+  created_at: 2025-11-30T23:00Z
+  completed_at: 2025-12-01T01:00Z
+  phase: NOW
+  priority: urgent
+  wsjf_score: 15
+  user_value: 9
+  time_criticality: 9
+  risk_reduction: 9
+  job_size: 3
+  cost_of_delay: 27
+  pattern: tool-integrity
+  tags:
+  - Validation
+  - Tools
+  description: Validate agentic-jujutsu, neural-trader, and stripe scripts.
+  circle_owner: assessor
+  resolution: 'Discord bot validated (discord.py 2.6.4 installed, dry-run passed).
+
+    Stripe webhook handler already complete (INTEGRATE-1).
+
+    Neural trader scripts present and functional.
+
+    '
+  circle_roam_risk: 0.0
+- id: PHASE-A-2
+  title: Patch scripts to auto-create risk DB and capture learning events
+  status: COMPLETE
+  completed_at: 2025-11-14T22:55Z
+  note: Already implemented - validated in session
+  phase: A
+  user_value: 7
+  time_criticality: 8
+  risk_reduction: 9
+  job_size: 2
+  wsjf_score: 12
+  cost_of_delay: 24
+  pattern: governance-review
+  description: Patch collect_metrics.py and execute_with_learning.sh for auto-init
+    and JSONL append
+  files_to_modify:
+  - scripts/ci/collect_metrics.py
+  - scripts/execute_with_learning.sh
+  validation:
+  - DB auto-initializes on first run
+  - Learning events append to logs/learning/events.jsonl
+  circle_owner: assessor
+  circle_roam_risk: 0.0
+- id: DEPENDABOT-CVE-2025-64718
+  title: Dependabot Security Alert - js-yaml Prototype Pollution
+  status: DONE
+  created_at: 2025-11-29T01:07Z
+  completed_at: 2025-12-01T00:30Z
+  phase: NOW
+  priority: high
+  wsjf_score: 8.0
+  user_value: 8
+  time_criticality: 9
+  risk_reduction: 9
+  job_size: 2
+  cost_of_delay: 26
+  pattern: security-first
+  tags:
+  - Security
+  - Dependencies
+  description: 'Fix CVE-2025-64718 - Prototype pollution vulnerability in js-yaml
+
+    merge (<<) operator. CVSS score: 5.3 (moderate severity).
+
+    '
+  resolution:
+    method: Merged Dependabot PR
+    commit: e6ede1d
+    details: '- Upgraded js-yaml from 3.14.1 to 3.14.2 in .snapshots/baseline/
+
+      - Fix backported from v4.1.1 to v3.x branch
+
+      - Both Dependabot alerts (#2, #3) resolved
+
+      '
+    pr_url: https://github.com/rooz-live/agentic-flow/pull/4
+    cve: CVE-2025-64718
+  circle_owner: assessor
+  circle_roam_risk: 0.0
+- id: VALIDATE-1
+  title: Validation suite - stress, throttling, and QE agent flows
+  status: COMPLETE
+  completed_at: 2025-11-15T02:20Z
+  note: 8/8 validation tests passed, 0 WIP violations, system fully operational
+  phase: VALIDATE
+  user_value: 8
+  time_criticality: 7
+  risk_reduction: 9
+  job_size: 3
+  wsjf_score: 8
+  cost_of_delay: 24
+  pattern: governance-review
+  description: Run focused test suites to validate process governor and flow metrics
+  commands:
+  - npm test -- tests/integration/concurrent-operations.test.js
+  - npm test -- tests/integration/throttled-stress.test.ts
+  circle_owner: assessor
+  circle_roam_risk: 0.0
+- id: PHASE-B-2
+  title: BLOCKER-003 - IPMI connectivity test with SSH fallback
+  status: COMPLETE
+  completed_at: 2025-11-15T01:30Z
+  note: 'SSH accessible on port 2222, device: stx-aio-0.corp.interface.tag.ooo, 251GB
+    RAM, 134 days uptime'
+  phase: B
+  user_value: 7
+  time_criticality: 6
+  risk_reduction: 9
+  job_size: 3
+  wsjf_score: 7.3
+  cost_of_delay: 22
+  pattern: safe-degrade
+  blocker_severity: MEDIUM
+  description: Validate device-24460 SSH/IPMI connectivity with conservative flags
+  device_id: '24460'
+  commands:
+  - ls -la scripts/ci/*ipmi* scripts/network/*ipmi* 2>&1
+  - ./scripts/generate_ssh_config.sh --pem-folder "$HOME/pem" --device device-24460
+    --keepalive 60 --countmax 3 2>&1 | tee -a logs/ssh_config_gen.log
+  - python3 ./scripts/ci/test_device_24460_ssh_ipmi_enhanced.py --hostname device-24460
+    --ssh-only --timeout 15 2>&1 | tee -a logs/ipmi_test.log
+  circle_owner: assessor
+  circle_roam_risk: 0.0
+- id: PHASE-B-3
+  title: Process Governor performance retrofit (rate limiting/backoff/batching)
+  status: COMPLETE
+  completed_at: 2025-11-15T01:25Z
+  note: 'Already optimized: 40% CPU headroom, token-bucket rate limiting, batch size
+    3, WIP limit 6, exponential backoff'
+  phase: B
+  user_value: 10
+  time_criticality: 9
+  risk_reduction: 10
+  job_size: 5
+  wsjf_score: 5.8
+  cost_of_delay: 29
+  pattern: safe-degrade
+  blocker_severity: HIGH
+  description: Prevent 100% CPU thrash with token-bucket throttling and exponential
+    backoff
+  current_state: Load 29.21 vs threshold 19.6 (-4.3% headroom)
+  files_to_modify:
+  - src/runtime/processGovernor.ts
+  - scripts/validate-governor-integration.sh
+  - tests/integration/throttled-stress.test.ts
+  target_improvements:
+  - Token-bucket or leaky-bucket throttling
+  - Exponential backoff on failures
+  - Micro-batching of spawns and log writes
+  - Adaptive polling intervals
+  circle_owner: assessor
+  routed_at: '2025-12-10T10:55:40Z'
+  routed_by: circle_orchestrator
+  circle_roam_risk: 0.0
 - id: safe-degrade-c2FmZS1k
   title: Safe Degrade (WSJF alignment)
   status: VALIDATED
   created_at: 2025-12-04T05:38Z
   validated_at: 2025-12-08T20:53Z
-  validation_notes: "Cycle 42 - safe-degrade.triggers/actions logged in pattern_metrics.jsonl"
+  validation_notes: Cycle 42 - safe-degrade.triggers/actions logged in pattern_metrics.jsonl
   phase: NOW
   priority: important
   wsjf_score: 4.08
@@ -72,20 +302,22 @@ items:
   - pattern:wsjf
   - pattern:safe-degrade
   - circle:orchestrator
-  description: >-
-    Harden safe-degrade triggers and actions, link to guardrail-lock telemetry, and
-    document recovery-cycle expectations.
-  circle_owner: orchestrator
+  description: Harden safe-degrade triggers and actions, link to guardrail-lock telemetry,
+    and document recovery-cycle expectations.
+  circle_owner: assessor
   validation:
   - Confirm safe_degrade.triggers and actions recorded in pattern_metrics.jsonl
   - Verify guardrail-lock events mirror safe-degrade state
-
+  routed_at: '2025-12-10T10:55:40Z'
+  routed_by: circle_orchestrator
+  circle_roam_risk: 0.0
 - id: guardrail-lock-Z3VhcmRy
   title: Guardrail Lock (WSJF alignment)
   status: VALIDATED
   created_at: 2025-12-04T05:38Z
   validated_at: 2025-12-08T20:53Z
-  validation_notes: "Cycle 42 - guardrail_lock.enforced logged, health_state tracking confirmed"
+  validation_notes: Cycle 42 - guardrail_lock.enforced logged, health_state tracking
+    confirmed
   phase: NOW
   priority: important
   wsjf_score: 4.08
@@ -99,83 +331,55 @@ items:
   - pattern:wsjf
   - pattern:guardrail-lock
   - circle:orchestrator
-  description: >-
-    Ensure enforced test-first behavior correlates with health data; capture user
-    override attempts and align with autocommit policy.
-  circle_owner: orchestrator
+  description: Ensure enforced test-first behavior correlates with health data; capture
+    user override attempts and align with autocommit policy.
+  circle_owner: assessor
   validation:
   - Confirm guardrail_lock.enforced logged for every degraded state
   - Cross-link guardrail-lock actions with autocommit policy updates
-
-- id: LIONAGI-QE-FLEET-001
-  title: LionAGI QE Fleet Integration - M3→M4 Transition
-  status: VALIDATED
-  created_at: 2025-12-08T21:20Z
-  validated_at: 2025-12-08T21:30Z
-  phase: DONE
-  priority: important
-  wsjf_score: 7.5
-  user_value: 8
-  time_criticality: 7
-  risk_reduction: 9
-  job_size: 3
-  cost_of_delay: 24
-  pattern: observability-first
-  tags:
-  - pattern:qe-integration
-  - pattern:observability-first
-  - circle:orchestrator
-  - lionagi
-  description: >-
-    Integrate LionAGI QE Fleet v1.3.1 with affiliate system test suite (760/763 tests),
-    production cycle validation, ROAM risk assessment workflows, and pattern telemetry.
-    Key agents: QualityGateAgent, DeploymentReadinessAgent, RegressionRiskAnalyzerAgent.
-  validation_notes: >-
-    VALIDATED 2025-12-08T21:30Z: QualityGateAgent returns GO (score: 99.9, 0 gaps).
-    DeploymentReadinessAgent returns GO (risk: 6, LOW). Pattern telemetry extended with
-    3 new QE patterns (quality-gate-decision, deployment-readiness, regression-risk).
-    M3_validation COMPLETE, M4_production READY. af lionagi-qe gate/deployment commands operational.
-  circle_owner: orchestrator
-  integration_targets:
-  - affiliate_test_suite: 760/763 tests (99.6% pass rate)
-  - production_cycles: cycle 42 → cycle 43
-  - roam_workflows: ROAM_TRACKER.yaml integration
-  - pattern_telemetry: 100% coverage maintenance
-  qe_agents_18:
-    core_testing:
-    - TestGeneratorAgent
-    - TestExecutorAgent
-    - CoverageAnalyzerAgent
-    - QualityGateAgent
-    - QualityAnalyzerAgent
-    - CodeComplexityAnalyzerAgent
-    performance_security:
-    - PerformanceTesterAgent
-    - SecurityScannerAgent
-    strategic_planning:
-    - RequirementsValidatorAgent
-    - ProductionIntelligenceAgent
-    - FleetCommanderAgent
-    advanced_testing:
-    - RegressionRiskAnalyzerAgent
-    - TestDataArchitectAgent
-    - APIContractValidatorAgent
-    - FlakyTestHunterAgent
-    specialized:
-    - DeploymentReadinessAgent
-    - VisualTesterAgent
-    - ChaosEngineerAgent
-  validation:
-  - Run af lionagi-qe agents and confirm all 18 agents available
-  - Integrate QualityGateAgent with M3→M4 gate validation
-  - Add DeploymentReadinessAgent to production cycle workflow
-  - Capture QE metrics in metrics_log.jsonl
-  expected_outcomes:
-  - Enhanced test coverage beyond 99.6%
-  - Automated M3→M4 quality gates
-  - Measurable QE metrics in baseline_metrics.json
-  - Integration with governance-agent and retro-coach
-
+  routed_at: '2025-12-10T10:55:40Z'
+  routed_by: circle_orchestrator
+  circle_roam_risk: 0.0
+- id: RCA-1764385633682-ilghhf
+  title: Apply circuit-breaker pattern to processGovernor
+  status: DONE
+  created_at: 2025-11-29 03:07:13.682000+00:00
+  completed_at: 2025-12-01T00:20Z
+  pattern: cascading-failure
+  rca_method: 5-whys
+  priority: critical
+  circle: orchestrator
+  rca_iteration: 1
+  source: iterative-rca
+  resolution:
+    component_identified: src/runtime/processGovernor.ts
+    implementation_details: "Circuit breaker pattern implemented per DEEP-DIVE-3 Phase\
+      \ 1 recommendation.\nStates: CLOSED \u2192 OPEN \u2192 HALF_OPEN \u2192 CLOSED\n"
+    configuration:
+      AF_CIRCUIT_BREAKER_ENABLED: true (default)
+      AF_CIRCUIT_BREAKER_THRESHOLD: 5 failures to trip
+      AF_CIRCUIT_BREAKER_WINDOW_MS: 10000 (10 seconds)
+      AF_CIRCUIT_BREAKER_COOLDOWN_MS: 30000 (30 seconds)
+      AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS: 3 test requests
+    features_added:
+    - CircuitBreakerState enum (CLOSED, OPEN, HALF_OPEN)
+    - CircuitBreakerOpenError exception class
+    - isCircuitClosed() - check if requests allowed
+    - recordSuccess() - track successful operations
+    - recordFailure() - track failed operations (after all retries exhausted)
+    - getCircuitBreakerState() - retrieve current circuit state
+    integration_points:
+    - waitForCapacity() - throws CircuitBreakerOpenError when OPEN
+    - runBatched() - records success/failure after retry exhaustion
+    - guarded() - records success/failure for single operations
+    - reset() - includes circuit breaker state reset for testing
+    incident_types_added:
+    - CIRCUIT_OPEN - logged when circuit trips
+    - CIRCUIT_HALF_OPEN - logged when cooldown expires
+    - CIRCUIT_CLOSED - logged when circuit recovers
+    tests_passing: 261/261
+  circle_owner: assessor
+  circle_roam_risk: 0.0
 - id: SEC-AUDIT-001
   title: Security & Secrets Audit - NOW Tier
   status: DONE
@@ -308,141 +512,110 @@ items:
     - DONE: Removed test API key from memory-backup.json (2025-12-01)
     - Implement secrets rotation policy when production deployment begins
     - Enable GitHub secret scanning for repository
-  circle_owner: assessor
-- id: DEPENDABOT-CVE-2025-64718
-  title: Dependabot Security Alert - js-yaml Prototype Pollution
-  status: DONE
-  created_at: 2025-11-29T01:07Z
-  completed_at: 2025-12-01T00:30Z
-  phase: NOW
-  priority: high
-  wsjf_score: 8.0
+  circle_owner: intuitive
+  routed_at: '2025-12-10T10:55:40Z'
+  routed_by: circle_orchestrator
+  circle_roam_risk: 0.0
+- id: LIONAGI-QE-FLEET-001
+  title: "LionAGI QE Fleet Integration - M3\u2192M4 Transition"
+  status: VALIDATED
+  created_at: 2025-12-08T21:20Z
+  validated_at: 2025-12-08T21:30Z
+  phase: DONE
+  priority: important
+  wsjf_score: 7.5
   user_value: 8
-  time_criticality: 9
-  risk_reduction: 9
-  job_size: 2
-  cost_of_delay: 26
-  pattern: security-first
-  tags:
-  - Security
-  - Dependencies
-  description: 'Fix CVE-2025-64718 - Prototype pollution vulnerability in js-yaml
-
-    merge (<<) operator. CVSS score: 5.3 (moderate severity).
-
-    '
-  resolution:
-    method: Merged Dependabot PR
-    commit: e6ede1d
-    details: '- Upgraded js-yaml from 3.14.1 to 3.14.2 in .snapshots/baseline/
-
-      - Fix backported from v4.1.1 to v3.x branch
-
-      - Both Dependabot alerts (#2, #3) resolved
-
-      '
-    pr_url: https://github.com/rooz-live/agentic-flow/pull/4
-    cve: CVE-2025-64718
-  circle_owner: assessor
-- id: PHASE-C-AUDIT
-  title: Phase C - Environment Restoration Audit
-  status: COMPLETE
-  completed_at: 2025-11-14T00:35Z
-  phase: C
-  wsjf_score: null
-  deliverables:
-  - Audit findings appended to INCREMENTAL_RELENTLESS_EXECUTION_STATUS.md
-  - 'Baseline diagnostics: 8652 governor events, 2 learning events'
-  - 'Gaps identified: hooks missing, risk DB missing, learning capture gap 4326:1'
-  circle_owner: innovator
-- id: PHASE-A-1
-  title: Establish initial measurable baselines
-  status: COMPLETE
-  completed_at: 2025-11-15T02:15Z
-  phase: A
-  user_value: 8
-  time_criticality: 9
-  risk_reduction: 10
-  job_size: 3
-  wsjf_score: 9
-  cost_of_delay: 27
-  pattern: depth-ladder
-  description: Seed baseline metrics for later validation
-  commands:
-  - python3 ./scripts/agentic/bootstrap_local_metrics.py --count 50 2>&1 | tee -a
-    logs/bootstrap_local_metrics.log
-  - test -f ./metrics/performance_baselines.json || echo '{"created":"now","note":"seed
-    baseline ready"}' > ./metrics/performance_baselines.json
-  validation:
-  - performance_baselines.json exists
-  - Contains seed metrics
-  circle_owner: analyst
-- id: PHASE-A-2
-  title: Patch scripts to auto-create risk DB and capture learning events
-  status: COMPLETE
-  completed_at: 2025-11-14T22:55Z
-  note: Already implemented - validated in session
-  phase: A
-  user_value: 7
-  time_criticality: 8
-  risk_reduction: 9
-  job_size: 2
-  wsjf_score: 12
-  cost_of_delay: 24
-  pattern: governance-review
-  description: Patch collect_metrics.py and execute_with_learning.sh for auto-init
-    and JSONL append
-  files_to_modify:
-  - scripts/ci/collect_metrics.py
-  - scripts/execute_with_learning.sh
-  validation:
-  - DB auto-initializes on first run
-  - Learning events append to logs/learning/events.jsonl
-  circle_owner: assessor
-- id: PHASE-A-3
-  title: Populate AgentDB with baseline data from existing logs
-  status: COMPLETE
-  completed_at: 2025-11-15T02:18Z
-  note: Imported 9 learning events, AgentDB now has 10 events, 28 contexts, 15 BEAM
-    dimensions
-  phase: A
-  user_value: 6
   time_criticality: 7
-  risk_reduction: 8
+  risk_reduction: 9
   job_size: 3
-  wsjf_score: 7
-  cost_of_delay: 21
-  pattern: ml-training-guardrail
-  description: Import calibration and episode data to seed AgentDB tables
-  commands:
-  - python3 ./scripts/ci/import_calibration_to_agentdb.py --limit 50 2>&1 | tee -a
-    logs/agentdb_import.log
-  - node ./scripts/learning/import_episodes_to_agentdb.mjs --limit 50 2>&1 | tee -a
-    logs/agentdb_import_episodes.log
-  - npx agentdb db stats
+  cost_of_delay: 24
+  pattern: observability-first
+  tags:
+  - pattern:qe-integration
+  - pattern:observability-first
+  - circle:orchestrator
+  - lionagi
+  description: 'Integrate LionAGI QE Fleet v1.3.1 with affiliate system test suite
+    (760/763 tests), production cycle validation, ROAM risk assessment workflows,
+    and pattern telemetry. Key agents: QualityGateAgent, DeploymentReadinessAgent,
+    RegressionRiskAnalyzerAgent.'
+  validation_notes: 'VALIDATED 2025-12-08T21:30Z: QualityGateAgent returns GO (score:
+    99.9, 0 gaps). DeploymentReadinessAgent returns GO (risk: 6, LOW). Pattern telemetry
+    extended with 3 new QE patterns (quality-gate-decision, deployment-readiness,
+    regression-risk). M3_validation COMPLETE, M4_production READY. af lionagi-qe gate/deployment
+    commands operational.'
+  circle_owner: intuitive
+  integration_targets:
+  - affiliate_test_suite: 760/763 tests (99.6% pass rate)
+  - production_cycles: "cycle 42 \u2192 cycle 43"
+  - roam_workflows: ROAM_TRACKER.yaml integration
+  - pattern_telemetry: 100% coverage maintenance
+  qe_agents_18:
+    core_testing:
+    - TestGeneratorAgent
+    - TestExecutorAgent
+    - CoverageAnalyzerAgent
+    - QualityGateAgent
+    - QualityAnalyzerAgent
+    - CodeComplexityAnalyzerAgent
+    performance_security:
+    - PerformanceTesterAgent
+    - SecurityScannerAgent
+    strategic_planning:
+    - RequirementsValidatorAgent
+    - ProductionIntelligenceAgent
+    - FleetCommanderAgent
+    advanced_testing:
+    - RegressionRiskAnalyzerAgent
+    - TestDataArchitectAgent
+    - APIContractValidatorAgent
+    - FlakyTestHunterAgent
+    specialized:
+    - DeploymentReadinessAgent
+    - VisualTesterAgent
+    - ChaosEngineerAgent
   validation:
-  - AgentDB tables have rows > 0
-  circle_owner: analyst
-- id: PHASE-A-4
-  title: Validate learning capture parity vs governor events
-  status: COMPLETE
-  completed_at: 2025-11-14T22:55Z
-  note: 1:1287 ratio validated as appropriate - semantic events vs telemetry
-  phase: A
-  user_value: 8
-  time_criticality: 9
-  risk_reduction: 10
-  job_size: 2
-  wsjf_score: 13.5
-  cost_of_delay: 27
-  pattern: ml-training-guardrail
-  description: Close the 4326:1 learning signal gap
-  commands:
-  - ./.agentdb/hooks/pre_command.sh noop && ./.agentdb/hooks/post_command.sh noop
-  - wc -l logs/learning/events.jsonl
-  - wc -l logs/governor_incidents.jsonl
-  target: Learning events capture rate approaches governor rate
-  circle_owner: analyst
+  - Run af lionagi-qe agents and confirm all 18 agents available
+  - "Integrate QualityGateAgent with M3\u2192M4 gate validation"
+  - Add DeploymentReadinessAgent to production cycle workflow
+  - Capture QE metrics in metrics_log.jsonl
+  expected_outcomes:
+  - Enhanced test coverage beyond 99.6%
+  - "Automated M3\u2192M4 quality gates"
+  - Measurable QE metrics in baseline_metrics.json
+  - Integration with governance-agent and retro-coach
+  routed_at: '2025-12-10T10:55:40Z'
+  routed_by: circle_orchestrator
+  circle_roam_risk: 0.0
+- id: observability-first-b2JzZXJ2
+  title: Observability First (WSJF alignment)
+  status: VALIDATED
+  created_at: 2025-12-04T05:38Z
+  validated_at: 2025-12-08T20:53Z
+  validation_notes: Cycle 42 - 100% pattern coverage, 0 observability gaps, 595 metrics
+  phase: NOW
+  priority: important
+  wsjf_score: 4.08
+  user_value: 12
+  time_criticality: 7.8
+  risk_reduction: 10.8
+  job_size: 3
+  cost_of_delay: 30.6
+  pattern: observability-first
+  tags:
+  - pattern:wsjf
+  - pattern:observability-first
+  - circle:orchestrator
+  description: Close observability gaps surfaced by governance agent; ensure metrics
+    capture and dashboards exist before enabling mutation mode.
+  circle_owner: intuitive
+  validation:
+  - Run af governance-agent --json and confirm observability-first entries remain
+    in sync
+  - Update metrics_dashboard.md with new metrics_written counts
+  routed_at: '2025-12-10T10:55:40Z'
+  routed_by: circle_orchestrator
+  circle_roam_risk: 0.0
 - id: PHASE-A-5
   title: Create snapshot for rollback
   status: CANCELLED
@@ -455,193 +628,10 @@ items:
   cost_of_delay: 16
   description: Snapshot post-audit baseline (cancelled by user)
   note: User cancelled during execution
-  circle_owner: analyst
-- id: PHASE-B-1
-  title: BLOCKER-001 - Calibration dataset status and safe resume
-  status: COMPLETE
-  completed_at: 2025-11-30T21:45Z
-  note: 'Scripts created and validated: setup_calibration.sh and run_calibration_enhanced.sh.
-    Dry-run successful with 574 commits available. Ready for full run and AgentDB
-    import.'
-  phase: B
-  user_value: 9
-  time_criticality: 7
-  risk_reduction: 10
-  job_size: 4
-  wsjf_score: 6.5
-  cost_of_delay: 26
-  blocker_severity: HIGH
-  description: Resume calibration data collection in dry-run mode, then import to
-    AgentDB
-  commands:
-  - ls -la scripts/ci/*calibration* 2>&1
-  - ./scripts/ci/setup_calibration.sh 2>&1 | tee -a logs/calibration_setup.log
-  - ./scripts/ci/run_calibration_enhanced.sh --count 100 --validation-mode --auto-approve
-    --dry-run 2>&1 | tee -a logs/calibration_dry_run.log
-  circle_owner: assessor
-- id: PHASE-B-2
-  title: BLOCKER-003 - IPMI connectivity test with SSH fallback
-  status: COMPLETE
-  completed_at: 2025-11-15T01:30Z
-  note: 'SSH accessible on port 2222, device: stx-aio-0.corp.interface.tag.ooo, 251GB
-    RAM, 134 days uptime'
-  phase: B
-  user_value: 7
-  time_criticality: 6
-  risk_reduction: 9
-  job_size: 3
-  wsjf_score: 7.3
-  cost_of_delay: 22
-  pattern: safe-degrade
-  blocker_severity: MEDIUM
-  description: Validate device-24460 SSH/IPMI connectivity with conservative flags
-  device_id: '24460'
-  commands:
-  - ls -la scripts/ci/*ipmi* scripts/network/*ipmi* 2>&1
-  - ./scripts/generate_ssh_config.sh --pem-folder "$HOME/pem" --device device-24460
-    --keepalive 60 --countmax 3 2>&1 | tee -a logs/ssh_config_gen.log
-  - python3 ./scripts/ci/test_device_24460_ssh_ipmi_enhanced.py --hostname device-24460
-    --ssh-only --timeout 15 2>&1 | tee -a logs/ipmi_test.log
-  circle_owner: assessor
-- id: PHASE-B-3
-  title: Process Governor performance retrofit (rate limiting/backoff/batching)
-  status: COMPLETE
-  completed_at: 2025-11-15T01:25Z
-  note: 'Already optimized: 40% CPU headroom, token-bucket rate limiting, batch size
-    3, WIP limit 6, exponential backoff'
-  phase: B
-  user_value: 10
-  time_criticality: 9
-  risk_reduction: 10
-  job_size: 5
-  wsjf_score: 5.8
-  cost_of_delay: 29
-  pattern: safe-degrade
-  blocker_severity: HIGH
-  description: Prevent 100% CPU thrash with token-bucket throttling and exponential
-    backoff
-  current_state: Load 29.21 vs threshold 19.6 (-4.3% headroom)
-  files_to_modify:
-  - src/runtime/processGovernor.ts
-  - scripts/validate-governor-integration.sh
-  - tests/integration/throttled-stress.test.ts
-  target_improvements:
-  - Token-bucket or leaky-bucket throttling
-  - Exponential backoff on failures
-  - Micro-batching of spawns and log writes
-  - Adaptive polling intervals
   circle_owner: orchestrator
-- id: VALIDATE-1
-  title: Validation suite - stress, throttling, and QE agent flows
-  status: COMPLETE
-  completed_at: 2025-11-15T02:20Z
-  note: 8/8 validation tests passed, 0 WIP violations, system fully operational
-  phase: VALIDATE
-  user_value: 8
-  time_criticality: 7
-  risk_reduction: 9
-  job_size: 3
-  wsjf_score: 8
-  cost_of_delay: 24
-  pattern: governance-review
-  description: Run focused test suites to validate process governor and flow metrics
-  commands:
-  - npm test -- tests/integration/concurrent-operations.test.js
-  - npm test -- tests/integration/throttled-stress.test.ts
-  circle_owner: assessor
-- id: RCA-1764385633682-ilghhf
-  title: Apply circuit-breaker pattern to processGovernor
-  status: DONE
-  created_at: 2025-11-29 03:07:13.682000+00:00
-  completed_at: 2025-12-01T00:20Z
-  pattern: cascading-failure
-  rca_method: 5-whys
-  priority: critical
-  circle: orchestrator
-  rca_iteration: 1
-  source: iterative-rca
-  resolution:
-    component_identified: src/runtime/processGovernor.ts
-    implementation_details: 'Circuit breaker pattern implemented per DEEP-DIVE-3 Phase
-      1 recommendation.
-
-      States: CLOSED → OPEN → HALF_OPEN → CLOSED
-
-      '
-    configuration:
-      AF_CIRCUIT_BREAKER_ENABLED: true (default)
-      AF_CIRCUIT_BREAKER_THRESHOLD: 5 failures to trip
-      AF_CIRCUIT_BREAKER_WINDOW_MS: 10000 (10 seconds)
-      AF_CIRCUIT_BREAKER_COOLDOWN_MS: 30000 (30 seconds)
-      AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS: 3 test requests
-    features_added:
-    - CircuitBreakerState enum (CLOSED, OPEN, HALF_OPEN)
-    - CircuitBreakerOpenError exception class
-    - isCircuitClosed() - check if requests allowed
-    - recordSuccess() - track successful operations
-    - recordFailure() - track failed operations (after all retries exhausted)
-    - getCircuitBreakerState() - retrieve current circuit state
-    integration_points:
-    - waitForCapacity() - throws CircuitBreakerOpenError when OPEN
-    - runBatched() - records success/failure after retry exhaustion
-    - guarded() - records success/failure for single operations
-    - reset() - includes circuit breaker state reset for testing
-    incident_types_added:
-    - CIRCUIT_OPEN - logged when circuit trips
-    - CIRCUIT_HALF_OPEN - logged when cooldown expires
-    - CIRCUIT_CLOSED - logged when circuit recovers
-    tests_passing: 261/261
-  circle_owner: assessor
-- id: ROLE-REPLENISH-001
-  title: Role Replenishment & Structure
-  status: DONE
-  created_at: 2025-11-30T23:00Z
-  completed_at: 2025-12-01T01:00Z
-  phase: NOW
-  priority: critical
-  wsjf_score: 20
-  user_value: 10
-  time_criticality: 10
-  risk_reduction: 10
-  job_size: 2
-  cost_of_delay: 30
-  pattern: organizational-structure
-  tags:
-  - Holacracy
-  - Roles
-  description: Audit and replenish Holacracy circle roles and directory structure.
-  circle_owner: orchestrator
-  resolution: 'Role structure validated and aligned with current priorities.
-
-    DISCORD-1/2 completed, security items resolved.
-
-    '
-- id: TOOL-VALIDATE-001
-  title: Critical Tool Validation
-  status: DONE
-  created_at: 2025-11-30T23:00Z
-  completed_at: 2025-12-01T01:00Z
-  phase: NOW
-  priority: urgent
-  wsjf_score: 15
-  user_value: 9
-  time_criticality: 9
-  risk_reduction: 9
-  job_size: 3
-  cost_of_delay: 27
-  pattern: tool-integrity
-  tags:
-  - Validation
-  - Tools
-  description: Validate agentic-jujutsu, neural-trader, and stripe scripts.
-  circle_owner: assessor
-  resolution: 'Discord bot validated (discord.py 2.6.4 installed, dry-run passed).
-
-    Stripe webhook handler already complete (INTEGRATE-1).
-
-    Neural trader scripts present and functional.
-
-    '
+  routed_at: '2025-12-10T10:55:40Z'
+  routed_by: circle_orchestrator
+  circle_roam_risk: 0.0
 - id: GOALIE-ALIGN-001
   title: Goalie Alignment
   status: DONE
@@ -666,6 +656,47 @@ items:
     WSJF prioritization refreshed for backlog items.
 
     '
+  circle_roam_risk: 0.0
+- id: PHASE-B-1
+  title: BLOCKER-001 - Calibration dataset status and safe resume
+  status: COMPLETE
+  completed_at: 2025-11-30T21:45Z
+  note: 'Scripts created and validated: setup_calibration.sh and run_calibration_enhanced.sh.
+    Dry-run successful with 574 commits available. Ready for full run and AgentDB
+    import.'
+  phase: B
+  user_value: 9
+  time_criticality: 7
+  risk_reduction: 10
+  job_size: 4
+  wsjf_score: 6.5
+  cost_of_delay: 26
+  blocker_severity: HIGH
+  description: Resume calibration data collection in dry-run mode, then import to
+    AgentDB
+  commands:
+  - ls -la scripts/ci/*calibration* 2>&1
+  - ./scripts/ci/setup_calibration.sh 2>&1 | tee -a logs/calibration_setup.log
+  - ./scripts/ci/run_calibration_enhanced.sh --count 100 --validation-mode --auto-approve
+    --dry-run 2>&1 | tee -a logs/calibration_dry_run.log
+  circle_owner: orchestrator
+  routed_at: '2025-12-10T10:55:40Z'
+  routed_by: circle_orchestrator
+  circle_roam_risk: 0.0
+- id: PHASE-C-AUDIT
+  title: Phase C - Environment Restoration Audit
+  status: COMPLETE
+  completed_at: 2025-11-14T00:35Z
+  phase: C
+  wsjf_score: null
+  deliverables:
+  - Audit findings appended to INCREMENTAL_RELENTLESS_EXECUTION_STATUS.md
+  - 'Baseline diagnostics: 8652 governor events, 2 learning events'
+  - 'Gaps identified: hooks missing, risk DB missing, learning capture gap 4326:1'
+  circle_owner: orchestrator
+  routed_at: '2025-12-10T10:55:40Z'
+  routed_by: circle_orchestrator
+  circle_roam_risk: 0.0
 safla_analysis:
   timestamp: 2025-12-01 01:00:00+00:00
   run_id: safla-20251201-replenish
@@ -711,18 +742,18 @@ safla_analysis:
     reason: Requires market data provider API
   recommendations:
     completed_this_session:
-    - WSJF-1 (9.0) - WSJF calculation automation ✅
-    - METRICS-1 (7.0) - metrics-to-retro linking ✅
-    - BUFFER-2 (5.67) - User testing and feedback ✅
-    - BUFFER-1 (3.5) - Technical debt cleanup ✅
-    - EARNINGS-1 (6.0) - Earnings calendar ✅
-    - SCANNER-1 (5.25) - Oversold scanner ✅
-    - SCANNER-2 (4.8) - Analyst sentiment ✅
-    - EARNINGS-2 (4.2) - Earnings options strategy analyzer ✅
-    - ALERTS-1 (4.4) - Multi-channel alert system ✅
-    - PORTFOLIO-1 (3.83) - Portfolio risk dashboard ✅
-    - ML-1 (2.125) - Machine learning setup predictor ✅
-    - BACKTEST-1 (3.0) - Strategy backtesting engine ✅
+    - "WSJF-1 (9.0) - WSJF calculation automation \u2705"
+    - "METRICS-1 (7.0) - metrics-to-retro linking \u2705"
+    - "BUFFER-2 (5.67) - User testing and feedback \u2705"
+    - "BUFFER-1 (3.5) - Technical debt cleanup \u2705"
+    - "EARNINGS-1 (6.0) - Earnings calendar \u2705"
+    - "SCANNER-1 (5.25) - Oversold scanner \u2705"
+    - "SCANNER-2 (4.8) - Analyst sentiment \u2705"
+    - "EARNINGS-2 (4.2) - Earnings options strategy analyzer \u2705"
+    - "ALERTS-1 (4.4) - Multi-channel alert system \u2705"
+    - "PORTFOLIO-1 (3.83) - Portfolio risk dashboard \u2705"
+    - "ML-1 (2.125) - Machine learning setup predictor \u2705"
+    - "BACKTEST-1 (3.0) - Strategy backtesting engine \u2705"
     immediate:
     - INTEGRATION-1 - System integration testing
     - INFRA-2 (2.83) - Monitoring dashboard
@@ -738,7 +769,7 @@ roadmap_metadata:
   execution_mode: local-only
   constraints:
   - No new .md files (append to approved docs)
-  - <1hr retro insight→code commit
+  - "<1hr retro insight\u2192code commit"
   - '>80% action completion rate'
   - <5 context switches per day
   - WIP violations <5%
@@ -798,17 +829,17 @@ roadmap_items:
     - 'Run: python3 scripts/discord_wsjf_bot.py'
     - 'Or: python3 scripts/discord_trading_bot.py --demo'
   acceptance_criteria_met:
-  - config/.env.production populated with actual credentials: ✅
-  - ./scripts/deploy_discord_bot.sh validate passes: ✅
-  - Bot configuration valid: ✅
-  - Dry-run test passed: ✅
+  - config/.env.production populated with actual credentials: "\u2705"
+  - ./scripts/deploy_discord_bot.sh validate passes: "\u2705"
+  - Bot configuration valid: "\u2705"
+  - Dry-run test passed: "\u2705"
   commands:
   - ./scripts/deploy_discord_bot.sh validate
   - ./scripts/deploy_discord_bot.sh deploy-local
   - python3 scripts/discord_wsjf_bot.py
   definition_of_done:
-  - Bot validated and ready for local execution: ✅
-  - Status documented in docs/INCREMENTAL_RELENTLESS_EXECUTION_STATUS.md: ✅
+  - Bot validated and ready for local execution: "\u2705"
+  - Status documented in docs/INCREMENTAL_RELENTLESS_EXECUTION_STATUS.md: "\u2705"
   estimated_hours: 2
   actual_hours: 0.5
 - id: DISCORD-2
@@ -851,10 +882,10 @@ roadmap_items:
     - Removed Cloudflare credential requirement for local mode
     - Validation now passes with Discord-only credentials
   acceptance_criteria_met:
-  - Slash command routing: ✅ (via discord.py)
-  - Rate limiting per user: ✅ (5 commands/min in discord_wsjf_bot.py)
-  - Rate limiting per guild: ✅ (webhook rate limit in config)
-  - Error handling: ✅ (built into bot framework)
+  - Slash command routing: "\u2705 (via discord.py)"
+  - Rate limiting per user: "\u2705 (5 commands/min in discord_wsjf_bot.py)"
+  - Rate limiting per guild: "\u2705 (webhook rate limit in config)"
+  - Error handling: "\u2705 (built into bot framework)"
   estimated_hours: 3
   actual_hours: 0.5
 - id: EARNINGS-1
@@ -873,13 +904,14 @@ roadmap_items:
   priority: HIGH
   description: Implement provider-agnostic earnings calendar with caching
   dependencies:
-  - Financial data provider API key (Alpha Vantage, Polygon.io, or FMP) ✅
+  - "Financial data provider API key (Alpha Vantage, Polygon.io, or FMP) \u2705"
   acceptance_criteria:
-  - 'scripts/data/earnings_calendar_fetcher.py created ✅'
-  - 'Support for multiple providers via EARNINGS_PROVIDER env var ✅ (fmp, polygon, finnhub)'
-  - 'SQLite caching with 24hr TTL (cache/earnings_calendar.db) ✅'
-  - 'Returns next 30 days of earnings events ✅'
-  - 'Includes: ticker, date, time (BMO/AMC), EPS estimate ✅'
+  - "scripts/data/earnings_calendar_fetcher.py created \u2705"
+  - "Support for multiple providers via EARNINGS_PROVIDER env var \u2705 (fmp, polygon,\
+    \ finnhub)"
+  - "SQLite caching with 24hr TTL (cache/earnings_calendar.db) \u2705"
+  - "Returns next 30 days of earnings events \u2705"
+  - "Includes: ticker, date, time (BMO/AMC), EPS estimate \u2705"
   commands:
   - python3 scripts/data/earnings_calendar_fetcher.py --days 30
   - python3 scripts/data/earnings_calendar_fetcher.py --ticker AAPL
@@ -888,7 +920,10 @@ roadmap_items:
   actual_hours: 1
   implementation_notes:
     script: scripts/data/earnings_calendar_fetcher.py
-    providers_supported: [fmp, polygon, finnhub]
+    providers_supported:
+    - fmp
+    - polygon
+    - finnhub
     cache_location: cache/earnings_calendar.db
     cache_ttl_hours: 24
     api_status: Requires valid API key (FMP 403 error indicates key may need refresh)
@@ -908,30 +943,38 @@ roadmap_items:
   priority: MEDIUM
   description: Analyze optimal options strategies for upcoming earnings
   dependencies:
-  - EARNINGS-1 ✅
+  - "EARNINGS-1 \u2705"
   acceptance_criteria:
-  - 'scripts/analysis/earnings_options_strategy.py created ✅'
-  - 'Strategy recommendations: straddle, strangle, iron condor, calendar spread ✅'
-  - 'Risk/reward calculation for each strategy ✅'
-  - 'Expected move vs implied move comparison ✅'
-  - 'Cost basis and max profit/loss displayed ✅'
+  - "scripts/analysis/earnings_options_strategy.py created \u2705"
+  - "Strategy recommendations: straddle, strangle, iron condor, calendar spread \u2705"
+  - "Risk/reward calculation for each strategy \u2705"
+  - "Expected move vs implied move comparison \u2705"
+  - "Cost basis and max profit/loss displayed \u2705"
   commands:
   - python3 scripts/analysis/earnings_options_strategy.py --ticker TSLA --expiry 2025-01-24
-  - python3 scripts/analysis/earnings_options_strategy.py --ticker AAPL --strategy straddle --detail
+  - python3 scripts/analysis/earnings_options_strategy.py --ticker AAPL --strategy
+    straddle --detail
   - python3 scripts/analysis/earnings_options_strategy.py --ticker NVDA --json
   estimated_hours: 4
   actual_hours: 1
   implementation_notes:
     script: scripts/analysis/earnings_options_strategy.py
-    strategies_supported: [straddle, strangle, iron_condor, calendar_spread]
-    output_formats: [table, detail, json]
+    strategies_supported:
+    - straddle
+    - strangle
+    - iron_condor
+    - calendar_spread
+    output_formats:
+    - table
+    - detail
+    - json
     api_provider: Polygon.io (fallback to mock prices)
     features:
-      - Black-Scholes-like option pricing estimates
-      - IV rank calculation from 30-day price history
-      - Expected vs implied move analysis
-      - Risk/reward ratio sorting
-      - Strategy recommendations
+    - Black-Scholes-like option pricing estimates
+    - IV rank calculation from 30-day price history
+    - Expected vs implied move analysis
+    - Risk/reward ratio sorting
+    - Strategy recommendations
 - id: SCANNER-1
   title: Oversold Technical Scanner
   status: DONE
@@ -948,13 +991,13 @@ roadmap_items:
   priority: HIGH
   description: Scan tech sector for oversold conditions (RSI, MACD, Stochastic)
   dependencies:
-  - Market data provider API ✅ (Polygon.io)
+  - "Market data provider API \u2705 (Polygon.io)"
   acceptance_criteria:
-  - 'scripts/scanners/oversold_tech_scanner.py created ✅'
-  - 'Scans NASDAQ-100 and tech-heavy S&P 500 constituents ✅ (45 tickers)'
-  - 'Filters: RSI <30, MACD bearish crossover, Stochastic <20 ✅'
-  - 'Includes: price, volume, SMA50, SMA200 ✅'
-  - 'Output: JSON and formatted terminal table ✅'
+  - "scripts/scanners/oversold_tech_scanner.py created \u2705"
+  - "Scans NASDAQ-100 and tech-heavy S&P 500 constituents \u2705 (45 tickers)"
+  - "Filters: RSI <30, MACD bearish crossover, Stochastic <20 \u2705"
+  - "Includes: price, volume, SMA50, SMA200 \u2705"
+  - "Output: JSON and formatted terminal table \u2705"
   commands:
   - python3 scripts/scanners/oversold_tech_scanner.py
   - python3 scripts/scanners/oversold_tech_scanner.py --rsi-max 25
@@ -966,7 +1009,7 @@ roadmap_items:
     provider: Polygon.io (DATA_MARKET_API_KEY)
     tech_universe: 45 stocks (NASDAQ-100 + major tech)
     indicators: RSI, MACD, SMA50, SMA200, Stochastic
-    test_verified: "AAPL RSI=68.2, price=$278.85, SMA50=$262.64"
+    test_verified: AAPL RSI=68.2, price=$278.85, SMA50=$262.64
 - id: SCANNER-2
   title: Analyst Sentiment Integration
   status: DONE
@@ -983,16 +1026,17 @@ roadmap_items:
   priority: HIGH
   description: Integrate analyst ratings with oversold scanner
   dependencies:
-  - SCANNER-1 ✅
-  - Analyst data provider (Finnhub) ✅
+  - "SCANNER-1 \u2705"
+  - "Analyst data provider (Finnhub) \u2705"
   acceptance_criteria:
-  - 'scripts/data/analyst_ratings_fetcher.py created ✅'
-  - 'Fetches: consensus rating, price target, buy/hold/sell counts ✅'
-  - 'Filters oversold stocks with ≥3 Buy ratings ✅ (--min-buys flag)'
-  - 'Integrates with oversold scanner ✅ (--with-analyst-ratings flag)'
+  - "scripts/data/analyst_ratings_fetcher.py created \u2705"
+  - "Fetches: consensus rating, price target, buy/hold/sell counts \u2705"
+  - "Filters oversold stocks with \u22653 Buy ratings \u2705 (--min-buys flag)"
+  - "Integrates with oversold scanner \u2705 (--with-analyst-ratings flag)"
   commands:
   - python3 scripts/data/analyst_ratings_fetcher.py --ticker AAPL
-  - python3 scripts/scanners/oversold_tech_scanner.py --with-analyst-ratings --min-buys 3
+  - python3 scripts/scanners/oversold_tech_scanner.py --with-analyst-ratings --min-buys
+    3
   estimated_hours: 4
   actual_hours: 1
   implementation_notes:
@@ -1017,10 +1061,10 @@ roadmap_items:
   priority: MEDIUM
   description: Update show_quick_wins_progress.sh with WSJF automation
   acceptance_criteria:
-  - 'Calculates WSJF: (priority × urgency) / effort ✅'
-  - Displays recommended next item based on highest WSJF ✅
-  - 'Tracks throughput: items/day, lead time, cycle time ✅'
-  - Cost of Delay estimation for HIGH priority items ✅
+  - "Calculates WSJF: (priority \xD7 urgency) / effort \u2705"
+  - "Displays recommended next item based on highest WSJF \u2705"
+  - "Tracks throughput: items/day, lead time, cycle time \u2705"
+  - "Cost of Delay estimation for HIGH priority items \u2705"
   commands:
   - ./scripts/show_quick_wins_progress.sh --wsjf
   - ./scripts/show_quick_wins_progress.sh --json
@@ -1037,7 +1081,7 @@ roadmap_items:
       wsjf_calculation: WSJF = (BV + TC + RR) / JS
       recommended_next_item: Top WSJF score item displayed with breakdown
       throughput_tracking: items_today, items_week, items_per_day, lead_time, cycle_time
-      cod_estimation: CoD = (BV + TC + RR) × 1.5 per week
+      cod_estimation: "CoD = (BV + TC + RR) \xD7 1.5 per week"
 - id: METRICS-1
   title: Metrics-to-Retro Linking Automation
   status: DONE
@@ -1054,10 +1098,10 @@ roadmap_items:
   priority: MEDIUM
   description: Link git commits to QUICK_WINS items automatically
   acceptance_criteria:
-  - Parses git log for commit messages referencing retro items ✅
-  - Calculates CoD for incomplete HIGH priority items ✅
-  - Tracks experiments via git log grep ✅
-  - 'Generates impact report: retro item → commits → features ✅'
+  - "Parses git log for commit messages referencing retro items \u2705"
+  - "Calculates CoD for incomplete HIGH priority items \u2705"
+  - "Tracks experiments via git log grep \u2705"
+  - "Generates impact report: retro item \u2192 commits \u2192 features \u2705"
   commands:
   - ./scripts/link_metrics_to_retro.sh
   estimated_hours: 2
@@ -1088,20 +1132,27 @@ roadmap_items:
   priority: MEDIUM
   description: Real-time portfolio risk monitoring with diversification analysis
   acceptance_criteria:
-  - 'Portfolio beta calculation vs SPY/QQQ ✅'
-  - 'Sector concentration analysis ✅'
-  - 'Correlation matrix for holdings ✅'
-  - 'Value at Risk (VaR) calculation (95%, 99% confidence) ✅'
-  - 'Greeks aggregation for options positions ✅'
-  - 'Integrated with Discord /portfolio command (manual)'
+  - "Portfolio beta calculation vs SPY/QQQ \u2705"
+  - "Sector concentration analysis \u2705"
+  - "Correlation matrix for holdings \u2705"
+  - "Value at Risk (VaR) calculation (95%, 99% confidence) \u2705"
+  - "Greeks aggregation for options positions \u2705"
+  - Integrated with Discord /portfolio command (manual)
   commands:
   - python3 scripts/portfolio_risk_dashboard.py --portfolio default
-  - python3 scripts/portfolio_risk_dashboard.py --tickers AAPL:100:150,TSLA:50:200 --json
+  - python3 scripts/portfolio_risk_dashboard.py --tickers AAPL:100:150,TSLA:50:200
+    --json
   estimated_hours: 5
   actual_hours: 0.5
   implementation_notes:
     script: scripts/portfolio_risk_dashboard.py
-    metrics: [beta, VaR_95, VaR_99, sector_concentration, correlation_matrix, greeks]
+    metrics:
+    - beta
+    - VaR_95
+    - VaR_99
+    - sector_concentration
+    - correlation_matrix
+    - greeks
     data_provider: Polygon.io
     fallback: Mock prices when API rate-limited
 - id: ALERTS-1
@@ -1120,11 +1171,11 @@ roadmap_items:
   priority: MEDIUM
   description: 'Unified alert system: Discord, SMS, Push (optional)'
   acceptance_criteria:
-  - 'Alert triggers: price, RSI, MACD, volume ✅'
-  - 'Discord webhook integration ✅'
-  - 'Optional: Plivo/Telnyx SMS integration ✅ (placeholder)'
-  - 'Rate limiting: max 10 alerts/hour per user ✅'
-  - 'Alert history stored in cache/alerts.db ✅'
+  - "Alert triggers: price, RSI, MACD, volume \u2705"
+  - "Discord webhook integration \u2705"
+  - "Optional: Plivo/Telnyx SMS integration \u2705 (placeholder)"
+  - "Rate limiting: max 10 alerts/hour per user \u2705"
+  - "Alert history stored in cache/alerts.db \u2705"
   commands:
   - python3 scripts/alerts/alert_manager.py --add AAPL 'price<150' discord
   - python3 scripts/alerts/alert_manager.py --list
@@ -1133,7 +1184,12 @@ roadmap_items:
   actual_hours: 0.5
   implementation_notes:
     script: scripts/alerts/alert_manager.py
-    features: [price alerts, RSI alerts, volume alerts, Discord webhooks, SMS placeholder]
+    features:
+    - price alerts
+    - RSI alerts
+    - volume alerts
+    - Discord webhooks
+    - SMS placeholder
     storage: SQLite (cache/alerts.db)
     rate_limiting: 10/hour per user
 - id: ML-1
@@ -1152,21 +1208,35 @@ roadmap_items:
   priority: LOW
   description: Train ML model to identify high-probability setups
   acceptance_criteria:
-  - 'Feature engineering: technical indicators, volume, sector performance ✅'
-  - 'Model: RandomForest or XGBoost for binary classification ✅'
-  - 'Training data: historical setup performance ✅'
-  - 'Backtesting framework with precision/recall metrics ✅'
-  - 'Model versioning in models/setup_predictor_vX.pkl ✅'
+  - "Feature engineering: technical indicators, volume, sector performance \u2705"
+  - "Model: RandomForest or XGBoost for binary classification \u2705"
+  - "Training data: historical setup performance \u2705"
+  - "Backtesting framework with precision/recall metrics \u2705"
+  - "Model versioning in models/setup_predictor_vX.pkl \u2705"
   commands:
   - python3 scripts/ml/train_setup_predictor.py --lookback 90 --min-samples 50
   - python3 scripts/ml/predict_setups.py --ticker MSFT
   estimated_hours: 10
   actual_hours: 1
   implementation_notes:
-    scripts: [scripts/ml/train_setup_predictor.py, scripts/ml/predict_setups.py]
-    models_supported: [RandomForest, XGBoost]
-    features: [RSI, MACD, SMA20, SMA50, volume_ratio, ATR, price_sma_ratio]
-    metrics: [precision, recall, cross_validation]
+    scripts:
+    - scripts/ml/train_setup_predictor.py
+    - scripts/ml/predict_setups.py
+    models_supported:
+    - RandomForest
+    - XGBoost
+    features:
+    - RSI
+    - MACD
+    - SMA20
+    - SMA50
+    - volume_ratio
+    - ATR
+    - price_sma_ratio
+    metrics:
+    - precision
+    - recall
+    - cross_validation
     storage: models/setup_predictor_vYYYYMMDD.pkl
 - id: BACKTEST-1
   title: Strategy Backtesting Engine
@@ -1184,21 +1254,34 @@ roadmap_items:
   priority: MEDIUM
   description: Backtest trading strategies with realistic slippage/commissions
   acceptance_criteria:
-  - 'Strategy definition via YAML config (entry/exit rules) ✅'
-  - 'Supports: long/short equity, options strategies ✅'
-  - 'Metrics: Sharpe, Sortino, max drawdown, win rate, profit factor ✅'
-  - 'Commission model: flat + percentage ✅'
-  - 'Slippage simulation: bid-ask spread + market impact ✅'
+  - "Strategy definition via YAML config (entry/exit rules) \u2705"
+  - "Supports: long/short equity, options strategies \u2705"
+  - "Metrics: Sharpe, Sortino, max drawdown, win rate, profit factor \u2705"
+  - "Commission model: flat + percentage \u2705"
+  - "Slippage simulation: bid-ask spread + market impact \u2705"
   commands:
-  - python3 scripts/backtest/backtest_engine.py --strategy config/strategies/oversold_bounce.yaml --start 2024-01-01
+  - python3 scripts/backtest/backtest_engine.py --strategy config/strategies/oversold_bounce.yaml
+    --start 2024-01-01
   estimated_hours: 8
   actual_hours: 1
   implementation_notes:
     script: scripts/backtest/backtest_engine.py
     example_config: config/strategies/oversold_bounce.yaml
-    metrics: [Sharpe, Sortino, max_drawdown, win_rate, profit_factor]
-    features: [RSI_entry, SMA_filter, stop_loss, take_profit]
-    outputs: [table, JSON, trade_log]
+    metrics:
+    - Sharpe
+    - Sortino
+    - max_drawdown
+    - win_rate
+    - profit_factor
+    features:
+    - RSI_entry
+    - SMA_filter
+    - stop_loss
+    - take_profit
+    outputs:
+    - table
+    - JSON
+    - trade_log
 - id: INFRA-1
   title: Process Governor Performance Tuning
   status: COMPLETE
@@ -1231,22 +1314,28 @@ roadmap_items:
   priority: LOW
   description: Web dashboard for metrics, incidents, and action tracking
   acceptance_criteria:
-  - Real-time updates via WebSocket or SSE ✅
-  - 'Panels: TDD metrics, governor incidents, WIP violations, action throughput ✅'
-  - 'Historical charts: CPU load, lead time, cycle time, experiments ✅'
-  - Alert panel for critical thresholds ✅
+  - "Real-time updates via WebSocket or SSE \u2705"
+  - "Panels: TDD metrics, governor incidents, WIP violations, action throughput \u2705"
+  - "Historical charts: CPU load, lead time, cycle time, experiments \u2705"
+  - "Alert panel for critical thresholds \u2705"
   commands:
   - npm run dashboard:start
   estimated_hours: 7
   actual_start: 2025-12-03
   actual_end: 2025-12-03
-  implementation_notes: |
-    - Backend: Node.js/Express with WebSocket (ws library)
+  implementation_notes: '- Backend: Node.js/Express with WebSocket (ws library)
+
     - Frontend: HTML/CSS/JavaScript with Chart.js integration
+
     - Deployed to yo.tag.ooo as systemd service (agentic-dashboard)
+
     - Running on port 8080 (localhost accessible, external requires AWS SG update)
+
     - WebSocket updates every 5 seconds
+
     - Commit: fc581ea (monitoring scripts), pending (dashboard server)
+
+    '
 - id: INTEGRATE-1
   title: Stripe Webhook Handler Production Readiness
   status: COMPLETE
@@ -1280,10 +1369,10 @@ roadmap_items:
   priority: LOW
   description: Stream overlay with real-time alerts and portfolio updates
   acceptance_criteria:
-  - OBS WebSocket integration ✅
-  - Real-time price ticker overlay ✅
-  - Alert popups for Discord /alert triggers ✅
-  - Portfolio P&L display (optional toggle) ✅
+  - "OBS WebSocket integration \u2705"
+  - "Real-time price ticker overlay \u2705"
+  - "Alert popups for Discord /alert triggers \u2705"
+  - "Portfolio P&L display (optional toggle) \u2705"
   commands:
   - python3 scripts/integrations/twitch_overlay.py --obs-host localhost --obs-port
   estimated_hours: 6
@@ -1291,10 +1380,10 @@ roadmap_items:
   implementation_notes:
     script: scripts/integrations/twitch_overlay.py
     features:
-      - Real-time quotes from Polygon.io (5-second updates)
-      - OBS WebSocket integration (obsws-python)
-      - Console fallback when OBS not connected
-      - Alert popup support for triggered alerts
+    - Real-time quotes from Polygon.io (5-second updates)
+    - OBS WebSocket integration (obsws-python)
+    - Console fallback when OBS not connected
+    - Alert popup support for triggered alerts
     dependencies: obsws-python, aiohttp, python-dotenv
 - id: BUFFER-1
   title: Technical Debt Cleanup
@@ -1312,18 +1401,18 @@ roadmap_items:
   priority: LOW
   description: Refactor, document, and optimize existing code
   acceptance_criteria:
-  - 'All scripts have --help documentation ✅'
-  - 'README.md updated with latest features ✅ (done via DOCS items)'
-  - 'Remove unused dependencies ✅ (verified with npm list)'
-  - 'Consolidate duplicate logic ✅ (test import fix)'
+  - "All scripts have --help documentation \u2705"
+  - "README.md updated with latest features \u2705 (done via DOCS items)"
+  - "Remove unused dependencies \u2705 (verified with npm list)"
+  - "Consolidate duplicate logic \u2705 (test import fix)"
   estimated_hours: 6
   actual_hours: 0.5
   implementation_notes:
     verified_help_docs:
-      - scripts/user_feedback_collector.py --help
-      - scripts/portfolio_technical_analyzer.py --help
-      - scripts/discord_wsjf_bot.py --help
-      - scripts/show_quick_wins_progress.sh --wsjf
+    - scripts/user_feedback_collector.py --help
+    - scripts/portfolio_technical_analyzer.py --help
+    - scripts/discord_wsjf_bot.py --help
+    - scripts/show_quick_wins_progress.sh --wsjf
     test_fix: Fixed vitest import in AffiliateStateTracker.test.ts
 - id: BUFFER-2
   title: User Testing and Feedback
@@ -1341,32 +1430,32 @@ roadmap_items:
   priority: MEDIUM
   description: Gather user feedback and implement quick fixes
   acceptance_criteria:
-  - 'At least 5 users test Discord bot features ✅ (5 users tested)'
-  - 'Collect feedback via form or Discord channel ✅ (user_feedback_collector.py)'
-  - 'Implement top 3 requested features or fixes ✅'
-  - 'Document feedback in logs/user_feedback.jsonl ✅'
+  - "At least 5 users test Discord bot features \u2705 (5 users tested)"
+  - "Collect feedback via form or Discord channel \u2705 (user_feedback_collector.py)"
+  - "Implement top 3 requested features or fixes \u2705"
+  - "Document feedback in logs/user_feedback.jsonl \u2705"
   estimated_hours: 4
   actual_hours: 1
   implementation_details:
     feedback_collector: scripts/user_feedback_collector.py
     feedback_log: logs/user_feedback.jsonl
     users_tested:
-      - alice@test.com (portfolio, 5/5)
-      - bob@trader.io (scan, 4/5)
-      - charlie@fintech.com (status, 5/5)
-      - diana@quant.io (earnings, 4/5)
-      - evan@hedge.co (blockers, 5/5)
+    - alice@test.com (portfolio, 5/5)
+    - bob@trader.io (scan, 4/5)
+    - charlie@fintech.com (status, 5/5)
+    - diana@quant.io (earnings, 4/5)
+    - evan@hedge.co (blockers, 5/5)
     avg_rating: 4.6
     top_requests_implemented:
-      - request: Add options Greeks display (2 votes)
-        implementation: Added --greeks flag to portfolio_technical_analyzer.py
-        status: DONE
-      - request: Add sector filter to scanner
-        implementation: Deferred to SCANNER-1 (more comprehensive)
-        status: DEFERRED
-      - request: Add Slack integration for blockers
-        implementation: Deferred to ALERTS-1 (multi-channel alerts)
-        status: DEFERRED
+    - request: Add options Greeks display (2 votes)
+      implementation: Added --greeks flag to portfolio_technical_analyzer.py
+      status: DONE
+    - request: Add sector filter to scanner
+      implementation: Deferred to SCANNER-1 (more comprehensive)
+      status: DEFERRED
+    - request: Add Slack integration for blockers
+      implementation: Deferred to ALERTS-1 (multi-channel alerts)
+      status: DEFERRED
 risks:
 - id: RISK-001
   category: Dependency
@@ -1606,7 +1695,7 @@ legacy_items:
   cost_of_delay: 26
   description: Hardening retro loop with metrics collection and learning capture
   targets:
-  - Retro insight → code commit < 1h
+  - "Retro insight \u2192 code commit < 1h"
   - Action items completion > 80%
   - Context switches/day < 5
   commands:
@@ -1772,139 +1861,45 @@ next_sprint:
   - Report on circle-specific impacts generated
   - Identified bottlenecks per circle
   - Recommendations for capability improvements
-  resolution: '=== DEEP-DIVE-1: Circle Roles Impact on Production Maturity ===
-
-
-    ## Data Sources Analyzed
-
-    - pattern_metrics.jsonl: 2,347 events across circles
-
-    - governance_state.json: 39 delta iterations (avg delta: 0.1937)
-
-    - CONSOLIDATED_ACTIONS.yaml: 89 items with circle assignments
-
-
-    ## Circle Performance Summary
-
-
-    ### Orchestrator (58% completion - HIGHEST)
-
-    - Actions: 19 total, 11 completed
-
-    - Avg WSJF: 19.9 (highest priority work)
-
-    - Total COD: 1,132
-
-    - Pattern Events: 233 (8 unique patterns)
-
-    - Impact: Critical for flow metrics, dependency management, cadence
-
-    - Bottleneck: Integration coordination across circles
-
-    - Recommendation: Increase automation of release calendar management
-
-
-    ### Assessor (33% completion)
-
-    - Actions: 6 total, 2 completed
-
-    - Avg WSJF: 10.9
-
-    - Total COD: 196.5 (economic impact: $2.97M from pattern COD)
-
-    - Pattern Events: 338 (7 unique patterns)
-
-    - Impact: Process metrics enforcement, governance gates
-
-    - Bottleneck: Manual verification steps slowing throughput
-
-    - Recommendation: Automate forensic verification with Ed25519 signatures
-
-
-    ### Analyst (33% completion)
-
-    - Actions: 3 total, 1 completed
-
-    - Avg WSJF: 8.0
-
-    - Total COD: 72 (economic impact: $635K from pattern COD)
-
-    - Pattern Events: 745 (11 unique patterns) - MOST ACTIVE
-
-    - Impact: Learning metrics, experiment validation, data quality
-
-    - Bottleneck: Slow experiment-to-feature conversion
-
-    - Recommendation: Implement auto-tagging for retro→feature pipeline
-
-
-    ### Innovator (0% completion - STALLED)
-
-    - Actions: 3 total, 0 completed
-
-    - Avg WSJF: 10.7
-
-    - Total COD: 96
-
-    - Pattern Events: 294 (7 unique patterns)
-
-    - Impact: Federation agents, governance automation
-
-    - Bottleneck: No kill criteria causing zombie tasks
-
-    - Recommendation: Define explicit kill/scale thresholds per venture
-
-
-    ### Intuitive (0% completion - STALLED)
-
-    - Actions: 1 total, 0 completed
-
-    - Pattern Events: 253 (6 unique patterns)
-
-    - Impact: Observability-first, sensemaking
-
-    - Bottleneck: Missing telemetry for gap detection
-
-    - Recommendation: Wire observability gap detection to action generation
-
-
-    ### Seeker (0% completion - STALLED)
-
-    - Actions: 1 total, 0 completed
-
-    - Pattern Events: 217 (8 unique patterns)
-
-    - Impact: Horizon scanning, opportunity identification
-
-    - Bottleneck: Signals not converting to validated problems
-
-    - Recommendation: Add tripwire indicators for high-priority opportunities
-
-
-    ## Key Bottlenecks Identified
-
-    1. Circle-specific delta tracking not in governance_state.json
-
-    2. Innovator/Intuitive/Seeker circles have 0% completion
-
-    3. High COD in Assessor patterns not translating to action completion
-
-    4. 55/89 items (62%) have "unknown" circle assignment
-
-
-    ## Recommendations for Capability Improvements
-
-    1. Add circle field to delta_history entries for attribution
-
-    2. Implement ROAM escalation for stalled circles (>3 iterations no progress)
-
-    3. Create cross-circle dependency visualization in flow metrics
-
-    4. Auto-assign "unknown" items to appropriate circles based on pattern
-
-    5. Add circle-specific DoD gates (Orchestrator: flow metrics, Assessor: governance)
-
-    '
+  resolution: "=== DEEP-DIVE-1: Circle Roles Impact on Production Maturity ===\n\n\
+    ## Data Sources Analyzed\n- pattern_metrics.jsonl: 2,347 events across circles\n\
+    - governance_state.json: 39 delta iterations (avg delta: 0.1937)\n- CONSOLIDATED_ACTIONS.yaml:\
+    \ 89 items with circle assignments\n\n## Circle Performance Summary\n\n### Orchestrator\
+    \ (58% completion - HIGHEST)\n- Actions: 19 total, 11 completed\n- Avg WSJF: 19.9\
+    \ (highest priority work)\n- Total COD: 1,132\n- Pattern Events: 233 (8 unique\
+    \ patterns)\n- Impact: Critical for flow metrics, dependency management, cadence\n\
+    - Bottleneck: Integration coordination across circles\n- Recommendation: Increase\
+    \ automation of release calendar management\n\n### Assessor (33% completion)\n\
+    - Actions: 6 total, 2 completed\n- Avg WSJF: 10.9\n- Total COD: 196.5 (economic\
+    \ impact: $2.97M from pattern COD)\n- Pattern Events: 338 (7 unique patterns)\n\
+    - Impact: Process metrics enforcement, governance gates\n- Bottleneck: Manual\
+    \ verification steps slowing throughput\n- Recommendation: Automate forensic verification\
+    \ with Ed25519 signatures\n\n### Analyst (33% completion)\n- Actions: 3 total,\
+    \ 1 completed\n- Avg WSJF: 8.0\n- Total COD: 72 (economic impact: $635K from pattern\
+    \ COD)\n- Pattern Events: 745 (11 unique patterns) - MOST ACTIVE\n- Impact: Learning\
+    \ metrics, experiment validation, data quality\n- Bottleneck: Slow experiment-to-feature\
+    \ conversion\n- Recommendation: Implement auto-tagging for retro\u2192feature\
+    \ pipeline\n\n### Innovator (0% completion - STALLED)\n- Actions: 3 total, 0 completed\n\
+    - Avg WSJF: 10.7\n- Total COD: 96\n- Pattern Events: 294 (7 unique patterns)\n\
+    - Impact: Federation agents, governance automation\n- Bottleneck: No kill criteria\
+    \ causing zombie tasks\n- Recommendation: Define explicit kill/scale thresholds\
+    \ per venture\n\n### Intuitive (0% completion - STALLED)\n- Actions: 1 total,\
+    \ 0 completed\n- Pattern Events: 253 (6 unique patterns)\n- Impact: Observability-first,\
+    \ sensemaking\n- Bottleneck: Missing telemetry for gap detection\n- Recommendation:\
+    \ Wire observability gap detection to action generation\n\n### Seeker (0% completion\
+    \ - STALLED)\n- Actions: 1 total, 0 completed\n- Pattern Events: 217 (8 unique\
+    \ patterns)\n- Impact: Horizon scanning, opportunity identification\n- Bottleneck:\
+    \ Signals not converting to validated problems\n- Recommendation: Add tripwire\
+    \ indicators for high-priority opportunities\n\n## Key Bottlenecks Identified\n\
+    1. Circle-specific delta tracking not in governance_state.json\n2. Innovator/Intuitive/Seeker\
+    \ circles have 0% completion\n3. High COD in Assessor patterns not translating\
+    \ to action completion\n4. 55/89 items (62%) have \"unknown\" circle assignment\n\
+    \n## Recommendations for Capability Improvements\n1. Add circle field to delta_history\
+    \ entries for attribution\n2. Implement ROAM escalation for stalled circles (>3\
+    \ iterations no progress)\n3. Create cross-circle dependency visualization in\
+    \ flow metrics\n4. Auto-assign \"unknown\" items to appropriate circles based\
+    \ on pattern\n5. Add circle-specific DoD gates (Orchestrator: flow metrics, Assessor:\
+    \ governance)\n"
 - id: DEEP-DIVE-2
   title: RCA 5W on High System Load Incidents
   status: DONE
@@ -2015,11 +2010,11 @@ next_sprint:
     **Concept**: Trip circuit after N failures, half-open after cooldown\n**Feasibility**:\
     \ HIGH - already referenced in security-manager.md\n**Trade-offs**: +Fast failure,\
     \ +Prevents cascade | -May reject valid work\n**Implementation**:\n- Add CircuitBreaker\
-    \ class to processGovernor.ts\n- States: CLOSED → OPEN → HALF_OPEN → CLOSED\n\
-    - Trip on error_rate > 50% in 10s window\n\n## Alternative 2: Backpressure with\
-    \ Bounded Queues\n**Concept**: Producer blocks when queue full, consumer signals\
-    \ capacity\n**Feasibility**: HIGH - already in lionagi primitives.py\n**Trade-offs**:\
-    \ +Natural flow control, +No overload | -Latency spike\n**Implementation**:\n\
+    \ class to processGovernor.ts\n- States: CLOSED \u2192 OPEN \u2192 HALF_OPEN \u2192\
+    \ CLOSED\n- Trip on error_rate > 50% in 10s window\n\n## Alternative 2: Backpressure\
+    \ with Bounded Queues\n**Concept**: Producer blocks when queue full, consumer\
+    \ signals capacity\n**Feasibility**: HIGH - already in lionagi primitives.py\n\
+    **Trade-offs**: +Natural flow control, +No overload | -Latency spike\n**Implementation**:\n\
     - Replace array queue with bounded async queue\n- maxsize based on memory headroom\
     \ (process.memoryUsage())\n- Signal drain events to upstream\n\n## Alternative\
     \ 3: Adaptive Concurrency Limits\n**Concept**: Dynamically adjust WIP based on\
@@ -2192,8 +2187,8 @@ next_sprint:
   title: Implement SAFLA delta evaluation in governance.py
   status: complete
   completed_at: 2025-11-30 18:30:00+00:00
-  note: SAFLA delta evaluation verified in prod-cycle 14 - 14 governance_delta_evaluation
-    events emitted, delta_history tracking operational, Δ_total=0.2 > threshold=0.05
+  note: "SAFLA delta evaluation verified in prod-cycle 14 - 14 governance_delta_evaluation\
+    \ events emitted, delta_history tracking operational, \u0394_total=0.2 > threshold=0.05"
   priority: urgent
   circle: Innovator
   wsjf_score: 18
@@ -2210,15 +2205,11 @@ next_sprint:
   - governance
   - delta-evaluation
   - urgent
-  description: 'Implement SAFLA''s delta evaluation formula to quantify governance
-
-    parameter improvements before applying them:
-
-    Δ_total = α₁×Δ_performance + α₂×Δ_efficiency + α₃×Δ_stability + α₄×Δ_capability
-
-    This enables data-driven governance self-tuning with measurable impact.
-
-    '
+  description: "Implement SAFLA's delta evaluation formula to quantify governance\n\
+    parameter improvements before applying them:\n\u0394_total = \u03B1\u2081\xD7\u0394\
+    _performance + \u03B1\u2082\xD7\u0394_efficiency + \u03B1\u2083\xD7\u0394_stability\
+    \ + \u03B1\u2084\xD7\u0394_capability\nThis enables data-driven governance self-tuning\
+    \ with measurable impact.\n"
   files_to_modify:
   - scripts/policy/governance.py
   acceptance_criteria:
@@ -2577,24 +2568,13 @@ next_sprint:
     Add hysteresis to prevent thrashing between depth levels.
 
     '
-  resolution: 'Implemented depth-ladder oscillation detection in governance.py:
-
-    - Added OSCILLATION_WINDOW=6, OSCILLATION_THRESHOLD=3, OSCILLATION_HYSTERESIS=2
-    constants
-
-    - Added detect_depth_oscillation() function to analyze depth history for direction
-    changes
-
-    - Integrated into adjust_parameters_from_retro() with hysteresis to prevent thrashing
-
-    - When oscillation detected (≥3 direction changes in 6 iterations), stabilizes
-    at median depth
-
-    - Emits pattern events to pattern_metrics.jsonl for observability
-
-    - All 261 tests continue to pass
-
-    '
+  resolution: "Implemented depth-ladder oscillation detection in governance.py:\n\
+    - Added OSCILLATION_WINDOW=6, OSCILLATION_THRESHOLD=3, OSCILLATION_HYSTERESIS=2\
+    \ constants\n- Added detect_depth_oscillation() function to analyze depth history\
+    \ for direction changes\n- Integrated into adjust_parameters_from_retro() with\
+    \ hysteresis to prevent thrashing\n- When oscillation detected (\u22653 direction\
+    \ changes in 6 iterations), stabilizes at median depth\n- Emits pattern events\
+    \ to pattern_metrics.jsonl for observability\n- All 261 tests continue to pass\n"
   tags:
   - governance
   - pattern-recognition
@@ -2733,7 +2713,7 @@ next_sprint:
   - examples/rights-preserving-platform/Cargo.toml
   fix_version: '>=3.7.2'
   resolved_version: 3.7.2
-  resolution: Upgraded prometheus 0.13→0.14 which pulls protobuf 3.7.2
+  resolution: "Upgraded prometheus 0.13\u21920.14 which pulls protobuf 3.7.2"
   verification: cargo audit
   evidence_sources:
   - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/35
@@ -2757,7 +2737,7 @@ next_sprint:
   - examples/rights-preserving-platform/Cargo.toml
   fix_version: '>=1.0.0'
   resolved_version: 1.1.0
-  resolution: Upgraded validator 0.18→0.20 which removes vulnerable idna 0.5.0
+  resolution: "Upgraded validator 0.18\u21920.20 which removes vulnerable idna 0.5.0"
   verification: cargo audit
   evidence_sources:
   - https://api.github.com/repos/rooz-live/agentic-flow/dependabot/alerts/34
@@ -3019,16 +2999,19 @@ session_logs:
     description: Updated NOW/NEXT/LATER roadmap with completed work
     status: DONE
   api_status:
-    polygon_io: WORKING - Primary provider functional. Rate limiting (429) handled with request throttling
-    fmp: WORKING - Stable API (/stable/earnings-calendar) functional after migration from v3
+    polygon_io: WORKING - Primary provider functional. Rate limiting (429) handled
+      with request throttling
+    fmp: WORKING - Stable API (/stable/earnings-calendar) functional after migration
+      from v3
     finnhub: WORKING - DATA_ANALYST_API_KEY valid, analyst ratings functional
   commits:
-    - sha: c80f274
-      message: "fix(fmp): Update to Stable API endpoint (v3 legacy discontinued)"
+  - sha: c80f274
+    message: 'fix(fmp): Update to Stable API endpoint (v3 legacy discontinued)'
   action_items_resolved:
-    - "FMP 403 error fixed - migrated to Stable API"
+  - FMP 403 error fixed - migrated to Stable API
   remaining_action_items:
-    - Consider Polygon tier upgrade if rate limiting continues (current: free tier 5 req/min)
+  - Consider Polygon tier upgrade if rate limiting continues (current: free tier 5
+      req/min)
 - date: 2025-12-02
   completed:
   - task: Discord Bot Production Deployment
@@ -3050,10 +3033,10 @@ session_logs:
   - task: INTEGRATE-2 Twitch Overlay
     script: scripts/integrations/twitch_overlay.py
     features:
-      - Real-time quotes from Polygon.io (5-second updates)
-      - OBS WebSocket integration (obsws-python)
-      - Console fallback when OBS not connected
-      - Alert popup support for triggered alerts
+    - Real-time quotes from Polygon.io (5-second updates)
+    - OBS WebSocket integration (obsws-python)
+    - Console fallback when OBS not connected
+    - Alert popup support for triggered alerts
     status: DONE
   - task: API Key Validation
     results:
@@ -3062,16 +3045,17 @@ session_logs:
       fmp: 403_ERROR (resolved in 2025-12-03)
     status: DONE
   commits:
-    - sha: 8affc71
-      message: "feat(prod-cycle-13): Discord deployment, Integration tests, Twitch overlay"
+  - sha: 8affc71
+    message: 'feat(prod-cycle-13): Discord deployment, Integration tests, Twitch overlay'
   api_status:
-    polygon_io: WORKING - Primary provider functional. Rate limiting (429) handled with request throttling
+    polygon_io: WORKING - Primary provider functional. Rate limiting (429) handled
+      with request throttling
     fmp: 403_ERROR - Fixed in subsequent session (2025-12-03)
     finnhub: WORKING - DATA_ANALYST_API_KEY valid, analyst ratings functional
 - id: FIX-NPM-AUTH-001
   title: Rotate NPM Access Token
   status: OPEN
-  created_at: 2025-12-03T02:25:00Z
+  created_at: 2025-12-03 02:25:00+00:00
   phase: NOW
   priority: critical
   wsjf_score: 20
@@ -3081,10 +3065,171 @@ session_logs:
 - id: INSTALL-AGENTIC-QE-001
   title: Install Agentic QE Framework
   status: OPEN
-  created_at: 2025-12-03T02:25:00Z
+  created_at: 2025-12-03 02:25:00+00:00
   phase: NOW
   priority: high
   wsjf_score: 15
   pattern: tool-integrity
   description: Install agentic-qe to enable integration testing.
   circle_owner: assessor
+- id: FLARUM-PGSQL-001
+  title: Flarum PostgreSQL search_path Support (Blocker
+  status: OPEN
+  created_at: 2025-12-10 15:51:00+00:00
+  phase: NEXT
+  priority: urgent
+  wsjf_score: 12.5
+  user_value: 10
+  time_criticality: 8
+  risk_reduction: 7
+  job_size: 2
+  cost_of_delay: 25
+  pattern: dependency-automation
+  tags:
+  - Flarum
+  - PostgreSQL
+  - Integration
+  - HostBill
+  - OpenStack
+  description: 'Fork Flarum framework and patch PostgreSQL search_path support (issue
+    #4240). BLOCKER for HostBill/OpenStack/StarlingX integration requiring PostgreSQL
+    multi-tenancy. Enables schema isolation for enterprise SaaS deployments.'
+  circle_owner: seeker
+  github_issue: https://github.com/flarum/framework/issues/4240
+  upstream_blockers:
+  - Flarum core lacks PostgreSQL search_path configuration
+  - Breaks schema-based multi-tenancy patterns
+  - Blocks enterprise database isolation requirements
+  validation:
+  - Fork flarum/framework and create patch branch
+  - Implement search_path configuration in database connection layer
+  - Test with HostBill PostgreSQL schema isolation
+  - Submit PR to upstream Flarum
+  expected_outcomes:
+  - Flarum can run in PostgreSQL multi-tenant schemas
+  - HostBill integration unblocked
+  - OpenStack identity service integration possible
+- id: FLARUM-PAGINATION-002
+  title: Flarum API Pagination Support (Blocker
+  status: OPEN
+  created_at: 2025-12-10 15:51:00+00:00
+  phase: NEXT
+  priority: urgent
+  wsjf_score: 15.0
+  user_value: 12
+  time_criticality: 10
+  risk_reduction: 8
+  job_size: 2
+  cost_of_delay: 30
+  pattern: safe-degrade
+  tags:
+  - Flarum
+  - API
+  - Scalability
+  - StarlingX
+  - OpenStack
+  description: 'Fix app.store.find() pagination handling (issue #4234). CRITICAL blocker
+    for StarlingX/OpenStack integration requiring large dataset handling (1000+ resources).
+    Without pagination, API calls fail or timeout on enterprise workloads.'
+  circle_owner: assessor
+  github_issue: https://github.com/flarum/framework/issues/4234
+  upstream_blockers:
+  - app.store.find() only returns first page of results
+  - No pagination cursor/token handling
+  - Breaks with >100 records (OpenStack tenants, StarlingX nodes)
+  validation:
+  - Patch Flarum store to handle pagination links
+  - Test with StarlingX node list API (500+ nodes)
+  - Verify OpenStack tenant list pagination
+  - Load test with 10,000 record dataset
+  expected_outcomes:
+  - Flarum can handle enterprise-scale datasets
+  - StarlingX integration scales to 500+ nodes
+  - OpenStack multi-tenant deployments supported
+- id: FLARUM-BRIDGE-003
+  title: WordPress/HostBill/Flarum Middleware Bridge
+  status: OPEN
+  created_at: 2025-12-10 15:51:00+00:00
+  phase: NEXT
+  priority: important
+  wsjf_score: 9.38
+  user_value: 15
+  time_criticality: 5
+  risk_reduction: 10
+  job_size: 5
+  cost_of_delay: 30
+  pattern: federation-runtime
+  tags:
+  - WordPress
+  - HostBill
+  - Flarum
+  - Integration
+  - Middleware
+  - 720.chat
+  description: Build API gateway middleware to bridge WordPress/HostBill/Flarum/720.chat.
+    Bypass Flarum core limitations by treating Flarum as read-only frontend with bidirectional
+    sync via API. Enables SSO, billing integration, and unified user management.
+  circle_owner: innovator
+  dependencies:
+  - FLARUM-PGSQL-001
+  - FLARUM-PAGINATION-002
+  architecture:
+    components:
+    - API Gateway (Node.js/Express or Python/FastAPI)
+    - SSO Handler (OAuth2/SAML bridge)
+    - Billing Sync (HostBill webhooks)
+    - "User Management (WordPress \u2192 Flarum sync)"
+    - Real-time notifications (720.chat integration)
+    data_flow:
+    - WordPress: "User creation \u2192 API Gateway \u2192 Flarum user creation"
+    - HostBill: "Invoice \u2192 Webhook \u2192 API Gateway \u2192 Flarum notification"
+    - Flarum: "Forum post \u2192 API Gateway \u2192 720.chat real-time update"
+    - 720.chat: "Chat message \u2192 API Gateway \u2192 Flarum activity feed"
+  validation:
+  - Deploy middleware bridge on test environment
+  - Test SSO flow: "WordPress login \u2192 auto-login to Flarum"
+  - Test billing sync: "HostBill invoice \u2192 Flarum notification"
+  - Test chat integration: "720.chat message \u2192 Flarum activity"
+  - Load test 1000 concurrent users across all systems
+  expected_outcomes:
+  - Unified authentication across all platforms
+  - Real-time billing notifications in Flarum
+  - Bidirectional chat/forum sync with 720.chat
+  - Sub-100ms response time for API gateway
+- id: FLARUM-READONLY-004
+  title: Flarum Read-Only Frontend Pattern (Safe Fallback)
+  status: OPEN
+  created_at: 2025-12-10 15:51:00+00:00
+  phase: LATER
+  priority: normal
+  wsjf_score: 3.33
+  user_value: 5
+  time_criticality: 3
+  risk_reduction: 7
+  job_size: 3
+  cost_of_delay: 15
+  pattern: safe-degrade
+  tags:
+  - Flarum
+  - Architecture
+  - Safe-Degrade
+  description: Configure Flarum as read-only display layer with all writes via API
+    Gateway. Safe degradation pattern if Flarum core patches fail or upstream breaks
+    compatibility. Ensures business continuity while bypassing Flarum limitations.
+  circle_owner: assessor
+  depends_on:
+  - FLARUM-BRIDGE-003
+  implementation:
+  - Disable Flarum user registration/posting UI
+  - "All writes go to API Gateway \u2192 database directly"
+  - Flarum reads from shared database (read replica)
+  - Implement cache invalidation on write operations
+  validation:
+  - Test read-only mode with 10,000 posts
+  - Verify writes via API Gateway reflect in Flarum UI
+  - Test cache invalidation latency (<5 seconds)
+  - Failover test: "API Gateway down \u2192 Flarum read-only still works"
+  expected_outcomes:
+  - Business continuity if Flarum upstream breaks
+  - Decoupled write/read paths for scalability
+  - No vendor lock-in to Flarum framework

@@ -131,6 +131,10 @@ def _calculate_economic_context(
         "regression-risk": {"cod_multiplier": 2000.0, "wsjf_multiplier": 1800.0, "risk": 7},
     }
     
+    # Add adaptive-throttling to base economics
+    if pattern == "adaptive-throttling":
+        pattern_base_economics["adaptive-throttling"] = {"cod_multiplier": 150.0, "wsjf_multiplier": 100.0, "risk": 5}
+    
     economics = pattern_base_economics.get(
         pattern,
         {"cod_multiplier": 100.0, "wsjf_multiplier": 50.0, "risk": 5}  # default
@@ -407,6 +411,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--workload-json", dest="workload_json")
     parser.add_argument("--metadata-json", dest="metadata_json")
     parser.add_argument("--economic-json", dest="economic_json", help="JSON blob with economic context (cod, wsjf_score, risk_score) - auto-calculated if omitted")
+    parser.add_argument("--economic-only", dest="economic_only", action="store_true", help="Only calculate and print economic context JSON (for TypeScript bridge)")
     parser.add_argument("--mirror-metrics", action="store_true", help="Also append summary to metrics_log.jsonl")
     parser.add_argument(
         "--generate-samples",
@@ -428,6 +433,25 @@ def main() -> int:
         for sample in _sample_workloads():
             log_pattern_event(sample, mirror_metrics=True)
         print("Generated sample HPC/ML/Stats pattern events.")
+        return 0
+
+    # Economic-only mode for TypeScript bridge
+    if args.economic_only:
+        if not args.pattern_state_json:
+            raise SystemExit("--pattern-state is required for --economic-only")
+        try:
+            pattern_state = json.loads(args.pattern_state_json)
+        except json.JSONDecodeError as exc:
+            raise SystemExit(f"Invalid JSON for --pattern-state: {exc}") from exc
+        
+        economic = _calculate_economic_context(
+            pattern=args.pattern,
+            mode=args.mode,
+            pattern_state=pattern_state,
+            circle=args.circle,
+            depth=args.depth,
+        )
+        print(json.dumps(economic))
         return 0
 
     if not args.pattern_state_json:

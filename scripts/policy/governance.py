@@ -1755,6 +1755,69 @@ class GovernanceMiddleware:
         self._emit_metrics_event(state_args)
         self.record_score_sample(reward_value)
 
+        # Emit DT-compatible training record (Phase 2: Decision Transformer Integration)
+        self._emit_dt_training_record(reward_value, status, duration_ms)
+
+    def _emit_dt_training_record(self, reward_value: float, status: str, duration_ms: int):
+        """Emit a structured JSON log line for Decision Transformer training.
+
+        Format follows DT state-action-reward tuple requirements:
+        - timestamp: ISO8601
+        - cycle_id: prod-cycle-N
+        - patterns: aggregated pattern metrics
+        - iteration_budget: allocation state
+        - wip_violations: count
+        - roam_risk_delta: trend indicator
+        """
+        dt_log_path = self.project_root / ".goalie" / "dt_training_data_live.jsonl"
+        timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+        dt_record = {
+            "timestamp": timestamp,
+            "cycle_id": f"prod-cycle-{self.current_iteration}",
+            "run_id": self.run_id,
+            "status": status,
+            "reward": reward_value,
+            "duration_ms": duration_ms,
+            "patterns": {
+                "depth-ladder": {
+                    "triggers": self.depth_ladder_triggers if hasattr(self, 'depth_ladder_triggers') else 0,
+                    "depth_reached": self.current_depth
+                },
+                "safe-degrade": {
+                    "triggers": self.safe_degrade_triggers,
+                    "fallback_used": self.safe_degrade_actions[-1] if self.safe_degrade_actions else None
+                },
+                "circle-risk-focus": {
+                    "high_risk_tasks": self.extensions_used,
+                    "active_circle": self.active_circle
+                },
+                "autocommit_shadow": {
+                    "cycles_before_confidence": getattr(self, 'autocommit_shadow_confidence_cycles', 0),
+                    "candidates": getattr(self, 'autocommit_shadow_candidates', 0)
+                }
+            },
+            "iteration_budget": {
+                "allocated": self.max_iterations,
+                "consumed": self.current_iteration,
+                "remaining": self.max_iterations - self.current_iteration
+            },
+            "wip_violations": getattr(self, 'wip_violations', 0),
+            "roam_risk_delta": self.circle_risk_roam_delta,
+            "governor_health": {
+                "status": self.guardrail_lock_health,
+                "risk_score": self.current_avg_score,
+                "throttle_active": getattr(self, 'throttle_active', False)
+            }
+        }
+
+        try:
+            with open(dt_log_path, "a") as f:
+                f.write(json.dumps(dt_record) + "\n")
+        except Exception:
+            # DT logging should never break prod-cycle
+            pass
+
     def record_score_sample(self, reward_value: float):
         normalized = max(0.0, min(100.0, reward_value * 100.0))
         self.avg_score_samples += 1

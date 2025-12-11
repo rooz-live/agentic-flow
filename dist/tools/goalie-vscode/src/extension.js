@@ -3,10 +3,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import * as yaml from 'yaml';
+import { DtCalibrationProvider } from './dtCalibrationProvider';
 import { StreamClient } from './streamClient';
 import { resolveStreamSocketPath } from './streamUtils';
 import { GoalieTelemetry } from './telemetry';
-import { DtCalibrationProvider } from './dtCalibrationProvider';
+import { EnhancedFileWatcher } from './enhancedFileWatcher';
 function getGoalieDir(workspaceRoot) {
     const config = vscode.workspace.getConfiguration('goalie');
     const customPath = config.get('directoryPath');
@@ -357,6 +358,9 @@ class PatternMetricsProvider {
     pageSize = 50;
     currentPage = 1;
     aggregationsCache = new Map();
+    // Doc index
+    circleIndex = {};
+    latestCircleByPattern = new Map();
     // Real-time updates
     autoRefreshInterval;
     fileWatcher;
@@ -369,8 +373,23 @@ class PatternMetricsProvider {
         this.context = context;
         this.initializeFilterPresets();
         this.loadPersistedFilters();
+        this.loadCircleIndex();
         this.startAutoRefresh();
         this.setupFileWatcher();
+    }
+    loadCircleIndex() {
+        const goalieDir = this.getGoalieDir();
+        if (!goalieDir)
+            return;
+        const indexPath = path.join(goalieDir, 'circle_doc_index.json');
+        if (fs.existsSync(indexPath)) {
+            try {
+                this.circleIndex = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
+            }
+            catch (e) {
+                console.error('Failed to load circle doc index', e);
+            }
+        }
     }
     initializeFilterPresets() {
         this.filterPresets = [
@@ -638,6 +657,10 @@ class PatternMetricsProvider {
                     if (!seenPatterns.has(patternKey)) {
                         seenPatterns.add(patternKey);
                         patterns.push(obj);
+                        // Track latest circle for doc linking
+                        if (obj.circle && obj.pattern) {
+                            this.latestCircleByPattern.set(obj.pattern, obj.circle);
+                        }
                         // Check if this is a new pattern (within last 5 minutes)
                         const patternTime = new Date(obj.timestamp);
                         const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
@@ -661,28 +684,35 @@ class PatternMetricsProvider {
         }
     }
     filterPatterns(patterns) {
-        if (this.currentFilter === 'all') {
+        if (this.currentFilters.length === 0) {
             return patterns;
         }
         return patterns.filter(pattern => {
-            switch (this.currentFilter) {
-                case 'circle':
-                    return pattern.circle === this.filterValue;
-                case 'run-kind':
-                    return pattern.run_kind === this.filterValue;
-                case 'gate':
-                    return pattern.gate === this.filterValue;
-                case 'date-range':
-                    if (this.filterValue.includes('last')) {
-                        const days = parseInt(this.filterValue.replace('last-', '').replace('days', '')) || 7;
-                        const patternDate = new Date(pattern.timestamp);
-                        const cutoffDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
-                        return patternDate >= cutoffDate;
-                    }
-                    return false;
-                default:
-                    return true;
-            }
+            return this.currentFilters.every(filter => {
+                switch (filter.type) {
+                    case 'circle':
+                        return pattern.circle === filter.value;
+                    case 'run-kind':
+                        return pattern.run_kind === filter.value;
+                    case 'gate':
+                        return pattern.gate === filter.value;
+                    case 'workload':
+                        // Check if tags include workload
+                        return Array.isArray(pattern.tags) && workloadTags(pattern.pattern, pattern.tags).includes(filter.value);
+                    case 'framework':
+                        return this.detectFramework(pattern.pattern).toLowerCase() === filter.value.toLowerCase();
+                    case 'date-range':
+                        if (filter.value.includes('last')) {
+                            const days = parseInt(filter.value.replace('last-', '').replace('days', '')) || 7;
+                            const patternDate = new Date(pattern.timestamp);
+                            const cutoffDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
+                            return patternDate >= cutoffDate;
+                        }
+                        return false;
+                    default:
+                        return true;
+                }
+            });
         });
     }
     getPaginatedResults(patterns) {
@@ -820,6 +850,15 @@ class PatternMetricsProvider {
                 break;
             case 'refreshChart':
                 this.refreshChart(panelId);
+                break;
+            case 'openDoc':
+                if (message.path) {
+                    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                    if (workspaceRoot) {
+                        const docUri = vscode.Uri.file(path.join(workspaceRoot, message.path));
+                        vscode.commands.executeCommand('markdown.showPreview', docUri);
+                    }
+                }
                 break;
         }
     }
@@ -1011,7 +1050,7 @@ class PatternMetricsProvider {
       <body>
         <div class="chart-container">
           <h2 class="chart-header">Pattern Distribution Analysis - ${chartType.charAt(0).toUpperCase() + chartType.slice(1)}</h2>
-          
+
           <div class="chart-controls">
             <select class="chart-type-selector" onchange="changeChartType(this.value)">
               <option value="bar" ${chartType === 'bar' ? 'selected' : ''}>Bar Chart</option>
@@ -1038,45 +1077,52 @@ class PatternMetricsProvider {
 
         <script>
           const vscode = acquireVsCodeApi();
-          
+
           function changeChartType(type) {
             vscode.postMessage({
               command: 'changeChartType',
               chartType: type
             });
           }
-          
+
           function exportChart(format) {
             vscode.postMessage({
               command: 'exportChart',
               format: format
             });
           }
-          
+
           function refreshChart() {
             vscode.postMessage({
               command: 'refreshChart'
             });
           }
-          
+
           function filterByPattern(pattern) {
             vscode.postMessage({
               command: 'filterByPattern',
               pattern: pattern
             });
           }
-          
+
           function filterByWorkload(workload) {
             vscode.postMessage({
               command: 'filterByWorkload',
               workload: workload
             });
           }
-          
+
           function filterByFramework(framework) {
             vscode.postMessage({
               command: 'filterByFramework',
               framework: framework
+            });
+          }
+
+          function openDoc(path) {
+            vscode.postMessage({
+              command: 'openDoc',
+              path: path
             });
           }
         </script>
@@ -1107,11 +1153,33 @@ class PatternMetricsProvider {
                 badges.push('<span class="badge tf">TF</span>');
             if (framework === 'PyTorch')
                 badges.push('<span class="badge pytorch">PyTorch</span>');
+            // Check for doc link
+            let docLink = '';
+            if (pattern === 'circle-risk-focus') {
+                const latestCircle = this.latestCircleByPattern.get(pattern);
+                if (latestCircle) {
+                    // Find doc for this circle (either primary backlog or lead role)
+                    // Try explicit role first (e.g. analyst:Analyst) but circle name varies
+                    // Just use simple heuristics: circle:backlog or circle:Lead
+                    // The index keys are "circle:filename" or "circle:role:file" or "circle:role"
+                    // We'll try finding "circle:backlog.md" or "circle:Analyst" etc.
+                    // Try circle:backlog.md
+                    let docPath = this.circleIndex[`${latestCircle}:backlog.md`];
+                    // If not found, try to find a key starting with circle and ending with backlog
+                    if (!docPath) {
+                        // simple fallback logic, maybe just direct lookup if we have better keys
+                        // For now, rely on what generate_circle_index produced: "analyst:backlog.md"
+                    }
+                    if (docPath) {
+                        docLink = `<span class="badge doc" onclick="openDoc('${docPath}'); event.stopPropagation();" title="Open ${latestCircle} Documentation">📄 Docs</span>`;
+                    }
+                }
+            }
             return `
         <div class="chart-bar" data-pattern="${pattern}" data-count="${count}" style="cursor: pointer;" onclick="filterByPattern('${pattern}')">
           <div class="pattern-info">
             <div class="pattern-name">${isNew ? '🆕 ' : ''}${pattern}</div>
-            <div class="pattern-badges">${badges.join('')}</div>
+            <div class="pattern-badges">${badges.join('')}${docLink}</div>
           </div>
           <div class="bar-container">
             <div class="bar-fill" style="width: ${percentage}%; background: ${color};"></div>
@@ -1621,14 +1689,14 @@ class PatternMetricsProvider {
           <p>Generated on ${timestamp}</p>
           <button class="print-btn" onclick="window.print()">Print Report</button>
         </div>
-        
+
         <div class="summary">
           <strong>Summary:</strong><br>
           Total Patterns: ${sortedPatterns.length}<br>
           Total Events: ${Array.from(counts.values()).reduce((a, b) => a + b, 0)}<br>
           New Patterns (5min): ${Array.from(this.newPatterns).length}
         </div>
-        
+
         <table>
           <thead>
             <tr>
@@ -1642,7 +1710,7 @@ class PatternMetricsProvider {
             ${tableRows}
           </tbody>
         </table>
-        
+
         <script>
           // Auto-print when loaded
           window.addEventListener('load', () => {
@@ -1828,7 +1896,7 @@ class PatternMetricsProvider {
       <body>
         <div class="chart-container">
           <h2 class="chart-header">Pattern Distribution Analysis</h2>
-          
+
           <div class="summary">
             <strong>Total Patterns:</strong> ${sortedPatterns.length} |
             <strong>Total Events:</strong> ${Array.from(patternCounts.values()).reduce((a, b) => a + b, 0)} |
@@ -1857,26 +1925,26 @@ class PatternMetricsProvider {
 
         <script>
           const vscode = acquireVsCodeApi();
-          
+
           function filterByWorkload(workload) {
             vscode.postMessage({
               command: 'filterByWorkload',
               workload: workload
             });
           }
-          
+
           function clearFilters() {
             vscode.postMessage({
               command: 'clearFilters'
             });
           }
-          
+
           function exportChart() {
             vscode.postMessage({
               command: 'exportChart'
             });
           }
-          
+
           // Add click handlers to chart bars
           document.querySelectorAll('.chart-bar').forEach(bar => {
             bar.addEventListener('click', function() {
@@ -1889,13 +1957,13 @@ class PatternMetricsProvider {
               });
             });
           });
-          
+
           // Add hover effects
           document.querySelectorAll('.chart-bar').forEach(bar => {
             bar.addEventListener('mouseenter', function() {
               this.style.transform = 'translateX(4px)';
             });
-            
+
             bar.addEventListener('mouseleave', function() {
               this.style.transform = 'translateX(0)';
             });
@@ -3587,7 +3655,24 @@ export function activate(context) {
     };
     startStreamClient();
     // -- 1. Real-Time Monitoring (File Watcher) --
-    const watcher = vscode.workspace.createFileSystemWatcher('**/.goalie/*.{yaml,jsonl}');
+    // -- 1. Enhanced Real-Time Monitoring (File Watcher) --
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // Create enhanced file watcher with centralized service
+    const enhancedFileWatcher = new EnhancedFileWatcher(workspaceRoot, [
+        () => kanbanProvider.refresh(),
+        () => gapsProvider.refresh(),
+        () => patternMetricsProvider.refresh(),
+        () => governanceEconomicsProvider.refresh(),
+        () => depthTimelineProvider.refresh(),
+        () => refreshLiveGapsPanelIfOpen().catch(err => {
+            outputChannel.appendLine(`[LiveGaps] Error refreshing live panel: ${err}`);
+        })
+    ], {
+        patterns: ['**/.goalie/*.{yaml,jsonl}'],
+        debounceDelay: 300,
+        enableBatching: true,
+        enableVisualIndicators: true
+    });
     // Debounce the refresh to avoid spamming updates
     let refreshTimeout;
     const debouncedRefresh = () => {
@@ -3606,8 +3691,19 @@ export function activate(context) {
             });
         }, 300); // 300ms debounce
     };
-    context.subscriptions.push(watcher, watcher.onDidChange(debouncedRefresh), watcher.onDidCreate(debouncedRefresh), watcher.onDidDelete(debouncedRefresh));
-    outputChannel.appendLine('File Watcher setup for .goalie directory.');
+    // Add enhanced file watcher to subscriptions for proper cleanup
+    context.subscriptions.push({
+        dispose: () => enhancedFileWatcher.dispose()
+    });
+    // Log performance metrics periodically
+    const metricsInterval = setInterval(() => {
+        const metrics = enhancedFileWatcher.getPerformanceMetrics();
+        outputChannel.appendLine(`[FileWatcher] Performance: ${metrics.totalFilesWatched} files watched, ${metrics.totalChangesDetected} changes detected, ${metrics.averageProcessingTime.toFixed(2)}ms avg processing time`);
+    }, 30000); // Log every 30 seconds
+    context.subscriptions.push({
+        dispose: () => clearInterval(metricsInterval)
+    });
+    outputChannel.appendLine('Enhanced File Watcher setup for .goalie directory with centralized service.');
     // -- 2. UX Study Instrumentation (Interaction Tracking) --
     // Refactored to use createTreeView for Kanban and Gaps to attach listeners
     const kanbanTreeView = vscode.window.createTreeView('goalieKanbanView', {
@@ -3895,6 +3991,51 @@ export function activate(context) {
                     }
                     vscode.window.showInformationMessage('Federation started successfully.');
                     outputChannel.appendLine('--- Federation Start Completed ---');
+                    resolve();
+                });
+            });
+        });
+    }), 
+    // One-click command: af goalie-gaps
+    vscode.commands.registerCommand('goalie.runGoalieGaps', async () => {
+        if (!root) {
+            vscode.window.showErrorMessage('No workspace open.');
+            return;
+        }
+        const afScript = path.join(root, 'investing', 'agentic-flow', 'scripts', 'af');
+        if (!fs.existsSync(afScript)) {
+            vscode.window.showErrorMessage(`af script not found at: ${afScript}`);
+            return;
+        }
+        vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'Running Goalie Gaps Analysis...',
+            cancellable: false,
+        }, async () => {
+            outputChannel.show(true);
+            outputChannel.appendLine('\n--- Starting Goalie Gaps Analysis ---');
+            return new Promise((resolve) => {
+                exec(`"${afScript}" goalie-gaps`, { cwd: root }, (error, stdout, stderr) => {
+                    if (error) {
+                        const message = error.message || String(error);
+                        outputChannel.appendLine(`[GoalieGaps] Error running af goalie-gaps: ${message}`);
+                        if (stderr) {
+                            outputChannel.appendLine(`[GoalieGaps][stderr] ${stderr}`);
+                        }
+                        vscode.window.showErrorMessage(`Goalie Gaps Analysis Failed: ${message}`);
+                        outputChannel.appendLine('--- Goalie Gaps Analysis Failed ---');
+                        resolve();
+                        return;
+                    }
+                    if (stdout) {
+                        outputChannel.appendLine(`[GoalieGaps][stdout] ${stdout}`);
+                    }
+                    if (stderr) {
+                        outputChannel.appendLine(`[GoalieGaps][stderr] ${stderr}`);
+                    }
+                    vscode.window.showInformationMessage('Goalie Gaps Analysis completed successfully.');
+                    outputChannel.appendLine('--- Goalie Gaps Analysis Completed ---');
+                    gapsProvider.refresh();
                     resolve();
                 });
             });

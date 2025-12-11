@@ -157,7 +157,13 @@ if [ -d ".snapshots" ]; then
     echo "  Available snapshots: $snapshots"
     
     # Analyze most recent snapshot
-    latest_snapshot=$(find .snapshots -maxdepth 1 -type d -exec stat -c "%Y %n" {} \; | sort -nr | head -1 | cut -d' ' -f2-)
+    # Handle macOS vs Linux stat syntax
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        latest_snapshot=$(find .snapshots -maxdepth 1 -type d -exec stat -f "%m %N" {} \; | sort -nr | head -1 | cut -d' ' -f2-)
+    else
+        latest_snapshot=$(find .snapshots -maxdepth 1 -type d -exec stat -c "%Y %n" {} \; | sort -nr | head -1 | cut -d' ' -f2-)
+    fi
+
     if [ -n "$latest_snapshot" ] && [ "$latest_snapshot" != ".snapshots" ]; then
         echo "  Latest snapshot: $(basename "$latest_snapshot")"
         

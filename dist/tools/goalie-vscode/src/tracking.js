@@ -108,5 +108,50 @@ export class UserStudyTracker {
             time_to_action_sec: timeToActionSec,
         });
     }
+    // Process Metrics Instrumentation (insight → commit tracking)
+    insightTimestamps = new Map();
+    trackInsightCreated(insightId, pattern, circle) {
+        this.insightTimestamps.set(insightId, new Date().toISOString());
+        this.track({
+            ts: new Date().toISOString(),
+            type: 'insight_created',
+            insight_id: insightId,
+            pattern,
+            circle,
+        });
+    }
+    trackInsightCommitted(insightId, commitId) {
+        const insightTs = this.insightTimestamps.get(insightId);
+        let timeToCommitSec = 0;
+        if (insightTs) {
+            timeToCommitSec = (new Date().getTime() - new Date(insightTs).getTime()) / 1000;
+        }
+        this.track({
+            ts: new Date().toISOString(),
+            type: 'insight_committed',
+            insight_id: insightId,
+            commit_id: commitId,
+            time_to_commit_sec: timeToCommitSec,
+        });
+        this.insightTimestamps.delete(insightId);
+    }
+    trackContextSwitch(fromTool, toTool) {
+        this.track({
+            ts: new Date().toISOString(),
+            type: 'context_switch',
+            from_tool: fromTool,
+            to_tool: toTool,
+        });
+    }
+    trackActionCompletionRate(cycleId, completed, total) {
+        this.track({
+            ts: new Date().toISOString(),
+            type: 'action_completion_rate',
+            cycle_id: cycleId,
+            completed,
+            total,
+            rate: total > 0 ? (completed / total) * 100 : 0,
+        });
+    }
 }
 //# sourceMappingURL=tracking.js.map

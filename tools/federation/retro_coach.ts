@@ -1,7 +1,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-const GOALIE_DIR = '.goalie';
+function getGoalieDirFromArgs(): string {
+  const argIndex = process.argv.indexOf('--goalie-dir');
+  if (argIndex !== -1 && process.argv[argIndex + 1]) {
+    return path.resolve(process.argv[argIndex + 1]);
+  }
+  return path.resolve(process.cwd(), '.goalie');
+}
+
+const GOALIE_DIR = getGoalieDirFromArgs();
 const METRICS_FILE = path.join(GOALIE_DIR, 'pattern_metrics.jsonl');
 
 interface PatternEvent {
@@ -34,7 +42,7 @@ async function main() {
   const insights = [];
 
   // 1. Safe Degrade Analysis
-  const degrades = events.filter(e => e.pattern === 'safe_degrade' && e.data.action !== 'none');
+  const degrades = events.filter(e => e.pattern === 'safe_degrade' && e.data?.action !== 'none');
   if (degrades.length > 0) {
     insights.push({
       type: "Risk",
@@ -45,7 +53,7 @@ async function main() {
   }
 
   // 2. Guardrail Lock Analysis
-  const locks = events.filter(e => e.pattern === 'guardrail_lock' && e.data.action === 'enforce_test_first');
+  const locks = events.filter(e => e.pattern === 'guardrail_lock' && e.data?.action === 'enforce_test_first');
   if (locks.length > 0) {
     insights.push({
       type: "Process",
@@ -56,9 +64,9 @@ async function main() {
   }
 
   // 3. Iteration Optimization Analysis
-  const budgets = events.filter(e => e.pattern === 'iteration_budget' && e.data.reason === 'stability_threshold');
+  const budgets = events.filter(e => e.pattern === 'iteration_budget' && e.data?.reason === 'stability_threshold');
   if (budgets.length > 0) {
-      const saved = budgets.reduce((acc, curr) => acc + curr.data.saved, 0);
+      const saved = budgets.reduce((acc, curr) => acc + (curr.data?.saved || 0), 0);
       insights.push({
           type: "Optimization",
           pattern: "iteration_budget",

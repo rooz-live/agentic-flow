@@ -21,6 +21,25 @@ export declare const AF_BACKOFF_MULTIPLIER: number;
 export declare const AF_RATE_LIMIT_ENABLED: boolean;
 export declare const AF_TOKENS_PER_SECOND: number;
 export declare const AF_MAX_BURST: number;
+export declare const AF_TOKEN_REFILL_INTERVAL_MS: number;
+export declare const AF_ENHANCED_BACKOFF_START_MS: number;
+export declare const AF_ENHANCED_BACKOFF_FACTOR: number;
+export declare const AF_ENHANCED_BACKOFF_JITTER: number;
+export declare const AF_ENHANCED_BACKOFF_CEILING_MS: number;
+export declare const AF_MICRO_BATCH_SIZE: number;
+export declare const AF_MICRO_BATCH_FLUSH_INTERVAL_MS: number;
+export declare const AF_MICRO_BATCH_DROP_OLDEST: boolean;
+export declare const AF_ADAPTIVE_POLL_MIN_MS: number;
+export declare const AF_ADAPTIVE_POLL_MAX_MS: number;
+export declare const AF_ADAPTIVE_THROTTLING_ENABLED: boolean;
+export declare const AF_PREDICTIVE_THROTTLING: boolean;
+export declare const AF_DEPENDENCY_ANALYSIS_ENABLED: boolean;
+export declare const AF_BATCH_MAPPING_ENABLED: boolean;
+export declare const AF_EXECUTION_ORDER_OPTIMIZATION: boolean;
+export declare const AF_LOAD_HISTORY_SIZE: number;
+export declare const AF_MAX_BATCH_SIZE: number;
+export declare const AF_CPU_WARNING_THRESHOLD: number;
+export declare const AF_CPU_CRITICAL_THRESHOLD: number;
 export declare const AF_CIRCUIT_BREAKER_ENABLED: boolean;
 export declare const AF_CIRCUIT_BREAKER_THRESHOLD: number;
 export declare const AF_CIRCUIT_BREAKER_WINDOW_MS: number;
@@ -40,6 +59,20 @@ interface CircuitBreakerStats {
     halfOpenRequests: number;
     windowStart: number;
 }
+interface LoadHistoryEntry {
+    timestamp: number;
+    cpuLoad: number;
+    idlePercentage?: number;
+    activeWork: number;
+    queuedWork: number;
+}
+interface ProcessDependency {
+    id: string;
+    dependencies: string[];
+    priority: number;
+    estimatedDuration?: number;
+    resourceWeight?: number;
+}
 interface GovernorState {
     activeWork: number;
     queuedWork: number;
@@ -50,11 +83,31 @@ interface GovernorState {
     availableTokens: number;
     lastTokenRefill: number;
     circuitBreaker: CircuitBreakerStats;
-    incidents: Array<{
+    loadHistory: LoadHistoryEntry[];
+    processDependencies: Map<string, ProcessDependency>;
+    adaptiveThrottlingLevel: number;
+    predictiveLoadScore: number;
+    lastDependencyAnalysis: number;
+    incidentBuffer: Array<{
         timestamp: string;
-        type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' | 'CIRCUIT_CLOSED';
+        type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' | 'CIRCUIT_CLOSED' | 'ADAPTIVE_THROTTLING' | 'PREDICTIVE_THROTTLING' | 'DEPENDENCY_ANALYSIS';
         details: Record<string, unknown>;
     }>;
+    incidents: Array<{
+        timestamp: string;
+        type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' | 'CIRCUIT_CLOSED' | 'ADAPTIVE_THROTTLING' | 'PREDICTIVE_THROTTLING' | 'DEPENDENCY_ANALYSIS';
+        details: Record<string, unknown>;
+    }>;
+    metrics: {
+        tokens_available: number;
+        throttle_events: number;
+        backoff_ms: number;
+        poll_ms: number;
+        batch_depth: number;
+        dropped_events: number;
+        queue_depth: number;
+        flush_latency_ms: number;
+    };
 }
 export declare function isCircuitClosed(): boolean;
 export declare function recordSuccess(): void;
@@ -86,6 +139,25 @@ export declare const config: {
     AF_CIRCUIT_BREAKER_WINDOW_MS: number;
     AF_CIRCUIT_BREAKER_COOLDOWN_MS: number;
     AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS: number;
+    AF_TOKEN_REFILL_INTERVAL_MS: number;
+    AF_ENHANCED_BACKOFF_START_MS: number;
+    AF_ENHANCED_BACKOFF_FACTOR: number;
+    AF_ENHANCED_BACKOFF_JITTER: number;
+    AF_ENHANCED_BACKOFF_CEILING_MS: number;
+    AF_MICRO_BATCH_SIZE: number;
+    AF_MICRO_BATCH_FLUSH_INTERVAL_MS: number;
+    AF_MICRO_BATCH_DROP_OLDEST: boolean;
+    AF_ADAPTIVE_POLL_MIN_MS: number;
+    AF_ADAPTIVE_POLL_MAX_MS: number;
+    AF_ADAPTIVE_THROTTLING_ENABLED: boolean;
+    AF_PREDICTIVE_THROTTLING: boolean;
+    AF_DEPENDENCY_ANALYSIS_ENABLED: boolean;
+    AF_BATCH_MAPPING_ENABLED: boolean;
+    AF_EXECUTION_ORDER_OPTIMIZATION: boolean;
+    AF_LOAD_HISTORY_SIZE: number;
+    AF_MAX_BATCH_SIZE: number;
+    AF_CPU_WARNING_THRESHOLD: number;
+    AF_CPU_CRITICAL_THRESHOLD: number;
 };
 export {};
 //# sourceMappingURL=processGovernor.d.ts.map

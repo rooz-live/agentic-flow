@@ -79,10 +79,25 @@ class MetricsCollector:
         conn.commit()
         conn.close()
 
+    def check_and_seed_db(self):
+        """Check if DB is empty and seed with dummy data if needed"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM pr_metrics")
+        count = cursor.fetchone()[0]
+        conn.close()
+
+        if count == 0:
+            print("   🌱 Database is empty. Seeding with initial bootstrap data...")
+            dummy_data = self.generate_dummy_data(count=10)
+            self.store_metrics(dummy_data)
+        else:
+            print(f"   ✓ Database contains {count} records.")
+
     def collect_system_metrics(self):
         """Collect system metrics (CPU, Memory)"""
         if psutil is None:
-            print("   ⚠️ psutil not installed. Skipping system metrics.")
+            print("   ⚠️ psutil not installed. Install with: pip install psutil")
             return
 
         try:

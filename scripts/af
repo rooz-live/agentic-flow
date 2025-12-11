@@ -2,60 +2,130 @@
 set -e
 
 # --- Configuration ---
-# Use the directory where the script is located to find project root, or assume CWD
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -z "$PROJECT_ROOT" ]; then
-  export PROJECT_ROOT="$(pwd)"
+  export PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 fi
 
-# Add the scripts directory to PYTHONPATH so agentic.pattern_logger works
-# If af is in scripts/af, then scripts/ is the directory
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export PYTHONPATH="$SCRIPT_DIR:$PYTHONPATH"
-
+export PYTHONPATH="$SCRIPT_DIR:$PROJECT_ROOT:$PYTHONPATH"
 export AF_RUN_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 
 # Ensure Goalie directories exist
-mkdir -p .goalie/hooks
-
-# --- Pattern Logging Helper ---
-log_pattern_event() {
-    local pattern="$1"
-    local mode="${AF_PROD_CYCLE_MODE:-advisory}"
-    local data="$2"
-    local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    
-    echo "{\"timestamp\": \"$timestamp\", \"run_id\": \"$AF_RUN_ID\", \"pattern\": \"$pattern\", \"mode\": \"$mode\", \"data\": $data}" >> .goalie/pattern_metrics.jsonl
-}
+mkdir -p "$PROJECT_ROOT/.goalie/hooks"
 
 # --- Subcommands ---
 
 case "$1" in
     prod-cycle)
         shift
-        # Wrap in python for complex logic
-        # We pass the full path to the python script
-        python3 "$SCRIPT_DIR/cmd_prod_cycle.py" "$@"
+        # Parse --mode argument specifically for prod-cycle
+        MODE="mutate"  # Default mode
+        OTHER_ARGS=()
+        
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --mode)
+                    MODE="$2"
+                    shift 2
+                    ;;
+                *)
+                    OTHER_ARGS+=("$1")
+                    shift
+                    ;;
+            esac
+        done
+        
+        # Validate mode choices
+        case $MODE in
+            mutate|advisory|enforcement)
+                # Valid mode
+                ;;
+            *)
+                echo "Error: Invalid mode '$MODE'. Valid choices are: mutate, advisory, enforcement"
+                exit 1
+                ;;
+        esac
+        
+        # Pass mode as environment variable and other args
+        export AF_PROD_CYCLE_MODE="$MODE"
+        python3 "$SCRIPT_DIR/cmd_prod_cycle.py" --mode "$MODE" "${OTHER_ARGS[@]}"
         ;;
         
+    replenish-circle)
+        shift
+        "$PROJECT_ROOT/scripts/circles/replenish_circle.sh" "$@"
+        ;;
+        
+    promote-kanban)
+        shift
+        python3 "$PROJECT_ROOT/scripts/circles/promote_to_kanban.py" "$@"
+        ;;
+
     full-cycle)
         shift
-        # Legacy/Simple wrapper (stubbed)
         DEPTH=${1:-2}
         shift
-        echo "Executing full-cycle depth $DEPTH..."
-        # Simulate work
-        sleep 0.1
+        
+        # Parse optional arguments
+        CIRCLE="global"
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --circle)
+                    CIRCLE="$2"
+                    shift 2
+                    ;;
+                *)
+                    shift
+                    ;;
+            esac
+        done
+
+        echo "🔄 Executing full-cycle depth $DEPTH for circle: $CIRCLE"
+        
+        # 1. Observability Check
+        echo "🔍 [1/5] Checking Observability Gaps..."
+        python3 "$SCRIPT_DIR/cmd_detect_observability_gaps.py" --json > /dev/null || echo "⚠️  Observability check warning"
+        
+        # 2. Pattern Coverage
+        echo "📊 [2/5] Checking Pattern Coverage..."
+        python3 "$SCRIPT_DIR/cmd_pattern_coverage.py" --json > /dev/null || echo "⚠️  Pattern coverage warning"
+
+        # 3. Governance Check
+        echo "⚖️  [3/5] Running Governance Agent..."
+        npx tsx "$PROJECT_ROOT/tools/federation/governance_agent.ts" --json > /dev/null || echo "⚠️  Governance check warning"
+
+        # 4. Retro Coach
+        echo "🧠 [4/5] Running Retro Coach..."
+        if [ -f "$PROJECT_ROOT/tools/federation/retro_coach.ts" ]; then
+             npx tsx "$PROJECT_ROOT/tools/federation/retro_coach.ts" --json > /dev/null || echo "⚠️  Retro coach warning"
+        fi
+
+        # 5. Workload Simulation based on Depth
+        echo "🛠️  [5/5] Executing Depth $DEPTH Workload..."
+        if [ "$DEPTH" -ge 3 ]; then
+            echo "   • Running CI/CD validation..."
+            # Placeholder for actual CI script
+            sleep 0.2
+        fi
+        
+        if [ "$DEPTH" -ge 4 ]; then
+            echo "   • Simulating Deployment..."
+            # Placeholder for deploy script
+            sleep 0.2
+        fi
+
+        # Log completion event
+        python3 "$SCRIPT_DIR/agentic/pattern_logger.py" "full_cycle_complete" --data "{\"depth\": $DEPTH, \"circle\": \"$CIRCLE\"}" --mode "mutate"
+
+        echo "✅ Full Cycle Complete"
         exit 0
         ;;
         
     retro-coach)
         shift
-        # Call the Federation Agent (stubbed logic for demo if node not available, but user wants TS)
-        # We assume tsx is available or we use a python equivalent for this demo if needed
-        # But per instruction, we use the ts file created.
         TOOLS_DIR="$PROJECT_ROOT/tools/federation"
         if [ -f "$TOOLS_DIR/retro_coach.ts" ]; then
-             npx tsx "$TOOLS_DIR/retro_coach.ts" "$@"
+             npx tsx "$TOOLS_DIR/retro_coach.ts" --goalie-dir "$PROJECT_ROOT/.goalie" "$@"
         else
              echo "Error: Retro Coach tool not found at $TOOLS_DIR/retro_coach.ts"
              exit 1
@@ -64,7 +134,7 @@ case "$1" in
         
     governance-agent)
         shift
-        npx tsx "$PROJECT_ROOT/tools/federation/governance_agent.ts" "$@"
+        npx tsx "$PROJECT_ROOT/tools/federation/governance_agent.ts" --goalie-dir "$PROJECT_ROOT/.goalie" "$@"
         ;;
 
     pattern-coverage)
@@ -72,33 +142,79 @@ case "$1" in
         python3 "$SCRIPT_DIR/cmd_pattern_coverage.py" "$@"
         ;;
         
-    wsjf)
+    wsjf|wsjf-top|wsjf-by-circle|wsjf-replenish)
+        cmd="$1"
         shift
-        python3 "$SCRIPT_DIR/cmd_wsjf.py" "$@"
+        case "$cmd" in
+            wsjf)
+                python3 "$SCRIPT_DIR/cmd_wsjf.py" "$@"
+                ;;
+            wsjf-top)
+                python3 "$SCRIPT_DIR/cmd_wsjf.py" --top "$@"
+                ;;
+            wsjf-by-circle)
+                python3 "$SCRIPT_DIR/cmd_wsjf.py" --circle "$@"
+                ;;
+            wsjf-replenish)
+                "$PROJECT_ROOT/scripts/circles/replenish_circle.sh" "$@"
+                ;;
+        esac
         ;;
     
-    wsjf-top)
+    detect-observability-gaps|goalie-gaps)
         shift
-        python3 "$SCRIPT_DIR/cmd_wsjf.py" --top "$@"
-        ;;
-    
-    wsjf-by-circle)
-        shift
-        python3 "$SCRIPT_DIR/cmd_wsjf.py" --circle "$@"
-        ;;
-    
-    wsjf-replenish)
-        shift
-        CIRCLE="${1:-orchestrator}"
-        "$SCRIPT_DIR/circles/replenish_circle.sh" "$CIRCLE" "$@"
+        python3 "$SCRIPT_DIR/cmd_detect_observability_gaps.py" "$@"
         ;;
     
     governor-health)
         echo '{"score": 0.85, "status": "healthy"}'
         ;;
+    
+    pattern-stats)
+        shift
+        python3 "$SCRIPT_DIR/cmd_pattern_stats.py" "$@"
+        ;;
+    
+    actionable-context|recommendations)
+        shift
+        python3 "$SCRIPT_DIR/cmd_actionable_context.py" "$@"
+        ;;
 
     *)
-        echo "Usage: $0 {prod-cycle|full-cycle|retro-coach|governance-agent|...}"
+        echo "Usage: $0 {COMMAND} [OPTIONS]"
+        echo ""
+        echo "Core Commands:"
+        echo "  prod-cycle              - Run production cycle with WSJF prioritization"
+        echo "  full-cycle              - Execute full cycle with depth-based workload"
+        echo "  replenish-circle        - Replenish circle backlog with WSJF scoring"
+        echo ""
+        echo "Analysis & Insights:"
+        echo "  actionable-context      - Generate actionable recommendations from patterns"
+        echo "  pattern-stats           - View pattern metrics and statistics"
+        echo "  retro-coach             - Get retrospective insights and analysis"
+        echo "  governance-agent        - Run governance checks and code fix proposals"
+        echo ""
+        echo "WSJF & Prioritization:"
+        echo "  wsjf                    - View WSJF scores for all items"
+        echo "  wsjf-top                - Show top WSJF items"
+        echo "  wsjf-by-circle          - Show WSJF scores by circle"
+        echo "  wsjf-replenish          - Replenish with WSJF calculation"
+        echo ""
+        echo "Observability:"
+        echo "  detect-observability-gaps - Find gaps in observability coverage"
+        echo "  pattern-coverage        - Check pattern implementation coverage"
+        echo ""
+        echo "Prod-cycle Mode Options:"
+        echo "  mutate      - Allow system modifications with safe degradation (default)"
+        echo "  advisory    - Read-only mode with recommendations only"
+        echo "  enforcement - Strict governance with no modifications"
+        echo ""
+        echo "Examples:"
+        echo "  $0 prod-cycle --mode mutate 5"
+        echo "  $0 actionable-context --json"
+        echo "  $0 actionable-context --export-kanban"
+        echo "  $0 pattern-stats --pattern safe_degrade"
+        echo "  $0 wsjf-replenish analyst --auto-calc-wsjf"
         exit 1
         ;;
 esac

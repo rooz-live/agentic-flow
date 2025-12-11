@@ -17,6 +17,38 @@
 
 set -euo pipefail
 
+# Normalize Circle Name - Critical Fix for 28.8% Unknown Events
+# =============================================================
+# Standardizes circle names to canonical forms (Analyst, Assessor, etc.)
+# Fixes: CIRCLE_LEARNING_PARITY_SUMMARY.md - 33.3/100 score issue
+#
+# Usage: NORMALIZED=$(normalize_circle_name "analyst")
+normalize_circle_name() {
+    local input_circle="${1:-Orchestrator}"
+    local normalized
+    
+    # Convert to lowercase for matching
+    case "${input_circle,,}" in
+        analyst*)
+            normalized="Analyst" ;;
+        assessor*)
+            normalized="Assessor" ;;
+        innovator*)
+            normalized="Innovator" ;;
+        intuitive*)
+            normalized="Intuitive" ;;
+        orchestrator*|orchestration*)
+            normalized="Orchestrator" ;;
+        seeker*|exploration*|discovery*)
+            normalized="Seeker" ;;
+        *)
+            # Fallback to Orchestrator for unknown circles
+            normalized="Orchestrator" ;;
+    esac
+    
+    echo "$normalized"
+}
+
 # Safe Degrade Pattern - Reactive Throttling
 # ==========================================
 # Tracks when system degrades due to failures (deploy, CI, validate)
@@ -43,8 +75,11 @@ log_safe_degrade_event() {
 EOF
 )
     
+    # Normalize circle name before logging
+    local circle_name=$(normalize_circle_name "${AF_CIRCLE:-Orchestrator}")
+    
     emit_pattern_event "safe-degrade" "$AF_PROD_CYCLE_MODE" "deploy" \
-        "${AF_CIRCLE:-Orchestrator}" "${AF_DEPTH_LEVEL:-3}" "true" "mutation" \
+        "$circle_name" "${AF_DEPTH_LEVEL:-3}" "true" "mutation" \
         "$pattern_data, \"reason\": \"$trigger_type triggered degradation: $action_taken\""
     
     # Export for tracking across cycles
@@ -75,9 +110,12 @@ log_circle_risk_focus() {
 EOF
 )
     
+    # Normalize circle name before logging
+    local normalized_circle=$(normalize_circle_name "$top_owner_circle")
+    
     emit_pattern_event "circle-risk-focus" "$AF_PROD_CYCLE_MODE" "focus" \
-        "$top_owner_circle" "${AF_DEPTH_LEVEL:-2}" "false" "advisory" \
-        "$pattern_data, \"reason\": \"Circle $top_owner_circle has highest ROAM risk, allocated $extra_iterations extra iterations\""
+        "$normalized_circle" "${AF_DEPTH_LEVEL:-2}" "false" "advisory" \
+        "$pattern_data, \"reason\": \"Circle $normalized_circle has highest ROAM risk, allocated $extra_iterations extra iterations\""
 }
 
 # Autocommit Shadow Pattern - Trust Building
@@ -103,8 +141,11 @@ log_autocommit_shadow() {
 EOF
 )
     
+    # Normalize circle name before logging
+    local circle_name=$(normalize_circle_name "${AF_CIRCLE:-Orchestrator}")
+    
     emit_pattern_event "autocommit-shadow" "advisory" "autocommit" \
-        "${AF_CIRCLE:-Orchestrator}" "${AF_DEPTH_LEVEL:-3}" "false" "advisory" \
+        "$circle_name" "${AF_DEPTH_LEVEL:-3}" "false" "advisory" \
         "$pattern_data, \"reason\": \"Shadow mode tracking $candidate_count candidates, $manual_override_count overrides, $cycles_until_confidence cycles to confidence\""
 }
 

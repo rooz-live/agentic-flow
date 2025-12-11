@@ -49,7 +49,8 @@ function getGoalieDirFromArgs() {
     if (process.env.GOALIE_DIR) {
         return path.resolve(process.env.GOALIE_DIR);
     }
-    return path.resolve(process.cwd(), 'investing/agentic-flow/.goalie');
+    // Fallback: assume running from project root
+    return path.resolve(process.cwd(), '.goalie');
 }
 function isProdCycle() {
     // Check command line args
@@ -779,6 +780,7 @@ function generateCodeFixProposals(patterns) {
 function loadRetroCoachContext(goalieDir) {
     const retroJsonPath = path.join(goalieDir, 'retro_coach.json');
     if (!fs.existsSync(retroJsonPath)) {
+        console.warn('[governance_agent] retro_coach.json not found, system health metrics unavailable');
         return undefined;
     }
     try {
@@ -790,9 +792,63 @@ function loadRetroCoachContext(goalieDir) {
         const baseline = data && typeof data.baselineComparison === 'object'
             ? data.baselineComparison
             : undefined;
+        // Enhanced forensic metrics extraction
+        let verificationRate = 0;
+        let avgCodDeltaPct = 0;
+        let totalActions = 0;
+        let verifiedCount = 0;
+        if (insights) {
+            // Extract verification rate
+            verifiedCount = typeof insights.verifiedCount === 'number' ? insights.verifiedCount : 0;
+            totalActions = typeof insights.totalActions === 'number' ? insights.totalActions : 0;
+            verificationRate = totalActions > 0 ? verifiedCount / totalActions : 0;
+            // Extract average COD delta percentage
+            if (typeof insights.avgCodDeltaPct === 'number') {
+                avgCodDeltaPct = insights.avgCodDeltaPct;
+            }
+            else if (insights.highImpactActions && Array.isArray(insights.highImpactActions)) {
+                // Calculate avg COD delta from high impact actions if not directly available
+                const codDeltas = insights.highImpactActions
+                    .filter((action) => typeof action.codAvg === 'number')
+                    .map((action) => action.codAvg);
+                if (codDeltas.length > 0) {
+                    avgCodDeltaPct = codDeltas.reduce((sum, delta) => sum + delta, 0) / codDeltas.length;
+                }
+            }
+            console.error(`[governance_agent] Retro Coach metrics loaded: verification=${(verificationRate * 100).toFixed(1)}%, avgCodDelta=${avgCodDeltaPct.toFixed(2)}%, totalActions=${totalActions}`);
+        }
+        // Enhanced baseline comparison metrics
+        let baselineDeltaPct = 0;
+        let overallDeltaPct = 0;
+        let regressionDetected = false;
+        if (baseline) {
+            baselineDeltaPct = typeof baseline.deltaPct === 'number' ? baseline.deltaPct : 0;
+            overallDeltaPct = typeof baseline.overallDeltaPct === 'number' ? baseline.overallDeltaPct : 0;
+            regressionDetected = baseline.regression === true || baselineDeltaPct < -10 || overallDeltaPct < -10;
+            console.error(`[governance_agent] Baseline comparison: deltaPct=${baselineDeltaPct.toFixed(2)}%, overallDeltaPct=${overallDeltaPct.toFixed(2)}%, regression=${regressionDetected}`);
+        }
+        // Calculate system health score
+        const verificationScore = verificationRate * 100;
+        const codScore = avgCodDeltaPct !== undefined ? Math.max(0, 100 + avgCodDeltaPct) : 50;
+        const baselineScore = regressionDetected ? 0 : Math.max(0, 100 + Math.max(baselineDeltaPct, overallDeltaPct));
+        const systemHealthScore = (verificationScore + codScore + baselineScore) / 3;
+        console.error(`[governance_agent] System health score calculated: ${systemHealthScore.toFixed(1)} (verification: ${verificationScore.toFixed(1)}, cod: ${codScore.toFixed(1)}, baseline: ${baselineScore.toFixed(1)})`);
         return {
-            insightsSummary: insights,
-            baselineComparison: baseline,
+            insightsSummary: {
+                ...insights,
+                verificationRate,
+                avgCodDeltaPct,
+                totalActions,
+                verifiedCount,
+                systemHealthScore
+            },
+            baselineComparison: {
+                ...baseline,
+                baselineDeltaPct,
+                overallDeltaPct,
+                regressionDetected,
+                systemHealthScore
+            },
             raw: data,
         };
     }
@@ -859,41 +915,216 @@ function classifyProposalRisk(proposal, meta) {
     if (isHighRiskPattern(proposal.pattern)) {
         return 'high';
     }
+    // Enhanced risk-based classification for different patterns
+    let baseRisk = 'medium';
+    // Safe-degrade patterns at shallow depth are lower risk
+    if (proposal.pattern === 'safe-degrade' && meta.depth <= 2) {
+        baseRisk = 'low';
+    }
+    // ML training guardrail patterns are always high risk due to model impact
+    if (proposal.pattern === 'ml-training-guardrail') {
+        baseRisk = 'high';
+    }
     // Config/test-only changes are considered low risk
     if (!hasCode && (hasConfig || hasTest)) {
-        return 'low';
+        baseRisk = 'low';
     }
-    let level = hasCode ? 'medium' : 'low';
-    // Path-based refinement
+    // Path-based risk assessment
+    let pathRisk = 'low';
     if (pathStr.startsWith('scripts/') ||
         pathStr.startsWith('observability/') ||
-        pathStr.startsWith('tests/')) {
-        if (level === 'high')
-            return 'high';
-        level = 'low';
+        pathStr.startsWith('tests/') ||
+        pathStr.startsWith('docs/') ||
+        pathStr.startsWith('.goalie/')) {
+        pathRisk = 'low';
     }
-    if (pathStr.startsWith('ml/training/') ||
+    else if (pathStr.startsWith('config/') ||
+        pathStr.startsWith('infrastructure/') ||
+        pathStr.startsWith('deploy/')) {
+        pathRisk = 'medium';
+    }
+    else if (pathStr.startsWith('ml/training/') ||
         pathStr.startsWith('ml/pipelines/') ||
-        pathStr.startsWith('src/')) {
-        level = 'high';
+        pathStr.startsWith('src/') ||
+        pathStr.startsWith('api/') ||
+        pathStr.startsWith('production/') ||
+        pathStr.includes('core/') ||
+        pathStr.includes('critical/')) {
+        pathRisk = 'high';
     }
-    // Pattern-based refinement for HPC / Device / Web workloads
+    // Depth-based risk assessment
+    let depthRisk = 'low';
+    if (meta.depth <= 1) {
+        depthRisk = 'low';
+    }
+    else if (meta.depth <= 3) {
+        depthRisk = 'medium';
+    }
+    else {
+        depthRisk = 'high';
+    }
+    // Circle-based risk assessment
+    let circleRisk = 'medium';
+    switch (meta.circle) {
+        case 'Assessor':
+        case 'Compute':
+            circleRisk = 'low';
+            break;
+        case 'Analyst':
+        case 'Intuitive':
+            circleRisk = 'medium';
+            break;
+        case 'Innovator':
+        case 'Architect':
+            circleRisk = 'high';
+            break;
+        default:
+            circleRisk = 'medium';
+    }
+    // Pattern-specific risk refinement for HPC / Device / Web workloads
+    let patternRisk = 'medium';
     switch (proposal.pattern) {
         case 'cluster-fragmentation':
         case 'network-bottleneck':
+        case 'node-failure-recovery':
+        case 'data-pipeline-backpressure':
+            patternRisk = 'high';
+            break;
         case 'web-vitals-cls':
         case 'mobile-app-cold-start':
-            if (level === 'low')
-                level = 'medium';
+        case 'desktop-render-block':
+        case 'mobile-interaction-lag':
+            patternRisk = 'medium';
+            break;
+        case 'hpc-batch-window':
+        case 'observability-first':
+        case 'safe-degrade':
+            patternRisk = 'low';
+            break;
+        case 'ml-training-guardrail':
+        case 'distributed-training-failure':
+        case 'checkpoint-corruption':
+        case 'oom-recovery':
+            patternRisk = 'high';
+            break;
+        case 'iteration-budget':
+        case 'guardrail-lock':
+        case 'autocommit-shadow':
+            patternRisk = 'medium';
             break;
         default:
-            break;
+            patternRisk = 'medium';
     }
-    return level;
+    // Economic impact-based risk adjustment
+    let economicRisk = 'medium';
+    if (meta.totalImpactAvg >= 1000000) {
+        economicRisk = 'high';
+    }
+    else if (meta.totalImpactAvg >= 100000) {
+        economicRisk = 'medium';
+    }
+    else {
+        economicRisk = 'low';
+    }
+    // Combine all risk factors with weighted scoring
+    const riskScores = {
+        low: 0,
+        medium: 0,
+        high: 0
+    };
+    // Weight different factors
+    const weights = {
+        base: 0.3,
+        path: 0.2,
+        depth: 0.15,
+        circle: 0.15,
+        pattern: 0.15,
+        economic: 0.05
+    };
+    // Add weighted scores
+    riskScores[baseRisk] += weights.base;
+    riskScores[pathRisk] += weights.path;
+    riskScores[depthRisk] += weights.depth;
+    riskScores[circleRisk] += weights.circle;
+    riskScores[patternRisk] += weights.pattern;
+    riskScores[economicRisk] += weights.economic;
+    // Determine final risk level based on highest weighted score
+    let finalRisk = 'medium';
+    if (riskScores.high >= 0.6) {
+        finalRisk = 'high';
+    }
+    else if (riskScores.low >= 0.5) {
+        finalRisk = 'low';
+    }
+    else {
+        finalRisk = 'medium';
+    }
+    // Log risk classification details for audit trail
+    console.error(`[governance_agent] Risk classification for ${proposal.pattern}: base=${baseRisk}, path=${pathRisk}, depth=${depthRisk}, circle=${circleRisk}, pattern=${patternRisk}, economic=${economicRisk}, final=${finalRisk}`);
+    return finalRisk;
 }
 function applyAutoApplyPolicy(proposals, patterns, topEconomicGaps, retroCtx) {
     const allowAutocommit = process.env.AF_ALLOW_CODE_AUTOCOMMIT === '1';
-    const mode = (process.env.AF_GOVERNANCE_AUTO_APPLY_MODE || 'none');
+    const mode = (process.env.AF_GOVERNANCE_AUTO_APPLY_MODE || 'conservative');
+    // Enhanced environment variable controls
+    const riskThreshold = Number(process.env.AF_GOVERNANCE_RISK_THRESHOLD || '5');
+    const minVerificationRate = Number(process.env.AF_GOVERNANCE_VERIFICATION_RATE_MIN || '0.7');
+    const riskTier = (process.env.AF_GOVERNANCE_RISK_TIER || 'low');
+    const minTotalImpact = Number(process.env.AF_GOVERNANCE_MIN_TOTAL_IMPACT || '1000000');
+    const minWsjf = Number(process.env.AF_GOVERNANCE_MIN_WSJF || '5000');
+    const safeCirclesEnv = process.env.AF_GOVERNANCE_SAFE_CIRCLES || 'Assessor,Compute';
+    const safeCircles = new Set(safeCirclesEnv
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean));
+    const maxDepth = Number(process.env.AF_GOVERNANCE_MAX_DEPTH || '1');
+    // Enhanced Retro Coach forensic metrics
+    let verifiedRate = 0;
+    let totalActions = 0;
+    let avgCodDeltaPct;
+    let baselineDeltaPct;
+    let systemHealthScore = 0;
+    if (retroCtx?.insightsSummary) {
+        const insights = retroCtx.insightsSummary;
+        const verifiedCount = typeof insights.verifiedCount === 'number' ? insights.verifiedCount : 0;
+        totalActions =
+            typeof insights.totalActions === 'number' ? insights.totalActions : 0;
+        verifiedRate = totalActions > 0 ? verifiedCount / totalActions : 0;
+        if (typeof insights.avgCodDeltaPct === 'number') {
+            avgCodDeltaPct = insights.avgCodDeltaPct;
+        }
+        // Calculate system health score based on verification rate and COD performance
+        const verificationScore = verifiedRate * 100;
+        const codScore = avgCodDeltaPct !== undefined ? Math.max(0, 100 + avgCodDeltaPct) : 50;
+        systemHealthScore = (verificationScore + codScore) / 2;
+    }
+    if (retroCtx?.baselineComparison) {
+        const baseline = retroCtx.baselineComparison;
+        if (typeof baseline.deltaPct === 'number') {
+            baselineDeltaPct = baseline.deltaPct;
+        }
+        else if (typeof baseline.overallDeltaPct === 'number') {
+            baselineDeltaPct = baseline.overallDeltaPct;
+        }
+    }
+    // Enhanced verification gates with configurable thresholds
+    const verificationOk = totalActions >= 5 && verifiedRate >= minVerificationRate;
+    const codRegressionOk = avgCodDeltaPct === undefined || avgCodDeltaPct >= -10;
+    const baselineRegressionOk = baselineDeltaPct === undefined || baselineDeltaPct >= -10;
+    // Dynamic policy mode logic based on system health
+    let effectiveMode = mode;
+    if (mode === 'conservative' || systemHealthScore < 60 || !verificationOk || !codRegressionOk || !baselineRegressionOk) {
+        effectiveMode = 'conservative';
+        console.error(`[governance_agent] Dynamic policy: forcing conservative mode due to system health score=${systemHealthScore.toFixed(1)}, verification=${(verifiedRate * 100).toFixed(1)}%`);
+    }
+    else if (mode === 'moderate' && systemHealthScore >= 70 && verificationOk && codRegressionOk && baselineRegressionOk) {
+        effectiveMode = 'moderate';
+        console.error(`[governance_agent] Dynamic policy: moderate mode enabled with system health score=${systemHealthScore.toFixed(1)}`);
+    }
+    else if (mode === 'aggressive' && systemHealthScore >= 85 && verifiedRate >= 0.9 && codRegressionOk && baselineRegressionOk) {
+        effectiveMode = 'aggressive';
+        console.error(`[governance_agent] Dynamic policy: aggressive mode enabled with high system health score=${systemHealthScore.toFixed(1)}`);
+    }
     // Always normalize high-risk proposals to require approval.
     const normalizeHighRisk = (proposal) => {
         const highRisk = isHighRiskPattern(proposal.pattern);
@@ -911,7 +1142,7 @@ function applyAutoApplyPolicy(proposals, patterns, topEconomicGaps, retroCtx) {
         };
     };
     // Fast path: no auto-apply configured or health gate disabled.
-    if (!allowAutocommit || mode === 'none') {
+    if (!allowAutocommit || effectiveMode === 'none') {
         return proposals.map((p) => {
             const base = {
                 ...p,
@@ -921,43 +1152,9 @@ function applyAutoApplyPolicy(proposals, patterns, topEconomicGaps, retroCtx) {
             return normalizeHighRisk(base);
         });
     }
-    const riskTier = (process.env.AF_GOVERNANCE_RISK_TIER || 'low');
-    const minTotalImpact = Number(process.env.AF_GOVERNANCE_MIN_TOTAL_IMPACT || '1000000');
-    const minWsjf = Number(process.env.AF_GOVERNANCE_MIN_WSJF || '5000');
-    const safeCirclesEnv = process.env.AF_GOVERNANCE_SAFE_CIRCLES || 'Assessor,Compute';
-    const safeCircles = new Set(safeCirclesEnv
-        .split(',')
-        .map((c) => c.trim())
-        .filter(Boolean));
-    const maxDepth = Number(process.env.AF_GOVERNANCE_MAX_DEPTH || '1');
-    // Retro/verification gates
-    let verifiedRate = 0;
-    let totalActions = 0;
-    let avgCodDeltaPct;
-    let baselineDeltaPct;
-    if (retroCtx?.insightsSummary) {
-        const insights = retroCtx.insightsSummary;
-        const verifiedCount = typeof insights.verifiedCount === 'number' ? insights.verifiedCount : 0;
-        totalActions =
-            typeof insights.totalActions === 'number' ? insights.totalActions : 0;
-        verifiedRate = totalActions > 0 ? verifiedCount / totalActions : 0;
-        if (typeof insights.avgCodDeltaPct === 'number') {
-            avgCodDeltaPct = insights.avgCodDeltaPct;
-        }
-    }
-    if (retroCtx?.baselineComparison) {
-        const baseline = retroCtx.baselineComparison;
-        if (typeof baseline.deltaPct === 'number') {
-            baselineDeltaPct = baseline.deltaPct;
-        }
-        else if (typeof baseline.overallDeltaPct === 'number') {
-            baselineDeltaPct = baseline.overallDeltaPct;
-        }
-    }
-    const verificationOk = totalActions >= 5 && verifiedRate >= 0.7;
-    const codRegressionOk = avgCodDeltaPct === undefined || avgCodDeltaPct >= -10;
-    const baselineRegressionOk = baselineDeltaPct === undefined || baselineDeltaPct >= -10;
+    // Force conservative mode in high-risk or regressing scenarios
     if (!verificationOk || !codRegressionOk || !baselineRegressionOk) {
+        console.error(`[governance_agent] System health regression detected - forcing conservative mode`);
         return proposals.map((p) => normalizeHighRisk({
             ...p,
             mode: 'dry-run',
@@ -972,6 +1169,37 @@ function applyAutoApplyPolicy(proposals, patterns, topEconomicGaps, retroCtx) {
         // low+medium
         return level === 'low' || level === 'medium';
     };
+    // Enhanced risk-based classification for different policy modes
+    const canAutoApplyByMode = (risk, meta) => {
+        switch (effectiveMode) {
+            case 'conservative':
+                // Only auto-apply low-risk proposals (config/test snippets, infrastructure changes)
+                return risk === 'low' &&
+                    !isHighRiskPattern(meta.pattern) &&
+                    (meta.depth <= 1 || meta.circle === 'Assessor' || meta.circle === 'Compute');
+            case 'moderate':
+                // Auto-apply medium-risk proposals with verification rate > 80%
+                return (risk === 'low' || risk === 'medium') &&
+                    verifiedRate >= 0.8 &&
+                    !isHighRiskPattern(meta.pattern) &&
+                    meta.depth <= 2;
+            case 'aggressive':
+                // Auto-apply most proposals with verification rate > 90% and low risk scores
+                return (risk === 'low' || risk === 'medium') &&
+                    verifiedRate >= 0.9 &&
+                    systemHealthScore >= 85 &&
+                    meta.depth <= 3;
+            case 'economic':
+                // Economic mode based on WSJF and impact thresholds
+                return meta.totalImpactAvg >= minTotalImpact &&
+                    (meta.wsjfAvg ?? 0) >= minWsjf &&
+                    withinRiskTier(risk);
+            case 'low-risk':
+            case 'all':
+            default:
+                return withinRiskTier(risk);
+        }
+    };
     return proposals.map((proposal) => {
         const meta = lookupPatternMeta(proposal.pattern, patterns, topEconomicGaps);
         const risk = classifyProposalRisk(proposal, meta);
@@ -979,14 +1207,51 @@ function applyAutoApplyPolicy(proposals, patterns, topEconomicGaps, retroCtx) {
         const approverRole = ensureApproverRoleForHighRisk(proposal.pattern, proposal.approverRole);
         const circleOk = safeCircles.size === 0 || safeCircles.has(meta.circle);
         const depthOk = meta.depth <= maxDepth;
-        const economicOk = mode !== 'economic' ||
+        const economicOk = effectiveMode !== 'economic' ||
             (meta.totalImpactAvg >= minTotalImpact &&
                 (meta.wsjfAvg ?? 0) >= minWsjf);
         const riskOk = withinRiskTier(risk);
-        const canAutoApply = allowAutocommit && !highRisk && riskOk && economicOk && circleOk && depthOk;
+        const modeBasedOk = canAutoApplyByMode(risk, meta);
+        // Safety checks: Always require human approval for high-risk paths (src/, production APIs)
+        const isHighRiskPath = proposal.filePath && (proposal.filePath.startsWith('src/') ||
+            proposal.filePath.includes('api/') ||
+            proposal.filePath.includes('production/'));
+        const canAutoApply = allowAutocommit &&
+            !highRisk &&
+            !isHighRiskPath &&
+            riskOk &&
+            economicOk &&
+            circleOk &&
+            depthOk &&
+            modeBasedOk;
+        // Comprehensive logging for policy decisions
+        const policyDecision = {
+            proposal: proposal.pattern,
+            mode: effectiveMode,
+            risk,
+            highRisk,
+            isHighRiskPath,
+            systemHealthScore,
+            verifiedRate,
+            avgCodDeltaPct,
+            baselineDeltaPct,
+            circleOk,
+            depthOk,
+            economicOk,
+            riskOk,
+            modeBasedOk,
+            canAutoApply,
+            meta: {
+                circle: meta.circle,
+                depth: meta.depth,
+                totalImpactAvg: meta.totalImpactAvg,
+                wsjfAvg: meta.wsjfAvg
+            }
+        };
+        console.error(`[governance_agent] Policy decision: ${JSON.stringify(policyDecision, null, 2)}`);
         if (canAutoApply) {
             // eslint-disable-next-line no-console
-            console.error(`[governance_agent] Auto-apply eligible code fix for pattern="${proposal.pattern}", circle=${meta.circle}, depth=${meta.depth}, risk=${risk}, impact=${meta.totalImpactAvg}, wsjf=${meta.wsjfAvg ?? 0}`);
+            console.error(`[governance_agent] Auto-apply eligible code fix for pattern="${proposal.pattern}", circle=${meta.circle}, depth=${meta.depth}, risk=${risk}, impact=${meta.totalImpactAvg}, wsjf=${meta.wsjfAvg ?? 0}, mode=${effectiveMode}`);
             return {
                 ...proposal,
                 mode: 'apply',
@@ -1938,6 +2203,7 @@ async function main() {
     const batchMode = process.argv.includes('--batch');
     const autoMode = process.argv.includes('--auto');
     const applyAdjustments = process.argv.includes('--apply-adjustments');
+    const federationMode = process.argv.includes('--federation-mode') || process.env.AF_FEDERATION_MODE === 'true';
     const patternsPath = path.join(goalieDir, 'pattern_metrics.jsonl');
     const metricsPath = path.join(goalieDir, 'metrics_log.jsonl');
     const cycleLogPath = path.join(goalieDir, 'cycle_log.jsonl');
@@ -1948,6 +2214,22 @@ async function main() {
         console.error('governance_agent: no metrics or pattern metrics found in', goalieDir);
         process.exitCode = 1;
         return;
+    }
+    // Federation mode specific initialization
+    if (federationMode) {
+        console.log('[GOVERNANCE] Running in federation mode');
+        // Emit federation startup event
+        emitPatternMetric('federation-startup', 'advisory', 'initialization', 'Governance agent started in federation mode', 'initialize-federation-governance', {
+            agent: 'governance-agent',
+            mode: 'federation',
+            startup_time: new Date().toISOString(),
+            goalie_dir: goalieDir
+        }, ['Federation', 'Governance']);
+        // Subscribe to pattern metrics for real-time monitoring
+        if (process.env.AF_STREAM_SOCKET) {
+            console.log('[GOVERNANCE] Subscribing to pattern metrics stream');
+            // Stream subscription would be handled by orchestrator
+        }
     }
     const streamSocketPath = process.env.AF_STREAM_SOCKET ? resolveStreamSocket(goalieDir) : undefined;
     // Initialize WSJF Calculator for enhanced economic prioritization

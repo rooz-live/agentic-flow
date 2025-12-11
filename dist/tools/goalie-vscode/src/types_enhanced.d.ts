@@ -4,10 +4,34 @@
  * This file contains type definitions for the enhanced VS Code extension
  * with WSJF integration, real-time updates, and advanced analytics capabilities.
  */
-import type { KanbanSection, KanbanEntry } from './extension';
-import type { WSJFResult, BatchRecommendation, RiskAssessment } from '../../federation/wsjf_calculator.js';
-import type { AnalyticsSummary } from '../../federation/multi_dimensional_analytics.js';
-import type { BatchExecutionPlan, BatchExecutionResult } from '../../federation/risk_aware_batching.js';
+import * as vscode from 'vscode';
+export type KanbanSection = 'NOW' | 'NEXT' | 'LATER';
+export interface KanbanEntry {
+    id?: string;
+    title?: string;
+    summary?: string;
+    filePath?: string;
+    metrics?: string[];
+    [key: string]: any;
+}
+export interface WSJFResult {
+    [key: string]: any;
+}
+export interface BatchRecommendation {
+    [key: string]: any;
+}
+export interface RiskAssessment {
+    [key: string]: any;
+}
+export interface AnalyticsSummary {
+    [key: string]: any;
+}
+export interface BatchExecutionPlan {
+    [key: string]: any;
+}
+export interface BatchExecutionResult {
+    [key: string]: any;
+}
 /**
  * Enhanced Kanban entry with WSJF and risk information
  */
@@ -366,8 +390,4 @@ export interface PerformanceMetrics {
     /** Additional metadata */
     metadata?: Record<string, any>;
 }
-/**
- * Export all types for easy importing
- */
-export type { KanbanSection, KanbanEntry, WSJFResult, BatchRecommendation, RiskAssessment, AnalyticsSummary, BatchExecutionPlan, BatchExecutionResult };
 //# sourceMappingURL=types_enhanced.d.ts.map

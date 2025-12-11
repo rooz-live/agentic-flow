@@ -7,11 +7,12 @@ import { DtCalibrationProvider } from './dtCalibrationProvider';
 import { StreamClient } from './streamClient';
 import { resolveStreamSocketPath } from './streamUtils';
 import { GoalieTelemetry } from './telemetry';
+import { EnhancedFileWatcher } from './enhancedFileWatcher';
 import type { DtDashboardSummaryReadyMessage } from './types/dtCalibration';
 
-type KanbanSection = 'NOW' | 'NEXT' | 'LATER';
+export type KanbanSection = 'NOW' | 'NEXT' | 'LATER';
 
-interface KanbanEntry {
+export interface KanbanEntry {
   id?: string;
   title?: string;
   summary?: string;
@@ -424,6 +425,10 @@ class PatternMetricsProvider implements vscode.TreeDataProvider<vscode.TreeItem>
   private pageSize: number = 50;
   private currentPage: number = 1;
   private aggregationsCache: Map<string, any> = new Map();
+  
+  // Doc index
+  private circleIndex: Record<string, string> = {};
+  private latestCircleByPattern: Map<string, string> = new Map();
 
   // Real-time updates
   private autoRefreshInterval: NodeJS.Timeout | undefined;
@@ -437,8 +442,23 @@ class PatternMetricsProvider implements vscode.TreeDataProvider<vscode.TreeItem>
   constructor(private readonly workspaceRoot?: string, private readonly context?: vscode.ExtensionContext) {
     this.initializeFilterPresets();
     this.loadPersistedFilters();
+    this.loadCircleIndex();
     this.startAutoRefresh();
     this.setupFileWatcher();
+  }
+
+  private loadCircleIndex(): void {
+    const goalieDir = this.getGoalieDir();
+    if (!goalieDir) return;
+    
+    const indexPath = path.join(goalieDir, 'circle_doc_index.json');
+    if (fs.existsSync(indexPath)) {
+        try {
+            this.circleIndex = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
+        } catch (e) {
+            console.error('Failed to load circle doc index', e);
+        }
+    }
   }
 
   private initializeFilterPresets(): void {
@@ -754,6 +774,11 @@ class PatternMetricsProvider implements vscode.TreeDataProvider<vscode.TreeItem>
             seenPatterns.add(patternKey);
             patterns.push(obj);
 
+            // Track latest circle for doc linking
+            if (obj.circle && obj.pattern) {
+                this.latestCircleByPattern.set(obj.pattern, obj.circle);
+            }
+
             // Check if this is a new pattern (within last 5 minutes)
             const patternTime = new Date(obj.timestamp);
             const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
@@ -778,29 +803,36 @@ class PatternMetricsProvider implements vscode.TreeDataProvider<vscode.TreeItem>
   }
 
   private filterPatterns(patterns: any[]): any[] {
-    if (this.currentFilter === 'all') {
+    if (this.currentFilters.length === 0) {
       return patterns;
     }
 
     return patterns.filter(pattern => {
-      switch (this.currentFilter) {
-        case 'circle':
-          return pattern.circle === this.filterValue;
-        case 'run-kind':
-          return pattern.run_kind === this.filterValue;
-        case 'gate':
-          return pattern.gate === this.filterValue;
-        case 'date-range':
-          if (this.filterValue.includes('last')) {
-            const days = parseInt(this.filterValue.replace('last-', '').replace('days', '')) || 7;
-            const patternDate = new Date(pattern.timestamp);
-            const cutoffDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
-            return patternDate >= cutoffDate;
-          }
-          return false;
-        default:
-          return true;
-      }
+      return this.currentFilters.every(filter => {
+        switch (filter.type) {
+          case 'circle':
+            return pattern.circle === filter.value;
+          case 'run-kind':
+            return pattern.run_kind === filter.value;
+          case 'gate':
+            return pattern.gate === filter.value;
+          case 'workload':
+            // Check if tags include workload
+            return Array.isArray(pattern.tags) && workloadTags(pattern.pattern, pattern.tags).includes(filter.value);
+          case 'framework':
+             return this.detectFramework(pattern.pattern).toLowerCase() === filter.value.toLowerCase();
+          case 'date-range':
+            if (filter.value.includes('last')) {
+              const days = parseInt(filter.value.replace('last-', '').replace('days', '')) || 7;
+              const patternDate = new Date(pattern.timestamp);
+              const cutoffDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
+              return patternDate >= cutoffDate;
+            }
+            return false;
+          default:
+            return true;
+        }
+      });
     });
   }
 
@@ -971,6 +1003,15 @@ class PatternMetricsProvider implements vscode.TreeDataProvider<vscode.TreeItem>
         break;
       case 'refreshChart':
         this.refreshChart(panelId);
+        break;
+      case 'openDoc':
+        if (message.path) {
+            const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            if (workspaceRoot) {
+                const docUri = vscode.Uri.file(path.join(workspaceRoot, message.path));
+                vscode.commands.executeCommand('markdown.showPreview', docUri);
+            }
+        }
         break;
     }
   }
@@ -1243,6 +1284,13 @@ class PatternMetricsProvider implements vscode.TreeDataProvider<vscode.TreeItem>
               framework: framework
             });
           }
+
+          function openDoc(path) {
+            vscode.postMessage({
+              command: 'openDoc',
+              path: path
+            });
+          }
         </script>
       </body>
       </html>
@@ -1270,11 +1318,36 @@ class PatternMetricsProvider implements vscode.TreeDataProvider<vscode.TreeItem>
       if (framework === 'TensorFlow') badges.push('<span class="badge tf">TF</span>');
       if (framework === 'PyTorch') badges.push('<span class="badge pytorch">PyTorch</span>');
 
+      // Check for doc link
+      let docLink = '';
+      if (pattern === 'circle-risk-focus') {
+        const latestCircle = this.latestCircleByPattern.get(pattern);
+        if (latestCircle) {
+            // Find doc for this circle (either primary backlog or lead role)
+            // Try explicit role first (e.g. analyst:Analyst) but circle name varies
+            // Just use simple heuristics: circle:backlog or circle:Lead
+            // The index keys are "circle:filename" or "circle:role:file" or "circle:role"
+            // We'll try finding "circle:backlog.md" or "circle:Analyst" etc.
+            
+            // Try circle:backlog.md
+            let docPath = this.circleIndex[`${latestCircle}:backlog.md`];
+            // If not found, try to find a key starting with circle and ending with backlog
+            if (!docPath) {
+                // simple fallback logic, maybe just direct lookup if we have better keys
+                // For now, rely on what generate_circle_index produced: "analyst:backlog.md"
+            }
+            
+            if (docPath) {
+                docLink = `<span class="badge doc" onclick="openDoc('${docPath}'); event.stopPropagation();" title="Open ${latestCircle} Documentation">📄 Docs</span>`;
+            }
+        }
+      }
+
       return `
         <div class="chart-bar" data-pattern="${pattern}" data-count="${count}" style="cursor: pointer;" onclick="filterByPattern('${pattern}')">
           <div class="pattern-info">
             <div class="pattern-name">${isNew ? '🆕 ' : ''}${pattern}</div>
-            <div class="pattern-badges">${badges.join('')}</div>
+            <div class="pattern-badges">${badges.join('')}${docLink}</div>
           </div>
           <div class="bar-container">
             <div class="bar-fill" style="width: ${percentage}%; background: ${color};"></div>
@@ -3994,7 +4067,29 @@ export function activate(context: vscode.ExtensionContext) {
   startStreamClient();
 
   // -- 1. Real-Time Monitoring (File Watcher) --
-  const watcher = vscode.workspace.createFileSystemWatcher('**/.goalie/*.{yaml,jsonl}');
+  // -- 1. Enhanced Real-Time Monitoring (File Watcher) --
+  const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  
+  // Create enhanced file watcher with centralized service
+  const enhancedFileWatcher = new EnhancedFileWatcher(
+    workspaceRoot,
+    [
+      () => kanbanProvider.refresh(),
+      () => gapsProvider.refresh(),
+      () => patternMetricsProvider.refresh(),
+      () => governanceEconomicsProvider.refresh(),
+      () => depthTimelineProvider.refresh(),
+      () => refreshLiveGapsPanelIfOpen().catch(err => {
+        outputChannel.appendLine(`[LiveGaps] Error refreshing live panel: ${err}`);
+      })
+    ],
+    {
+      patterns: ['**/.goalie/*.{yaml,jsonl}'],
+      debounceDelay: 300,
+      enableBatching: true,
+      enableVisualIndicators: true
+    }
+  );
 
   // Debounce the refresh to avoid spamming updates
   let refreshTimeout: NodeJS.Timeout | undefined;
@@ -4015,13 +4110,22 @@ export function activate(context: vscode.ExtensionContext) {
     }, 300); // 300ms debounce
   };
 
-  context.subscriptions.push(
-    watcher,
-    watcher.onDidChange(debouncedRefresh),
-    watcher.onDidCreate(debouncedRefresh),
-    watcher.onDidDelete(debouncedRefresh)
-  );
-  outputChannel.appendLine('File Watcher setup for .goalie directory.');
+  // Add enhanced file watcher to subscriptions for proper cleanup
+  context.subscriptions.push({
+    dispose: () => enhancedFileWatcher.dispose()
+  });
+
+  // Log performance metrics periodically
+  const metricsInterval = setInterval(() => {
+    const metrics = enhancedFileWatcher.getPerformanceMetrics();
+    outputChannel.appendLine(`[FileWatcher] Performance: ${metrics.totalFilesWatched} files watched, ${metrics.totalChangesDetected} changes detected, ${metrics.averageProcessingTime.toFixed(2)}ms avg processing time`);
+  }, 30000); // Log every 30 seconds
+
+  context.subscriptions.push({
+    dispose: () => clearInterval(metricsInterval)
+  });
+
+  outputChannel.appendLine('Enhanced File Watcher setup for .goalie directory with centralized service.');
 
   // -- 2. UX Study Instrumentation (Interaction Tracking) --
 

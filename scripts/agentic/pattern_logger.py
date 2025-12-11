@@ -141,6 +141,101 @@ class PatternLogger:
             "result": result,
             "action": action
         })
+    
+    def log_depth_ladder(self, old_depth, new_depth, reason, circle=None):
+        """Log depth changes during cycle execution"""
+        self.log("depth_ladder", {
+            "old_depth": old_depth,
+            "new_depth": new_depth,
+            "reason": reason,
+            "direction": "up" if new_depth > old_depth else "down",
+            "gate": "cycle-adaptation",
+            "tags": ["Cycle", "Adaptation"],
+            "action_completed": True
+        }, circle=circle, depth=new_depth)
+    
+    def log_circle_risk_focus(self, selected_circle, risk_score, reason, alternatives=None):
+        """Log when a circle is selected based on risk assessment"""
+        self.log("circle_risk_focus", {
+            "selected_circle": selected_circle,
+            "risk_score": risk_score,
+            "reason": reason,
+            "alternatives": alternatives or [],
+            "gate": "circle-selection",
+            "tags": ["Governance", "Risk"],
+            "action_completed": True
+        }, circle=selected_circle)
+    
+    def log_failure_strategy(self, strategy, failure_type, recovery_action, success=None):
+        """Log failure recovery strategies"""
+        self.log("failure_strategy", {
+            "strategy": strategy,
+            "failure_type": failure_type,
+            "recovery_action": recovery_action,
+            "success": success,
+            "gate": "failure-recovery",
+            "tags": ["Recovery", "Resilience"],
+            "action_completed": success if success is not None else False
+        })
+    
+    def log_wsjf_enrichment(self, pattern, wsjf_score, cod, enrichment_source, circle=None, depth=None):
+        """Log WSJF calculation and enrichment events"""
+        self.log("wsjf_enrichment", {
+            "enriched_pattern": pattern,
+            "wsjf_score": wsjf_score,
+            "cost_of_delay": cod,
+            "source": enrichment_source,
+            "gate": "wsjf-calculation",
+            "tags": ["WSJF", "Economics"],
+            "action_completed": True,
+            "economic": {
+                "wsjf_score": wsjf_score,
+                "cost_of_delay": cod,
+                "job_duration": 1,
+                "user_business_value": wsjf_score * 0.5
+            }
+        }, circle=circle, depth=depth)
+    
+    def log_economic_gap(self, pattern, impact, circle, depth, fix_proposal=None):
+        """Log economic gap detection events"""
+        self.log("economic_gap", {
+            "gap_pattern": pattern,
+            "total_impact": impact,
+            "fix_proposal": fix_proposal,
+            "gate": "governance-analysis",
+            "tags": ["Economics", "Gap"],
+            "action_completed": False,
+            "economic": {
+                "wsjf_score": 0.0,
+                "cost_of_delay": impact,
+                "job_duration": 1,
+                "user_business_value": 0.0
+            }
+        }, circle=circle, depth=depth)
+    
+    def log_code_fix_proposal(self, pattern, mode, risk_level, auto_apply, approver=None):
+        """Log code fix proposal and auto-apply policy decisions"""
+        self.log("code_fix_proposal", {
+            "proposal_pattern": pattern,
+            "proposal_mode": mode,
+            "risk_level": risk_level,
+            "auto_apply_eligible": auto_apply,
+            "approver_role": approver,
+            "gate": "governance-decision",
+            "tags": ["Governance", "Auto-Apply"],
+            "action_completed": auto_apply
+        })
+    
+    def log_observability_metrics(self, metrics_written, missing_signals, coverage_pct):
+        """Enhanced observability-first with metrics tracking"""
+        self.log("observability_first", {
+            "metrics_written": metrics_written,
+            "missing_signals": missing_signals,
+            "coverage_pct": coverage_pct,
+            "gate": "observability",
+            "tags": ["Observability", "Metrics"],
+            "action_completed": coverage_pct >= 90.0
+        })
 
 if __name__ == "__main__":
     import argparse

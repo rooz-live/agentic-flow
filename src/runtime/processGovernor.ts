@@ -17,6 +17,7 @@ import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
+import { ingestGovernorEvent } from './processGovernorBridge';
 
 // Configuration with safe defaults (optimized for high CPU load scenarios)
 export const AF_CPU_HEADROOM_TARGET = parseFloat(process.env.AF_CPU_HEADROOM_TARGET || '0.40'); 
@@ -26,10 +27,39 @@ export const AF_BACKOFF_MIN_MS = parseInt(process.env.AF_BACKOFF_MIN_MS || '200'
 export const AF_BACKOFF_MAX_MS = parseInt(process.env.AF_BACKOFF_MAX_MS || '30000', 10);
 export const AF_BACKOFF_MULTIPLIER = parseFloat(process.env.AF_BACKOFF_MULTIPLIER || '2.0');
 
-// Token bucket rate limiting (new)
+// Token bucket rate limiting (enhanced)
 export const AF_RATE_LIMIT_ENABLED = process.env.AF_RATE_LIMIT_ENABLED !== 'false';
-export const AF_TOKENS_PER_SECOND = parseInt(process.env.AF_TOKENS_PER_SECOND || '10', 10);
-export const AF_MAX_BURST = parseInt(process.env.AF_MAX_BURST || '20', 10);
+export const AF_TOKENS_PER_SECOND = parseInt(process.env.AF_TOKENS_PER_SECOND || '5', 10); // Reduced from 10 to 5 ops/sec ceiling
+export const AF_MAX_BURST = parseInt(process.env.AF_MAX_BURST || '10', 10); // Reduced from 20 to 10
+export const AF_TOKEN_REFILL_INTERVAL_MS = parseInt(process.env.AF_TOKEN_REFILL_INTERVAL_MS || '200', 10); // Refill every 200ms
+
+// Enhanced exponential backoff (Phase 1.1)
+export const AF_ENHANCED_BACKOFF_START_MS = parseInt(process.env.AF_ENHANCED_BACKOFF_START_MS || '250', 10);
+export const AF_ENHANCED_BACKOFF_FACTOR = parseFloat(process.env.AF_ENHANCED_BACKOFF_FACTOR || '2.0');
+export const AF_ENHANCED_BACKOFF_JITTER = parseFloat(process.env.AF_ENHANCED_BACKOFF_JITTER || '0.20'); // 20% jitter
+export const AF_ENHANCED_BACKOFF_CEILING_MS = parseInt(process.env.AF_ENHANCED_BACKOFF_CEILING_MS || '60000', 10); // 60s ceiling
+
+// Micro-batching configuration (Phase 1.1)
+export const AF_MICRO_BATCH_SIZE = parseInt(process.env.AF_MICRO_BATCH_SIZE || '10', 10);
+export const AF_MICRO_BATCH_FLUSH_INTERVAL_MS = parseInt(process.env.AF_MICRO_BATCH_FLUSH_INTERVAL_MS || '5000', 10); // 5s flush interval
+export const AF_MICRO_BATCH_DROP_OLDEST = process.env.AF_MICRO_BATCH_DROP_OLDEST !== 'false';
+
+// Adaptive polling configuration (Phase 1.1)
+export const AF_ADAPTIVE_POLL_MIN_MS = parseInt(process.env.AF_ADAPTIVE_POLL_MIN_MS || '50', 10);
+export const AF_ADAPTIVE_POLL_MAX_MS = parseInt(process.env.AF_ADAPTIVE_POLL_MAX_MS || '5000', 10);
+
+// Advanced throttling features (Phase 1.1)
+export const AF_ADAPTIVE_THROTTLING_ENABLED = process.env.AF_ADAPTIVE_THROTTLING_ENABLED !== 'false';
+export const AF_PREDICTIVE_THROTTLING = process.env.AF_PREDICTIVE_THROTTLING !== 'false';
+export const AF_DEPENDENCY_ANALYSIS_ENABLED = process.env.AF_DEPENDENCY_ANALYSIS_ENABLED !== 'false';
+export const AF_BATCH_MAPPING_ENABLED = process.env.AF_BATCH_MAPPING_ENABLED !== 'false';
+export const AF_EXECUTION_ORDER_OPTIMIZATION = process.env.AF_EXECUTION_ORDER_OPTIMIZATION !== 'false';
+export const AF_LOAD_HISTORY_SIZE = parseInt(process.env.AF_LOAD_HISTORY_SIZE || '30', 10);
+export const AF_MAX_BATCH_SIZE = parseInt(process.env.AF_MAX_BATCH_SIZE || '50', 10);
+
+// CPU load thresholds (Phase 1.1)
+export const AF_CPU_WARNING_THRESHOLD = parseFloat(process.env.AF_CPU_WARNING_THRESHOLD || '0.65'); // 65%
+export const AF_CPU_CRITICAL_THRESHOLD = parseFloat(process.env.AF_CPU_CRITICAL_THRESHOLD || '0.80'); // 80%
 
 // Circuit breaker configuration
 export const AF_CIRCUIT_BREAKER_ENABLED = process.env.AF_CIRCUIT_BREAKER_ENABLED !== 'false';
@@ -54,6 +84,23 @@ interface CircuitBreakerStats {
   windowStart: number;
 }
 
+// Phase 1.1: Enhanced metrics types
+interface LoadHistoryEntry {
+  timestamp: number;
+  cpuLoad: number;
+  idlePercentage?: number;
+  activeWork: number;
+  queuedWork: number;
+}
+
+interface ProcessDependency {
+  id: string;
+  dependencies: string[];
+  priority: number;
+  estimatedDuration?: number;
+  resourceWeight?: number;
+}
+
 interface GovernorState {
   activeWork: number;
   queuedWork: number;
@@ -64,11 +111,33 @@ interface GovernorState {
   availableTokens: number;
   lastTokenRefill: number;
   circuitBreaker: CircuitBreakerStats;
-  incidents: Array<{
+  // Phase 1.1: Enhanced state tracking
+  loadHistory: LoadHistoryEntry[];
+  processDependencies: Map<string, ProcessDependency>;
+  adaptiveThrottlingLevel: number;
+  predictiveLoadScore: number;
+  lastDependencyAnalysis: number;
+  incidentBuffer: Array<{
     timestamp: string;
-    type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' | 'CIRCUIT_CLOSED';
+    type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' | 'CIRCUIT_CLOSED' | 'ADAPTIVE_THROTTLING' | 'PREDICTIVE_THROTTLING' | 'DEPENDENCY_ANALYSIS';
     details: Record<string, unknown>;
   }>;
+  incidents: Array<{
+    timestamp: string;
+    type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' | 'CIRCUIT_CLOSED' | 'ADAPTIVE_THROTTLING' | 'PREDICTIVE_THROTTLING' | 'DEPENDENCY_ANALYSIS';
+    details: Record<string, unknown>;
+  }>;
+  // Phase 1.1: Enhanced metrics
+  metrics: {
+    tokens_available: number;
+    throttle_events: number;
+    backoff_ms: number;
+    poll_ms: number;
+    batch_depth: number;
+    dropped_events: number;
+    queue_depth: number;
+    flush_latency_ms: number;
+  };
 }
 
 const state: GovernorState = {
@@ -76,7 +145,7 @@ const state: GovernorState = {
   queuedWork: 0,
   completedWork: 0,
   failedWork: 0,
-  currentBackoff: AF_BACKOFF_MIN_MS,
+  currentBackoff: AF_ENHANCED_BACKOFF_START_MS,
   lastLoadCheck: Date.now(),
   availableTokens: AF_MAX_BURST,
   lastTokenRefill: Date.now(),
@@ -89,13 +158,36 @@ const state: GovernorState = {
     halfOpenRequests: 0,
     windowStart: Date.now(),
   },
+  // Phase 1.1: Enhanced state initialization
+  loadHistory: [],
+  processDependencies: new Map(),
+  adaptiveThrottlingLevel: 1.0,
+  predictiveLoadScore: 0.0,
+  lastDependencyAnalysis: 0,
+  incidentBuffer: [],
   incidents: [],
+  metrics: {
+    tokens_available: AF_MAX_BURST,
+    throttle_events: 0,
+    backoff_ms: AF_ENHANCED_BACKOFF_START_MS,
+    poll_ms: AF_ADAPTIVE_POLL_MIN_MS,
+    batch_depth: 0,
+    dropped_events: 0,
+    queue_depth: 0,
+    flush_latency_ms: 0,
+  },
 };
 
 const INCIDENT_LOG_PATH = process.env.AF_INCIDENT_LOG || 'logs/governor_incidents.jsonl';
 const LEARNING_BRIDGE_ENABLED = process.env.AF_LEARNING_BRIDGE_ENABLED !== 'false';
 const LEARNING_BRIDGE_PATH = process.env.AF_LEARNING_BRIDGE_PATH
   || path.join(process.cwd(), 'scripts', 'agentdb', 'process_governor_ingest.js');
+
+// Phase 1.1: Memory-mapped ring buffer configuration
+const INCIDENT_BUFFER_MAX_SIZE = parseInt(process.env.AF_INCIDENT_BUFFER_SIZE || '1000', 10);
+const INCIDENT_FLUSH_INTERVAL_MS = parseInt(process.env.AF_INCIDENT_FLUSH_INTERVAL_MS || '5000', 10);
+let flushTimer: NodeJS.Timeout | null = null;
+let isFlushingBuffer = false;
 
 function forwardIncidentToLearningBridge(
   incident: GovernorState['incidents'][0]
@@ -133,6 +225,51 @@ function forwardIncidentToLearningBridge(
   }
 }
 
+/**
+ * Phase 1.1: Memory-mapped ring buffer with async flush
+ * Reduces I/O pressure by buffering incidents in memory and flushing periodically
+ */
+async function flushIncidentBuffer(): Promise<void> {
+  if (isFlushingBuffer || state.incidentBuffer.length === 0) {
+    return;
+  }
+
+  isFlushingBuffer = true;
+  const flushStart = Date.now();
+  const toFlush = [...state.incidentBuffer];
+  state.incidentBuffer = [];
+
+  try {
+    const dir = path.dirname(INCIDENT_LOG_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    // Batch write incidents
+    const logContent = toFlush.map(inc => JSON.stringify(inc)).join('\n') + '\n';
+    fs.appendFileSync(INCIDENT_LOG_PATH, logContent);
+
+    // Update flush latency metric
+    state.metrics.flush_latency_ms = Date.now() - flushStart;
+  } catch (err) {
+    console.warn('[ProcessGovernor] Failed to flush incident buffer:', err);
+    // On error, restore buffered incidents (with fallback to learning bridge)
+    state.incidentBuffer.unshift(...toFlush.slice(0, Math.min(100, toFlush.length)));
+  } finally {
+    isFlushingBuffer = false;
+  }
+}
+
+function scheduleBufferFlush(): void {
+  if (!flushTimer) {
+    flushTimer = setInterval(() => {
+      flushIncidentBuffer().catch(err => 
+        console.warn('[ProcessGovernor] Flush error:', err)
+      );
+    }, INCIDENT_FLUSH_INTERVAL_MS);
+  }
+}
+
 function logIncident(
   type: GovernorState['incidents'][0]['type'],
   details: Record<string, unknown>
@@ -143,19 +280,38 @@ function logIncident(
     details,
   };
 
-  state.incidents.push(incident);
-
+  // Phase 3: Forward to ProcessGovernorBridge for pattern metrics
   try {
-    const dir = path.dirname(INCIDENT_LOG_PATH);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.appendFileSync(INCIDENT_LOG_PATH, JSON.stringify(incident) + '\n');
+    ingestGovernorEvent(incident);
   } catch (err) {
-    console.warn('Failed to log governor incident:', err);
+    // Graceful degradation: bridge failure doesn't crash governor
+    console.warn('[ProcessGovernor] Bridge ingestion failed:', err);
   }
 
-  forwardIncidentToLearningBridge(incident);
+  // Phase 1.1: Buffer incidents in memory
+  state.incidentBuffer.push(incident);
+  state.incidents.push(incident); // Keep for getStats()
+
+  // Drop oldest if buffer overflows
+  if (state.incidentBuffer.length > INCIDENT_BUFFER_MAX_SIZE) {
+    const dropped = state.incidentBuffer.shift();
+    state.metrics.dropped_events++;
+    if (dropped) {
+      // Fallback: try learning bridge for dropped events
+      forwardIncidentToLearningBridge(dropped);
+    }
+  }
+
+  // Update metrics
+  state.metrics.batch_depth = state.incidentBuffer.length;
+
+  // Schedule periodic flush
+  scheduleBufferFlush();
+
+  // Forward high-priority incidents immediately
+  if (type === 'CIRCUIT_OPEN' || type === 'CPU_OVERLOAD') {
+    forwardIncidentToLearningBridge(incident);
+  }
 }
 
 function getCpuLoad(): number {
@@ -169,22 +325,35 @@ function getIdlePercentage(): number {
   return Math.max(0, 100 - getCpuLoad());
 }
 
+/**
+ * Phase 1.1: Enhanced token bucket with interval-based refilling
+ * Refills tokens at a fixed rate (AF_TOKEN_REFILL_INTERVAL_MS)
+ * This reduces CPU overhead from constant refill calculations
+ */
 function refillTokens(): void {
   if (!AF_RATE_LIMIT_ENABLED) {
     state.availableTokens = AF_MAX_BURST;
+    state.metrics.tokens_available = AF_MAX_BURST;
     return;
   }
 
   const now = Date.now();
   const elapsedMs = now - state.lastTokenRefill;
-  const elapsedSeconds = elapsedMs / 1000;
 
-  const tokensToAdd = elapsedSeconds * AF_TOKENS_PER_SECOND;
-  state.availableTokens = Math.min(
-    state.availableTokens + tokensToAdd,
-    AF_MAX_BURST
-  );
-  state.lastTokenRefill = now;
+  // Only refill if enough time has passed (reduces overhead)
+  if (elapsedMs >= AF_TOKEN_REFILL_INTERVAL_MS) {
+    const intervals = Math.floor(elapsedMs / AF_TOKEN_REFILL_INTERVAL_MS);
+    const tokensToAdd = (AF_TOKENS_PER_SECOND * AF_TOKEN_REFILL_INTERVAL_MS / 1000) * intervals;
+    
+    state.availableTokens = Math.min(
+      state.availableTokens + tokensToAdd,
+      AF_MAX_BURST
+    );
+    state.lastTokenRefill = now - (elapsedMs % AF_TOKEN_REFILL_INTERVAL_MS);
+    
+    // Update metrics
+    state.metrics.tokens_available = state.availableTokens;
+  }
 }
 
 function consumeToken(): boolean {
@@ -350,34 +519,45 @@ async function waitForCapacity(count: number = 1): Promise<void> {
       continue;
     }
 
-    // 5. Enhanced CPU Load Check with adaptive thresholds
+    // 5. Enhanced CPU Load Check with adaptive thresholds and adaptive polling
     const now = Date.now();
-    if (now - state.lastLoadCheck > 500) { // More frequent checks
+    
+    // Phase 1.1: Adaptive polling interval based on load
+    const cpuLoad = getCpuLoad();
+    const loadRatio = cpuLoad / 100;
+    const pollInterval = Math.floor(
+      AF_ADAPTIVE_POLL_MIN_MS + 
+      (AF_ADAPTIVE_POLL_MAX_MS - AF_ADAPTIVE_POLL_MIN_MS) * loadRatio
+    );
+    state.metrics.poll_ms = pollInterval;
+    
+    if (now - state.lastLoadCheck > pollInterval) {
       state.lastLoadCheck = now;
       const idlePercent = getIdlePercentage();
-      const cpuLoad = getCpuLoad();
       
       // Adaptive target based on throttling level
       const targetIdlePercent = AF_CPU_HEADROOM_TARGET * 100 * throttlingLevel;
       
-      // Multi-tier CPU load response
+      // Multi-tier CPU load response with enhanced backoff
       if (cpuLoad > AF_CPU_CRITICAL_THRESHOLD * 100) {
         logIncident('CPU_OVERLOAD', {
           idlePercent,
           cpuLoad,
           targetIdlePercent,
           activeWork: state.activeWork,
-          level: 'critical'
+          level: 'critical',
+          pollInterval
         });
         
-        // Exponential backoff with jitter
-        const jitter = Math.random() * 0.1; // 10% jitter
+        // Phase 1.1: Enhanced exponential backoff with jitter
+        const jitter = Math.random() * AF_ENHANCED_BACKOFF_JITTER;
         const backoffWithJitter = state.currentBackoff * (1 + jitter);
         await sleep(backoffWithJitter);
         state.currentBackoff = Math.min(
-          state.currentBackoff * AF_BACKOFF_MULTIPLIER * 1.5, // Faster escalation
-          AF_BACKOFF_MAX_MS
+          state.currentBackoff * AF_ENHANCED_BACKOFF_FACTOR * 1.5, // Faster escalation for critical
+          AF_ENHANCED_BACKOFF_CEILING_MS
         );
+        state.metrics.backoff_ms = state.currentBackoff;
         continue;
       } else if (cpuLoad > AF_CPU_WARNING_THRESHOLD * 100) {
         logIncident('CPU_OVERLOAD', {
@@ -385,14 +565,16 @@ async function waitForCapacity(count: number = 1): Promise<void> {
           cpuLoad,
           targetIdlePercent,
           activeWork: state.activeWork,
-          level: 'warning'
+          level: 'warning',
+          pollInterval
         });
         
         await sleep(state.currentBackoff);
         state.currentBackoff = Math.min(
-          state.currentBackoff * AF_BACKOFF_MULTIPLIER,
-          AF_BACKOFF_MAX_MS
+          state.currentBackoff * AF_ENHANCED_BACKOFF_FACTOR,
+          AF_ENHANCED_BACKOFF_CEILING_MS
         );
+        state.metrics.backoff_ms = state.currentBackoff;
         continue;
       } else if (idlePercent < targetIdlePercent) {
         logIncident('CPU_OVERLOAD', {
@@ -400,20 +582,27 @@ async function waitForCapacity(count: number = 1): Promise<void> {
           cpuLoad,
           targetIdlePercent,
           activeWork: state.activeWork,
-          level: 'adaptive'
+          level: 'adaptive',
+          pollInterval
         });
         
+        state.metrics.throttle_events++;
         await sleep(adaptiveDelay);
         continue;
       } else {
         // Reset backoff on healthy load
-        state.currentBackoff = AF_BACKOFF_MIN_MS;
+        state.currentBackoff = AF_ENHANCED_BACKOFF_START_MS;
+        state.metrics.backoff_ms = state.currentBackoff;
       }
     }
 
     // If we got here, all checks passed. Reserve slot(s) and consume tokens.
     state.activeWork += count;
     state.availableTokens -= tokensNeeded;
+    
+    // Phase 1.1: Update queue depth and token metrics
+    state.metrics.tokens_available = state.availableTokens;
+    state.metrics.queue_depth = state.queuedWork;
     
     // Log if we somehow exceeded max (race edge case)
     if (state.activeWork > adaptiveMaxWip) {
@@ -723,11 +912,22 @@ export function getStats(): Readonly<GovernorState> {
 }
 
 export function reset(): void {
+  // Clear flush timer if exists
+  if (flushTimer) {
+    clearInterval(flushTimer);
+    flushTimer = null;
+  }
+  
+  // Flush remaining incidents before reset
+  flushIncidentBuffer().catch(err => 
+    console.warn('[ProcessGovernor] Final flush error:', err)
+  );
+  
   state.activeWork = 0;
   state.queuedWork = 0;
   state.completedWork = 0;
   state.failedWork = 0;
-  state.currentBackoff = AF_BACKOFF_MIN_MS;
+  state.currentBackoff = AF_ENHANCED_BACKOFF_START_MS;
   state.lastLoadCheck = Date.now();
   state.availableTokens = AF_MAX_BURST;
   state.lastTokenRefill = Date.now();
@@ -745,10 +945,22 @@ export function reset(): void {
   state.adaptiveThrottlingLevel = 1.0;
   state.predictiveLoadScore = 0.0;
   state.lastDependencyAnalysis = 0;
+  state.incidentBuffer = [];
   state.incidents = [];
+  state.metrics = {
+    tokens_available: AF_MAX_BURST,
+    throttle_events: 0,
+    backoff_ms: AF_ENHANCED_BACKOFF_START_MS,
+    poll_ms: AF_ADAPTIVE_POLL_MIN_MS,
+    batch_depth: 0,
+    dropped_events: 0,
+    queue_depth: 0,
+    flush_latency_ms: 0,
+  };
 }
 
 export const config = {
+  // Original config
   AF_CPU_HEADROOM_TARGET,
   AF_BATCH_SIZE,
   AF_MAX_WIP,
@@ -763,4 +975,24 @@ export const config = {
   AF_CIRCUIT_BREAKER_WINDOW_MS,
   AF_CIRCUIT_BREAKER_COOLDOWN_MS,
   AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS,
+  // Phase 1.1: Enhanced config
+  AF_TOKEN_REFILL_INTERVAL_MS,
+  AF_ENHANCED_BACKOFF_START_MS,
+  AF_ENHANCED_BACKOFF_FACTOR,
+  AF_ENHANCED_BACKOFF_JITTER,
+  AF_ENHANCED_BACKOFF_CEILING_MS,
+  AF_MICRO_BATCH_SIZE,
+  AF_MICRO_BATCH_FLUSH_INTERVAL_MS,
+  AF_MICRO_BATCH_DROP_OLDEST,
+  AF_ADAPTIVE_POLL_MIN_MS,
+  AF_ADAPTIVE_POLL_MAX_MS,
+  AF_ADAPTIVE_THROTTLING_ENABLED,
+  AF_PREDICTIVE_THROTTLING,
+  AF_DEPENDENCY_ANALYSIS_ENABLED,
+  AF_BATCH_MAPPING_ENABLED,
+  AF_EXECUTION_ORDER_OPTIMIZATION,
+  AF_LOAD_HISTORY_SIZE,
+  AF_MAX_BATCH_SIZE,
+  AF_CPU_WARNING_THRESHOLD,
+  AF_CPU_CRITICAL_THRESHOLD,
 };

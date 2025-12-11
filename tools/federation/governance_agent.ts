@@ -98,7 +98,7 @@ function isProdCycle(): boolean {
 
 /**
  * Emit pattern telemetry event to .goalie/pattern_metrics.jsonl
- * Conforms to canonical schema with all required fields
+ * Conforms to NEW canonical schema with all required fields
  */
 function emitPatternMetric(
   pattern: string,
@@ -108,44 +108,47 @@ function emitPatternMetric(
   action: string,
   metrics?: Record<string, unknown>,
   tags: string[] = ['Federation'],
+  actionCompleted: boolean = true,
 ): void {
   const goalieDir = getGoalieDirFromArgs();
   const metricsFile = path.join(goalieDir, 'pattern_metrics.jsonl');
   
-  const ts = new Date().toISOString();
+  const timestamp = new Date().toISOString();
   const runId = process.env.AF_RUN_ID || `gov-${Date.now()}`;
-  const iteration = parseInt(process.env.AF_RUN_ITERATION || '0', 10);
   const circle = process.env.AF_CIRCLE || 'governance';
   const depth = parseInt(process.env.AF_DEPTH_LEVEL || '0', 10);
-  const framework = process.env.AF_FRAMEWORK || '';
-  const scheduler = process.env.AF_SCHEDULER || '';
-  const prodMode = process.env.AF_PROD_CYCLE_MODE || 'advisory';
-  const mutation = mode === 'mutate' || mode === 'enforcement';
+  const runKind = process.env.AF_RUN_KIND || 'governance-agent';
   
   // Economic scoring (can be enhanced with actual COD/WSJF calculation)
-  const cod = parseFloat(process.env.AF_PATTERN_COD || '0.0');
-  const wsjf = parseFloat(process.env.AF_PATTERN_WSJF || '0.0');
+  const costOfDelay = parseFloat(process.env.AF_PATTERN_COD || '0.0');
+  const wsjfScore = parseFloat(process.env.AF_PATTERN_WSJF || '0.0');
+  const jobDuration = parseInt(process.env.AF_JOB_DURATION || '1', 10);
+  const userBusinessValue = parseFloat(process.env.AF_USER_BUSINESS_VALUE || '0.0');
   
+  // Schema-compliant event structure
   const event = {
-    ts,
-    run: 'governance-agent',
-    run_id: runId,
-    iteration,
+    timestamp,
+    pattern,
     circle,
     depth,
-    pattern,
-    'pattern:kebab-name': pattern,
-    mode,
-    mutation,
+    run_kind: runKind,
     gate,
-    framework,
-    scheduler,
     tags,
-    economic: { cod, wsjf_score: wsjf },
-    reason,
-    action,
-    prod_mode: prodMode,
-    ...(metrics && { metrics }),
+    economic: {
+      wsjf_score: wsjfScore,
+      cost_of_delay: costOfDelay,
+      job_duration: jobDuration,
+      user_business_value: userBusinessValue,
+    },
+    action_completed: actionCompleted,
+    // Additional metadata for governance context
+    mode,
+    run_id: runId,
+    data: {
+      reason,
+      action,
+      ...(metrics && metrics),
+    },
   };
   
   try {
@@ -1733,6 +1736,7 @@ async function printGovernanceRecommendations(
           suggestion_made: 1,
         },
         ['Federation', 'Observability'],
+        false, // action_completed = false (blocking issue)
       );
       
       console.error('\n[GOVERNANCE FAILURE] Prod-Cycle Enforcement: "observability-first" pattern is MISSING.');
@@ -1752,6 +1756,7 @@ async function printGovernanceRecommendations(
           suggestion_made: 1,
         },
         ['Federation', 'Observability'],
+        true, // action_completed = true (advisory only)
       );
       
       console.log('- Observability: consider enabling AF_PROD_OBSERVABILITY_FIRST for prod-cycle runs.');
@@ -2679,7 +2684,8 @@ function applyPatternAnalysisAdjustments(goalieDir: string, adjustments: any[], 
           new_value: suggestedValue,
           trigger: adj.pattern_trigger,
         },
-        ['Federation', 'Governance', 'Auto-Adjustment']
+        ['Federation', 'Governance', 'Auto-Adjustment'],
+        true, // action_completed = true (adjustment applied)
       );
     }
   }
@@ -2725,7 +2731,8 @@ async function main() {
         startup_time: new Date().toISOString(),
         goalie_dir: goalieDir
       },
-      ['Federation', 'Governance']
+      ['Federation', 'Governance'],
+      true, // action_completed = true (initialization complete)
     );
     
     // Subscribe to pattern metrics for real-time monitoring

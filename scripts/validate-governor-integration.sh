@@ -19,6 +19,12 @@ DURATION_SECONDS=30
 LOG_DIR="logs/governor-validation"
 INCIDENT_LOG="logs/governor_incidents.jsonl"
 
+# Phase 1.1b: Enhanced validation requirements
+SUSTAINED_CHECK_DURATION=300  # 5 minutes
+TARGET_MAX_LOAD=28
+TARGET_MIN_IDLE=30
+NUM_CORES=$(sysctl -n hw.ncpu 2>/dev/null || nproc)
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -261,6 +267,108 @@ test_cpu_headroom() {
 
 test_cpu_headroom
 
+# Test 7: Phase 1.1b - Sustained Load Verification
+echo "🔬 Test 7: Sustained Load Verification (Phase 1.1b)"
+echo "--------------------------------------------------"
+
+test_sustained_load() {
+    echo "Running sustained load test for ${SUSTAINED_CHECK_DURATION}s..."
+    echo "Target: Load avg < $TARGET_MAX_LOAD, CPU idle > $TARGET_MIN_IDLE%"
+    echo "System cores: $NUM_CORES"
+    echo ""
+
+    local start_time=$(date +%s)
+    local check_interval=10  # Check every 10 seconds
+    local samples=$((SUSTAINED_CHECK_DURATION / check_interval))
+    local violations=0
+    local load_sum=0
+    local idle_sum=0
+    
+    # Monitor governor metrics if available
+    local initial_incidents=$(wc -l < "$INCIDENT_LOG" 2>/dev/null || echo "0")
+    
+    for i in $(seq 1 "$samples"); do
+        # Get load average
+        local load=$(uptime | awk -F'load averages?:' '{ print $2 }' | cut -d, -f1 | xargs)
+        local load_int=$(echo "$load" | cut -d. -f1)
+        
+        # Get CPU idle
+        local cpu_idle
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            cpu_idle=$(top -l 1 | grep "CPU usage" | awk '{print $7}' | sed 's/%//')
+        else
+            cpu_idle=$(mpstat 1 1 | awk '/Average/ {print 100 - $NF}' 2>/dev/null)
+        fi
+        
+        # Fallback calculation if direct measurement fails
+        if [ -z "$cpu_idle" ] || [ "$cpu_idle" = "0.0" ]; then
+            local load_percent=$(echo "scale=2; ($load / $NUM_CORES) * 100" | bc)
+            cpu_idle=$(echo "scale=2; 100 - $load_percent" | bc)
+        fi
+        
+        # Track metrics
+        load_sum=$(echo "$load_sum + $load" | bc)
+        idle_sum=$(echo "$idle_sum + $cpu_idle" | bc)
+        
+        # Check thresholds
+        local status="OK"
+        if [ "$load_int" -gt "$TARGET_MAX_LOAD" ] || (( $(echo "$cpu_idle < $TARGET_MIN_IDLE" | bc -l) )); then
+            violations=$((violations + 1))
+            status="FAIL"
+        fi
+        
+        local elapsed=$(($(date +%s) - start_time))
+        echo "  Sample $i/$samples (${elapsed}s): load=$load, idle=${cpu_idle}% [$status]"
+        
+        # Light background work to simulate real conditions
+        for j in $(seq 1 3); do
+            sleep 0.1 &
+        done
+        
+        sleep "$check_interval"
+    done
+    
+    # Wait for background jobs
+    wait
+    
+    # Calculate averages
+    local avg_load=$(echo "scale=2; $load_sum / $samples" | bc)
+    local avg_idle=$(echo "scale=2; $idle_sum / $samples" | bc)
+    
+    # Check governor metrics
+    local final_incidents=$(wc -l < "$INCIDENT_LOG" 2>/dev/null || echo "0")
+    local new_incidents=$((final_incidents - initial_incidents))
+    
+    echo ""
+    echo "Sustained Load Test Results:"
+    echo "  Average load: $avg_load (target < $TARGET_MAX_LOAD)"
+    echo "  Average idle: $avg_idle% (target > $TARGET_MIN_IDLE%)"
+    echo "  Violations: $violations/$samples samples"
+    echo "  New governor incidents: $new_incidents"
+    
+    # Phase 1.1b: Strict pass criteria
+    if (( $(echo "$avg_load < $TARGET_MAX_LOAD" | bc -l) )) && \
+       (( $(echo "$avg_idle > $TARGET_MIN_IDLE" | bc -l) )) && \
+       [ "$violations" -lt $((samples / 10)) ]; then  # Allow up to 10% violations
+        echo -e "${GREEN}✓ Sustained load test PASSED${NC}"
+        echo ""
+        return 0
+    else
+        echo -e "${RED}✗ Sustained load test FAILED${NC}"
+        echo "  Expected: load < $TARGET_MAX_LOAD AND idle > $TARGET_MIN_IDLE% sustained"
+        echo "  Got: load=$avg_load, idle=$avg_idle%, violations=$violations"
+        echo ""
+        return 1
+    fi
+}
+
+if ! test_sustained_load; then
+    echo -e "${RED}❌ CRITICAL: Sustained load validation failed${NC}"
+    echo "This indicates the Process Governor optimizations need further tuning."
+    echo "Check logs/governor_incidents.jsonl for throttling patterns."
+    exit 1
+fi
+
 # Summary
 echo "=========================================="
 echo "📊 Validation Summary"
@@ -275,6 +383,7 @@ echo "  3. Graceful Throttling: PASS"
 echo "  4. Dynamic Rate Limiting: PASS"
 echo "  5. Incident Logging: PASS"
 echo "  6. CPU Headroom: PASS"
+echo "  7. Sustained Load (5min): PASS"
 echo ""
 echo "Logs saved to: $LOG_DIR"
 echo "Incidents logged to: $INCIDENT_LOG"
@@ -287,13 +396,20 @@ cat > "$LOG_DIR/validation-summary-$(date +%Y%m%d-%H%M%S).json" <<EOF
   "stress_level": $STRESS_LEVEL,
   "max_processes": $MAX_PROCESSES,
   "duration_seconds": $DURATION_SECONDS,
+  "phase_1_1b": {
+    "sustained_check_duration": $SUSTAINED_CHECK_DURATION,
+    "target_max_load": $TARGET_MAX_LOAD,
+    "target_min_idle": $TARGET_MIN_IDLE,
+    "system_cores": $NUM_CORES
+  },
   "tests": {
     "pid_tracking": "PASS",
     "memory_stress": "PASS",
     "graceful_throttling": "PASS",
     "dynamic_rate_limiting": "PASS",
     "incident_logging": "PASS",
-    "cpu_headroom": "PASS"
+    "cpu_headroom": "PASS",
+    "sustained_load_5min": "PASS"
   },
   "status": "SUCCESS"
 }

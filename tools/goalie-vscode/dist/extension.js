@@ -16,10 +16,11 @@ const fs = require("fs");
 const path = require("path");
 const vscode = require("vscode");
 const yaml = require("yaml");
+const dtCalibrationProvider_1 = require("./dtCalibrationProvider");
 const streamClient_1 = require("./streamClient");
 const streamUtils_1 = require("./streamUtils");
 const telemetry_1 = require("./telemetry");
-const dtCalibrationProvider_1 = require("./dtCalibrationProvider");
+const enhancedFileWatcher_1 = require("./enhancedFileWatcher");
 function getGoalieDir(workspaceRoot) {
     const config = vscode.workspace.getConfiguration('goalie');
     const customPath = config.get('directoryPath');
@@ -361,37 +362,185 @@ class PatternMetricsProvider {
         this.context = context;
         this._onDidChangeTreeData = new vscode.EventEmitter();
         this.onDidChangeTreeData = this._onDidChangeTreeData.event;
-        this.currentFilter = 'all';
-        this.filterValue = '';
+        // Enhanced filtering system
+        this.currentFilters = [];
+        this.filterPresets = [];
+        this.activePreset = null;
+        // Performance and caching
         this.cache = new Map();
         this.lastModified = 0;
         this.pageSize = 50;
         this.currentPage = 1;
+        this.aggregationsCache = new Map();
+        // Doc index
+        this.circleIndex = {};
+        this.latestCircleByPattern = new Map();
         this.newPatterns = new Set();
+        // Chart visualization
+        this.chartPanels = new Map();
+        this.initializeFilterPresets();
         this.loadPersistedFilters();
+        this.loadCircleIndex();
         this.startAutoRefresh();
+        this.setupFileWatcher();
+    }
+    loadCircleIndex() {
+        const goalieDir = this.getGoalieDir();
+        if (!goalieDir)
+            return;
+        const indexPath = path.join(goalieDir, 'circle_doc_index.json');
+        if (fs.existsSync(indexPath)) {
+            try {
+                this.circleIndex = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
+            }
+            catch (e) {
+                console.error('Failed to load circle doc index', e);
+            }
+        }
+    }
+    initializeFilterPresets() {
+        this.filterPresets = [
+            {
+                id: 'ml-focus',
+                name: 'ML Workloads',
+                description: 'Focus on machine learning patterns',
+                filters: [
+                    { type: 'workload', value: 'ML', label: 'ML Workloads' },
+                    { type: 'framework', value: 'tensorflow', label: 'TensorFlow' }
+                ]
+            },
+            {
+                id: 'hpc-focus',
+                name: 'HPC Workloads',
+                description: 'Focus on high performance computing',
+                filters: [
+                    { type: 'workload', value: 'HPC', label: 'HPC Workloads' },
+                    { type: 'run-kind', value: 'batch', label: 'Batch Jobs' }
+                ]
+            },
+            {
+                id: 'recent-activity',
+                name: 'Recent Activity (7 days)',
+                description: 'Patterns from the last 7 days',
+                filters: [
+                    { type: 'date-range', value: 'last-7days', label: 'Last 7 Days' }
+                ]
+            },
+            {
+                id: 'critical-gates',
+                name: 'Critical Gates',
+                description: 'Deploy and health-check gates',
+                filters: [
+                    { type: 'gate', value: 'deploy', label: 'Deploy Gates' },
+                    { type: 'gate', value: 'health-check', label: 'Health Checks' }
+                ]
+            }
+        ];
+    }
+    setupKeyboardShortcuts() {
+        const config = vscode.workspace.getConfiguration('goalie');
+        const enableShortcuts = config.get('patternMetrics.enableKeyboardShortcuts', true);
+        if (!enableShortcuts)
+            return;
+        // Register keyboard shortcuts for quick filtering
+        const shortcuts = [
+            { key: 'ctrl+shift+1', command: 'goalieDashboard.clearFilters', description: 'Clear all filters' },
+            { key: 'ctrl+shift+2', command: 'goalieDashboard.applyFilterPreset', description: 'Apply ML preset' },
+            { key: 'ctrl+shift+3', command: 'goalieDashboard.applyFilterPreset', description: 'Apply HPC preset' },
+            { key: 'ctrl+shift+4', command: 'goalieDashboard.showPatternChart', description: 'Show bar chart' },
+            { key: 'ctrl+shift+5', command: 'goalieDashboard.showPatternChart', description: 'Show pie chart' },
+            { key: 'ctrl+shift+6', command: 'goalieDashboard.patternMetricsPreviousPage', description: 'Previous page' },
+            { key: 'ctrl+shift+7', command: 'goalieDashboard.patternMetricsNextPage', description: 'Next page' },
+            { key: 'ctrl+shift+8', command: 'goalieDashboard.exportPatternMetricsCSV', description: 'Export CSV' },
+            { key: 'ctrl+shift+9', command: 'goalieDashboard.exportPatternMetricsJSON', description: 'Export JSON' }
+        ];
+        shortcuts.forEach(shortcut => {
+            vscode.commands.registerCommand(shortcut.command, () => {
+                vscode.commands.executeCommand(shortcut.command);
+            });
+        });
     }
     refresh() {
         this._onDidChangeTreeData.fire();
     }
-    setFilter(filter, value = '') {
-        this.currentFilter = filter;
-        this.filterValue = value;
+    // Enhanced filtering methods
+    setFilter(filter) {
+        // Remove existing filter of same type
+        this.currentFilters = this.currentFilters.filter(f => f.type !== filter.type);
+        // Add new filter if not 'all'
+        if (filter.type !== 'all' && filter.value !== '') {
+            this.currentFilters.push(filter);
+        }
         this.currentPage = 1; // Reset to first page when filter changes
+        this.activePreset = null; // Clear active preset when manual filter is applied
         this.persistFilters();
         this.refresh();
     }
+    setMultipleFilters(filters) {
+        this.currentFilters = filters.filter(f => f.type !== 'all' && f.value !== '');
+        this.currentPage = 1;
+        this.activePreset = null;
+        this.persistFilters();
+        this.refresh();
+    }
+    clearFilters() {
+        this.currentFilters = [];
+        this.activePreset = null;
+        this.currentPage = 1;
+        this.persistFilters();
+        this.refresh();
+    }
+    applyFilterPreset(presetId) {
+        const preset = this.filterPresets.find(p => p.id === presetId);
+        if (preset) {
+            this.currentFilters = [...preset.filters];
+            this.activePreset = presetId;
+            this.currentPage = 1;
+            this.persistFilters();
+            this.refresh();
+        }
+    }
+    // Quick filter methods for common scenarios
+    quickFilterByCircle(circle) {
+        this.setFilter({ type: 'circle', value: circle, label: `Circle: ${circle}` });
+    }
+    quickFilterByRunKind(runKind) {
+        this.setFilter({ type: 'run-kind', value: runKind, label: `Run Kind: ${runKind}` });
+    }
+    quickFilterByWorkload(workload) {
+        this.setFilter({ type: 'workload', value: workload, label: `Workload: ${workload}` });
+    }
+    quickFilterByFramework(framework) {
+        this.setFilter({ type: 'framework', value: framework, label: `Framework: ${framework}` });
+    }
+    quickFilterByDateRange(range) {
+        this.setFilter({ type: 'date-range', value: range, label: `Date Range: ${range}` });
+    }
+    quickFilterByGate(gate) {
+        this.setFilter({ type: 'gate', value: gate, label: `Gate: ${gate}` });
+    }
+    getActiveFilters() {
+        return [...this.currentFilters];
+    }
+    getFilterPresets() {
+        return [...this.filterPresets];
+    }
+    getActivePreset() {
+        return this.activePreset;
+    }
     loadPersistedFilters() {
         if (this.context) {
-            this.currentFilter = this.context.workspaceState.get('patternMetrics.filter', 'all');
-            this.filterValue = this.context.workspaceState.get('patternMetrics.filterValue', '');
+            this.currentFilters = this.context.workspaceState.get('patternMetrics.filters', []);
+            this.activePreset = this.context.workspaceState.get('patternMetrics.activePreset', null);
             this.pageSize = this.context.globalState.get('patternMetrics.pageSize', 50);
+            this.currentPage = this.context.workspaceState.get('patternMetrics.currentPage', 1);
         }
     }
     persistFilters() {
         if (this.context) {
-            this.context.workspaceState.update('patternMetrics.filter', this.currentFilter);
-            this.context.workspaceState.update('patternMetrics.filterValue', this.filterValue);
+            this.context.workspaceState.update('patternMetrics.filters', this.currentFilters);
+            this.context.workspaceState.update('patternMetrics.activePreset', this.activePreset);
+            this.context.workspaceState.update('patternMetrics.currentPage', this.currentPage);
             this.context.globalState.update('patternMetrics.pageSize', this.pageSize);
         }
     }
@@ -401,7 +550,7 @@ class PatternMetricsProvider {
         const refreshInterval = config.get('patternMetrics.refreshInterval', 30); // seconds
         if (autoRefreshEnabled && refreshInterval > 0) {
             this.autoRefreshInterval = setInterval(() => {
-                this.refresh();
+                this.debouncedRefresh();
             }, refreshInterval * 1000);
         }
     }
@@ -410,9 +559,68 @@ class PatternMetricsProvider {
             clearInterval(this.autoRefreshInterval);
             this.autoRefreshInterval = undefined;
         }
+        if (this.refreshDebounce) {
+            clearTimeout(this.refreshDebounce);
+            this.refreshDebounce = undefined;
+        }
+    }
+    setupFileWatcher() {
+        const goalieDir = this.getGoalieDir();
+        if (!goalieDir)
+            return;
+        const patternMetricsPath = path.join(goalieDir, 'pattern_metrics.jsonl');
+        this.fileWatcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(patternMetricsPath, '*'));
+        this.fileWatcher.onDidChange(() => {
+            this.debouncedRefresh();
+        });
+        this.fileWatcher.onDidCreate(() => {
+            this.debouncedRefresh();
+        });
+        this.fileWatcher.onDidDelete(() => {
+            this.debouncedRefresh();
+        });
+    }
+    debouncedRefresh() {
+        if (this.refreshDebounce) {
+            clearTimeout(this.refreshDebounce);
+        }
+        this.refreshDebounce = setTimeout(() => {
+            this.refresh();
+        }, 500); // 500ms debounce
+    }
+    detectNewPatterns(patterns) {
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+        patterns.forEach(pattern => {
+            const patternTime = new Date(pattern.timestamp);
+            if (patternTime > fiveMinutesAgo) {
+                if (!this.newPatterns.has(pattern.pattern)) {
+                    this.newPatterns.add(pattern.pattern);
+                    this.showNewPatternNotification(pattern);
+                }
+            }
+        });
+    }
+    showNewPatternNotification(pattern) {
+        const message = `New pattern detected: ${pattern.pattern}`;
+        vscode.window.showInformationMessage(message, 'View Details').then(selection => {
+            if (selection === 'View Details') {
+                this.setFilter({ type: 'pattern', value: pattern.pattern, label: `Pattern: ${pattern.pattern}` });
+            }
+        });
     }
     dispose() {
         this.stopAutoRefresh();
+        if (this.fileWatcher) {
+            this.fileWatcher.dispose();
+        }
+        if (this.refreshDebounce) {
+            clearTimeout(this.refreshDebounce);
+        }
+        // Dispose all chart panels
+        this.chartPanels.forEach(panel => {
+            panel.panel.dispose();
+        });
+        this.chartPanels.clear();
     }
     getTreeItem(element) {
         return element;
@@ -457,6 +665,10 @@ class PatternMetricsProvider {
                         if (!seenPatterns.has(patternKey)) {
                             seenPatterns.add(patternKey);
                             patterns.push(obj);
+                            // Track latest circle for doc linking
+                            if (obj.circle && obj.pattern) {
+                                this.latestCircleByPattern.set(obj.pattern, obj.circle);
+                            }
                             // Check if this is a new pattern (within last 5 minutes)
                             const patternTime = new Date(obj.timestamp);
                             const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
@@ -481,28 +693,35 @@ class PatternMetricsProvider {
         });
     }
     filterPatterns(patterns) {
-        if (this.currentFilter === 'all') {
+        if (this.currentFilters.length === 0) {
             return patterns;
         }
         return patterns.filter(pattern => {
-            switch (this.currentFilter) {
-                case 'circle':
-                    return pattern.circle === this.filterValue;
-                case 'run-kind':
-                    return pattern.run_kind === this.filterValue;
-                case 'gate':
-                    return pattern.gate === this.filterValue;
-                case 'date-range':
-                    if (this.filterValue.includes('last')) {
-                        const days = parseInt(this.filterValue.replace('last-', '').replace('days', '')) || 7;
-                        const patternDate = new Date(pattern.timestamp);
-                        const cutoffDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
-                        return patternDate >= cutoffDate;
-                    }
-                    return false;
-                default:
-                    return true;
-            }
+            return this.currentFilters.every(filter => {
+                switch (filter.type) {
+                    case 'circle':
+                        return pattern.circle === filter.value;
+                    case 'run-kind':
+                        return pattern.run_kind === filter.value;
+                    case 'gate':
+                        return pattern.gate === filter.value;
+                    case 'workload':
+                        // Check if tags include workload
+                        return Array.isArray(pattern.tags) && workloadTags(pattern.pattern, pattern.tags).includes(filter.value);
+                    case 'framework':
+                        return this.detectFramework(pattern.pattern).toLowerCase() === filter.value.toLowerCase();
+                    case 'date-range':
+                        if (filter.value.includes('last')) {
+                            const days = parseInt(filter.value.replace('last-', '').replace('days', '')) || 7;
+                            const patternDate = new Date(pattern.timestamp);
+                            const cutoffDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000));
+                            return patternDate >= cutoffDate;
+                        }
+                        return false;
+                    default:
+                        return true;
+                }
+            });
         });
     }
     getPaginatedResults(patterns) {
@@ -593,6 +812,778 @@ class PatternMetricsProvider {
                 }
             });
         });
+    }
+    // Enhanced chart visualization methods
+    showPatternChart(patterns_1) {
+        return __awaiter(this, arguments, void 0, function* (patterns, chartType = 'bar') {
+            const dataToUse = patterns || (yield this.loadPatternMetrics());
+            const filteredPatterns = this.filterPatterns(dataToUse);
+            // Create a unique panel ID for this chart
+            const panelId = `patternChart_${Date.now()}`;
+            // Create a webview panel for the chart
+            const panel = vscode.window.createWebviewPanel(panelId, `Pattern Distribution - ${chartType.charAt(0).toUpperCase() + chartType.slice(1)}`, vscode.ViewColumn.One, {
+                enableScripts: true,
+                retainContextWhenHidden: true
+            });
+            // Store panel reference
+            this.chartPanels.set(panelId, {
+                panel,
+                patterns: filteredPatterns,
+                filters: this.currentFilters
+            });
+            // Generate chart HTML
+            panel.webview.html = this.generateEnhancedChartHtml(filteredPatterns, chartType);
+            // Handle messages from the webview
+            panel.webview.onDidReceiveMessage(message => {
+                this.handleChartMessage(message, panelId);
+            });
+            // Clean up when panel is disposed
+            panel.onDidDispose(() => {
+                this.chartPanels.delete(panelId);
+            });
+        });
+    }
+    handleChartMessage(message, panelId) {
+        var _a, _b;
+        const chartPanel = this.chartPanels.get(panelId);
+        if (!chartPanel)
+            return;
+        switch (message.command) {
+            case 'filterByPattern':
+                this.setFilter({ type: 'pattern', value: message.pattern, label: `Pattern: ${message.pattern}` });
+                break;
+            case 'filterByWorkload':
+                this.quickFilterByWorkload(message.workload);
+                break;
+            case 'filterByFramework':
+                this.quickFilterByFramework(message.framework);
+                break;
+            case 'changeChartType':
+                this.showPatternChart(chartPanel.patterns, message.chartType);
+                chartPanel.panel.dispose();
+                break;
+            case 'exportChart':
+                this.exportChartData(chartPanel.patterns, message.format);
+                break;
+            case 'refreshChart':
+                this.refreshChart(panelId);
+                break;
+            case 'openDoc':
+                if (message.path) {
+                    const workspaceRoot = (_b = (_a = vscode.workspace.workspaceFolders) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.uri.fsPath;
+                    if (workspaceRoot) {
+                        const docUri = vscode.Uri.file(path.join(workspaceRoot, message.path));
+                        vscode.commands.executeCommand('markdown.showPreview', docUri);
+                    }
+                }
+                break;
+        }
+    }
+    refreshChart(panelId) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const chartPanel = this.chartPanels.get(panelId);
+            if (!chartPanel)
+                return;
+            const updatedPatterns = yield this.loadPatternMetrics();
+            const filteredPatterns = this.filterPatterns(updatedPatterns);
+            chartPanel.patterns = filteredPatterns;
+            chartPanel.filters = this.currentFilters;
+            // Extract chart type from panel title
+            const chartType = chartPanel.panel.title.includes('Bar') ? 'bar' :
+                chartPanel.panel.title.includes('Pie') ? 'pie' :
+                    chartPanel.panel.title.includes('Timeline') ? 'timeline' : 'heatmap';
+            chartPanel.panel.webview.html = this.generateEnhancedChartHtml(filteredPatterns, chartType);
+        });
+    }
+    exportChartData(patterns, format) {
+        return __awaiter(this, void 0, void 0, function* () {
+            var _a, _b;
+            const workspaceRoot = (_b = (_a = vscode.workspace.workspaceFolders) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.uri.fsPath;
+            if (!workspaceRoot) {
+                vscode.window.showErrorMessage('No workspace folder found.');
+                return;
+            }
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const fileName = `pattern-chart-${timestamp}.${format}`;
+            const filePath = path.join(workspaceRoot, fileName);
+            try {
+                if (format === 'csv' || format === 'json') {
+                    let content;
+                    if (format === 'csv') {
+                        const headers = ['pattern', 'count', 'workload', 'framework', 'circle', 'run_kind', 'gate'];
+                        const csvLines = [headers.join(',')];
+                        const patternCounts = new Map();
+                        patterns.forEach(p => {
+                            const key = p.pattern;
+                            if (!patternCounts.has(key)) {
+                                patternCounts.set(key, Object.assign(Object.assign({}, p), { count: 0 }));
+                            }
+                            patternCounts.get(key).count++;
+                        });
+                        Array.from(patternCounts.values()).forEach(item => {
+                            const tags = workloadTags(item.pattern, item.tags || []);
+                            const row = [
+                                `"${item.pattern || ''}"`,
+                                item.count,
+                                `"${tags.join(';')}"`,
+                                `"${this.detectFramework(item.pattern)}"`,
+                                `"${item.circle || ''}"`,
+                                `"${item.run_kind || ''}"`,
+                                `"${item.gate || ''}"`
+                            ];
+                            csvLines.push(row.join(','));
+                        });
+                        content = csvLines.join('\n');
+                    }
+                    else {
+                        content = JSON.stringify(patterns, null, 2);
+                    }
+                    fs.writeFileSync(filePath, content, 'utf8');
+                    vscode.window.showInformationMessage(`Chart data exported to ${filePath}`);
+                }
+                else if (format === 'png') {
+                    vscode.window.showInformationMessage('PNG export requires additional charting library support');
+                }
+            }
+            catch (error) {
+                vscode.window.showErrorMessage(`Failed to export chart data: ${error}`);
+            }
+        });
+    }
+    detectFramework(pattern) {
+        const patternLower = pattern.toLowerCase();
+        if (patternLower.includes('tensorflow') || patternLower.includes('tf-'))
+            return 'TensorFlow';
+        if (patternLower.includes('pytorch') || patternLower.includes('torch'))
+            return 'PyTorch';
+        if (patternLower.includes('keras'))
+            return 'Keras';
+        if (patternLower.includes('scikit') || patternLower.includes('sklearn'))
+            return 'Scikit-learn';
+        return 'Custom';
+    }
+    generateEnhancedChartHtml(patterns, chartType) {
+        const patternCounts = new Map();
+        const patternTags = new Map();
+        const patternFrameworks = new Map();
+        patterns.forEach(p => {
+            const pattern = p.pattern || 'unknown';
+            patternCounts.set(pattern, (patternCounts.get(pattern) || 0) + 1);
+            if (Array.isArray(p.tags)) {
+                patternTags.set(pattern, p.tags);
+            }
+            patternFrameworks.set(pattern, this.detectFramework(pattern));
+        });
+        const sortedPatterns = Array.from(patternCounts.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 20); // Top 20 patterns for better visualization
+        const maxCount = Math.max(...sortedPatterns.map(([, count]) => count));
+        let chartContent = '';
+        switch (chartType) {
+            case 'bar':
+                chartContent = this.generateBarChart(sortedPatterns, patternTags, patternFrameworks, maxCount);
+                break;
+            case 'pie':
+                chartContent = this.generatePieChart(sortedPatterns, patternTags, patternFrameworks);
+                break;
+            case 'timeline':
+                chartContent = this.generateTimelineChart(patterns);
+                break;
+            case 'heatmap':
+                chartContent = this.generateHeatmap(patterns);
+                break;
+        }
+        return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <title>Pattern Distribution Analysis</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+            padding: 12px;
+            background: var(--vscode-editor-background, #ffffff);
+            color: var(--vscode-editor-foreground, #333333);
+          }
+          .chart-container {
+            background: var(--vscode-editor-background, #ffffff);
+            border-radius: 8px;
+            padding: 16px;
+            border: 1px solid var(--vscode-panel-border, #e1e1e1);
+          }
+          .chart-header {
+            margin: 0 0 16px 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--vscode-editor-foreground, #333333);
+          }
+          .chart-controls {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+          }
+          .chart-type-selector {
+            padding: 6px 12px;
+            border: 1px solid var(--vscode-input-border, #d4d4d4);
+            border-radius: 4px;
+            background: var(--vscode-input-background, #f3f3f3);
+            color: var(--vscode-input-foreground, #333333);
+            font-size: 12px;
+          }
+          .export-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            background: var(--vscode-button-background, #007acc);
+            color: white;
+            border: 1px solid var(--vscode-button-border, #007acc);
+          }
+          .export-btn:hover {
+            background: var(--vscode-button-hoverBackground, #005a9e);
+          }
+          .summary {
+            margin-top: 16px;
+            padding: 12px;
+            background: var(--vscode-textBlockQuote-background, #f6f6f6);
+            border-left: 4px solid var(--vscode-textBlockQuote-border, #d4d4d4);
+            border-radius: 4px;
+          }
+          .badge {
+            font-size: 9px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-right: 4px;
+            display: inline-block;
+          }
+          .badge.ml { background: #1f77b4; color: white; }
+          .badge.hpc { background: #d62728; color: white; }
+          .badge.stats { background: #2ca02c; color: white; }
+          .badge.device { background: #9467bd; color: white; }
+          .badge.tf { background: #ff6f00; color: white; }
+          .badge.pytorch { background: #ff9500; color: white; }
+        </style>
+      </head>
+      <body>
+        <div class="chart-container">
+          <h2 class="chart-header">Pattern Distribution Analysis - ${chartType.charAt(0).toUpperCase() + chartType.slice(1)}</h2>
+
+          <div class="chart-controls">
+            <select class="chart-type-selector" onchange="changeChartType(this.value)">
+              <option value="bar" ${chartType === 'bar' ? 'selected' : ''}>Bar Chart</option>
+              <option value="pie" ${chartType === 'pie' ? 'selected' : ''}>Pie Chart</option>
+              <option value="timeline" ${chartType === 'timeline' ? 'selected' : ''}>Timeline</option>
+              <option value="heatmap" ${chartType === 'heatmap' ? 'selected' : ''}>Heatmap</option>
+            </select>
+            <button class="export-btn" onclick="exportChart('csv')">Export CSV</button>
+            <button class="export-btn" onclick="exportChart('json')">Export JSON</button>
+            <button class="export-btn" onclick="refreshChart()">Refresh</button>
+          </div>
+
+          ${chartContent}
+
+          <div class="summary">
+            <strong>Interactive Features:</strong><br>
+            • Click on any pattern element to filter by that pattern<br>
+            • Switch between different chart types for different perspectives<br>
+            • Export data in CSV or JSON format<br>
+            • New patterns (🆕) detected in the last 5 minutes<br>
+            • Real-time updates when pattern_metrics.jsonl changes
+          </div>
+        </div>
+
+        <script>
+          const vscode = acquireVsCodeApi();
+
+          function changeChartType(type) {
+            vscode.postMessage({
+              command: 'changeChartType',
+              chartType: type
+            });
+          }
+
+          function exportChart(format) {
+            vscode.postMessage({
+              command: 'exportChart',
+              format: format
+            });
+          }
+
+          function refreshChart() {
+            vscode.postMessage({
+              command: 'refreshChart'
+            });
+          }
+
+          function filterByPattern(pattern) {
+            vscode.postMessage({
+              command: 'filterByPattern',
+              pattern: pattern
+            });
+          }
+
+          function filterByWorkload(workload) {
+            vscode.postMessage({
+              command: 'filterByWorkload',
+              workload: workload
+            });
+          }
+
+          function filterByFramework(framework) {
+            vscode.postMessage({
+              command: 'filterByFramework',
+              framework: framework
+            });
+          }
+
+          function openDoc(path) {
+            vscode.postMessage({
+              command: 'openDoc',
+              path: path
+            });
+          }
+        </script>
+      </body>
+      </html>
+    `;
+    }
+    generateBarChart(sortedPatterns, patternTags, patternFrameworks, maxCount) {
+        const chartBars = sortedPatterns.map(([pattern, count]) => {
+            const percentage = (count / maxCount) * 100;
+            const color = this.getPatternColor(pattern);
+            const tags = patternTags.get(pattern) || [];
+            const workloadTagsList = workloadTags(pattern, tags);
+            const framework = patternFrameworks.get(pattern) || '';
+            const isNew = this.newPatterns.has(pattern);
+            // Create workload and framework badges
+            const badges = [];
+            if (workloadTagsList.includes('ML')) {
+                badges.push('<span class="badge ml">ML</span>');
+            }
+            if (workloadTagsList.includes('HPC'))
+                badges.push('<span class="badge hpc">HPC</span>');
+            if (workloadTagsList.includes('Stats'))
+                badges.push('<span class="badge stats">Stats</span>');
+            if (workloadTagsList.includes('Device/Web'))
+                badges.push('<span class="badge device">Device/Web</span>');
+            if (framework === 'TensorFlow')
+                badges.push('<span class="badge tf">TF</span>');
+            if (framework === 'PyTorch')
+                badges.push('<span class="badge pytorch">PyTorch</span>');
+            // Check for doc link
+            let docLink = '';
+            if (pattern === 'circle-risk-focus') {
+                const latestCircle = this.latestCircleByPattern.get(pattern);
+                if (latestCircle) {
+                    // Find doc for this circle (either primary backlog or lead role)
+                    // Try explicit role first (e.g. analyst:Analyst) but circle name varies
+                    // Just use simple heuristics: circle:backlog or circle:Lead
+                    // The index keys are "circle:filename" or "circle:role:file" or "circle:role"
+                    // We'll try finding "circle:backlog.md" or "circle:Analyst" etc.
+                    // Try circle:backlog.md
+                    let docPath = this.circleIndex[`${latestCircle}:backlog.md`];
+                    // If not found, try to find a key starting with circle and ending with backlog
+                    if (!docPath) {
+                        // simple fallback logic, maybe just direct lookup if we have better keys
+                        // For now, rely on what generate_circle_index produced: "analyst:backlog.md"
+                    }
+                    if (docPath) {
+                        docLink = `<span class="badge doc" onclick="openDoc('${docPath}'); event.stopPropagation();" title="Open ${latestCircle} Documentation">📄 Docs</span>`;
+                    }
+                }
+            }
+            return `
+        <div class="chart-bar" data-pattern="${pattern}" data-count="${count}" style="cursor: pointer;" onclick="filterByPattern('${pattern}')">
+          <div class="pattern-info">
+            <div class="pattern-name">${isNew ? '🆕 ' : ''}${pattern}</div>
+            <div class="pattern-badges">${badges.join('')}${docLink}</div>
+          </div>
+          <div class="bar-container">
+            <div class="bar-fill" style="width: ${percentage}%; background: ${color};"></div>
+          </div>
+          <div class="count-label">${count}</div>
+        </div>
+      `;
+        }).join('');
+        return `
+      <div class="chart-bars">
+        ${chartBars}
+      </div>
+      <style>
+        .chart-bars {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .chart-bar {
+          display: flex;
+          align-items: center;
+          padding: 8px;
+          border-radius: 6px;
+          background: var(--vscode-list-hoverBackground, #f0f0f0);
+          transition: all 0.2s ease;
+        }
+        .chart-bar:hover {
+          background: var(--vscode-list-activeSelectionBackground, #e6e6e6);
+          transform: translateX(4px);
+        }
+        .pattern-info {
+          width: 250px;
+          margin-right: 12px;
+        }
+        .pattern-name {
+          font-size: 12px;
+          font-weight: 500;
+          margin-bottom: 4px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .pattern-badges {
+          display: flex;
+          gap: 4px;
+          flex-wrap: wrap;
+        }
+        .bar-container {
+          flex: 1;
+          height: 20px;
+          background: var(--vscode-input-background, #f3f3f3);
+          border-radius: 3px;
+          position: relative;
+          margin-right: 12px;
+        }
+        .bar-fill {
+          height: 100%;
+          border-radius: 3px;
+          transition: width 0.3s ease;
+        }
+        .count-label {
+          width: 40px;
+          text-align: right;
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--vscode-editor-foreground, #333333);
+        }
+      </style>
+    `;
+    }
+    generatePieChart(sortedPatterns, patternTags, patternFrameworks) {
+        const total = sortedPatterns.reduce((sum, [, count]) => sum + count, 0);
+        const colors = ['#1f77b4', '#d62728', '#2ca02c', '#9467bd', '#ff7f0e', '#8c564b', '#e377c2', '#7f7f7f'];
+        const pieSlices = sortedPatterns.slice(0, 8).map(([pattern, count], index) => {
+            const percentage = (count / total) * 100;
+            const color = colors[index % colors.length];
+            const tags = patternTags.get(pattern) || [];
+            const workloadTagsList = workloadTags(pattern, tags);
+            const framework = patternFrameworks.get(pattern) || '';
+            const isNew = this.newPatterns.has(pattern);
+            // Create badges
+            const badges = [];
+            if (workloadTagsList.includes('ML'))
+                badges.push('ML');
+            if (workloadTagsList.includes('HPC'))
+                badges.push('HPC');
+            if (workloadTagsList.includes('Stats'))
+                badges.push('Stats');
+            if (workloadTagsList.includes('Device/Web'))
+                badges.push('Device/Web');
+            return `
+        <div class="pie-slice" onclick="filterByPattern('${pattern}')" style="cursor: pointer;">
+          <div class="slice-legend">
+            <div class="legend-color" style="background: ${color};"></div>
+            <div class="legend-info">
+              <div class="legend-pattern">${isNew ? '🆕 ' : ''}${pattern}</div>
+              <div class="legend-badges">${badges.join(', ')}</div>
+              <div class="legend-stats">${count} (${percentage.toFixed(1)}%)</div>
+            </div>
+          </div>
+        </div>
+      `;
+        }).join('');
+        return `
+      <div class="pie-chart">
+        <div class="pie-legend">
+          ${pieSlices}
+        </div>
+      </div>
+      <style>
+        .pie-chart {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+        .pie-legend {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+          gap: 12px;
+        }
+        .pie-slice {
+          display: flex;
+          align-items: center;
+          padding: 8px;
+          border-radius: 6px;
+          background: var(--vscode-list-hoverBackground, #f0f0f0);
+          transition: all 0.2s ease;
+        }
+        .pie-slice:hover {
+          background: var(--vscode-list-activeSelectionBackground, #e6e6e6);
+          transform: scale(1.02);
+        }
+        .slice-legend {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          width: 100%;
+        }
+        .legend-color {
+          width: 16px;
+          height: 16px;
+          border-radius: 3px;
+          flex-shrink: 0;
+        }
+        .legend-info {
+          flex: 1;
+        }
+        .legend-pattern {
+          font-size: 12px;
+          font-weight: 500;
+          margin-bottom: 2px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .legend-badges {
+          font-size: 9px;
+          color: var(--vscode-descriptionForeground, #666666);
+          margin-bottom: 2px;
+        }
+        .legend-stats {
+          font-size: 11px;
+          font-weight: 600;
+          color: var(--vscode-editor-foreground, #333333);
+        }
+      </style>
+    `;
+    }
+    generateTimelineChart(patterns) {
+        // Group patterns by date
+        const dateGroups = new Map();
+        patterns.forEach(p => {
+            const date = new Date(p.timestamp).toISOString().split('T')[0]; // YYYY-MM-DD
+            if (!dateGroups.has(date)) {
+                dateGroups.set(date, new Map());
+            }
+            const patternMap = dateGroups.get(date);
+            const pattern = p.pattern || 'unknown';
+            patternMap.set(pattern, (patternMap.get(pattern) || 0) + 1);
+        });
+        const sortedDates = Array.from(dateGroups.keys()).sort();
+        const allPatterns = new Set();
+        patterns.forEach(p => allPatterns.add(p.pattern || 'unknown'));
+        const timelineRows = sortedDates.map(date => {
+            const patternMap = dateGroups.get(date) || new Map();
+            const dateTotal = Array.from(patternMap.values()).reduce((sum, count) => sum + count, 0);
+            const patternBars = Array.from(allPatterns).slice(0, 10).map(pattern => {
+                const count = patternMap.get(pattern) || 0;
+                const maxCount = Math.max(...Array.from(patternMap.values()));
+                const width = maxCount > 0 ? (count / maxCount) * 100 : 0;
+                const isNew = this.newPatterns.has(pattern);
+                return `
+          <div class="timeline-bar" style="width: ${width}%; background: ${this.getPatternColor(pattern)};"
+               title="${pattern}: ${count}" onclick="filterByPattern('${pattern}')"
+               style="cursor: pointer;">
+          </div>
+        `;
+            }).join('');
+            return `
+        <div class="timeline-row">
+          <div class="timeline-date">${date}</div>
+          <div class="timeline-bars">${patternBars}</div>
+          <div class="timeline-total">${dateTotal}</div>
+        </div>
+      `;
+        }).join('');
+        return `
+      <div class="timeline-chart">
+        <div class="timeline-header">
+          <div class="timeline-date-header">Date</div>
+          <div class="timeline-patterns-header">Patterns (Top 10)</div>
+          <div class="timeline-total-header">Total</div>
+        </div>
+        ${timelineRows}
+      </div>
+      <style>
+        .timeline-chart {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .timeline-header {
+          display: flex;
+          font-weight: 600;
+          font-size: 12px;
+          padding: 8px 4px;
+          background: var(--vscode-editor-background, #ffffff);
+          border-bottom: 2px solid var(--vscode-panel-border, #e1e1e1);
+        }
+        .timeline-date-header { width: 100px; }
+        .timeline-patterns-header { flex: 1; }
+        .timeline-total-header { width: 50px; text-align: right; }
+        .timeline-row {
+          display: flex;
+          align-items: center;
+          padding: 4px;
+          border-radius: 4px;
+          background: var(--vscode-list-hoverBackground, #f0f0f0);
+        }
+        .timeline-row:hover {
+          background: var(--vscode-list-activeSelectionBackground, #e6e6e6);
+        }
+        .timeline-date {
+          width: 100px;
+          font-size: 11px;
+          font-weight: 500;
+        }
+        .timeline-bars {
+          flex: 1;
+          display: flex;
+          gap: 2px;
+          height: 16px;
+          align-items: center;
+        }
+        .timeline-bar {
+          height: 12px;
+          border-radius: 2px;
+          transition: all 0.2s ease;
+        }
+        .timeline-bar:hover {
+          transform: scaleY(1.2);
+        }
+        .timeline-total {
+          width: 50px;
+          text-align: right;
+          font-size: 11px;
+          font-weight: 600;
+        }
+      </style>
+    `;
+    }
+    generateHeatmap(patterns) {
+        // Create workload vs framework heatmap
+        const workloadTypes = ['ML', 'HPC', 'Stats', 'Device/Web'];
+        const frameworks = ['TensorFlow', 'PyTorch', 'Custom', 'Other'];
+        const heatmapData = new Map();
+        // Initialize heatmap data
+        workloadTypes.forEach(workload => {
+            heatmapData.set(workload, new Map());
+            frameworks.forEach(framework => {
+                heatmapData.get(workload).set(framework, 0);
+            });
+        });
+        // Populate heatmap data
+        patterns.forEach(p => {
+            const tags = workloadTags(p.pattern, p.tags || []);
+            const framework = this.detectFramework(p.pattern);
+            tags.forEach(workload => {
+                if (workloadTypes.includes(workload)) {
+                    const frameworkCategory = frameworks.includes(framework) ? framework : 'Other';
+                    const current = heatmapData.get(workload).get(frameworkCategory) || 0;
+                    heatmapData.get(workload).set(frameworkCategory, current + 1);
+                }
+            });
+        });
+        const maxValue = Math.max(...Array.from(heatmapData.values()).flatMap(workloadMap => Array.from(workloadMap.values())));
+        const heatmapRows = workloadTypes.map(workload => {
+            const workloadMap = heatmapData.get(workload);
+            const cells = frameworks.map(framework => {
+                const value = workloadMap.get(framework) || 0;
+                const intensity = maxValue > 0 ? (value / maxValue) : 0;
+                const color = `rgba(31, 119, 180, ${intensity})`; // Blue with varying intensity
+                return `
+          <div class="heatmap-cell" style="background: ${color};"
+               title="${workload} - ${framework}: ${value} patterns"
+               onclick="filterByWorkload('${workload}')"
+               style="cursor: pointer;">
+            <span class="heatmap-value">${value > 0 ? value : ''}</span>
+          </div>
+        `;
+            }).join('');
+            return `
+        <div class="heatmap-row">
+          <div class="heatmap-label">${workload}</div>
+          ${cells}
+        </div>
+      `;
+        }).join('');
+        const headerRow = frameworks.map(framework => `<div class="heatmap-header">${framework}</div>`).join('');
+        return `
+      <div class="heatmap-chart">
+        <div class="heatmap-grid">
+          <div class="heatmap-row">
+            <div class="heatmap-label"></div>
+            ${headerRow}
+          </div>
+          ${heatmapRows}
+        </div>
+      </div>
+      <style>
+        .heatmap-chart {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+        .heatmap-grid {
+          display: grid;
+          grid-template-columns: 80px repeat(4, 1fr);
+          gap: 2px;
+        }
+        .heatmap-row {
+          display: contents;
+        }
+        .heatmap-label {
+          font-size: 11px;
+          font-weight: 600;
+          padding: 8px 4px;
+          display: flex;
+          align-items: center;
+          background: var(--vscode-editor-background, #ffffff);
+        }
+        .heatmap-header {
+          font-size: 11px;
+          font-weight: 600;
+          padding: 8px 4px;
+          text-align: center;
+          background: var(--vscode-editor-background, #ffffff);
+        }
+        .heatmap-cell {
+          aspect-ratio: 1;
+          min-height: 40px;
+          border: 1px solid var(--vscode-panel-border, #e1e1e1);
+          border-radius: 3px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          position: relative;
+          transition: all 0.2s ease;
+        }
+        .heatmap-cell:hover {
+          transform: scale(1.1);
+          border-color: var(--vscode-focusBorder, #007fd4);
+          z-index: 1;
+        }
+        .heatmap-value {
+          font-size: 9px;
+          font-weight: 600;
+          color: white;
+          text-shadow: 0 0 2px rgba(0,0,0,0.5);
+        }
+      </style>
+    `;
     }
     generatePrintReportHtml(patterns) {
         const timestamp = new Date().toLocaleString();
@@ -720,14 +1711,14 @@ class PatternMetricsProvider {
           <p>Generated on ${timestamp}</p>
           <button class="print-btn" onclick="window.print()">Print Report</button>
         </div>
-        
+
         <div class="summary">
           <strong>Summary:</strong><br>
           Total Patterns: ${sortedPatterns.length}<br>
           Total Events: ${Array.from(counts.values()).reduce((a, b) => a + b, 0)}<br>
           New Patterns (5min): ${Array.from(this.newPatterns).length}
         </div>
-        
+
         <table>
           <thead>
             <tr>
@@ -741,7 +1732,7 @@ class PatternMetricsProvider {
             ${tableRows}
           </tbody>
         </table>
-        
+
         <script>
           // Auto-print when loaded
           window.addEventListener('load', () => {
@@ -927,7 +1918,7 @@ class PatternMetricsProvider {
       <body>
         <div class="chart-container">
           <h2 class="chart-header">Pattern Distribution Analysis</h2>
-          
+
           <div class="summary">
             <strong>Total Patterns:</strong> ${sortedPatterns.length} |
             <strong>Total Events:</strong> ${Array.from(patternCounts.values()).reduce((a, b) => a + b, 0)} |
@@ -956,26 +1947,26 @@ class PatternMetricsProvider {
 
         <script>
           const vscode = acquireVsCodeApi();
-          
+
           function filterByWorkload(workload) {
             vscode.postMessage({
               command: 'filterByWorkload',
               workload: workload
             });
           }
-          
+
           function clearFilters() {
             vscode.postMessage({
               command: 'clearFilters'
             });
           }
-          
+
           function exportChart() {
             vscode.postMessage({
               command: 'exportChart'
             });
           }
-          
+
           // Add click handlers to chart bars
           document.querySelectorAll('.chart-bar').forEach(bar => {
             bar.addEventListener('click', function() {
@@ -988,13 +1979,13 @@ class PatternMetricsProvider {
               });
             });
           });
-          
+
           // Add hover effects
           document.querySelectorAll('.chart-bar').forEach(bar => {
             bar.addEventListener('mouseenter', function() {
               this.style.transform = 'translateX(4px)';
             });
-            
+
             bar.addEventListener('mouseleave', function() {
               this.style.transform = 'translateX(0)';
             });
@@ -1035,12 +2026,29 @@ class PatternMetricsProvider {
             // Create root level items
             if (!element) {
                 const items = [];
-                // Add filter status item
-                const filterItem = new vscode.TreeItem(`Filter: ${this.currentFilter === 'all' ? 'All Patterns' : `${this.currentFilter} = ${this.filterValue}`}`, vscode.TreeItemCollapsibleState.None);
+                // Add filter status item with enhanced display
+                const filterLabels = this.currentFilters.map(f => f.label).join(', ');
+                const filterItem = new vscode.TreeItem(`Filters: ${filterLabels || 'All Patterns'}`, vscode.TreeItemCollapsibleState.None);
                 filterItem.iconPath = new vscode.ThemeIcon('filter');
                 filterItem.description = `${filteredPatterns.length} of ${patterns.length} patterns`;
+                if (this.activePreset) {
+                    const preset = this.filterPresets.find(p => p.id === this.activePreset);
+                    filterItem.tooltip = `Active preset: ${preset === null || preset === void 0 ? void 0 : preset.name}\nFilters: ${filterLabels}`;
+                }
+                else {
+                    filterItem.tooltip = `Active filters: ${filterLabels || 'None'}`;
+                }
                 filterItem.contextValue = 'patternFilter';
                 items.push(filterItem);
+                // Add filter presets item
+                const presetsItem = new vscode.TreeItem('🎯 Filter Presets', vscode.TreeItemCollapsibleState.Collapsed);
+                presetsItem.contextValue = 'filterPresets';
+                presetsItem.description = `${this.filterPresets.length} presets available`;
+                items.push(presetsItem);
+                // Add quick filters item
+                const quickFiltersItem = new vscode.TreeItem('⚡ Quick Filters', vscode.TreeItemCollapsibleState.Collapsed);
+                quickFiltersItem.contextValue = 'quickFilters';
+                items.push(quickFiltersItem);
                 // Add export controls
                 const exportItem = new vscode.TreeItem('📤 Export Data', vscode.TreeItemCollapsibleState.Collapsed);
                 exportItem.contextValue = 'exportControls';
@@ -1052,15 +2060,23 @@ class PatternMetricsProvider {
                     paginationItem.description = `${filteredPatterns.length} total results`;
                     items.push(paginationItem);
                 }
-                // Add chart item
-                const chartItem = new vscode.TreeItem('📊 Pattern Distribution Chart', vscode.TreeItemCollapsibleState.None);
-                chartItem.tooltip = 'Visual representation of pattern distribution';
-                chartItem.command = {
-                    command: 'goalieDashboard.showPatternChart',
-                    title: 'Show Pattern Chart',
-                    arguments: [filteredPatterns]
-                };
-                items.push(chartItem);
+                // Add chart items with different chart types
+                const chartTypes = [
+                    { type: 'bar', label: '📊 Bar Chart', description: 'Horizontal bar chart' },
+                    { type: 'pie', label: '🥧 Pie Chart', description: 'Pie chart distribution' },
+                    { type: 'timeline', label: '📈 Timeline', description: 'Timeline view' },
+                    { type: 'heatmap', label: '🔥 Heatmap', description: 'Workload vs Framework heatmap' }
+                ];
+                chartTypes.forEach(chart => {
+                    const chartItem = new vscode.TreeItem(chart.label, vscode.TreeItemCollapsibleState.None);
+                    chartItem.tooltip = chart.description;
+                    chartItem.command = {
+                        command: 'goalieDashboard.showPatternChart',
+                        title: `Show ${chart.description}`,
+                        arguments: [filteredPatterns, chart.type]
+                    };
+                    items.push(chartItem);
+                });
                 // Add pattern items from current page
                 const counts = new Map();
                 const patternTagsMap = new Map();
@@ -1147,11 +2163,41 @@ class PatternMetricsProvider {
                 }));
             }
             // Handle expandable items
+            if (element.contextValue === 'filterPresets') {
+                return this.filterPresets.map(preset => {
+                    const item = new vscode.TreeItem(preset.name, vscode.TreeItemCollapsibleState.None);
+                    item.tooltip = preset.description;
+                    item.description = this.activePreset === preset.id ? '✅ Active' : 'Click to apply';
+                    item.command = {
+                        command: 'goalieDashboard.applyFilterPreset',
+                        title: `Apply ${preset.name}`,
+                        arguments: [preset.id]
+                    };
+                    return item;
+                });
+            }
+            if (element.contextValue === 'quickFilters') {
+                const quickFilters = [
+                    { type: 'circle', label: '🔵 Circle', options: ['analyst', 'assessor', 'innovator', 'intuitive', 'orchestrator', 'seeker'] },
+                    { type: 'run-kind', label: '⚡ Run Kind', options: ['analysis', 'assessment', 'innovation', 'exploration', 'coordination'] },
+                    { type: 'workload', label: '💼 Workload', options: ['ML', 'HPC', 'Stats', 'Device/Web'] },
+                    { type: 'framework', label: '🔧 Framework', options: ['TensorFlow', 'PyTorch', 'Keras', 'Scikit-learn'] },
+                    { type: 'gate', label: '🚪 Gate', options: ['deploy', 'test-first', 'autocommit', 'health-check'] },
+                    { type: 'date-range', label: '📅 Date Range', options: ['last-7days', 'last-30days', 'custom'] }
+                ];
+                return quickFilters.map(filter => {
+                    const item = new vscode.TreeItem(filter.label, vscode.TreeItemCollapsibleState.Collapsed);
+                    item.description = `${filter.options.length} options`;
+                    item.contextValue = `quickFilter_${filter.type}`;
+                    return item;
+                });
+            }
             if (element.contextValue === 'exportControls') {
                 return [
                     this.createCommandItem('Export as CSV', 'goalieDashboard.exportPatternMetricsCSV'),
                     this.createCommandItem('Export as JSON', 'goalieDashboard.exportPatternMetricsJSON'),
-                    this.createCommandItem('Print Report', 'goalieDashboard.printPatternMetricsReport')
+                    this.createCommandItem('Print Report', 'goalieDashboard.printPatternMetricsReport'),
+                    this.createCommandItem('Export Chart Data', 'goalieDashboard.exportChartData')
                 ];
             }
             if (element.contextValue === 'pagination') {
@@ -1176,6 +2222,29 @@ class PatternMetricsProvider {
                     items[1].description = 'Already on last page';
                 }
                 return items;
+            }
+            // Handle quick filter sub-items
+            if (element.contextValue && element.contextValue.startsWith('quickFilter_')) {
+                const filterType = element.contextValue.replace('quickFilter_', '');
+                const quickFilter = {
+                    circle: { options: ['analyst', 'assessor', 'innovator', 'intuitive', 'orchestrator', 'seeker'] },
+                    'run-kind': { options: ['analysis', 'assessment', 'innovation', 'exploration', 'coordination'] },
+                    workload: { options: ['ML', 'HPC', 'Stats', 'Device/Web'] },
+                    framework: { options: ['TensorFlow', 'PyTorch', 'Keras', 'Scikit-learn'] },
+                    gate: { options: ['deploy', 'test-first', 'autocommit', 'health-check'] },
+                    'date-range': { options: ['last-7days', 'last-30days', 'custom'] }
+                }[filterType];
+                if (quickFilter) {
+                    return quickFilter.options.map(option => {
+                        const item = new vscode.TreeItem(option, vscode.TreeItemCollapsibleState.None);
+                        item.command = {
+                            command: `goalieDashboard.quickFilterBy${filterType.charAt(0).toUpperCase() + filterType.slice(1)}`,
+                            title: `Filter by ${option}`,
+                            arguments: [option]
+                        };
+                        return item;
+                    });
+                }
             }
             return [];
         });
@@ -1860,7 +2929,7 @@ function moveKanbanItem(item) {
     });
 }
 function activate(context) {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f;
     const outputChannel = vscode.window.createOutputChannel('Goalie Debug');
     outputChannel.appendLine('Goalie Extension Activated');
     const root = (_b = (_a = vscode.workspace.workspaceFolders) === null || _a === void 0 ? void 0 : _a[0]) === null || _b === void 0 ? void 0 : _b.uri.fsPath;
@@ -2632,7 +3701,24 @@ function activate(context) {
     };
     startStreamClient();
     // -- 1. Real-Time Monitoring (File Watcher) --
-    const watcher = vscode.workspace.createFileSystemWatcher('**/.goalie/*.{yaml,jsonl}');
+    // -- 1. Enhanced Real-Time Monitoring (File Watcher) --
+    const workspaceRoot = (_f = (_e = vscode.workspace.workspaceFolders) === null || _e === void 0 ? void 0 : _e[0]) === null || _f === void 0 ? void 0 : _f.uri.fsPath;
+    // Create enhanced file watcher with centralized service
+    const enhancedFileWatcher = new enhancedFileWatcher_1.EnhancedFileWatcher(workspaceRoot, [
+        () => kanbanProvider.refresh(),
+        () => gapsProvider.refresh(),
+        () => patternMetricsProvider.refresh(),
+        () => governanceEconomicsProvider.refresh(),
+        () => depthTimelineProvider.refresh(),
+        () => refreshLiveGapsPanelIfOpen().catch(err => {
+            outputChannel.appendLine(`[LiveGaps] Error refreshing live panel: ${err}`);
+        })
+    ], {
+        patterns: ['**/.goalie/*.{yaml,jsonl}'],
+        debounceDelay: 300,
+        enableBatching: true,
+        enableVisualIndicators: true
+    });
     // Debounce the refresh to avoid spamming updates
     let refreshTimeout;
     const debouncedRefresh = () => {
@@ -2651,8 +3737,19 @@ function activate(context) {
             });
         }, 300); // 300ms debounce
     };
-    context.subscriptions.push(watcher, watcher.onDidChange(debouncedRefresh), watcher.onDidCreate(debouncedRefresh), watcher.onDidDelete(debouncedRefresh));
-    outputChannel.appendLine('File Watcher setup for .goalie directory.');
+    // Add enhanced file watcher to subscriptions for proper cleanup
+    context.subscriptions.push({
+        dispose: () => enhancedFileWatcher.dispose()
+    });
+    // Log performance metrics periodically
+    const metricsInterval = setInterval(() => {
+        const metrics = enhancedFileWatcher.getPerformanceMetrics();
+        outputChannel.appendLine(`[FileWatcher] Performance: ${metrics.totalFilesWatched} files watched, ${metrics.totalChangesDetected} changes detected, ${metrics.averageProcessingTime.toFixed(2)}ms avg processing time`);
+    }, 30000); // Log every 30 seconds
+    context.subscriptions.push({
+        dispose: () => clearInterval(metricsInterval)
+    });
+    outputChannel.appendLine('Enhanced File Watcher setup for .goalie directory with centralized service.');
     // -- 2. UX Study Instrumentation (Interaction Tracking) --
     // Refactored to use createTreeView for Kanban and Gaps to attach listeners
     const kanbanTreeView = vscode.window.createTreeView('goalieKanbanView', {
@@ -2683,7 +3780,22 @@ function activate(context) {
     // Register other providers
     context.subscriptions.push(vscode.window.registerTreeDataProvider('patternMetricsView', patternMetricsProvider), vscode.window.registerTreeDataProvider('governanceEconomicsView', governanceEconomicsProvider), vscode.window.registerTreeDataProvider('depthLadderTimelineView', depthTimelineProvider), vscode.window.registerTreeDataProvider('processFlowMetricsView', processFlowMetricsProvider));
     outputChannel.appendLine('Tree Data Providers Registered.');
-    context.subscriptions.push(vscode.commands.registerCommand('goalieDashboard.refreshKanban', () => kanbanProvider.refresh()), vscode.commands.registerCommand('goalieDashboard.refreshPatternMetrics', () => patternMetricsProvider.refresh()), vscode.commands.registerCommand('goalieDashboard.exportPatternMetricsCSV', () => patternMetricsProvider.exportData('csv')), vscode.commands.registerCommand('goalieDashboard.exportPatternMetricsJSON', () => patternMetricsProvider.exportData('json')), vscode.commands.registerCommand('goalieDashboard.printPatternMetricsReport', () => patternMetricsProvider.printReport()), vscode.commands.registerCommand('goalieDashboard.refreshGovernanceEconomics', () => governanceEconomicsProvider.refresh()), vscode.commands.registerCommand('goalieDashboard.refreshDepthLadderTimeline', () => depthTimelineProvider.refresh()), vscode.commands.registerCommand('goalieDashboard.refreshGoalieGaps', () => gapsProvider.refresh()), vscode.commands.registerCommand('goalieDashboard.openKanbanItem', openKanbanItem), vscode.commands.registerCommand('goalieDashboard.moveKanbanItem', moveKanbanItem), vscode.commands.registerCommand('goalieDashboard.filterAll', () => {
+    context.subscriptions.push(vscode.commands.registerCommand('goalieDashboard.refreshKanban', () => kanbanProvider.refresh()), vscode.commands.registerCommand('goalieDashboard.refreshPatternMetrics', () => patternMetricsProvider.refresh()), vscode.commands.registerCommand('goalieDashboard.exportPatternMetricsCSV', () => patternMetricsProvider.exportData('csv')), vscode.commands.registerCommand('goalieDashboard.exportPatternMetricsJSON', () => patternMetricsProvider.exportData('json')), vscode.commands.registerCommand('goalieDashboard.printPatternMetricsReport', () => patternMetricsProvider.printReport()), 
+    // Enhanced pattern metrics commands
+    vscode.commands.registerCommand('goalieDashboard.showPatternChart', (patterns, chartType) => patternMetricsProvider.showPatternChart(patterns, chartType)), vscode.commands.registerCommand('goalieDashboard.applyFilterPreset', (presetId) => patternMetricsProvider.applyFilterPreset(presetId)), vscode.commands.registerCommand('goalieDashboard.quickFilterByCircle', (circle) => patternMetricsProvider.quickFilterByCircle(circle)), vscode.commands.registerCommand('goalieDashboard.quickFilterByRunKind', (runKind) => patternMetricsProvider.quickFilterByRunKind(runKind)), vscode.commands.registerCommand('goalieDashboard.quickFilterByWorkload', (workload) => patternMetricsProvider.quickFilterByWorkload(workload)), vscode.commands.registerCommand('goalieDashboard.quickFilterByFramework', (framework) => patternMetricsProvider.quickFilterByFramework(framework)), vscode.commands.registerCommand('goalieDashboard.quickFilterByDateRange', (range) => patternMetricsProvider.quickFilterByDateRange(range)), vscode.commands.registerCommand('goalieDashboard.quickFilterByGate', (gate) => patternMetricsProvider.quickFilterByGate(gate)), vscode.commands.registerCommand('goalieDashboard.clearFilters', () => patternMetricsProvider.clearFilters()), vscode.commands.registerCommand('goalieDashboard.exportChartData', (format) => patternMetricsProvider.exportChartData(format)), vscode.commands.registerCommand('goalieDashboard.patternMetricsPreviousPage', () => patternMetricsProvider.previousPage()), vscode.commands.registerCommand('goalieDashboard.patternMetricsNextPage', () => patternMetricsProvider.nextPage()), vscode.commands.registerCommand('goalieDashboard.patternMetricsSetPageSize', () => {
+        vscode.window.showInputBox({
+            prompt: 'Enter page size (10-200):',
+            value: patternMetricsProvider['pageSize'].toString(),
+            validateInput: (value) => {
+                const num = parseInt(value);
+                return !isNaN(num) || num < 10 || num > 200 ? 'Page size must be between 10 and 200' : null;
+            }
+        }).then(value => {
+            if (value) {
+                patternMetricsProvider.setPageSize(parseInt(value));
+            }
+        });
+    }), vscode.commands.registerCommand('goalieDashboard.refreshGovernanceEconomics', () => governanceEconomicsProvider.refresh()), vscode.commands.registerCommand('goalieDashboard.refreshDepthLadderTimeline', () => depthTimelineProvider.refresh()), vscode.commands.registerCommand('goalieDashboard.refreshGoalieGaps', () => gapsProvider.refresh()), vscode.commands.registerCommand('goalieDashboard.openKanbanItem', openKanbanItem), vscode.commands.registerCommand('goalieDashboard.moveKanbanItem', moveKanbanItem), vscode.commands.registerCommand('goalieDashboard.filterAll', () => {
         governanceEconomicsProvider.setLens('ALL');
         gapsProvider.setLens('ALL');
         persistLensSelection('ALL');
@@ -2926,6 +4038,51 @@ function activate(context) {
                     }
                     vscode.window.showInformationMessage('Federation started successfully.');
                     outputChannel.appendLine('--- Federation Start Completed ---');
+                    resolve();
+                });
+            });
+        }));
+    })), 
+    // One-click command: af goalie-gaps
+    vscode.commands.registerCommand('goalie.runGoalieGaps', () => __awaiter(this, void 0, void 0, function* () {
+        if (!root) {
+            vscode.window.showErrorMessage('No workspace open.');
+            return;
+        }
+        const afScript = path.join(root, 'investing', 'agentic-flow', 'scripts', 'af');
+        if (!fs.existsSync(afScript)) {
+            vscode.window.showErrorMessage(`af script not found at: ${afScript}`);
+            return;
+        }
+        vscode.window.withProgress({
+            location: vscode.ProgressLocation.Notification,
+            title: 'Running Goalie Gaps Analysis...',
+            cancellable: false,
+        }, () => __awaiter(this, void 0, void 0, function* () {
+            outputChannel.show(true);
+            outputChannel.appendLine('\n--- Starting Goalie Gaps Analysis ---');
+            return new Promise((resolve) => {
+                (0, child_process_1.exec)(`"${afScript}" goalie-gaps`, { cwd: root }, (error, stdout, stderr) => {
+                    if (error) {
+                        const message = error.message || String(error);
+                        outputChannel.appendLine(`[GoalieGaps] Error running af goalie-gaps: ${message}`);
+                        if (stderr) {
+                            outputChannel.appendLine(`[GoalieGaps][stderr] ${stderr}`);
+                        }
+                        vscode.window.showErrorMessage(`Goalie Gaps Analysis Failed: ${message}`);
+                        outputChannel.appendLine('--- Goalie Gaps Analysis Failed ---');
+                        resolve();
+                        return;
+                    }
+                    if (stdout) {
+                        outputChannel.appendLine(`[GoalieGaps][stdout] ${stdout}`);
+                    }
+                    if (stderr) {
+                        outputChannel.appendLine(`[GoalieGaps][stderr] ${stderr}`);
+                    }
+                    vscode.window.showInformationMessage('Goalie Gaps Analysis completed successfully.');
+                    outputChannel.appendLine('--- Goalie Gaps Analysis Completed ---');
+                    gapsProvider.refresh();
                     resolve();
                 });
             });

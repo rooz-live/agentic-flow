@@ -338,7 +338,8 @@ async function flushBuffer(): Promise<void> {
   }
 
   // Enrich with economic context before flushing
-  const enriched = toFlush.map(enrichWithEconomics);
+  const enriched = metricsBuffer.map(enrichWithEconomics);
+  const toFlush = [...metricsBuffer]; // Snapshot for other sinks
   metricsBuffer.length = 0; // Clear buffer
 
   const flushStart = Date.now();

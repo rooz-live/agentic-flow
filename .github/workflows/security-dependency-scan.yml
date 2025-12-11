@@ -1,0 +1,139 @@
+# Security Dependency Scan Workflow
+# Runs on PRs and pushes to main/master branches
+# Fails build if high/critical vulnerabilities detected in production paths
+
+name: Security Dependency Scan
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - 'archive/**'
+      - '.snapshots/**'
+      - 'examples/**'
+      - 'docs/**'
+      - '*.md'
+  pull_request:
+    branches: [main, master]
+    paths-ignore:
+      - 'archive/**'
+      - '.snapshots/**'
+      - 'examples/**'
+      - 'docs/**'
+      - '*.md'
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-audit:
+    name: NPM Security Audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit (strict mode)
+        id: audit
+        run: |
+          echo "🔒 Running strict security audit..."
+          npm audit --audit-level=high --json > audit-results.json 2>&1 || true
+          
+          # Extract vulnerability counts
+          CRITICAL=$(jq '.metadata.vulnerabilities.critical // 0' audit-results.json)
+          HIGH=$(jq '.metadata.vulnerabilities.high // 0' audit-results.json)
+          MODERATE=$(jq '.metadata.vulnerabilities.moderate // 0' audit-results.json)
+          LOW=$(jq '.metadata.vulnerabilities.low // 0' audit-results.json)
+          
+          echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+          echo "high=$HIGH" >> $GITHUB_OUTPUT
+          echo "moderate=$MODERATE" >> $GITHUB_OUTPUT
+          echo "low=$LOW" >> $GITHUB_OUTPUT
+          
+          # Generate summary
+          echo "## 🔒 Security Audit Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Severity | Count |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| 🔴 Critical | $CRITICAL |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟠 High | $HIGH |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟡 Moderate | $MODERATE |" >> $GITHUB_STEP_SUMMARY
+          echo "| 🟢 Low | $LOW |" >> $GITHUB_STEP_SUMMARY
+          
+          # Fail if critical or high vulnerabilities found
+          if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⛔ **Build failed due to high/critical vulnerabilities**" >> $GITHUB_STEP_SUMMARY
+            echo "has_vulnerabilities=true" >> $GITHUB_OUTPUT
+          else
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "✅ **No high/critical vulnerabilities detected**" >> $GITHUB_STEP_SUMMARY
+            echo "has_vulnerabilities=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const critical = parseInt('${{ steps.audit.outputs.critical }}') || 0;
+            const high = parseInt('${{ steps.audit.outputs.high }}') || 0;
+            const moderate = parseInt('${{ steps.audit.outputs.moderate }}') || 0;
+            const low = parseInt('${{ steps.audit.outputs.low }}') || 0;
+            
+            let status = '✅ No high/critical vulnerabilities';
+            let emoji = '✅';
+            if (critical > 0 || high > 0) {
+              status = '⛔ Vulnerabilities detected - action required';
+              emoji = '🚨';
+            }
+            
+            const body = `## ${emoji} Security Scan Results
+            
+            | Severity | Count |
+            |----------|-------|
+            | 🔴 Critical | ${critical} |
+            | 🟠 High | ${high} |
+            | 🟡 Moderate | ${moderate} |
+            | 🟢 Low | ${low} |
+            
+            **Status:** ${status}
+            
+            <details>
+            <summary>What to do if vulnerabilities are found</summary>
+            
+            1. Run \`npm audit\` locally to see details
+            2. Run \`npm audit fix\` to attempt automatic fixes
+            3. For breaking changes, manually update dependencies
+            4. If vulnerabilities are in dev-only dependencies, consider if they're acceptable
+            </details>`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Fail on vulnerabilities
+        if: steps.audit.outputs.has_vulnerabilities == 'true'
+        run: |
+          echo "⛔ Security audit failed: High or critical vulnerabilities detected"
+          echo "Run 'npm audit' locally for details and 'npm audit fix' to attempt fixes"
+          exit 1
+

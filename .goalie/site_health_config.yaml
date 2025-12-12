@@ -1,0 +1,261 @@
+# Site Health Configuration for interface.tag.ooo Domains
+# Monitors: app, billing, blog, dev, forum, starlingx
+
+domains:
+  - name: app.interface.tag.ooo
+    role: primary_application
+    priority: critical
+    healthcheck:
+      endpoint: /health
+      interval_seconds: 30
+      timeout_ms: 5000
+      expected_status: 200
+      retries: 3
+    metrics:
+      - name: response_time_p95
+        threshold: 1000
+        unit: ms
+      - name: error_rate
+        threshold: 0.01
+        unit: percent
+      - name: active_users
+        threshold: 0
+        direction: above
+      - name: pattern_metrics_written
+        threshold: 100
+        direction: above
+        window: 1h
+    alerts:
+      - condition: error_rate > 0.01
+        severity: warning
+        notify: slack
+      - condition: response_time_p95 > 1000
+        severity: critical
+        notify: pagerduty
+      - condition: health_check_failed
+        severity: critical
+        notify: pagerduty
+        
+  - name: billing.interface.tag.ooo
+    role: billing_system
+    priority: critical
+    healthcheck:
+      endpoint: /api/health
+      interval_seconds: 60
+      timeout_ms: 3000
+      expected_status: 200
+      retries: 2
+    metrics:
+      - name: transactions_per_minute
+        threshold: 1
+        direction: above
+      - name: payment_success_rate
+        threshold: 0.95
+        direction: above
+      - name: invoice_generation_latency
+        threshold: 5000
+        unit: ms
+      - name: hostbill_api_response_time
+        threshold: 2000
+        unit: ms
+    alerts:
+      - condition: payment_success_rate < 0.95
+        severity: critical
+        notify: pagerduty
+      - condition: transactions_per_minute == 0
+        severity: warning
+        notify: slack
+        window: 5m
+      - condition: health_check_failed
+        severity: critical
+        notify: pagerduty
+    integrations:
+      - hostbill
+      - stripe
+      - paypal
+      
+  - name: blog.interface.tag.ooo
+    role: content_platform
+    priority: medium
+    healthcheck:
+      endpoint: /wp-admin/admin-ajax.php?action=heartbeat
+      interval_seconds: 300
+      timeout_ms: 10000
+      expected_status: 200
+      retries: 3
+    metrics:
+      - name: page_load_time
+        threshold: 3000
+        unit: ms
+      - name: posts_published_today
+        threshold: 0
+        direction: above
+      - name: comment_spam_rate
+        threshold: 0.10
+        unit: percent
+    alerts:
+      - condition: health_check_failed
+        severity: warning
+        notify: slack
+      - condition: page_load_time > 5000
+        severity: warning
+        notify: slack
+    integrations:
+      - wordpress
+      - cloudflare_cache
+      
+  - name: dev.interface.tag.ooo
+    role: development_environment
+    priority: low
+    healthcheck:
+      endpoint: /
+      interval_seconds: 600
+      timeout_ms: 15000
+      expected_status: 200
+      retries: 1
+    metrics:
+      - name: build_success_rate
+        threshold: 0.80
+        direction: above
+      - name: test_pass_rate
+        threshold: 0.90
+        direction: above
+      - name: deployment_frequency
+        threshold: 1
+        unit: per_day
+    alerts:
+      - condition: build_success_rate < 0.70
+        severity: warning
+        notify: slack
+    integrations:
+      - github
+      - ci_cd_pipeline
+      
+  - name: forum.interface.tag.ooo
+    role: community_forum
+    priority: medium
+    healthcheck:
+      endpoint: /api/health
+      interval_seconds: 120
+      timeout_ms: 5000
+      expected_status: 200
+      retries: 2
+    metrics:
+      - name: active_discussions
+        threshold: 1
+        direction: above
+      - name: posts_per_hour
+        threshold: 0
+        direction: above
+      - name: moderation_queue_depth
+        threshold: 50
+        direction: below
+      - name: user_registrations_per_day
+        threshold: 0
+        direction: above
+    alerts:
+      - condition: moderation_queue_depth > 100
+        severity: warning
+        notify: slack
+      - condition: health_check_failed
+        severity: warning
+        notify: slack
+    integrations:
+      - flarum
+      - sso_provider
+      
+  - name: starlingx.interface.tag.ooo
+    role: infrastructure_management
+    priority: critical
+    healthcheck:
+      endpoint: /
+      interval_seconds: 60
+      timeout_ms: 5000
+      expected_status: 200
+      retries: 3
+    metrics:
+      - name: k8s_pods_ready
+        threshold: 0.90
+        direction: above
+        unit: percent
+      - name: cpu_utilization
+        threshold: 85
+        direction: below
+        unit: percent
+      - name: memory_utilization
+        threshold: 85
+        direction: below
+        unit: percent
+      - name: disk_usage
+        threshold: 80
+        direction: below
+        unit: percent
+      - name: node_health
+        threshold: 1.0
+        direction: above
+        unit: percent
+    alerts:
+      - condition: cpu_utilization > 90
+        severity: critical
+        notify: pagerduty
+      - condition: memory_utilization > 90
+        severity: critical
+        notify: pagerduty
+      - condition: k8s_pods_ready < 0.80
+        severity: critical
+        notify: pagerduty
+      - condition: disk_usage > 85
+        severity: warning
+        notify: slack
+      - condition: health_check_failed
+        severity: critical
+        notify: pagerduty
+    integrations:
+      - openstack
+      - starlingx
+      - prometheus
+      - grafana
+
+# Global settings
+global:
+  check_interval_seconds: 60
+  retention_days: 90
+  log_path: .goalie/site_health_log.jsonl
+  alert_cooldown_minutes: 15
+  
+# Notification channels
+notifications:
+  slack:
+    enabled: true
+    webhook_url_env: SLACK_WEBHOOK_URL
+    channels:
+      critical: "#alerts-critical"
+      warning: "#alerts-warning"
+      info: "#ops-info"
+      
+  pagerduty:
+    enabled: true
+    api_key_env: PAGERDUTY_API_KEY
+    service_key_env: PAGERDUTY_SERVICE_KEY
+    
+  email:
+    enabled: false
+    smtp_host_env: SMTP_HOST
+    recipients:
+      - ops@interface.tag.ooo
+
+# Aggregated health dashboard
+dashboard:
+  enabled: true
+  port: 8899
+  path: /site-health
+  refresh_interval_seconds: 30
+  
+# Pattern metrics integration
+pattern_metrics:
+  enabled: true
+  emit_to: .goalie/pattern_metrics.jsonl
+  patterns:
+    - observability_first  # All health checks
+    - safe_degrade         # When services degrade
+    - failure_strategy     # When health checks fail

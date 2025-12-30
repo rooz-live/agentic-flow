@@ -84,7 +84,7 @@ class PatternLogger:
     }
 
     def __init__(self, run_id=None, mode="advisory", circle=None, depth=None, correlation_id=None,
-                 tenant_id=None, tenant_platform=None):
+                 tenant_id=None, tenant_platform=None, environment=None):
         self.run_id = run_id or os.environ.get("AF_RUN_ID", str(uuid.uuid4()))
         self.mode = mode
         # Fall back to AF_CIRCLE env var if circle not provided
@@ -96,6 +96,8 @@ class PatternLogger:
         self.correlation_id = correlation_id or env_cid or str(uuid.uuid4())
         self.tenant_id = tenant_id or os.environ.get("AF_TENANT_ID", "default")
         self.tenant_platform = tenant_platform or os.environ.get("AF_TENANT_PLATFORM", "core")
+        # ENV-001: Detect environment from multiple sources
+        self.environment = environment or self._detect_environment()
         self._ensure_dir()
 
         # Initialize schema validator

@@ -1090,11 +1090,11 @@ def main():
                        help="Execution profile: standard (default) or longrun (env: AF_PROD_PROFILE)")
 
     parser.add_argument("--batch-policy", choices=["conservative", "moderate", "aggressive"],
-                       default="moderate",
+                       default="aggressive",
                        help="Risk-aware batching policy for task prioritization and execution. "
                             "Conservative: small batches (≤3 items) with manual approval for low-risk tasks. "
                             "Moderate: medium batches (≤8 items) with team approval for medium-risk tasks. "
-                            "Aggressive: large batches (≤15 items) with automated approval for higher-risk tasks. "
+                            "Aggressive: large batches (≤15 items) with automated approval for higher-risk tasks (DEFAULT). "
                             "Overrides circle_batching.yaml configuration when specified.")
 
     # Method Pattern Flags
@@ -1284,13 +1284,14 @@ def main():
     os.environ["AF_CIRCLE"] = circle
 
     # Apply batch policy from command line (overrides circle_batching.yaml)
-    batch_policy = args.batch_policy if hasattr(args, 'batch_policy') else "moderate"
+    # Default: aggressive for higher throughput production cycles (changed 2025-12-30)
+    batch_policy = args.batch_policy if hasattr(args, 'batch_policy') else "aggressive"
     BATCH_POLICY_CONFIG = {
         "conservative": {"max_batch": 3, "approval": "manual", "risk_threshold": 0.3},
         "moderate": {"max_batch": 8, "approval": "team", "risk_threshold": 0.5},
         "aggressive": {"max_batch": 15, "approval": "automated", "risk_threshold": 0.7}
     }
-    policy_config = BATCH_POLICY_CONFIG.get(batch_policy, BATCH_POLICY_CONFIG["moderate"])
+    policy_config = BATCH_POLICY_CONFIG.get(batch_policy, BATCH_POLICY_CONFIG["aggressive"])
 
     # Export batch policy context for circle-aware orchestration
     batch_group = get_batch_group_for_circle(circle, circle_batching_config)

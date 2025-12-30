@@ -23,6 +23,71 @@ from evidence.integration import ProdCycleEmitter
 # Pre-flight check exit codes
 
 
+def load_circle_batching_config(project_root: str) -> Dict:
+    """Load circle batching configuration from config/circle_batching.yaml.
+
+    Returns default configuration if file not found or parse error.
+    """
+    import yaml
+    config_path = Path(project_root) / "config" / "circle_batching.yaml"
+
+    default_config = {
+        "circle_batch_groups": {
+            "coordination": {"circles": ["orchestrator", "assessor"], "batch_size": 2, "concurrency": 1},
+            "analysis": {"circles": ["analyst", "innovator"], "batch_size": 5, "concurrency": 3},
+            "exploration": {"circles": ["seeker", "intuitive"], "batch_size": 10, "concurrency": 5},
+            "testing": {"circles": ["testing", "workflow"], "batch_size": 20, "concurrency": 8}
+        },
+        "load_balancing": {"enabled": True, "complexity_factors": {
+            "orchestrator": 0.6, "assessor": 0.7, "analyst": 0.8, "innovator": 0.9,
+            "seeker": 1.0, "intuitive": 1.0, "testing": 1.2
+        }}
+    }
+
+    try:
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+                return config if config else default_config
+    except Exception as e:
+        print(f"   ⚠️ Warning: Could not load circle_batching.yaml: {e}")
+
+    return default_config
+
+
+def get_batch_group_for_circle(circle: str, config: Dict) -> str:
+    """Get the batch group name for a given circle."""
+    for group_name, group_config in config.get("circle_batch_groups", {}).items():
+        if circle in group_config.get("circles", []):
+            return group_name
+    return "testing"  # Default fallback
+
+
+def get_optimal_batch_size(circle: str, config: Dict, current_load: float = 0.0) -> int:
+    """Dynamic batch sizing based on circle characteristics and system load."""
+    batch_groups = config.get("circle_batch_groups", {})
+    load_balancing = config.get("load_balancing", {})
+
+    # Find base batch size from group
+    base_size = 5  # Default
+    for group_config in batch_groups.values():
+        if circle in group_config.get("circles", []):
+            base_size = group_config.get("batch_size", 5)
+            break
+
+    if not load_balancing.get("enabled", False):
+        return base_size
+
+    # Adjust for system load (0.0 = idle, 1.0 = max load)
+    load_factor = max(0.5, 1.0 - (current_load * 0.5))
+
+    # Adjust for circle complexity
+    complexity_factors = load_balancing.get("complexity_factors", {})
+    complexity = complexity_factors.get(circle, 1.0)
+
+    return max(1, int(base_size * load_factor * complexity))
+
+
 def emit_dt_training_record(
     project_root: str,
     iteration: int,
@@ -1024,6 +1089,14 @@ def main():
     parser.add_argument("--profile", choices=["standard", "longrun"], default=None,
                        help="Execution profile: standard (default) or longrun (env: AF_PROD_PROFILE)")
 
+    parser.add_argument("--batch-policy", choices=["conservative", "moderate", "aggressive"],
+                       default="moderate",
+                       help="Risk-aware batching policy for task prioritization and execution. "
+                            "Conservative: small batches (≤3 items) with manual approval for low-risk tasks. "
+                            "Moderate: medium batches (≤8 items) with team approval for medium-risk tasks. "
+                            "Aggressive: large batches (≤15 items) with automated approval for higher-risk tasks. "
+                            "Overrides circle_batching.yaml configuration when specified.")
+
     # Method Pattern Flags
     parser.add_argument("--replenish", action="store_true", help="Run circle replenishment (WSJF calc) before cycle")
     # NEW: Default to replenishment ON unless explicitly disabled
@@ -1095,7 +1168,11 @@ def main():
     safe_degrade_enabled = os.environ.get("AF_PROD_SAFE_DEGRADE", "1") == "1"
     guardrail_lock_enabled = os.environ.get("AF_PROD_GUARDRAIL_LOCK", "1") == "1"
 
-    # Tier-aware iteration budgets
+    # Load circle batching configuration
+    circle_batching_config = load_circle_batching_config(project_root)
+    batch_groups = circle_batching_config.get("circle_batch_groups", {})
+
+    # Tier-aware iteration budgets (can be overridden by circle_batching.yaml)
     TIER_ITERATION_BUDGETS = {
         'orchestrator': 5,   # Conservative
         'assessor': 5,
@@ -1105,6 +1182,12 @@ def main():
         'seeker': 20,
         'testing': 20
     }
+
+    # Override budgets from circle_batching.yaml if present
+    for group_config in batch_groups.values():
+        batch_size = group_config.get("batch_size", 5)
+        for circle_name in group_config.get("circles", []):
+            TIER_ITERATION_BUDGETS[circle_name] = batch_size
 
     # Tier-aware stability thresholds (higher for exploration tiers)
     TIER_STABILITY_THRESHOLDS = {
@@ -1199,6 +1282,39 @@ def main():
     # Export AF_CIRCLE to environment for child processes (RCA fix 2025-12-30)
     # This ensures subprocess calls inherit circle context for proper attribution
     os.environ["AF_CIRCLE"] = circle
+
+    # Apply batch policy from command line (overrides circle_batching.yaml)
+    batch_policy = args.batch_policy if hasattr(args, 'batch_policy') else "moderate"
+    BATCH_POLICY_CONFIG = {
+        "conservative": {"max_batch": 3, "approval": "manual", "risk_threshold": 0.3},
+        "moderate": {"max_batch": 8, "approval": "team", "risk_threshold": 0.5},
+        "aggressive": {"max_batch": 15, "approval": "automated", "risk_threshold": 0.7}
+    }
+    policy_config = BATCH_POLICY_CONFIG.get(batch_policy, BATCH_POLICY_CONFIG["moderate"])
+
+    # Export batch policy context for circle-aware orchestration
+    batch_group = get_batch_group_for_circle(circle, circle_batching_config)
+    batch_group_config = batch_groups.get(batch_group, {})
+
+    # Policy overrides base config batch size
+    effective_batch_size = min(
+        policy_config["max_batch"],
+        batch_group_config.get("batch_size", 10)
+    )
+    effective_concurrency = batch_group_config.get("concurrency", 1)
+
+    os.environ["AF_BATCH_GROUP"] = batch_group
+    os.environ["AF_BATCH_POLICY"] = batch_policy
+    os.environ["AF_BATCH_SIZE"] = str(effective_batch_size)
+    os.environ["AF_MEMORY_NAMESPACE"] = batch_group_config.get(
+        "memory_namespace", f"aqe/{batch_group}/*"
+    )
+    os.environ["AF_CONCURRENCY_LIMIT"] = str(effective_concurrency)
+    os.environ["AF_APPROVAL_MODE"] = policy_config["approval"]
+    os.environ["AF_RISK_THRESHOLD"] = str(policy_config["risk_threshold"])
+
+    print(f"   📦 Batch: group={batch_group}, policy={batch_policy}, "
+          f"size≤{effective_batch_size}, approval={policy_config['approval']}")
 
     # Reinitialize logger with circle for revenue_impact attribution
     logger = PatternLogger(mode=mode, circle=circle, depth=args.depth)

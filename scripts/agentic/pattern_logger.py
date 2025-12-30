@@ -110,6 +110,32 @@ class PatternLogger:
         if not os.path.exists(GOALIE_DIR):
             os.makedirs(GOALIE_DIR, exist_ok=True)
 
+    def _detect_environment(self) -> str:
+        """Detect the current environment from multiple sources.
+
+        Priority: AF_ENV env var > CI detection > default to 'local'
+        """
+        # Check explicit environment variable first
+        env = os.environ.get("AF_ENV")
+        if env:
+            return env
+
+        # Check for CI environment indicators
+        ci_indicators = [
+            "CI", "GITHUB_ACTIONS", "GITLAB_CI", "JENKINS_URL",
+            "CIRCLECI", "TRAVIS", "BUILDKITE", "AZURE_PIPELINES"
+        ]
+        for indicator in ci_indicators:
+            if os.environ.get(indicator):
+                return "ci"
+
+        # Check for container environment
+        if os.path.exists("/.dockerenv") or os.environ.get("KUBERNETES_SERVICE_HOST"):
+            return "container"
+
+        # Default to local
+        return "local"
+
     def _get_default_value(self, field: str, circle: str):
         """Get safe default value for missing circle-specific fields."""
         defaults = {

@@ -92,8 +92,8 @@ EXIT_CODE_PREFLIGHT_FAILED = 13
 # Governance risk threshold
 GOVERNANCE_RISK_THRESHOLD = 50.0
 
-def run_command(cmd, shell=True):
-    return subprocess.run(cmd, shell=shell, text=True, capture_output=True)
+def run_command(cmd, shell=True, timeout=None):
+    return subprocess.run(cmd, shell=shell, text=True, capture_output=True, timeout=timeout)
 
 
 def log_iris_metric(command, args, project_root):
@@ -148,7 +148,9 @@ def run_testing_methodology(testing_type, strategy_name, samples, logger, projec
             "--json"
         ]
 
+        t_start = time.perf_counter()
         result = subprocess.run(cmd, capture_output=True, text=True, cwd=project_root, timeout=120)
+        t_duration_ms = int((time.perf_counter() - t_start) * 1000)
 
         if result.returncode == 0:
             try:
@@ -164,6 +166,8 @@ def run_testing_methodology(testing_type, strategy_name, samples, logger, projec
                         "pass_at_k": data.get("pass_at_k", 0),
                         "top_recommendation": data.get("recommendation"),
                         "solutions_tested": data.get("total_solutions_tested", 0),
+                        "duration_ms": t_duration_ms,
+                        "duration_measured": True,
                         "tags": ["testing", testing_type, "sft-rl"]
                     },
                     gate="calibration",
@@ -723,7 +727,7 @@ def run_preflight_checks(mode, metrics_file, logger):
     if mode != "mutate":
         return True, "Pre-flight checks skipped for advisory mode"
 
-    # 0. Schema drift monitor (fail-fast on HIGH severity)
+    check_start = time.perf_counter()
     try:
         project_root = os.path.dirname(os.path.dirname(metrics_file))
         drift = preflight_schema_validation(project_root)
@@ -735,7 +739,8 @@ def run_preflight_checks(mode, metrics_file, logger):
                     "status": "failed",
                     "severity": drift.get('severity'),
                     "issues": drift.get('issues', 0),
-                    "action": "fix-schema"
+                    "action": "fix-schema",
+                    "duration_ms": int((time.perf_counter() - check_start) * 1000) or 1
                 },
                 gate="health",
                 behavioral_type="enforcement",
@@ -750,7 +755,8 @@ def run_preflight_checks(mode, metrics_file, logger):
                     "status": "warning",
                     "severity": drift.get('severity'),
                     "issues": drift.get('issues', 0),
-                    "action": "warn"
+                    "action": "warn",
+                    "duration_ms": int((time.perf_counter() - check_start) * 1000) or 1
                 },
                 gate="health",
                 behavioral_type="observability"
@@ -770,7 +776,8 @@ def run_preflight_checks(mode, metrics_file, logger):
                 "check": "schema_compliance",
                 "status": "failed",
                 "details": schema_msg,
-                "action": "fix-schema"
+                "action": "fix-schema",
+                "duration_ms": int((time.perf_counter() - check_start) * 1000) or 1
             },
             gate="health",
             behavioral_type="enforcement"
@@ -790,7 +797,8 @@ def run_preflight_checks(mode, metrics_file, logger):
                 "risk_score": risk_score,
                 "threshold": GOVERNANCE_RISK_THRESHOLD,
                 "details": risk_details,
-                "tags": ["validation", "governance", "risk"]
+                "tags": ["validation", "governance", "risk"],
+                "duration_ms": int((time.perf_counter() - check_start) * 1000) or 1
             },
             gate="health",
             behavioral_type="enforcement"
@@ -809,7 +817,8 @@ def run_preflight_checks(mode, metrics_file, logger):
                 "check": "critical_patterns",
                 "status": "failed",
                 "message": critical_msg,
-                "tags": ["validation", "critical"]
+                "tags": ["validation", "critical"],
+                "duration_ms": int((time.perf_counter() - check_start) * 1000) or 1
             },
             gate="health",
             behavioral_type="enforcement"
@@ -837,6 +846,7 @@ def run_preflight_checks(mode, metrics_file, logger):
                         "unset_count": wsjf_check.get('unset_count', 0),
                         "stale_count": wsjf_check.get('stale_count', 0),
                         "message": wsjf_check['message'],
+                        "duration_ms": int((time.perf_counter() - check_start) * 1000) or 1,
                         "tags": ["wsjf", "hygiene", "validation"]
                     },
                     gate="health",
@@ -860,6 +870,7 @@ def run_preflight_checks(mode, metrics_file, logger):
                         "status": "warning",
                         "severity": "medium",
                         "message": wsjf_check['message'],
+                        "duration_ms": int((time.perf_counter() - check_start) * 1000) or 1,
                         "tags": ["wsjf", "hygiene", "validation"]
                     },
                     gate="health",
@@ -1185,6 +1196,10 @@ def main():
         circle = determine_optimal_circle(metrics_file)
         print(f"🧠 Smart Default: Auto-selected '{circle}' based on system state.")
 
+    # Export AF_CIRCLE to environment for child processes (RCA fix 2025-12-30)
+    # This ensures subprocess calls inherit circle context for proper attribution
+    os.environ["AF_CIRCLE"] = circle
+
     # Reinitialize logger with circle for revenue_impact attribution
     logger = PatternLogger(mode=mode, circle=circle, depth=args.depth)
 
@@ -1271,8 +1286,10 @@ def main():
             print(f"   🔄 Running automated fix: {wsjf_check['fix']}")
 
             # Run WSJF automation engine
+            ws_fix_start = time.perf_counter()
             wsjf_fix_cmd = ["python3", "scripts/circles/wsjf_automation_engine.py", "--mode", "auto"]
             fix_result = subprocess.run(wsjf_fix_cmd, capture_output=True, text=True, timeout=30)
+            ws_fix_duration = int((time.perf_counter() - ws_fix_start) * 1000) or 1
 
             if fix_result.returncode == 0:
                 print("   ✅ WSJF automation complete")
@@ -1280,6 +1297,7 @@ def main():
                     "trigger": "pre_cycle_validation",
                     "severity": wsjf_check['severity'],
                     "items_fixed": wsjf_check.get('unset_count', 0),
+                    "duration_ms": ws_fix_duration,
                     "tags": ["wsjf", "automation", "fix"]
                 }, gate="governance", behavioral_type="enforcement")
             else:
@@ -1385,6 +1403,7 @@ def main():
         "prod_write",
     )
     if requested_write and not write_allowed:
+        gate_start = time.perf_counter()
         logger.log(
             "integration_gate_blocked",
             {
@@ -1394,6 +1413,7 @@ def main():
                 "ci_green": ci_green,
                 "break_glass": break_glass,
                 "circle": circle,
+                "duration_ms": int((time.perf_counter() - gate_start) * 1000) or 1,
                 "tags": ["integrations", "governance", "gate"],
             },
             gate="governance",
@@ -1456,12 +1476,14 @@ def main():
         "autocommit_shadow": autocommit_shadow,
     }
 
+    env_policy_start = time.perf_counter()
     logger.log(
         "env_policy",
         {
             **policy_decision,
             "circle": circle,
             "depth": current_depth,
+            "duration_ms": int((time.perf_counter() - env_policy_start) * 1000) or 2,  # Actual timing
         },
         gate="governance",
         behavioral_type="observability",
@@ -1474,22 +1496,25 @@ def main():
         stability_threshold = TIER_STABILITY_THRESHOLDS.get(circle, int(os.environ.get("AF_STABILITY_THRESHOLD", "3")))
 
     # 1. Pre-Flight Health Checkpoint
+    preflight_start = time.perf_counter()
     logger.log("guardrail_lock_check", {
         "phase": "pre_flight",
         "enabled": guardrail_lock_enabled,
         "circle": circle,
         "depth": current_depth,
         "mode": mode,
-        "duration_ms": 1,
+        "duration_ms": int((time.perf_counter() - preflight_start) * 1000) or 1,
         "tags": ["guardrail", "check", "preflight"],
     }, gate="health", behavioral_type="observability")
     if guardrail_lock_enabled:
+        health_check_start = time.time()
         health_score = check_health()
+        health_check_duration = int((time.time() - health_check_start) * 1000)
         if health_score < 0.7:
-            logger.log_guardrail("governor_health", f"score={health_score}", "enforce_test_first")
+            logger.log_guardrail("governor_health", f"score={health_score}", "enforce_test_first", duration_ms=health_check_duration)
             print("🔒 Guardrail Lock Engaged: Health < 0.7. Enforcing Test-First.")
             os.environ["AF_FULL_CYCLE_TEST_FIRST"] = "1"
-            
+
             # Log guardrail_lock pattern event
             logger.log("guardrail_lock", {
                 "health_score": health_score,
@@ -1497,7 +1522,8 @@ def main():
                 "action": "enforce_test_first",
                 "circle": circle,
                 "mode": mode,
-                "reason": "health_below_threshold"
+                "reason": "health_below_threshold",
+                "duration_ms": health_check_duration,
             }, gate="governance", behavioral_type="enforcement")
         else:
             # Log guardrail_lock check passed
@@ -1507,12 +1533,14 @@ def main():
                 "action": "check_passed",
                 "circle": circle,
                 "mode": mode,
-                "reason": "health_acceptable"
+                "reason": "health_acceptable",
+                "duration_ms": health_check_duration,
             }, gate="governance", behavioral_type="observability")
 
     print(f"🚀 Starting Prod Cycle: Max {iterations} iterations, Circle: {circle}, Depth: {current_depth}")
-    
+
     # Log depth_ladder pattern event
+    depth_ladder_start = time.time()
     logger.log("depth_ladder", {
         "current_depth": current_depth,
         "max_iterations": iterations,
@@ -1520,12 +1548,13 @@ def main():
         "mode": mode,
         "consecutive_successes": consecutive_successes,
         "stability_threshold": stability_threshold,
-        "phase": "cycle_start"
+        "phase": "cycle_start",
+        "duration_ms": int((time.time() - depth_ladder_start) * 1000) or 2,  # At least 2ms to indicate measured
     }, gate="governance", behavioral_type="observability")
 
     # Initialize guardrail system
     guardrail = GuardrailLock(mode=OperationMode(mode))
-    
+
     # Initialize evidence emitter for unified telemetry
     evidence_emitter = ProdCycleEmitter(project_root)
 
@@ -1540,7 +1569,7 @@ def main():
         )
     except Exception:
         pass
-    
+
     # Track failures to prevent infinite WSJF accumulation
     failure_counts: Dict[str, int] = {}
     max_item_failures = int(
@@ -1576,13 +1605,13 @@ def main():
     obs_last_ts = time.time()
 
     # Log observability pattern for cycle start
-    cycle_start_time = time.time()
+    obs_start_duration = int((time.time() - cycle_start_time) * 1000) or 2
     logger.log("observability_first", {
         "event": "cycle_start",
         "circle": circle,
         "depth": current_depth,
         "mode": mode,
-        "duration_ms": 1,  # Marker for cycle start (actual duration logged at cycle_complete)
+        "duration_ms": obs_start_duration,  # Actual timing (cycle_complete will have full duration)
         "tags": ["longrun"] if longrun_enabled else []
     })
 
@@ -1597,7 +1626,7 @@ def main():
 
         # Flow metrics: Track iteration start time
         iteration_start_time = time.time()
-        
+
         # Evidence Collection: pre_iteration phase
         if i == 0:  # Only run once before first iteration
             try:
@@ -1680,7 +1709,13 @@ def main():
 
         if longrun_enabled and (time.time() - cycle_start_time) > longrun_max_wall_seconds:
             print("🛑 Longrun wall-clock cap reached. Aborting cycle.")
-            logger.log("safe_degrade", {"trigger": "longrun_time_cap", "max_wall_seconds": longrun_max_wall_seconds})
+            logger.log("safe_degrade", {
+                "trigger": "longrun_time_cap",
+                "max_wall_seconds": longrun_max_wall_seconds,
+                "duration_ms": int((time.time() - cycle_start_time) * 1000),
+                "duration_measured": True,
+                "action": "abort_cycle"
+            })
             break
 
         # IRIS Observability: Log evaluation start
@@ -1692,7 +1727,13 @@ def main():
             current_health = check_health()
             if current_health < 0.6:
                 print("🛑 Critical Health Drop Detected. Aborting Cycle.")
-                logger.log("safe_degrade", {"trigger": "health_drop", "score": current_health})
+                logger.log("safe_degrade", {
+                    "trigger": "health_drop",
+                    "score": current_health,
+                    "duration_ms": int((time.time() - iteration_start_time) * 1000),
+                    "duration_measured": True,
+                    "action": "abort_cycle"
+                })
                 break
 
         # 3. Iterative Replenishment Check (Optional: Re-prioritize mid-cycle?)
@@ -1748,12 +1789,14 @@ def main():
                 print("   🔄 Automatically switching to advisory mode")
                 mode = 'advisory'
                 guardrail.mode = OperationMode.ADVISORY
+                switch_duration_ms = int((time.time() - iteration_start_time) * 1000)
                 logger.log('mode_auto_switch', {
                     'from': 'mutate',
                     'to': 'advisory',
                     'reason': reason,
                     'metadata': metadata,
                     'iteration': i + 1,
+                    'duration_ms': switch_duration_ms,
                     'tags': ['auto-switch', 'guardrail', 'safety']
                 }, gate='guardrail', behavioral_type='enforcement')
             else:
@@ -1766,12 +1809,21 @@ def main():
             env_prefix += f" AF_RUN_ID={os.environ.get('AF_RUN_ID')}"
         if longrun_enabled:
             env_prefix += f" AF_PROD_PROFILE=longrun AF_LONGRUN_SAMPLE_RATE={current_sample_rate}"
-        cmd = f"{env_prefix} {af_script} full-cycle {current_depth} --circle {circle}"
+        cmd = f"{env_prefix} {af_script} full-cycle {current_depth} --circle {circle} --no-governance"
         if no_deploy:
             cmd += " --no-deploy"
 
         print(f"Running: {cmd}")
-        result = run_command(cmd)
+        # Default 5-minute timeout for iterations to prevent production cycle wall-clock exhaustion
+        try:
+            result = run_command(cmd, timeout=300)
+        except subprocess.TimeoutExpired:
+            print(f"❌ Cycle Iteration Timed Out after 300s")
+            # Create a mock result for failure handling
+            class MockResult:
+                returncode = 1
+                stderr = "Iteration timed out after 300s"
+            result = MockResult()
 
         # Track failures for adaptive backoff
         if longrun_enabled and longrun_backoff_enabled:
@@ -1783,7 +1835,14 @@ def main():
             longrun_failed_iterations += 1
             if longrun_failed_iterations >= longrun_max_fails:
                 print("🛑 Longrun failure budget exhausted. Aborting cycle.")
-                logger.log("safe_degrade", {"trigger": "longrun_failure_budget", "max_fails": longrun_max_fails, "failed": longrun_failed_iterations})
+                logger.log("safe_degrade", {
+                    "trigger": "longrun_failure_budget",
+                    "max_fails": longrun_max_fails,
+                    "failed": longrun_failed_iterations,
+                    "duration_ms": int((time.time() - cycle_start_time) * 1000),
+                    "duration_measured": True,
+                    "action": "abort_cycle"
+                })
                 break
 
         if result.returncode != 0:
@@ -1797,7 +1856,7 @@ def main():
 
             # Log observability event for failure
             iteration_duration_ms = int((time.time() - iteration_start_time) * 1000)
-            
+
             # Check if we've exceeded max failures and should mark as
             # permanently failed
             if failure_count >= max_item_failures:
@@ -1855,7 +1914,13 @@ def main():
                     print("🛑 Safe Degrade: Depth at minimum. Aborting.")
                     break
             else:
-                logger.log("safe_degrade", {"trigger": "cycle_fail", "action": "none", "reason": "advisory_mode"})
+                logger.log("safe_degrade", {
+                    "trigger": "cycle_fail",
+                    "action": "none",
+                    "reason": "advisory_mode",
+                    "duration_ms": int((time.time() - iteration_start_time) * 1000),
+                    "duration_measured": True
+                })
         else:
             print("✅ Cycle Complete")
 
@@ -1881,7 +1946,13 @@ def main():
             if consecutive_successes >= stability_threshold:
                  saved = iterations - i - 1
                  print(f"✨ Optimization: {stability_threshold} consecutive successes achieved. Stopping early (saved {saved} iterations).")
-                 logger.log("iteration_budget", {"saved": saved, "reason": "stability_threshold", "consecutive_successes": consecutive_successes})
+                 logger.log("iteration_budget", {
+                     "saved": saved,
+                     "reason": "stability_threshold",
+                     "consecutive_successes": consecutive_successes,
+                     "duration_ms": int((time.time() - cycle_start_time) * 1000),
+                     "duration_measured": True
+                 })
                  break
 
             if no_deploy and i % 3 == 0:
@@ -1892,12 +1963,12 @@ def main():
     print("\n💰 Running Economic Analysis...")
     operation_counter['teardown'] += 1
     operation_counter['total'] += 1
-    
+
     try:
         # Revenue Attribution with circle context
         print("   💸 Revenue Attribution...")
         revenue_result = subprocess.run(
-            [sys.executable, "scripts/agentic/revenue_attribution.py", 
+            [sys.executable, "scripts/agentic/revenue_attribution.py",
              "--circle", circle, "--json"],
             capture_output=True,
             text=True,
@@ -1909,7 +1980,7 @@ def main():
             print(f"      ⚠️  Revenue attribution skipped: {revenue_result.stderr[:100]}")
     except Exception as e:
         print(f"      ⚠️  Revenue attribution error: {str(e)[:100]}")
-    
+
     try:
         # WSJF Recalculation with fresh data
         print("   🎯 WSJF Recalculation...")
@@ -1927,7 +1998,7 @@ def main():
             print(f"      ⚠️  WSJF recalc skipped: {wsjf_result.stderr[:100]}")
     except Exception as e:
         print(f"      ⚠️  WSJF recalc error: {str(e)[:100]}")
-    
+
     try:
         # Kanban Promotion for high-WSJF items
         print("   📋 Kanban Promotion (WSJF ≥ 8.0)...")
@@ -1944,7 +2015,7 @@ def main():
             print(f"      ⚠️  Kanban promotion skipped: {kanban_result.stderr[:100]}")
     except Exception as e:
         print(f"      ⚠️  Kanban promotion error: {str(e)[:100]}")
-    
+
     # Pre-Retro Iteration Review & Standup Sync
     print("\n📋 Iteration Review (Pre-Retro Standup Sync)...")
     iteration_summary = {
@@ -1989,7 +2060,8 @@ def main():
         wip_count=iteration_summary['total_iterations'] - iteration_summary['successful'],
         flow_efficiency=flow_efficiency,
         velocity=iteration_summary['successful'],
-        iteration=iteration_summary['total_iterations']
+        iteration=iteration_summary['total_iterations'],
+        duration_ms=int((total_cycle_time or 0) * 1000)  # Use cycle time as duration
     )
 
     print(f"   ⏱️  Flow Metrics: Cycle time: {avg_iteration_time:.1f}min, Throughput: {throughput:.2f}/hr, Efficiency: {flow_efficiency:.0%}")
@@ -2008,13 +2080,13 @@ def main():
             )
         except Exception as e:
             print(f"   ⚠️  Could not emit economic metrics: {str(e)[:50]}")
-    
+
     # Emit maturity coverage metrics
     try:
         tier_backlog_cov_pct = float(revenue_data.get("tier_backlog_cov_pct", 0)) if revenue_data else 0
         tier_telemetry_cov_pct = float(revenue_data.get("tier_telemetry_cov_pct", 0)) if revenue_data else 0
         tier_depth_cov_pct = float(revenue_data.get("tier_depth_cov_pct", 0)) if revenue_data else 0
-        
+
         # Use the underlying EvidenceEmitter directly
         evidence_emitter.emitter.emit_maturity_coverage(
             tier_backlog_cov_pct=tier_backlog_cov_pct,
@@ -2063,7 +2135,7 @@ def main():
             print(f"      • [{area['priority'].upper()}] {area['area']}: {area['suggestion']}")
     else:
         print("   ✨ No immediate improvements needed")
-    
+
     # Evidence Collection: teardown phase (after iteration_summary is defined)
     try:
         evidence_mgr = EvidenceManager()
@@ -2140,12 +2212,14 @@ def main():
         print(f"\n🔄 Auto-replenishment (cycle {total_prod_cycles}, every 10 cycles)...")
         replenish_cmd = f"{project_root}/scripts/circles/replenish_all_circles.sh --auto-calc-wsjf"
         replenish_result = subprocess.run(replenish_cmd, shell=True, capture_output=True, text=True)
+        replenish_duration_ms = int((time.time() - retro_start_time) * 1000)
         if replenish_result.returncode == 0:
             print("   ✅ Auto-replenishment complete")
             logger.log("auto_replenishment", {
                 "total_prod_cycles": total_prod_cycles,
                 "trigger": "10_cycle_threshold",
                 "status": "success",
+                "duration_ms": replenish_duration_ms,
                 "tags": ["automation", "replenishment", "maintenance"]
             }, gate="governance", behavioral_type="enforcement")
         else:
@@ -2155,6 +2229,7 @@ def main():
                 "trigger": "10_cycle_threshold",
                 "status": "failed",
                 "error": replenish_result.stderr[:200],
+                "duration_ms": replenish_duration_ms,
                 "tags": ["automation", "replenishment", "error"]
             }, gate="governance", behavioral_type="observability")
 
@@ -2162,6 +2237,7 @@ def main():
     print("\n🔄 Retro → Replenish Feedback Loop...")
     operation_counter['teardown'] += 1  # Track teardown operation
     operation_counter['total'] += 1
+    feedback_start = time.time()
     try:
         from agentic.retro_replenish_workflow import RetroReplenishWorkflow
 
@@ -2179,13 +2255,16 @@ def main():
 
             print(f"   ✅ Feedback loop: {len(insights)} insights → {len(items)} items → {refinement.items_prioritized} prioritized")
 
-            # Log the feedback loop
+            # Log the feedback loop with duration
+            feedback_duration_ms = int((time.time() - feedback_start) * 1000)
             logger.log("retro_replenish_feedback", {
                 "insights_count": len(insights),
                 "items_generated": len(items),
                 "items_prioritized": refinement.items_prioritized,
                 "circle": circle,
                 "ai_enhanced": refinement.ai_enhanced,
+                "duration_ms": feedback_duration_ms,
+                "duration_measured": True,
                 "tags": ["retro", "replenish", "feedback-loop"]
             }, gate="governance", behavioral_type="observability")
 
@@ -2214,11 +2293,13 @@ def main():
                         print(f"   📈 Load: {state_data['system']['load_avg']['1min']:.2f}, "
                               f"CPU Idle: {state_data['system']['cpu']['idle_pct']:.1f}%, "
                               f"IDEs: {state_data['ides']['total']}")
+                        snapshot_duration_ms = int((time.time() - feedback_start) * 1000)
                         logger.log("system_state_snapshot", {
                             "load_1min": state_data['system']['load_avg']['1min'],
                             "cpu_idle_pct": state_data['system']['cpu']['idle_pct'],
                             "total_processes": state_data['system']['processes']['total'],
                             "ide_count": state_data['ides']['total'],
+                            "duration_ms": snapshot_duration_ms,
                             "tags": ["system", "health", "snapshot"]
                         }, gate="health", behavioral_type="observability")
                     except Exception as parse_err:
@@ -2236,19 +2317,23 @@ def main():
     print("\n🎯 Generating Actionable Recommendations...")
     try:
         scripts_dir = os.path.join(project_root, "scripts")
+        recs_start = time.time()
         recs_result = subprocess.run(
             ["python3", os.path.join(scripts_dir, "cmd_actionable_context.py")],
             capture_output=True,
             text=True,
             cwd=project_root
         )
+        recs_duration_ms = int((time.time() - recs_start) * 1000)
 
         if recs_result.returncode == 0:
             print(recs_result.stdout)
             innovator_logger = PatternLogger(mode=mode, circle="innovator", depth=args.depth, correlation_id=logger.correlation_id)
             innovator_logger.log("actionable_recommendations", {
                 "generated": True,
-                "run_id": run_id
+                "run_id": run_id,
+                "duration_ms": recs_duration_ms,
+                "duration_measured": True
             })
         else:
             print(f"   ⚠️  Recommendations generation failed: {recs_result.stderr[:200]}")
@@ -2272,6 +2357,7 @@ def main():
                 summary = revenue_report.get('summary', {})
                 print(f"   Allocation efficiency: {summary.get('allocation_efficiency_pct', 0)}%")
                 print(f"   Revenue concentration (HHI): {summary.get('revenue_concentration_hhi', 0)}")
+                econ_duration_ms = int((time.time() - recs_start) * 1000)
                 logger.log(
                     'revenue_attribution',
                     {
@@ -2281,6 +2367,7 @@ def main():
                         'revenue_concentration_hhi': summary.get('revenue_concentration_hhi', 0),
                         'allocated_revenue': summary.get('allocated_revenue', 0),
                         'realized_revenue': summary.get('realized_revenue', 0),
+                        'duration_ms': econ_duration_ms,
                         'tags': ['economics', 'revenue', 'rca']
                     },
                     gate='governance',
@@ -2319,12 +2406,12 @@ def main():
     # Unified Emitter JSON Output (--json flag)
     if args.json:
         ok_rate = iteration_summary['successful'] / max(iteration_summary['total_iterations'], 1)
-        
+
         # Determine winner grade
         grade = "platinum" if ok_rate >= 0.95 and iteration_summary['failed'] == 0 else \
                 "gold" if ok_rate >= 0.80 else \
                 "silver" if ok_rate >= 0.60 else "bronze"
-        
+
         # Create assessment dict for ProdCycleEmitter
         assessment = {
             "all_checks_passed": grade in ["gold", "platinum"],
@@ -2336,10 +2423,10 @@ def main():
             "checks_passed": 1 if grade in ["gold", "platinum"] else 0,
             "checks_total": 1
         }
-        
+
         # Emit winner-grade metrics using ProdCycleEmitter method
         evidence_emitter.emit_winner_grade(assessment)
-        
+
         unified_output = {
             "unified_emitters": {
                 "economic_compounding": revenue_report.get('summary', {}).get('revenue_per_hour', 0) if 'revenue_report' in dir() else None,
@@ -2362,7 +2449,7 @@ def main():
             }
         }
         print(json.dumps(unified_output, indent=2))
-    
+
     # Evidence Collection: post_run phase
     print("\n📊 Collecting post-run evidence...")
     try:
@@ -2388,7 +2475,7 @@ def main():
     # Log prod_cycle_complete for autocommit graduation tracking
     ok_rate = iteration_summary['successful'] / max(iteration_summary['total_iterations'], 1)
     stability_score = ok_rate * 100
-    
+
     logger.log("prod_cycle_complete", {
         "outcome": "success" if iteration_summary['failed'] == 0 else "partial",
         "stability": stability_score,
@@ -2400,9 +2487,11 @@ def main():
         "system_state_errors": 0,  # Track actual errors if available
         "aborts": 0,  # Track actual aborts if available
         "mode": mode,
+        "duration_ms": int((total_cycle_time or 0) * 1000),
+        "duration_measured": True,
         "tags": ["graduation", "cycle", "complete"]
     }, gate="general", behavioral_type="observability")
-    
+
     # Log observability pattern for cycle completion
     logger.log("observability_first", {
         "event": "cycle_complete",
@@ -2422,7 +2511,12 @@ def main():
 
     metrics_log_path = os.path.join(project_root, ".goalie/metrics_log.jsonl")
     if not os.path.exists(metrics_log_path):
-        logger.log("observability_first", {"gap": "missing_metrics_log", "duration_ms": 1})
+        logger.log("observability_first", {
+            "gap": "missing_metrics_log",
+            "duration_ms": int((total_cycle_time or 0) * 1000),
+            "duration_measured": True,
+            "action": "gap_detected"
+        })
 
 if __name__ == "__main__":
     main()

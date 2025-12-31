@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { computeCodBaselineDeltas, getActionKeys, readJsonl, summarizePatterns, } from './shared_utils.js';
-import { publishStreamEvent, resolveStreamSocket } from './streamPublisher.js';
-import { WSJFCalculator } from './wsjf_calculator.js';
+import { computeCodBaselineDeltas, getActionKeys, readJsonl, summarizePatterns, } from './shared_utils';
+import { publishStreamEvent, resolveStreamSocket } from './streamPublisher';
+import { WSJFCalculator } from './wsjf_calculator';
 async function compareAgainstBaseline({ patterns, }) {
     const patternDeltas = computeCodBaselineDeltas(patterns);
     if (!patternDeltas.length) {
@@ -65,43 +65,45 @@ function isProdCycle() {
 }
 /**
  * Emit pattern telemetry event to .goalie/pattern_metrics.jsonl
- * Conforms to canonical schema with all required fields
+ * Conforms to NEW canonical schema with all required fields
  */
-function emitPatternMetric(pattern, mode, gate, reason, action, metrics, tags = ['Federation']) {
+function emitPatternMetric(pattern, mode, gate, reason, action, metrics, tags = ['Federation'], actionCompleted = true) {
     const goalieDir = getGoalieDirFromArgs();
     const metricsFile = path.join(goalieDir, 'pattern_metrics.jsonl');
-    const ts = new Date().toISOString();
+    const timestamp = new Date().toISOString();
     const runId = process.env.AF_RUN_ID || `gov-${Date.now()}`;
-    const iteration = parseInt(process.env.AF_RUN_ITERATION || '0', 10);
     const circle = process.env.AF_CIRCLE || 'governance';
     const depth = parseInt(process.env.AF_DEPTH_LEVEL || '0', 10);
-    const framework = process.env.AF_FRAMEWORK || '';
-    const scheduler = process.env.AF_SCHEDULER || '';
-    const prodMode = process.env.AF_PROD_CYCLE_MODE || 'advisory';
-    const mutation = mode === 'mutate' || mode === 'enforcement';
+    const runKind = process.env.AF_RUN_KIND || 'governance-agent';
     // Economic scoring (can be enhanced with actual COD/WSJF calculation)
-    const cod = parseFloat(process.env.AF_PATTERN_COD || '0.0');
-    const wsjf = parseFloat(process.env.AF_PATTERN_WSJF || '0.0');
+    const costOfDelay = parseFloat(process.env.AF_PATTERN_COD || '0.0');
+    const wsjfScore = parseFloat(process.env.AF_PATTERN_WSJF || '0.0');
+    const jobDuration = parseInt(process.env.AF_JOB_DURATION || '1', 10);
+    const userBusinessValue = parseFloat(process.env.AF_USER_BUSINESS_VALUE || '0.0');
+    // Schema-compliant event structure
     const event = {
-        ts,
-        run: 'governance-agent',
-        run_id: runId,
-        iteration,
+        timestamp,
+        pattern,
         circle,
         depth,
-        pattern,
-        'pattern:kebab-name': pattern,
-        mode,
-        mutation,
+        run_kind: runKind,
         gate,
-        framework,
-        scheduler,
         tags,
-        economic: { cod, wsjf_score: wsjf },
-        reason,
-        action,
-        prod_mode: prodMode,
-        ...(metrics && { metrics }),
+        economic: {
+            wsjf_score: wsjfScore,
+            cost_of_delay: costOfDelay,
+            job_duration: jobDuration,
+            user_business_value: userBusinessValue,
+        },
+        action_completed: actionCompleted,
+        // Additional metadata for governance context
+        mode,
+        run_id: runId,
+        data: {
+            reason,
+            action,
+            ...(metrics && metrics),
+        },
     };
     try {
         fs.appendFileSync(metricsFile, JSON.stringify(event) + '\n');
@@ -758,6 +760,199 @@ for (const risk of risks) {
 });`,
                 filePath: 'src/affiliate/risk_assessment.ts',
             };
+        // Extended Mobile/Desktop/Web/Enterprise Patterns
+        case 'mobile-prototype-navigation':
+            return {
+                ...baseProposal,
+                approverRole: 'Mobile Lead',
+                codeSnippet: `// React Native navigation with deep linking
+import { NavigationContainer, LinkingOptions } from '@react-navigation/native';
+
+const linking: LinkingOptions = {
+  prefixes: ['myapp://', 'https://myapp.com'],
+  config: {
+    screens: {
+      Home: '',
+      Profile: 'user/:id',
+      Settings: 'settings',
+    },
+  },
+};
+
+export function App() {
+  return (
+    <NavigationContainer linking={linking}>
+      {/* ... */}
+    </NavigationContainer>
+  );
+}`,
+                testSnippet: `test('deep linking resolves correct screen', () => {
+  const state = getStateFromPath('user/123');
+  expect(state.routes[0].name).toBe('Profile');
+  expect(state.routes[0].params.id).toBe('123');
+});`,
+                filePath: 'mobile/src/navigation/RootNavigator.tsx',
+            };
+        case 'desktop-prototype-window-management':
+            return {
+                ...baseProposal,
+                approverRole: 'Desktop Lead',
+                codeSnippet: `// Electron multi-window management with tray
+import { app, BrowserWindow, Tray, Menu } from 'electron';
+
+let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+
+function createTray() {
+  tray = new Tray('icon.png');
+  const contextMenu = Menu.buildFromTemplate([
+    { label: 'Show', click: () => mainWindow?.show() },
+    { label: 'Quit', click: () => app.quit() },
+  ]);
+  tray.setContextMenu(contextMenu);
+}`,
+                testSnippet: `test('tray menu has show and quit options', () => {
+  const menu = buildTrayMenu();
+  expect(menu.items.some(i => i.label === 'Show')).toBe(true);
+  expect(menu.items.some(i => i.label === 'Quit')).toBe(true);
+});`,
+                filePath: 'desktop/src/main/tray.ts',
+            };
+        case 'web-prototype-ssr-hydration':
+            return {
+                ...baseProposal,
+                approverRole: 'Web Lead',
+                codeSnippet: `// Next.js hydration-safe component
+import { useEffect, useState } from 'react';
+
+export function HydrationSafe({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) return null;
+  return <>{children}</>;
+}`,
+                testSnippet: `test('hydration-safe component renders after mount', async () => {
+  render(<HydrationSafe><span>Test</span></HydrationSafe>);
+  expect(screen.queryByText('Test')).toBeNull();
+  await waitFor(() => expect(screen.getByText('Test')).toBeInTheDocument());
+});`,
+                filePath: 'web/src/components/HydrationSafe.tsx',
+            };
+        case 'enterprise-ml-feature-store':
+            return {
+                ...baseProposal,
+                approverRole: 'ML Lead',
+                configSnippet: `# Feast feature store configuration
+project: my_ml_project
+registry: gs://my-bucket/registry.pb
+provider: gcp
+online_store:
+  type: redis
+  connection_string: \${REDIS_URL}
+offline_store:
+  type: bigquery
+entity_key_serialization_version: 2`,
+                filePath: 'ml/feature_store/feature_store.yaml',
+            };
+        case 'enterprise-hpc-job-preemption':
+            return {
+                ...baseProposal,
+                approverRole: 'HPC Lead',
+                configSnippet: `#!/bin/bash
+# SLURM preemption-aware job script with checkpointing
+#SBATCH --job-name=ml-training
+#SBATCH --requeue
+#SBATCH --signal=B:SIGTERM@120
+
+trap 'echo "Received SIGTERM, checkpointing..."; python save_checkpoint.py; exit 15' SIGTERM
+
+if [ -f checkpoint.pt ]; then
+  python train.py --resume checkpoint.pt
+else
+  python train.py
+fi`,
+                filePath: 'hpc/jobs/preemption_aware_job.sh',
+            };
+        case 'mobile-offline-sync':
+            return {
+                ...baseProposal,
+                approverRole: 'Mobile Lead',
+                codeSnippet: `// React Native offline-first sync with conflict resolution
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+export async function syncWithServer<T>(
+  key: string,
+  localData: T,
+  fetchRemote: () => Promise<T>,
+  merge: (local: T, remote: T) => T
+): Promise<T> {
+  try {
+    const remote = await fetchRemote();
+    const merged = merge(localData, remote);
+    await AsyncStorage.setItem(key, JSON.stringify(merged));
+    return merged;
+  } catch (e) {
+    // Offline: return local data
+    return localData;
+  }
+}`,
+                testSnippet: `test('offline sync returns local data when network fails', async () => {
+  const result = await syncWithServer('key', { v: 1 }, () => Promise.reject(), (a, b) => b);
+  expect(result.v).toBe(1);
+});`,
+                filePath: 'mobile/src/utils/offlineSync.ts',
+            };
+        case 'desktop-auto-update':
+            return {
+                ...baseProposal,
+                approverRole: 'Desktop Lead',
+                codeSnippet: `// Electron auto-update with rollback support
+import { autoUpdater } from 'electron-updater';
+
+autoUpdater.on('update-downloaded', (info) => {
+  dialog.showMessageBox({
+    message: \`Update \${info.version} ready. Restart now?\`,
+    buttons: ['Restart', 'Later']
+  }).then(({ response }) => {
+    if (response === 0) autoUpdater.quitAndInstall();
+  });
+});
+
+autoUpdater.checkForUpdatesAndNotify();`,
+                testSnippet: `test('auto-updater emits update-downloaded event', () => {
+  const spy = jest.fn();
+  autoUpdater.on('update-downloaded', spy);
+  autoUpdater.emit('update-downloaded', { version: '2.0.0' });
+  expect(spy).toHaveBeenCalled();
+});`,
+                filePath: 'desktop/src/main/autoUpdater.ts',
+            };
+        case 'web-pwa-service-worker':
+            return {
+                ...baseProposal,
+                approverRole: 'Web Lead',
+                configSnippet: `// Workbox service worker configuration
+import { precacheAndRoute } from 'workbox-precaching';
+import { registerRoute } from 'workbox-routing';
+import { StaleWhileRevalidate, CacheFirst } from 'workbox-strategies';
+
+precacheAndRoute(self.__WB_MANIFEST);
+
+registerRoute(
+  ({ request }) => request.destination === 'image',
+  new CacheFirst({ cacheName: 'images', maxEntries: 100 })
+);
+
+registerRoute(
+  ({ url }) => url.pathname.startsWith('/api/'),
+  new StaleWhileRevalidate({ cacheName: 'api-cache' })
+);`,
+                filePath: 'web/src/service-worker.ts',
+            };
         default:
             return baseProposal;
     }
@@ -894,6 +1089,7 @@ function lookupPatternMeta(pattern, patterns, topEconomicGaps) {
             depth: gap.depth,
             totalImpactAvg: gap.totalImpactAvg,
             wsjfAvg: gap.wsjfAvg,
+            pattern: pattern,
         };
     }
     const ev = patterns.find((p) => (p.pattern || 'unknown') === pattern);
@@ -904,6 +1100,7 @@ function lookupPatternMeta(pattern, patterns, topEconomicGaps) {
         depth,
         totalImpactAvg: 0,
         wsjfAvg: undefined,
+        pattern: pattern,
     };
 }
 function classifyProposalRisk(proposal, meta) {
@@ -1413,7 +1610,7 @@ async function printGovernanceRecommendations(patterns, metrics, cycleLog) {
                 enforced: 1,
                 missing_signals: 1,
                 suggestion_made: 1,
-            }, ['Federation', 'Observability']);
+            }, ['Federation', 'Observability'], false);
             console.error('\n[GOVERNANCE FAILURE] Prod-Cycle Enforcement: "observability-first" pattern is MISSING.');
             console.error('  -> In prod-cycle, you MUST enable observability-first to proceed.');
             console.error(`  -> ${proposeFix('observability-first')}`);
@@ -1424,7 +1621,7 @@ async function printGovernanceRecommendations(patterns, metrics, cycleLog) {
             emitPatternMetric('observability-first', 'advisory', 'governance-review', 'observability-first pattern recommended', 'suggest', {
                 missing_signals: 1,
                 suggestion_made: 1,
-            }, ['Federation', 'Observability']);
+            }, ['Federation', 'Observability'], true);
             console.log('- Observability: consider enabling AF_PROD_OBSERVABILITY_FIRST for prod-cycle runs.');
             console.log(`  ${proposeFix('observability-first')}`);
         }
@@ -1846,6 +2043,14 @@ function computeTopEconomicGapsForJson(patterns, actionKeys) {
         'affiliate-risk-assessment',
         'affiliate-state-transition',
         'affiliate-activity-tracking',
+        // Extended Mobile/Desktop/Web/Enterprise Patterns
+        'mobile-prototype-navigation',
+        'desktop-prototype-window-management',
+        'web-prototype-ssr-hydration',
+        'enterprise-ml-feature-store',
+        'enterprise-hpc-job-preemption',
+        'desktop-auto-update',
+        'web-pwa-service-worker',
     ]);
     for (const ev of patterns) {
         const pattern = ev.pattern || 'unknown';
@@ -2002,11 +2207,13 @@ async function buildGovernanceJsonOutput(goalieDir, patterns, metrics, cycleLog)
         }
     }
     const topEconomicGaps = computeTopEconomicGapsForJson(patterns, actionKeys);
+    const econSectionStartMs = Date.now();
     let codeFixProposals = generateCodeFixProposals(patterns);
     const retroCtx = loadRetroCoachContext(goalieDir);
     codeFixProposals = applyAutoApplyPolicy(codeFixProposals, patterns, topEconomicGaps, retroCtx);
     // Emit pattern event for WSJF enrichment and economic gap analysis
     const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const runKind = process.env.AF_RUN_KIND || 'governance-agent';
     const gapTags = new Set(['Federation']);
     for (const gap of topEconomicGaps.slice(0, 3)) {
         if (gap.pattern.includes('ml-') || gap.pattern.includes('training')) {
@@ -2022,9 +2229,18 @@ async function buildGovernanceJsonOutput(goalieDir, patterns, metrics, cycleLog)
             gapTags.add('Device/Web');
         }
     }
+    const wsjfCod = topEconomicGaps[0]?.codAvg ?? topEconomicGaps[0]?.totalImpactAvg ?? 0;
+    const wsjfScore = topEconomicGaps[0]?.wsjfAvg ?? 0;
+    const wsjfImpact = topEconomicGaps[0]?.totalImpactAvg ?? 0;
+    // action_completed=true means the enrichment ran successfully (regardless of gap count)
+    // Zero gaps is a healthy state, not a failure
+    const wsjfEnrichmentOk = true;
+    const hasGapsToProcess = topEconomicGaps.length > 0;
     const wsjfEnrichmentEvent = {
         ts: timestamp,
+        timestamp,
         run: 'governance-agent',
+        run_kind: runKind,
         run_id: runId || 'unknown',
         iteration: 0,
         circle: 'governance',
@@ -2036,12 +2252,24 @@ async function buildGovernanceJsonOutput(goalieDir, patterns, metrics, cycleLog)
         framework: '',
         scheduler: '',
         tags: Array.from(gapTags),
+        action_completed: wsjfEnrichmentOk,
         economic: {
-            cod: topEconomicGaps[0]?.codAvg || 0,
-            wsjf_score: topEconomicGaps[0]?.wsjfAvg || 0,
+            cod: wsjfCod,
+            cost_of_delay: wsjfCod,
+            wsjf_score: wsjfScore,
+            job_duration: 1,
+            user_business_value: wsjfImpact,
         },
-        top_gaps_count: topEconomicGaps.length,
-        total_impact_avg: topEconomicGaps[0]?.totalImpactAvg || 0,
+        data: {
+            reason: 'economic-gap-analysis',
+            action: 'enrich-wsjf',
+            duration_ms: Date.now() - econSectionStartMs,
+            top_gaps_count: topEconomicGaps.length,
+            total_impact_avg: wsjfImpact,
+            failure_reasons: [],
+            gaps_found: hasGapsToProcess,
+            status: hasGapsToProcess ? 'gaps_processed' : 'healthy_no_gaps',
+        },
     };
     const patternMetricsPath = path.join(goalieDir, 'pattern_metrics.jsonl');
     try {
@@ -2055,6 +2283,8 @@ async function buildGovernanceJsonOutput(goalieDir, patterns, metrics, cycleLog)
         const proposalTags = new Set(['Federation']);
         const autoApplyCount = codeFixProposals.filter(p => p.mode === 'apply').length;
         const dryRunCount = codeFixProposals.filter(p => p.mode === 'dry-run').length;
+        const highRiskCount = codeFixProposals.filter(p => p.approvalRequired).length;
+        const successRate = codeFixProposals.length > 0 ? (autoApplyCount / codeFixProposals.length) : 0;
         for (const proposal of codeFixProposals.slice(0, 3)) {
             if (proposal.pattern.includes('ml-') || proposal.pattern.includes('training')) {
                 proposalTags.add('ML');
@@ -2063,9 +2293,12 @@ async function buildGovernanceJsonOutput(goalieDir, patterns, metrics, cycleLog)
                 proposalTags.add('HPC');
             }
         }
+        const codFix = highRiskCount * 3;
         const codeFixEvent = {
             ts: timestamp,
+            timestamp,
             run: 'governance-agent',
+            run_kind: runKind,
             run_id: runId || 'unknown',
             iteration: 0,
             circle: 'governance',
@@ -2077,14 +2310,23 @@ async function buildGovernanceJsonOutput(goalieDir, patterns, metrics, cycleLog)
             framework: '',
             scheduler: '',
             tags: Array.from(proposalTags),
+            action_completed: true,
             economic: {
-                cod: 0,
-                wsjf_score: 0,
+                cod: codFix,
+                cost_of_delay: codFix,
+                wsjf_score: successRate * 10,
+                job_duration: 1,
+                user_business_value: autoApplyCount * 5,
             },
-            total_proposals: codeFixProposals.length,
-            auto_apply_count: autoApplyCount,
-            dry_run_count: dryRunCount,
-            high_risk_count: codeFixProposals.filter(p => p.approvalRequired).length,
+            data: {
+                reason: 'generate-code-fix-proposals',
+                action: 'propose-fixes',
+                duration_ms: Date.now() - econSectionStartMs,
+                total_proposals: codeFixProposals.length,
+                auto_apply_count: autoApplyCount,
+                dry_run_count: dryRunCount,
+                high_risk_count: highRiskCount,
+            },
         };
         try {
             fs.appendFileSync(patternMetricsPath, JSON.stringify(codeFixEvent) + '\n');
@@ -2192,7 +2434,7 @@ function applyPatternAnalysisAdjustments(goalieDir, adjustments, dryRun = true) 
                 old_value: adj.current_value,
                 new_value: suggestedValue,
                 trigger: adj.pattern_trigger,
-            }, ['Federation', 'Governance', 'Auto-Adjustment']);
+            }, ['Federation', 'Governance', 'Auto-Adjustment'], true);
         }
     }
 }
@@ -2224,7 +2466,7 @@ async function main() {
             mode: 'federation',
             startup_time: new Date().toISOString(),
             goalie_dir: goalieDir
-        }, ['Federation', 'Governance']);
+        }, ['Federation', 'Governance'], true);
         // Subscribe to pattern metrics for real-time monitoring
         if (process.env.AF_STREAM_SOCKET) {
             console.log('[GOVERNANCE] Subscribing to pattern metrics stream');
@@ -2593,5 +2835,27 @@ async function executeBatchRecommendations(batchRecommendations, goalieDir) {
         }
     }
 }
-main();
+export function simulateAnalyst(context, emit = true) {
+    // Analyst focuses on data quality, lineage, and standards
+    if (emit) {
+        emitPatternMetric('analyst-data-quality-check', 'advisory', 'quality-gate', 'Checking data lineage and schema compliance', 'verify', {
+            role: 'Analyst',
+            completeness: 0.95,
+            freshness_seconds: 120
+        });
+    }
+}
+export function simulateAssessor(context, emit = true) {
+    // Assessor focuses on verification, audit, and compliance
+    if (emit) {
+        emitPatternMetric('assessor-verification', 'enforcement', 'security-gate', 'Verifying security controls and audit trails', 'audit', {
+            role: 'Assessor',
+            audit_pass: true,
+            findings: []
+        });
+    }
+}
+if (require.main === module) {
+    main();
+}
 //# sourceMappingURL=governance_agent.js.map

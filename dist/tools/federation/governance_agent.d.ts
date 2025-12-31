@@ -9,5 +9,13 @@ declare class RealTimeFeed extends EventEmitter {
     stopMonitoring(): void;
 }
 export declare function createRealTimeFeed(goalieDir: string): RealTimeFeed;
+export declare function simulateAnalyst(context: {
+    runId: string;
+    circle: string;
+}, emit?: boolean): void;
+export declare function simulateAssessor(context: {
+    runId: string;
+    circle: string;
+}, emit?: boolean): void;
 export {};
 //# sourceMappingURL=governance_agent.d.ts.map

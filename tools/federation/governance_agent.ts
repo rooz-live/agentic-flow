@@ -1,16 +1,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import type { PatternBaselineDelta, PatternEvent } from './shared_utils.js';
+import type { PatternBaselineDelta, PatternEvent } from './shared_utils';
 import {
     computeCodBaselineDeltas,
     getActionKeys,
     readJsonl,
     summarizePatterns,
-} from './shared_utils.js';
-import { publishStreamEvent, resolveStreamSocket } from './streamPublisher.js';
-import { WSJFCalculator, type WSJFResult, type BatchRecommendation } from './wsjf_calculator.js';
+} from './shared_utils';
+import { publishStreamEvent, resolveStreamSocket } from './streamPublisher';
+import { WSJFCalculator, type BatchRecommendation, type WSJFResult } from './wsjf_calculator';
 // COD calculators integration - import only when needed to avoid module resolution issues
-// import { calculateCOD, CODContext } from './cod_calculators.js';
+// import { calculateCOD, CODContext } from './cod_calculators';
 
 interface MetricsEvent {
   timestamp?: string;
@@ -112,19 +112,19 @@ function emitPatternMetric(
 ): void {
   const goalieDir = getGoalieDirFromArgs();
   const metricsFile = path.join(goalieDir, 'pattern_metrics.jsonl');
-  
+
   const timestamp = new Date().toISOString();
   const runId = process.env.AF_RUN_ID || `gov-${Date.now()}`;
   const circle = process.env.AF_CIRCLE || 'governance';
   const depth = parseInt(process.env.AF_DEPTH_LEVEL || '0', 10);
   const runKind = process.env.AF_RUN_KIND || 'governance-agent';
-  
+
   // Economic scoring (can be enhanced with actual COD/WSJF calculation)
   const costOfDelay = parseFloat(process.env.AF_PATTERN_COD || '0.0');
   const wsjfScore = parseFloat(process.env.AF_PATTERN_WSJF || '0.0');
   const jobDuration = parseInt(process.env.AF_JOB_DURATION || '1', 10);
   const userBusinessValue = parseFloat(process.env.AF_USER_BUSINESS_VALUE || '0.0');
-  
+
   // Schema-compliant event structure
   const event = {
     timestamp,
@@ -150,7 +150,7 @@ function emitPatternMetric(
       ...(metrics && metrics),
     },
   };
-  
+
   try {
     fs.appendFileSync(metricsFile, JSON.stringify(event) + '\n');
   } catch (err) {
@@ -843,6 +843,207 @@ for (const risk of risks) {
         filePath: 'src/affiliate/risk_assessment.ts',
       };
 
+    // Extended Mobile/Desktop/Web/Enterprise Patterns
+    case 'mobile-prototype-navigation':
+      return {
+        ...baseProposal,
+        approverRole: 'Mobile Lead',
+        codeSnippet: `// React Native navigation with deep linking
+import { NavigationContainer, LinkingOptions } from '@react-navigation/native';
+
+const linking: LinkingOptions = {
+  prefixes: ['myapp://', 'https://myapp.com'],
+  config: {
+    screens: {
+      Home: '',
+      Profile: 'user/:id',
+      Settings: 'settings',
+    },
+  },
+};
+
+export function App() {
+  return (
+    <NavigationContainer linking={linking}>
+      {/* ... */}
+    </NavigationContainer>
+  );
+}`,
+        testSnippet: `test('deep linking resolves correct screen', () => {
+  const state = getStateFromPath('user/123');
+  expect(state.routes[0].name).toBe('Profile');
+  expect(state.routes[0].params.id).toBe('123');
+});`,
+        filePath: 'mobile/src/navigation/RootNavigator.tsx',
+      };
+
+    case 'desktop-prototype-window-management':
+      return {
+        ...baseProposal,
+        approverRole: 'Desktop Lead',
+        codeSnippet: `// Electron multi-window management with tray
+import { app, BrowserWindow, Tray, Menu } from 'electron';
+
+let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+
+function createTray() {
+  tray = new Tray('icon.png');
+  const contextMenu = Menu.buildFromTemplate([
+    { label: 'Show', click: () => mainWindow?.show() },
+    { label: 'Quit', click: () => app.quit() },
+  ]);
+  tray.setContextMenu(contextMenu);
+}`,
+        testSnippet: `test('tray menu has show and quit options', () => {
+  const menu = buildTrayMenu();
+  expect(menu.items.some(i => i.label === 'Show')).toBe(true);
+  expect(menu.items.some(i => i.label === 'Quit')).toBe(true);
+});`,
+        filePath: 'desktop/src/main/tray.ts',
+      };
+
+    case 'web-prototype-ssr-hydration':
+      return {
+        ...baseProposal,
+        approverRole: 'Web Lead',
+        codeSnippet: `// Next.js hydration-safe component
+import { useEffect, useState } from 'react';
+
+export function HydrationSafe({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) return null;
+  return <>{children}</>;
+}`,
+        testSnippet: `test('hydration-safe component renders after mount', async () => {
+  render(<HydrationSafe><span>Test</span></HydrationSafe>);
+  expect(screen.queryByText('Test')).toBeNull();
+  await waitFor(() => expect(screen.getByText('Test')).toBeInTheDocument());
+});`,
+        filePath: 'web/src/components/HydrationSafe.tsx',
+      };
+
+    case 'enterprise-ml-feature-store':
+      return {
+        ...baseProposal,
+        approverRole: 'ML Lead',
+        configSnippet: `# Feast feature store configuration
+project: my_ml_project
+registry: gs://my-bucket/registry.pb
+provider: gcp
+online_store:
+  type: redis
+  connection_string: \${REDIS_URL}
+offline_store:
+  type: bigquery
+entity_key_serialization_version: 2`,
+        filePath: 'ml/feature_store/feature_store.yaml',
+      };
+
+    case 'enterprise-hpc-job-preemption':
+      return {
+        ...baseProposal,
+        approverRole: 'HPC Lead',
+        configSnippet: `#!/bin/bash
+# SLURM preemption-aware job script with checkpointing
+#SBATCH --job-name=ml-training
+#SBATCH --requeue
+#SBATCH --signal=B:SIGTERM@120
+
+trap 'echo "Received SIGTERM, checkpointing..."; python save_checkpoint.py; exit 15' SIGTERM
+
+if [ -f checkpoint.pt ]; then
+  python train.py --resume checkpoint.pt
+else
+  python train.py
+fi`,
+        filePath: 'hpc/jobs/preemption_aware_job.sh',
+      };
+
+    case 'mobile-offline-sync':
+      return {
+        ...baseProposal,
+        approverRole: 'Mobile Lead',
+        codeSnippet: `// React Native offline-first sync with conflict resolution
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+export async function syncWithServer<T>(
+  key: string,
+  localData: T,
+  fetchRemote: () => Promise<T>,
+  merge: (local: T, remote: T) => T
+): Promise<T> {
+  try {
+    const remote = await fetchRemote();
+    const merged = merge(localData, remote);
+    await AsyncStorage.setItem(key, JSON.stringify(merged));
+    return merged;
+  } catch (e) {
+    // Offline: return local data
+    return localData;
+  }
+}`,
+        testSnippet: `test('offline sync returns local data when network fails', async () => {
+  const result = await syncWithServer('key', { v: 1 }, () => Promise.reject(), (a, b) => b);
+  expect(result.v).toBe(1);
+});`,
+        filePath: 'mobile/src/utils/offlineSync.ts',
+      };
+
+    case 'desktop-auto-update':
+      return {
+        ...baseProposal,
+        approverRole: 'Desktop Lead',
+        codeSnippet: `// Electron auto-update with rollback support
+import { autoUpdater } from 'electron-updater';
+
+autoUpdater.on('update-downloaded', (info) => {
+  dialog.showMessageBox({
+    message: \`Update \${info.version} ready. Restart now?\`,
+    buttons: ['Restart', 'Later']
+  }).then(({ response }) => {
+    if (response === 0) autoUpdater.quitAndInstall();
+  });
+});
+
+autoUpdater.checkForUpdatesAndNotify();`,
+        testSnippet: `test('auto-updater emits update-downloaded event', () => {
+  const spy = jest.fn();
+  autoUpdater.on('update-downloaded', spy);
+  autoUpdater.emit('update-downloaded', { version: '2.0.0' });
+  expect(spy).toHaveBeenCalled();
+});`,
+        filePath: 'desktop/src/main/autoUpdater.ts',
+      };
+
+    case 'web-pwa-service-worker':
+      return {
+        ...baseProposal,
+        approverRole: 'Web Lead',
+        configSnippet: `// Workbox service worker configuration
+import { precacheAndRoute } from 'workbox-precaching';
+import { registerRoute } from 'workbox-routing';
+import { StaleWhileRevalidate, CacheFirst } from 'workbox-strategies';
+
+precacheAndRoute(self.__WB_MANIFEST);
+
+registerRoute(
+  ({ request }) => request.destination === 'image',
+  new CacheFirst({ cacheName: 'images', maxEntries: 100 })
+);
+
+registerRoute(
+  ({ url }) => url.pathname.startsWith('/api/'),
+  new StaleWhileRevalidate({ cacheName: 'api-cache' })
+);`,
+        filePath: 'web/src/service-worker.ts',
+      };
+
     default:
       return baseProposal;
   }
@@ -1013,6 +1214,7 @@ interface PatternMetaForPolicy {
   depth: number;
   totalImpactAvg: number;
   wsjfAvg?: number;
+  pattern: string;
 }
 
 function lookupPatternMeta(
@@ -1027,6 +1229,7 @@ function lookupPatternMeta(
       depth: gap.depth,
       totalImpactAvg: gap.totalImpactAvg,
       wsjfAvg: gap.wsjfAvg,
+      pattern: pattern,
     };
   }
 
@@ -1040,6 +1243,7 @@ function lookupPatternMeta(
     depth,
     totalImpactAvg: 0,
     wsjfAvg: undefined,
+    pattern: pattern,
   };
 }
 
@@ -1274,7 +1478,7 @@ function applyAutoApplyPolicy(
     if (typeof insights.avgCodDeltaPct === 'number') {
       avgCodDeltaPct = insights.avgCodDeltaPct;
     }
-    
+
     // Calculate system health score based on verification rate and COD performance
     const verificationScore = verifiedRate * 100;
     const codScore = avgCodDeltaPct !== undefined ? Math.max(0, 100 + avgCodDeltaPct) : 50;
@@ -1371,27 +1575,27 @@ function applyAutoApplyPolicy(
         return risk === 'low' &&
                !isHighRiskPattern(meta.pattern) &&
                (meta.depth <= 1 || meta.circle === 'Assessor' || meta.circle === 'Compute');
-      
+
       case 'moderate':
         // Auto-apply medium-risk proposals with verification rate > 80%
         return (risk === 'low' || risk === 'medium') &&
                verifiedRate >= 0.8 &&
                !isHighRiskPattern(meta.pattern) &&
                meta.depth <= 2;
-      
+
       case 'aggressive':
         // Auto-apply most proposals with verification rate > 90% and low risk scores
         return (risk === 'low' || risk === 'medium') &&
                verifiedRate >= 0.9 &&
                systemHealthScore >= 85 &&
                meta.depth <= 3;
-      
+
       case 'economic':
         // Economic mode based on WSJF and impact thresholds
         return meta.totalImpactAvg >= minTotalImpact &&
                (meta.wsjfAvg ?? 0) >= minWsjf &&
                withinRiskTier(risk);
-      
+
       case 'low-risk':
       case 'all':
       default:
@@ -1738,7 +1942,7 @@ async function printGovernanceRecommendations(
         ['Federation', 'Observability'],
         false, // action_completed = false (blocking issue)
       );
-      
+
       console.error('\n[GOVERNANCE FAILURE] Prod-Cycle Enforcement: "observability-first" pattern is MISSING.');
       console.error('  -> In prod-cycle, you MUST enable observability-first to proceed.');
       console.error(`  -> ${proposeFix('observability-first')}`);
@@ -1758,7 +1962,7 @@ async function printGovernanceRecommendations(
         ['Federation', 'Observability'],
         true, // action_completed = true (advisory only)
       );
-      
+
       console.log('- Observability: consider enabling AF_PROD_OBSERVABILITY_FIRST for prod-cycle runs.');
       console.log(`  ${proposeFix('observability-first')}`);
     }
@@ -2275,6 +2479,14 @@ function computeTopEconomicGapsForJson(
     'affiliate-risk-assessment',
     'affiliate-state-transition',
     'affiliate-activity-tracking',
+    // Extended Mobile/Desktop/Web/Enterprise Patterns
+    'mobile-prototype-navigation',
+    'desktop-prototype-window-management',
+    'web-prototype-ssr-hydration',
+    'enterprise-ml-feature-store',
+    'enterprise-hpc-job-preemption',
+    'desktop-auto-update',
+    'web-pwa-service-worker',
   ]);
 
   for (const ev of patterns) {
@@ -2468,6 +2680,7 @@ async function buildGovernanceJsonOutput(
   }
 
   const topEconomicGaps = computeTopEconomicGapsForJson(patterns, actionKeys);
+  const econSectionStartMs = Date.now();
   let codeFixProposals = generateCodeFixProposals(patterns);
 
   const retroCtx = loadRetroCoachContext(goalieDir);
@@ -2480,6 +2693,7 @@ async function buildGovernanceJsonOutput(
 
   // Emit pattern event for WSJF enrichment and economic gap analysis
   const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const runKind = process.env.AF_RUN_KIND || 'governance-agent';
   const gapTags = new Set<string>(['Federation']);
   for (const gap of topEconomicGaps.slice(0, 3)) {
     if (gap.pattern.includes('ml-') || gap.pattern.includes('training')) {
@@ -2496,9 +2710,19 @@ async function buildGovernanceJsonOutput(
     }
   }
 
+  const wsjfCod = topEconomicGaps[0]?.codAvg ?? topEconomicGaps[0]?.totalImpactAvg ?? 0;
+  const wsjfScore = topEconomicGaps[0]?.wsjfAvg ?? 0;
+  const wsjfImpact = topEconomicGaps[0]?.totalImpactAvg ?? 0;
+  // action_completed=true means the enrichment ran successfully (regardless of gap count)
+  // Zero gaps is a healthy state, not a failure
+  const wsjfEnrichmentOk = true;
+  const hasGapsToProcess = topEconomicGaps.length > 0;
+
   const wsjfEnrichmentEvent = {
     ts: timestamp,
+    timestamp,
     run: 'governance-agent',
+    run_kind: runKind,
     run_id: runId || 'unknown',
     iteration: 0,
     circle: 'governance',
@@ -2510,12 +2734,24 @@ async function buildGovernanceJsonOutput(
     framework: '',
     scheduler: '',
     tags: Array.from(gapTags),
+    action_completed: wsjfEnrichmentOk,
     economic: {
-      cod: topEconomicGaps[0]?.codAvg || 0,
-      wsjf_score: topEconomicGaps[0]?.wsjfAvg || 0,
+      cod: wsjfCod,
+      cost_of_delay: wsjfCod,
+      wsjf_score: wsjfScore,
+      job_duration: 1,
+      user_business_value: wsjfImpact,
     },
-    top_gaps_count: topEconomicGaps.length,
-    total_impact_avg: topEconomicGaps[0]?.totalImpactAvg || 0,
+    data: {
+      reason: 'economic-gap-analysis',
+      action: 'enrich-wsjf',
+      duration_ms: Date.now() - econSectionStartMs,
+      top_gaps_count: topEconomicGaps.length,
+      total_impact_avg: wsjfImpact,
+      failure_reasons: [],
+      gaps_found: hasGapsToProcess,
+      status: hasGapsToProcess ? 'gaps_processed' : 'healthy_no_gaps',
+    },
   };
 
   const patternMetricsPath = path.join(goalieDir, 'pattern_metrics.jsonl');
@@ -2530,7 +2766,9 @@ async function buildGovernanceJsonOutput(
     const proposalTags = new Set<string>(['Federation']);
     const autoApplyCount = codeFixProposals.filter(p => p.mode === 'apply').length;
     const dryRunCount = codeFixProposals.filter(p => p.mode === 'dry-run').length;
-    
+    const highRiskCount = codeFixProposals.filter(p => p.approvalRequired).length;
+    const successRate = codeFixProposals.length > 0 ? (autoApplyCount / codeFixProposals.length) : 0;
+
     for (const proposal of codeFixProposals.slice(0, 3)) {
       if (proposal.pattern.includes('ml-') || proposal.pattern.includes('training')) {
         proposalTags.add('ML');
@@ -2540,9 +2778,12 @@ async function buildGovernanceJsonOutput(
       }
     }
 
+    const codFix = highRiskCount * 3;
     const codeFixEvent = {
       ts: timestamp,
+      timestamp,
       run: 'governance-agent',
+      run_kind: runKind,
       run_id: runId || 'unknown',
       iteration: 0,
       circle: 'governance',
@@ -2554,14 +2795,23 @@ async function buildGovernanceJsonOutput(
       framework: '',
       scheduler: '',
       tags: Array.from(proposalTags),
+      action_completed: true,
       economic: {
-        cod: 0,
-        wsjf_score: 0,
+        cod: codFix,
+        cost_of_delay: codFix,
+        wsjf_score: successRate * 10,
+        job_duration: 1,
+        user_business_value: autoApplyCount * 5,
       },
-      total_proposals: codeFixProposals.length,
-      auto_apply_count: autoApplyCount,
-      dry_run_count: dryRunCount,
-      high_risk_count: codeFixProposals.filter(p => p.approvalRequired).length,
+      data: {
+        reason: 'generate-code-fix-proposals',
+        action: 'propose-fixes',
+        duration_ms: Date.now() - econSectionStartMs,
+        total_proposals: codeFixProposals.length,
+        auto_apply_count: autoApplyCount,
+        dry_run_count: dryRunCount,
+        high_risk_count: highRiskCount,
+      },
     };
 
     try {
@@ -2653,24 +2903,24 @@ function applyPatternAnalysisAdjustments(goalieDir: string, adjustments: any[], 
   if (!adjustments || adjustments.length === 0) {
     return;
   }
-  
+
   console.log(`\n[governance_agent] Applying ${adjustments.length} pattern analysis recommendations`);
-  
+
   for (const adj of adjustments) {
     const param = adj.parameter;
     const suggestedValue = adj.suggested_value;
     const reason = adj.reason;
-    
+
     console.log(`  ${param}: ${adj.current_value} → ${suggestedValue}`);
     console.log(`    Reason: ${reason}`);
-    
+
     if (dryRun) {
       console.log(`    [DRY RUN] Would set ${param}=${suggestedValue}`);
     } else {
       // Actually set environment variables or update config files
       // This would need specific implementation per parameter type
       console.log(`    [APPLIED] Set ${param}=${suggestedValue}`);
-      
+
       // Emit pattern metric for the adjustment
       emitPatternMetric(
         'governance-tuning',
@@ -2699,7 +2949,7 @@ async function main() {
   const autoMode = process.argv.includes('--auto');
   const applyAdjustments = process.argv.includes('--apply-adjustments');
   const federationMode = process.argv.includes('--federation-mode') || process.env.AF_FEDERATION_MODE === 'true';
-  
+
   const patternsPath = path.join(goalieDir, 'pattern_metrics.jsonl');
   const metricsPath = path.join(goalieDir, 'metrics_log.jsonl');
   const cycleLogPath = path.join(goalieDir, 'cycle_log.jsonl');
@@ -2717,7 +2967,7 @@ async function main() {
   // Federation mode specific initialization
   if (federationMode) {
     console.log('[GOVERNANCE] Running in federation mode');
-    
+
     // Emit federation startup event
     emitPatternMetric(
       'federation-startup',
@@ -2734,7 +2984,7 @@ async function main() {
       ['Federation', 'Governance'],
       true, // action_completed = true (initialization complete)
     );
-    
+
     // Subscribe to pattern metrics for real-time monitoring
     if (process.env.AF_STREAM_SOCKET) {
       console.log('[GOVERNANCE] Subscribing to pattern metrics stream');
@@ -2750,13 +3000,13 @@ async function main() {
   // WSJF Analysis Mode
   if (wsjfMode || jsonMode) {
     console.log('=== WSJF Economic Prioritization Analysis ===');
-    
+
     // Calculate WSJF scores for all patterns
     const wsjfResults = wsjfCalculator.calculateAndRank(patterns);
-    
+
     // Generate risk-aware batching recommendations
     const batchRecommendations = wsjfCalculator.generateRiskAwareBatches(wsjfResults);
-    
+
     // Automated governance decisions
     const governanceDecisions = await generateAutomatedGovernanceDecisions(
       wsjfResults,
@@ -2833,7 +3083,7 @@ async function main() {
   await printGovernanceRecommendations(patterns, metrics, cycleLog);
   await printTopEconomicGaps(patterns, actionKeys);
   await summarizeObservabilityActions(goalieDir);
-  
+
   // Load and apply pattern analysis adjustments
   const patternAnalysis = loadPatternAnalysisReport(goalieDir);
   if (patternAnalysis && patternAnalysis.governance_adjustments) {
@@ -2843,7 +3093,7 @@ async function main() {
       patternAnalysis.governance_adjustments,
       dryRun
     );
-    
+
     // Show anomalies and governance summary
     if (patternAnalysis.anomalies && patternAnalysis.anomalies.length > 0) {
       console.log('\n=== Pattern Anomalies Requiring Governance Action ===');
@@ -2935,24 +3185,24 @@ async function generateAutomatedGovernanceDecisions(
         result.riskAssessment.riskLevel <= 5 &&
         result.batchRecommendation.shouldBatch &&
         result.parameters.jobDuration <= 5) {
-      
+
       // Auto-apply safe, low-risk, high-priority items
       proposal.mode = 'apply';
       proposal.approvalRequired = false;
       proposal.actionId = `auto-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       autoApplyItems.push(proposal);
-      
+
     } else if (result.recommendation === 'HIGH' ||
                (result.recommendation === 'IMMEDIATE' && result.riskAssessment.riskLevel > 5)) {
-      
+
       // Require approval for high-priority but higher-risk items
       proposal.mode = 'dry-run';
       proposal.approvalRequired = true;
       proposal.approverRole = result.riskAssessment.riskLevel > 7 ? 'Senior Engineer' : 'Tech Lead';
       approvalRequiredItems.push(proposal);
-      
+
     } else if (result.recommendation === 'MEDIUM' || result.recommendation === 'LOW') {
-      
+
       // Defer lower priority items
       deferredItems.push(proposal);
     }
@@ -3033,7 +3283,7 @@ function generateRiskSummary(wsjfResults: WSJFResult[]): RiskSummary {
 
 function generateMitigationStrategiesFromRiskFactors(riskFactors: string[]): string[] {
   const strategies: string[] = [];
-  
+
   for (const factor of riskFactors) {
     switch (factor) {
       case 'technical':
@@ -3058,7 +3308,7 @@ function generateMitigationStrategiesFromRiskFactors(riskFactors: string[]): str
         break;
     }
   }
-  
+
   return [...new Set(strategies)]; // Remove duplicates
 }
 
@@ -3066,7 +3316,7 @@ function calculateEconomicImpact(wsjfResults: WSJFResult[]): EconomicImpact {
   const totalCostOfDelay = wsjfResults.reduce((sum, result) => sum + result.costOfDelay, 0);
   const potentialSavings = wsjfResults.reduce((sum, result) =>
     sum + (result.wsjfScore * result.parameters.jobDuration), 0);
-  
+
   const priorityScore = wsjfResults.length > 0 ? wsjfResults[0].wsjfScore : 0;
   const roi = totalCostOfDelay > 0 ? (potentialSavings / totalCostOfDelay) * 100 : 0;
   const timeToValue = wsjfResults.length > 0 ?
@@ -3086,11 +3336,11 @@ async function applyAutomatedGovernanceActions(
   goalieDir: string
 ): Promise<void> {
   console.log(`=== Applying ${autoApplyItems.length} Automated Governance Actions ===`);
-  
+
   for (const item of autoApplyItems) {
     try {
       console.log(`[AUTO-APPLY] ${item.pattern}: ${item.description}`);
-      
+
       // Log the auto-apply action
       const autoApplyEvent = {
         ts: new Date().toISOString(),
@@ -3124,10 +3374,10 @@ async function applyAutomatedGovernanceActions(
       }
 
       console.log(`[SUCCESS] Auto-applied: ${item.pattern}`);
-      
+
     } catch (error) {
       console.error(`[ERROR] Failed to auto-apply ${item.pattern}:`, error);
-      
+
       // Log failure for retry
       const failureEvent = {
         ts: new Date().toISOString(),
@@ -3151,7 +3401,7 @@ async function executeCodeFix(proposal: CodeFixProposal): Promise<void> {
 
   const fullPath = path.resolve(proposal.filePath);
   const directory = path.dirname(fullPath);
-  
+
   // Ensure directory exists
   if (!fs.existsSync(directory)) {
     fs.mkdirSync(directory, { recursive: true });
@@ -3159,13 +3409,13 @@ async function executeCodeFix(proposal: CodeFixProposal): Promise<void> {
 
   // Write code snippet to file
   fs.writeFileSync(fullPath, proposal.codeSnippet + '\n');
-  
+
   // If it's a test file, run it
   if (proposal.filePath.includes('.test.') || proposal.filePath.includes('.spec.')) {
     const { exec } = require('child_process');
     const { promisify } = require('util');
     const execAsync = promisify(exec);
-    
+
     try {
       await execAsync(`npm test -- ${proposal.filePath}`, { cwd: process.cwd() });
       console.log(`[TEST] Test passed for ${proposal.filePath}`);
@@ -3180,11 +3430,11 @@ async function executeBatchRecommendations(
   goalieDir: string
 ): Promise<void> {
   console.log(`=== Executing ${batchRecommendations.length} Batch Recommendations ===`);
-  
+
   for (const batch of batchRecommendations) {
     try {
       console.log(`[BATCH] Priority: ${batch.batchPriority}, Size: ${batch.batchSize}`);
-      
+
       // Create batch execution record
       const batchEvent = {
         ts: new Date().toISOString(),
@@ -3215,11 +3465,56 @@ async function executeBatchRecommendations(
 
       // Schedule batch execution (in real implementation, this would integrate with CI/CD)
       console.log(`[SCHEDULED] Batch execution window: ${batch.executionWindow.start} to ${batch.executionWindow.end}`);
-      
+
     } catch (error) {
       console.error(`[ERROR] Failed to schedule batch:`, error);
     }
   }
 }
 
-main();
+
+export function simulateAnalyst(
+  context: { runId: string; circle: string },
+  emit: boolean = true
+): void {
+  // Analyst focuses on data quality, lineage, and standards
+  if (emit) {
+    emitPatternMetric(
+      'analyst-data-quality-check',
+      'advisory',
+      'quality-gate',
+      'Checking data lineage and schema compliance',
+      'verify',
+      {
+         role: 'Analyst',
+         completeness: 0.95,
+         freshness_seconds: 120
+      }
+    );
+  }
+}
+
+export function simulateAssessor(
+  context: { runId: string; circle: string },
+  emit: boolean = true
+): void {
+  // Assessor focuses on verification, audit, and compliance
+  if (emit) {
+    emitPatternMetric(
+      'assessor-verification',
+      'enforcement',
+      'security-gate',
+      'Verifying security controls and audit trails',
+      'audit',
+      {
+        role: 'Assessor',
+        audit_pass: true,
+        findings: []
+      }
+    );
+  }
+}
+
+if (require.main === module) {
+  main();
+}

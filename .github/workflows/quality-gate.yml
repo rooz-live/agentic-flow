@@ -1,0 +1,139 @@
+name: Quality Gate with AQE Integration
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Create isolated npm environment
+        run: |
+          # Create temporary isolated environment for AQE
+          export TMP_HOME="$HOME/.aqe-isolated"
+          export TMP_NPM_USER="$TMP_HOME/.npmrc-user"
+          export TMP_NPM_GLOBAL="$TMP_HOME/.npmrc-global"
+
+          mkdir -p "$TMP_HOME"
+
+          # Create isolated npm configs
+          printf '%s\n' \
+            "@proffesor-for-testing:registry=https://registry.npmjs.org/" \
+            "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" \
+            > "$TMP_NPM_USER"
+
+          printf '%s\n' \
+            "audit=false" \
+            "fund=false" \
+            "progress=false" \
+            "loglevel=warn" \
+            > "$TMP_NPM_GLOBAL"
+
+          echo "TMP_HOME=$TMP_HOME" >> $GITHUB_ENV
+          echo "TMP_NPM_USER=$TMP_NPM_USER" >> $GITHUB_ENV
+          echo "TMP_NPM_GLOBAL=$TMP_NPM_GLOBAL" >> $GITHUB_ENV
+
+      - name: Install AQE
+        run: |
+          # Use isolated environment to avoid token conflicts
+          export HOME="$TMP_HOME"
+          export NPM_CONFIG_USERCONFIG="$TMP_NPM_USER"
+          export NPM_CONFIG_GLOBALCONFIG="$TMP_NPM_GLOBAL"
+
+          npm install -g agentic-qe@2.5.10
+
+      - name: Run AQE Quality Gate
+        run: |
+          # Execute AQE with isolated configuration
+          export HOME="$TMP_HOME"
+          export NPM_CONFIG_USERCONFIG="$TMP_NPM_USER"
+          export NPM_CONFIG_GLOBALCONFIG="$TMP_NPM_GLOBAL"
+
+          mkdir -p .goalie
+
+          # Initialize AQE fleet
+          aqe init --no-interactive
+
+          # Run quality assessment
+          aqe workflow execute --name quality-gate --format json > .goalie/aqe_quality_gate.json
+
+          # Generate coverage report
+          aqe coverage analyze --format json > .goalie/aqe_coverage.json
+
+      - name: Run Integration Safety Checks
+        run: |
+          # Test integration gating enforcement
+          export AF_ENV=stg
+          export AF_INTEGRATIONS_MODE=stg_write
+          export AF_INTEGRATIONS_WRITE_ALLOWED=0
+
+          python scripts/integrations/starlingx_hostbill.py
+
+          # Verify audit trail created
+          if [ -f ".goalie/integration_evidence/integration_events.jsonl" ]; then
+            echo "✓ Integration audit trail working"
+            cat .goalie/integration_evidence/integration_events.jsonl
+          else
+            echo "✗ Integration audit trail missing"
+            exit 1
+          fi
+
+      - name: Run Environment-Aware Validation
+        run: |
+          # Validate payment gateway configuration
+          export AF_ENV=ci
+          python scripts/validation/validate_payment_gateways.py --json > .goalie/payment_gateway_validation.json
+
+          # Check configuration parity between environments
+          python scripts/validation/config_parity_check.py --all --json > .goalie/config_parity_report.json
+
+          # Verify no live payment keys in non-prod configs
+          if grep -r "sk_live_" .claude/mcp-config-local.json .claude/mcp-config-dev.json .claude/mcp-config-stg.json 2>/dev/null; then
+            echo "✗ CRITICAL: Live Stripe keys found in non-production config!"
+            exit 1
+          fi
+          echo "✓ Payment gateway validation passed"
+
+      - name: Upload Quality Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: quality-gate-artifacts
+          path: |
+            .goalie/aqe_quality_gate.json
+            .goalie/aqe_coverage.json
+            .goalie/integration_evidence/
+            .goalie/payment_gateway_validation.json
+            .goalie/config_parity_report.json
+          retention-days: 30
+
+      - name: Quality Gate Decision
+        run: |
+          # Evaluate quality gate results
+          if [ -f ".goalie/aqe_quality_gate.json" ]; then
+            echo " AQE quality gate completed"
+
+            # Extract quality score (example)
+            QUALITY_SCORE=$(jq -r '.quality_score // 0' .goalie/aqe_quality_gate.json)
+            echo "Quality Score: $QUALITY_SCORE"
+
+            # Fail if quality below threshold
+            if [ "$QUALITY_SCORE" -lt 80 ]; then
+              echo " Quality gate failed: Score $QUALITY_SCORE < 80"
+              exit 1
+            fi
+          else
+            echo " AQE quality gate not executed"
+            exit 1
+          fi

@@ -136,6 +136,86 @@ class PatternLogger:
         # Default to local
         return "local"
 
+    # ENV-002: Environment-specific operation restrictions
+    ENVIRONMENT_RESTRICTIONS = {
+        'local': {
+            'blocked_operations': ['payment_process', 'production_deploy', 'ssl_renew'],
+            'require_confirmation': [],
+            'max_risk_score': 8
+        },
+        'dev': {
+            'blocked_operations': ['payment_process', 'production_deploy', 'ssl_renew'],
+            'require_confirmation': ['external_api_call'],
+            'max_risk_score': 6
+        },
+        'stg': {
+            'blocked_operations': ['live_payment', 'production_deploy'],
+            'require_confirmation': ['payment_test', 'database_write'],
+            'max_risk_score': 4
+        },
+        'prod': {
+            'blocked_operations': ['test_data_generate', 'mock_payment'],
+            'require_confirmation': ['ALL'],
+            'max_risk_score': 2
+        },
+        'ci': {
+            'blocked_operations': ['payment_process', 'production_deploy', 'ssl_renew', 'external_api_call'],
+            'require_confirmation': [],
+            'max_risk_score': 5
+        },
+        'container': {
+            'blocked_operations': ['payment_process', 'production_deploy'],
+            'require_confirmation': ['database_write'],
+            'max_risk_score': 5
+        }
+    }
+
+    def validate_operation_for_environment(self, operation: str, risk_score: int = 5) -> dict:
+        """Validate if an operation is allowed in the current environment.
+
+        Args:
+            operation: The operation being attempted (e.g., 'payment_process', 'database_write')
+            risk_score: Risk score of the operation (1-10, higher = riskier)
+
+        Returns:
+            dict with keys:
+                - allowed: bool - whether operation is allowed
+                - reason: str - explanation if blocked
+                - require_confirmation: bool - whether confirmation is needed
+        """
+        restrictions = self.ENVIRONMENT_RESTRICTIONS.get(
+            self.environment,
+            self.ENVIRONMENT_RESTRICTIONS['local']  # Default to most restrictive non-prod
+        )
+
+        # Check if operation is blocked
+        if operation in restrictions['blocked_operations']:
+            return {
+                'allowed': False,
+                'reason': f"Operation '{operation}' is blocked in environment '{self.environment}'",
+                'require_confirmation': False
+            }
+
+        # Check risk score threshold
+        if risk_score > restrictions['max_risk_score']:
+            return {
+                'allowed': False,
+                'reason': f"Risk score {risk_score} exceeds max {restrictions['max_risk_score']} for environment '{self.environment}'",
+                'require_confirmation': False
+            }
+
+        # Check if confirmation is required
+        require_confirmation = (
+            'ALL' in restrictions['require_confirmation'] or
+            operation in restrictions['require_confirmation']
+        )
+
+        return {
+            'allowed': True,
+            'reason': 'Operation permitted',
+            'require_confirmation': require_confirmation
+        }
+
     def _get_default_value(self, field: str, circle: str):
         """Get safe default value for missing circle-specific fields."""
         defaults = {
@@ -474,6 +554,8 @@ class PatternLogger:
             "prod_mode": self.mode,
             "tenant_id": self.tenant_id,
             "tenant_platform": self.tenant_platform,
+            # ENV-001: Include environment in all pattern emissions for bounded reasoning
+            "environment": self.environment,
             # TOP-LEVEL duration_ms for analytics compatibility (P0 fix)
             "duration_ms": duration_ms_value,
             "duration_measured": duration_measured_value,

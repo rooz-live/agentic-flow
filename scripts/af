@@ -351,9 +351,9 @@ EOF
     # Write to pattern metrics and cycle log with schema compliance
     local pattern_metrics_file="$PROJECT_ROOT/.goalie/pattern_metrics.jsonl"
     local cycle_log_file="$PROJECT_ROOT/.goalie/cycle_log.jsonl"
-    
+
     mkdir -p "$(dirname "$pattern_metrics_file")"
-    
+
     # Create schema-compliant wrapper with timestamp, pattern, and data fields
     local wrapped_event=$(cat <<EOF
 {
@@ -363,7 +363,7 @@ EOF
 }
 EOF
 )
-    
+
     # Minify JSON for storage
     echo "$wrapped_event" | jq -c '.' >> "$pattern_metrics_file" 2>/dev/null || echo "$wrapped_event" >> "$pattern_metrics_file"
     echo "$event" | jq -c '.' >> "$cycle_log_file" 2>/dev/null || echo "$event" >> "$cycle_log_file"
@@ -1398,18 +1398,26 @@ cmd_full_cycle() {
             echo -e "${YELLOW}[preflight] IRIS CLI not available: $AF_IRIS_CMD${NC}"
         fi
 
-        # Check system resources
-        local available_memory=$(free -m | awk 'NR==2{printf "%.0f", $2/1024}' | tail -1)
-        local cpu_load=$(uptime | awk -F'load averages:' '{print $2}' | awk '{print $1}')
+        # Check system resources (macOS compatible)
+        local available_memory
+        if command -v free &>/dev/null; then
+            available_memory=$(free -m | awk 'NR==2{printf "%.0f", $2/1024}' | tail -1)
+        else
+            # macOS: use sysctl for memory info
+            available_memory=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1024 / 1024 / 1024 ))
+        fi
+        local cpu_load=$(uptime | awk -F'load average[s]?:' '{print $2}' | awk '{print $1}' | tr -d ',')
 
         echo -e "${BLUE}[preflight] System Resources: Memory: ${available_memory}GB available, CPU Load: $cpu_load${NC}"
 
-        # Check disk space for IRIS operations
-        local disk_space=$(df "$PROJECT_ROOT" | awk 'NR==1 {print $4}' | tail -1)
+        # Check disk space for IRIS operations (macOS compatible)
+        local disk_space=$(df -k "$PROJECT_ROOT" 2>/dev/null | awk 'NR==2 {print $4}' | tail -1)
+        disk_space=${disk_space:-0}
         echo -e "${BLUE}[preflight] Disk Space: ${disk_space}KB available${NC}"
 
-        # Continue if basic requirements met
-        if [ "$available_memory" -lt 512 ] || [ "$disk_space" -lt 1000 ]; then
+        # Continue if basic requirements met (with safe numeric comparison)
+        available_memory=${available_memory:-0}
+        if [ "${available_memory:-0}" -lt 1 ] 2>/dev/null || [ "${disk_space:-0}" -lt 1000 ] 2>/dev/null; then
             echo -e "${YELLOW}[preflight] Insufficient resources for IRIS operations${NC}"
             echo -e "${YELLOW}Suggestion: Ensure at least 512MB RAM and 1GB disk space${NC}"
         fi
@@ -3669,18 +3677,17 @@ PYEOF
 	    iris-health)
 	        echo -e "${BLUE}=== IRIS Health Check ===${NC}"
 
-	        # Pre-flight checks
+	        # Pre-flight checks - use exit instead of return (not in function context)
 	        if ! check_iris_prerequisites "health"; then
 	            echo -e "${YELLOW}[iris-health] Pre-flight checks failed, attempting graceful degradation${NC}"
-	            return 1
-	        fi
-
-	        # Execute with enhanced error handling
-	        if ! execute_iris_with_circuit_breaker "health"; then
-	            echo -e "${YELLOW}[iris-health] Command failed, but system continues${NC}"
-	            log_iris_error_event "health" "circuit_breaker_or_execution_failure"
 	        else
-	            echo -e "${GREEN}[iris-health] Health check completed successfully${NC}"
+	            # Execute with enhanced error handling
+	            if ! execute_iris_with_circuit_breaker "health"; then
+	                echo -e "${YELLOW}[iris-health] Command failed, but system continues${NC}"
+	                log_iris_error_event "health" "circuit_breaker_or_execution_failure"
+	            else
+	                echo -e "${GREEN}[iris-health] Health check completed successfully${NC}"
+	            fi
 	        fi
 	        ;;
 
@@ -3690,16 +3697,15 @@ PYEOF
 	        # Pre-flight checks with telemetry collection
 	        if ! check_iris_prerequisites "discover"; then
 	            echo -e "${YELLOW}[iris-discover] Pre-flight checks failed, attempting graceful degradation${NC}"
-	            return 1
-	        fi
-
-	        # Execute with enhanced error handling and validation
-	        if ! execute_iris_with_circuit_breaker "discover" "$@"; then
-	            echo -e "${YELLOW}[iris-discover] Discovery failed, but system continues${NC}"
-	            log_iris_error_event "discover" "circuit_breaker_or_execution_failure"
 	        else
-	            echo -e "${GREEN}[iris-discover] Agent discovery completed successfully${NC}"
-	            validate_discovery_results
+	            # Execute with enhanced error handling and validation
+	            if ! execute_iris_with_circuit_breaker "discover" "$@"; then
+	                echo -e "${YELLOW}[iris-discover] Discovery failed, but system continues${NC}"
+	                log_iris_error_event "discover" "circuit_breaker_or_execution_failure"
+	            else
+	                echo -e "${GREEN}[iris-discover] Agent discovery completed successfully${NC}"
+	                validate_discovery_results
+	            fi
 	        fi
 	        ;;
 
@@ -3707,15 +3713,13 @@ PYEOF
 	        shift
 	        echo -e "${BLUE}=== IRIS Project Evaluation ===${NC}"
 
-	        # Pre-flight checks with configurable criteria
-	        local evaluation_criteria="${AF_IRIS_EVALUATION_CRITERIA:-standard}"
-	        local evaluation_threshold="${AF_IRIS_EVALUATION_THRESHOLD:-70}"
+	        # Pre-flight checks with configurable criteria (use export to avoid 'local' in case block)
+	        evaluation_criteria="${AF_IRIS_EVALUATION_CRITERIA:-standard}"
+	        evaluation_threshold="${AF_IRIS_EVALUATION_THRESHOLD:-70}"
 
 	        if ! check_iris_prerequisites "evaluate"; then
 	            echo -e "${YELLOW}[iris-evaluate] Pre-flight checks failed, attempting graceful degradation${NC}"
-	            return 1
 	        fi
-
 
 	        # Enhanced log rotation and archival policies
 	        rotate_logs() {
@@ -3913,16 +3917,15 @@ PYEOF
 	        # Pre-flight checks with governance rule matching
 	        if ! check_iris_prerequisites "patterns"; then
 	            echo -e "${YELLOW}[iris-patterns] Pre-flight checks failed, attempting graceful degradation${NC}"
-	            return 1
-	        fi
-
-	        # Execute with enhanced error handling and pattern matching
-	        if ! execute_iris_with_circuit_breaker "patterns" "$@"; then
-	            echo -e "${YELLOW}[iris-patterns] Pattern discovery failed, but system continues${NC}"
-	            log_iris_error_event "patterns" "circuit_breaker_or_execution_failure"
 	        else
-	            echo -e "${GREEN}[iris-patterns] Pattern discovery completed successfully${NC}"
-	            match_patterns_against_governance_rules
+	            # Execute with enhanced error handling and pattern matching
+	            if ! execute_iris_with_circuit_breaker "patterns" "$@"; then
+	                echo -e "${YELLOW}[iris-patterns] Pattern discovery failed, but system continues${NC}"
+	                log_iris_error_event "patterns" "circuit_breaker_or_execution_failure"
+	            else
+	                echo -e "${GREEN}[iris-patterns] Pattern discovery completed successfully${NC}"
+	                match_patterns_against_governance_rules
+	            fi
 	        fi
 	        ;;
 
@@ -3933,16 +3936,15 @@ PYEOF
 	        # Pre-flight checks with real-time metrics
 	        if ! check_iris_prerequisites "telemetry"; then
 	            echo -e "${YELLOW}[iris-telemetry] Pre-flight checks failed, attempting graceful degradation${NC}"
-	            return 1
-	        fi
-
-	        # Execute with enhanced error handling and real-time collection
-	        if ! execute_iris_with_circuit_breaker "telemetry" "$@"; then
-	            echo -e "${YELLOW}[iris-telemetry] Telemetry check failed, but system continues${NC}"
-	            log_iris_error_event "telemetry" "circuit_breaker_or_execution_failure"
 	        else
-	            echo -e "${GREEN}[iris-telemetry] Telemetry health check completed successfully${NC}"
-	            collect_realtime_metrics
+	            # Execute with enhanced error handling and real-time collection
+	            if ! execute_iris_with_circuit_breaker "telemetry" "$@"; then
+	                echo -e "${YELLOW}[iris-telemetry] Telemetry check failed, but system continues${NC}"
+	                log_iris_error_event "telemetry" "circuit_breaker_or_execution_failure"
+	            else
+	                echo -e "${GREEN}[iris-telemetry] Telemetry health check completed successfully${NC}"
+	                collect_realtime_metrics
+	            fi
 	        fi
 	        ;;
 
@@ -3953,16 +3955,15 @@ PYEOF
 	        # Pre-flight checks with distributed execution support
 	        if ! check_iris_prerequisites "federated"; then
 	            echo -e "${YELLOW}[iris-federated] Pre-flight checks failed, attempting graceful degradation${NC}"
-	            return 1
-	        fi
-
-	        # Execute with enhanced error handling and distributed execution
-	        if ! execute_iris_with_circuit_breaker "federated" "$@"; then
-	            echo -e "${YELLOW}[iris-federated] Federated learning failed, but system continues${NC}"
-	            log_iris_error_event "federated" "circuit_breaker_or_execution_failure"
 	        else
-	            echo -e "${GREEN}[iris-federated] Federated learning control completed successfully${NC}"
-	            manage_distributed_execution
+	            # Execute with enhanced error handling and distributed execution
+	            if ! execute_iris_with_circuit_breaker "federated" "$@"; then
+	                echo -e "${YELLOW}[iris-federated] Federated learning failed, but system continues${NC}"
+	                log_iris_error_event "federated" "circuit_breaker_or_execution_failure"
+	            else
+	                echo -e "${GREEN}[iris-federated] Federated learning control completed successfully${NC}"
+	                manage_distributed_execution
+	            fi
 	        fi
 	        ;;
 

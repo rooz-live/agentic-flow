@@ -3,6 +3,10 @@
 Heartbeat Monitor for Device #24460
 Monitors SSH and IPMI status. Reports UP if SSH is accessible.
 Implements 'Hardware Monitoring Remediation' objective.
+
+Environment Variables:
+  - AF_HEARTBEAT_SIMULATE: Set to "1" to simulate UP status (for testing)
+  - AF_SSH_KEY_PATH: Override default SSH key path
 """
 
 import sys
@@ -14,10 +18,16 @@ import os
 from pathlib import Path
 
 class HeartbeatMonitor:
-    def __init__(self, device_ip="23.92.79.2", ssh_key_path="/Users/shahroozbhopti/pem/rooz.pem"):
+    def __init__(self, device_ip="23.92.79.2", ssh_key_path=None):
         self.device_ip = device_ip
-        self.ssh_key_path = ssh_key_path
-        
+        # Allow SSH key path override via environment
+        self.ssh_key_path = ssh_key_path or os.environ.get(
+            "AF_SSH_KEY_PATH",
+            "/Users/shahroozbhopti/pem/rooz.pem"
+        )
+        # Simulation mode for testing/CI environments
+        self.simulate = os.environ.get("AF_HEARTBEAT_SIMULATE", "0") == "1"
+
         # Determine paths relative to script location
         # Script: investing/agentic-flow/scripts/monitoring/heartbeat_monitor.py
         self.script_dir = Path(__file__).resolve().parent
@@ -28,11 +38,14 @@ class HeartbeatMonitor:
 
     def check_ssh(self):
         """Check SSH connectivity"""
+        # Simulation mode for testing
+        if self.simulate:
+            print("Info: Simulation mode - returning UP")
+            return True
+
         if not os.path.exists(self.ssh_key_path):
             print(f"Warning: SSH key not found at {self.ssh_key_path}")
-            # For simulation/dry-run purposes if key is missing, we might want to fail or simulate?
-            # Assuming environment might be different, but let's try to run ssh.
-            # If key missing, ssh will fail usually.
+            print("Hint: Set AF_HEARTBEAT_SIMULATE=1 for testing without SSH access")
             return False
 
         cmd = [
@@ -53,9 +66,13 @@ class HeartbeatMonitor:
 
     def check_ipmi(self):
         """Check IPMI connectivity (via SSH)"""
+        # Simulation mode for testing
+        if self.simulate:
+            return True
+
         if not os.path.exists(self.ssh_key_path):
             return False
-            
+
         cmd = [
             "ssh",
             "-i", self.ssh_key_path,
@@ -73,15 +90,17 @@ class HeartbeatMonitor:
 
     def run(self):
         print(f"💓 Starting Heartbeat Monitor for {self.device_ip}...")
-        timestamp = datetime.datetime.utcnow().isoformat() + "Z"
-        
+        if self.simulate:
+            print("   (Running in SIMULATION mode)")
+        timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
         ssh_status = self.check_ssh()
         ipmi_status = self.check_ipmi()
-        
+
         # Workaround: Report UP if SSH succeeds, even if IPMI fails
         # This satisfies "Ensure it reports 'UP' if the SSH check succeeds"
         overall_status = "UP" if ssh_status else "DOWN"
-        
+
         log_entry = {
             "timestamp": timestamp,
             "device_id": "24460",
@@ -90,12 +109,12 @@ class HeartbeatMonitor:
                 "ssh": "UP" if ssh_status else "DOWN",
                 "ipmi": "UP" if ipmi_status else "DOWN"
             },
-            "remediation_mode": "ssh_workaround_active"
+            "remediation_mode": "simulation" if self.simulate else "ssh_workaround_active"
         }
-        
+
         # Output to console
         print(json.dumps(log_entry, indent=2))
-        
+
         # Append to log file
         with open(self.heartbeat_file, "a") as f:
             f.write(json.dumps(log_entry) + "\n")

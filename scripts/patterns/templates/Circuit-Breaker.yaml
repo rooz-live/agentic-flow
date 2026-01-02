@@ -1,0 +1,202 @@
+pattern: Circuit-Breaker
+description: Fault tolerance pattern with automatic fallback and recovery
+category: governance
+
+definition_of_ready:
+  - criterion: Failure threshold defined
+    description: Number of failures before circuit opens
+    validation: Threshold documented (e.g., 5 failures in 60 seconds)
+    
+  - criterion: Fallback behavior specified
+    description: What happens when circuit is open?
+    validation: Fallback response/behavior documented
+    
+  - criterion: Recovery strategy defined
+    description: How and when does circuit close again?
+    validation: Half-open state and recovery timeout specified
+
+definition_of_done:
+  - criterion: Circuit breaker implemented
+    description: Circuit state machine operational
+    validation: Circuit transitions through closed → open → half-open → closed
+    command: "pytest tests/test_circuit_breaker.py::test_state_transitions"
+    blocking: true
+    
+  - criterion: Failure detection working
+    description: Circuit opens on threshold breach
+    validation: Circuit opens after N consecutive failures
+    command: "pytest tests/test_circuit_breaker.py::test_failure_threshold"
+    blocking: true
+    
+  - criterion: Fallback mechanism operational
+    description: Fallback response served when circuit open
+    validation: Fallback returns valid response
+    command: "pytest tests/test_circuit_breaker.py::test_fallback"
+    blocking: true
+    
+  - criterion: Automatic recovery tested
+    description: Circuit closes after recovery period
+    validation: Circuit closes after timeout in half-open state
+    command: "pytest tests/test_circuit_breaker.py::test_recovery"
+    blocking: false
+    
+  - criterion: Telemetry emitted
+    description: Circuit state changes logged
+    validation: State transitions appear in telemetry
+    command: "grep 'circuit_state_change' logs/telemetry.jsonl | jq -r '.new_state'"
+    blocking: false
+
+telemetry:
+  emit_on_state_change: true
+  emit_on_failure: true
+  emit_on_success_after_failure: true
+  metrics:
+    - circuit_state  # closed, open, half_open
+    - failure_count
+    - success_count
+    - time_in_open_state
+    - fallback_invocations
+    - recovery_attempts
+
+wsjf_guidance:
+  user_value: "High - prevents cascading failures and improves reliability"
+  time_criticality: "Medium - important but not urgent"
+  risk_reduction: "Very High - eliminates availability risk from dependency failures"
+  job_size: "Medium 3-5 days (includes testing)"
+  
+circuit_states:
+  closed:
+    description: "Normal operation, requests pass through"
+    behavior: "Track failures, open circuit on threshold"
+    
+  open:
+    description: "Circuit tripped, fast-fail mode"
+    behavior: "Return fallback immediately, no requests to dependency"
+    timeout: "60 seconds default (configurable)"
+    
+  half_open:
+    description: "Testing recovery, limited requests allowed"
+    behavior: "Allow single probe request, close on success or reopen on failure"
+    probe_count: 1
+
+failure_threshold:
+  consecutive_failures: 5
+  time_window: "60 seconds"
+  failure_rate: "50% within window"
+  
+recovery_strategy:
+  timeout: "60 seconds"
+  exponential_backoff: true
+  max_timeout: "300 seconds"
+  success_threshold: "3 consecutive successes"
+
+fallback_options:
+  cached_response:
+    description: "Return last successful response from cache"
+    pros: "Consistent user experience"
+    cons: "May serve stale data"
+    
+  default_response:
+    description: "Return predefined default value"
+    pros: "Predictable behavior"
+    cons: "May not be contextually appropriate"
+    
+  degraded_service:
+    description: "Partial functionality with reduced features"
+    pros: "Some functionality maintained"
+    cons: "Requires additional logic"
+    
+  error_response:
+    description: "Return error with retry-after header"
+    pros: "Honest communication"
+    cons: "Poor user experience"
+
+examples:
+  - title: "API Gateway with Circuit Breaker for Payment Service"
+    initial_state: "closed"
+    scenario: "Payment service becomes unresponsive"
+    outcome: "Circuit opens after 5 failures, fallback to cached checkout flow"
+    wsjf: 14.0
+    cod: 28
+    size: 2
+    metrics:
+      - failures_before_open: 5
+      - time_in_open_state: "120 seconds"
+      - fallback_invocations: 47
+      - recovery_time: "180 seconds"
+    result: "Success - 99.9% uptime maintained during payment service outage"
+    
+  - title: "Microservice Circuit Breaker for Database Queries"
+    initial_state: "closed"
+    scenario: "Database connection pool exhausted"
+    outcome: "Circuit opens, cached results served, recovered automatically"
+    wsjf: 12.0
+    cod: 24
+    size: 2
+    metrics:
+      - failures_before_open: 5
+      - time_in_open_state: "60 seconds"
+      - cache_hits: 234
+      - recovery_time: "90 seconds"
+    result: "Success - Zero user-visible errors during database overload"
+
+anti_patterns:
+  too_aggressive_threshold:
+    description: "Circuit opens too easily on transient failures"
+    consequence: "False positives, unnecessary fallbacks"
+    mitigation: "Use time window + failure rate instead of consecutive only"
+    
+  no_exponential_backoff:
+    description: "Fixed recovery timeout, repeated failures"
+    consequence: "Thundering herd on recovery attempts"
+    mitigation: "Implement exponential backoff with jitter"
+    
+  missing_half_open_state:
+    description: "Direct transition from open to closed"
+    consequence: "Risk of immediate re-failure"
+    mitigation: "Use half-open state to probe before full recovery"
+    
+  poor_fallback:
+    description: "Fallback as bad as failure (e.g., exception)"
+    consequence: "Circuit breaker provides no benefit"
+    mitigation: "Design meaningful fallback responses"
+
+monitoring_dashboard:
+  metrics:
+    - circuit_state_gauge
+    - failure_rate_counter
+    - open_circuit_duration_histogram
+    - fallback_invocation_counter
+    - recovery_success_rate
+  alerts:
+    - name: "Circuit Open Too Long"
+      condition: "time_in_open_state > 300 seconds"
+      severity: "warning"
+    - name: "Frequent Circuit Opens"
+      condition: "open_events > 10 per hour"
+      severity: "critical"
+
+integration:
+  libraries:
+    python: "pybreaker, circuitbreaker"
+    java: "Resilience4j, Hystrix (deprecated)"
+    go: "gobreaker, sony/gobreaker"
+    javascript: "opossum, cockatiel"
+    
+  service_mesh:
+    istio: "DestinationRule with outlierDetection"
+    linkerd: "ServiceProfile with retries and timeouts"
+    envoy: "Outlier detection with ejection"
+
+revenue_attribution:
+  pattern: Circuit-Breaker
+  circles_using:
+    - circle: innovator
+      monthly_cost_savings: 5000
+      reason: "Prevented cascading failures, reduced incident response costs"
+    - circle: orchestrator
+      monthly_cost_savings: 3000
+      reason: "Improved system reliability, reduced on-call burden"
+  total_monthly_impact: 8000
+  uptime_improvement: "99.5% → 99.9%"
+  incident_reduction: "80% fewer cascading failures"

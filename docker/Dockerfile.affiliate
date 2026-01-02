@@ -1,0 +1,28 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy source code
+COPY scripts/agentic/affiliate_platform.py ./scripts/agentic/
+COPY scripts/agentic/pattern_logger.py ./scripts/agentic/
+COPY scripts/agentic/__init__.py ./scripts/agentic/
+COPY src/affiliate ./src/affiliate
+
+# Expose API port
+EXPOSE 8001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+  CMD python3 -c "import http.client; c = http.client.HTTPConnection('localhost', 8001); c.request('GET', '/health'); r = c.getresponse(); exit(0 if r.status == 200 else 1)"
+
+# Start affiliate API
+CMD ["python3", "-m", "scripts.agentic.affiliate_platform", "status"]

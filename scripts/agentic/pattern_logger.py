@@ -468,6 +468,70 @@ class PatternLogger:
                 'framework': 'VIG-v1'
             }
 
+    def _calculate_risk_score(self, pattern_name: str, data: dict, gate: str, behavioral_type: str) -> int:
+        """
+        RISK-001: Calculate aggregate risk score (1-10 scale) for risk analytics integration.
+
+        Combines multiple risk factors:
+        - Pattern inherent risk (from consequence tracking)
+        - Environment risk thresholds
+        - Behavioral type (enforcement > advisory > observability)
+        - Gate criticality
+        - Action completion status
+
+        Returns:
+            int: Risk score from 1 (low) to 10 (high)
+        """
+        try:
+            # Base risk from pattern type (use consequence tracking logic)
+            pattern_risk_map = {
+                # Critical patterns (8-10)
+                'production_deploy': 10, 'payment_process': 10,
+                'autocommit_shadow': 9, 'code_fix_proposal': 8,
+                'code-fix-proposal': 8, 'guardrail_lock': 8,
+                # High patterns (6-7)
+                'safe_degrade': 7, 'governance_delta_evaluation': 7,
+                'depth_ladder': 6, 'env_policy': 6, 'roam_escalation': 6,
+                # Medium patterns (4-5)
+                'wsjf_enrichment': 5, 'circle_risk_focus': 5,
+                'iteration_budget': 4, 'governance_audit': 4,
+                # Low patterns (1-3)
+                'observability_first': 2, 'flow_metrics': 1,
+                'pattern_metrics': 1, 'replenish_complete': 2,
+            }
+            base_risk = pattern_risk_map.get(pattern_name, 5)  # Default: 5
+
+            # Adjust for behavioral type
+            type_adjustment = {
+                'enforcement': 2,  # Enforcement patterns are riskier
+                'advisory': 0,     # Advisory is neutral
+                'observability': -1  # Observability is safer
+            }
+            risk = base_risk + type_adjustment.get(behavioral_type, 0)
+
+            # Adjust for gate criticality
+            gate_adjustment = {
+                'system-risk': 2, 'guardrail': 1, 'governance': 1,
+                'health': 0, 'calibration': 0, 'general': -1
+            }
+            risk += gate_adjustment.get(gate, 0)
+
+            # Adjust for environment (prod is riskier)
+            env_adjustment = {
+                'prod': 2, 'stg': 1, 'dev': 0, 'local': -1, 'ci': 0
+            }
+            risk += env_adjustment.get(self.environment, 0)
+
+            # Adjust for action completion (failed actions are higher risk)
+            if not data.get('action_completed', True):
+                risk += 1
+
+            # Clamp to 1-10 range
+            return max(1, min(10, risk))
+
+        except Exception:
+            return 5  # Default middle risk on error
+
     # ENV-002: Environment-specific operation restrictions
     ENVIRONMENT_RESTRICTIONS = {
         'local': {
@@ -892,6 +956,8 @@ class PatternLogger:
             "alignment_score": self._calculate_alignment_score(pattern_name, data, gate),
             # VIG-001: Consequence tracking to address vigilance deficit (0.574 threshold exceeded)
             "consequence_tracking": self._calculate_consequence_tracking(pattern_name, data, gate),
+            # RISK-001: Aggregate risk score for risk analytics integration (1-10 scale)
+            "risk_score": self._calculate_risk_score(pattern_name, data, gate, behavioral_type),
             # TOP-LEVEL duration_ms for analytics compatibility (P0 fix)
             "duration_ms": duration_ms_value,
             "duration_measured": duration_measured_value,
@@ -1271,6 +1337,37 @@ class PatternLogger:
             "ubv": baseline_metrics.get("backtest_pnl", 0.0),
             "rr": baseline_metrics.get("adaptation_rate", 0.0) * 100
         })
+
+    def log_interpretability(self, circle, model_type, explanation_type, top_features=None,
+                             attribution=None, confidence=0.0, iteration=0, duration_ms=None):
+        """Log Interpretability pattern: AI decision explanations (LIME/SHAP).
+
+        OBS-2: Improves interpretability coverage from 60% to 85% by standardizing
+        logging across all circle roles.
+
+        Args:
+            circle: Circle name (e.g., 'innovator', 'assessor')
+            model_type: Model being explained (e.g., 'pda_governance_v1', 'wsjf_predictor')
+            explanation_type: Type of explanation ('lime', 'shap', 'feature_attribution', 'combined')
+            top_features: List of top contributing features
+            attribution: Dict of feature -> attribution score
+            confidence: Confidence score of explanation (0.0-1.0)
+            iteration: Current iteration number
+            duration_ms: Duration of explanation generation in ms
+        """
+        self.log("interpretability", {
+            "circle": circle,
+            "model": model_type,
+            "type": explanation_type,
+            "top_features": top_features or [],
+            "attribution": attribution or {},
+            "confidence": confidence,
+            "iteration": iteration,
+            "action": "explain",
+            "duration_ms": duration_ms,
+            "duration_measured": duration_ms is not None,
+            "tags": ["Federation", "AI", "explainability", circle]
+        }, gate="governance", behavioral_type="observability")
 
 
 def _parse_cli_json(value: str) -> dict:

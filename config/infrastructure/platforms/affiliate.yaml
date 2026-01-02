@@ -1,0 +1,117 @@
+# Affiliate Marketing Platform Deployment
+# Target VM: affiliate (10.20.0.23)
+# SLA: 99.9% availability, real-time commission tracking
+version: '3.8'
+
+services:
+  affiliate-api:
+    build:
+      context: ./affiliate
+      dockerfile: Dockerfile.api
+    image: affiliate-platform:api
+    container_name: affiliate-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DATABASE_URL=postgresql://affiliate:${AFFILIATE_DB_PASSWORD:-AffSecure123!}@affiliate-postgres:5432/affiliate
+      - REDIS_URL=redis://affiliate-redis:6379
+      - JWT_SECRET=${JWT_SECRET:-super-secret-jwt-key-change-me}
+      - COMMISSION_WEBHOOK_SECRET=${COMMISSION_WEBHOOK_SECRET}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - PROMETHEUS_METRICS=true
+    volumes:
+      - affiliate_logs:/app/logs
+    networks:
+      - affiliate-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+    labels:
+      - "com.stx.platform=affiliate"
+      - "com.stx.role=affiliate-marketing"
+      - "traefik.enable=true"
+      - "traefik.http.routers.affiliate.rule=Host(`affiliate.interface.tag.ooo`)"
+
+  affiliate-worker:
+    build:
+      context: ./affiliate
+      dockerfile: Dockerfile.worker
+    image: affiliate-platform:worker
+    container_name: affiliate-worker
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://affiliate:${AFFILIATE_DB_PASSWORD:-AffSecure123!}@affiliate-postgres:5432/affiliate
+      - REDIS_URL=redis://affiliate-redis:6379
+      - COMMISSION_PROCESSING_INTERVAL=60000
+    volumes:
+      - affiliate_logs:/app/logs
+    networks:
+      - affiliate-net
+    depends_on:
+      - affiliate-api
+      - affiliate-redis
+
+  affiliate-dashboard:
+    build:
+      context: ./affiliate
+      dockerfile: Dockerfile.dashboard
+    image: affiliate-platform:dashboard
+    container_name: affiliate-dashboard
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      - API_URL=http://affiliate-api:3000
+    networks:
+      - affiliate-net
+    depends_on:
+      - affiliate-api
+
+  affiliate-postgres:
+    image: postgres:15-alpine
+    container_name: affiliate-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=affiliate
+      - POSTGRES_PASSWORD=${AFFILIATE_DB_PASSWORD:-AffSecure123!}
+      - POSTGRES_DB=affiliate
+    volumes:
+      - affiliate_postgres_data:/var/lib/postgresql/data
+      - ./init-scripts/affiliate.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - affiliate-net
+
+  affiliate-redis:
+    image: redis:7-alpine
+    container_name: affiliate-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb
+    volumes:
+      - affiliate_redis_data:/data
+    networks:
+      - affiliate-net
+
+networks:
+  affiliate-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.24.0.0/24
+
+volumes:
+  affiliate_logs:
+  affiliate_postgres_data:
+  affiliate_redis_data:
+

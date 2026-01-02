@@ -1,0 +1,185 @@
+# Prometheus Alerting Rules for Canary Release Monitoring
+# Ubuntu 22.04 Migration - Integrated with bounded reasoning framework
+# Version: 1.0.0
+
+groups:
+  - name: canary_release_alerts
+    interval: 30s
+    rules:
+      # =======================================================================
+      # ERROR RATE ALERTS (Threshold: 1% triggers rollback)
+      # =======================================================================
+      - alert: CanaryErrorRateHigh
+        expr: |
+          (
+            sum(rate(http_requests_total{backend="canary", status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{backend="canary"}[5m]))
+          ) > 0.01
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+          rollback: automatic
+          risk_id: RISK-CANARY-001
+        annotations:
+          summary: "Canary error rate exceeds 1% threshold"
+          description: "Canary backend error rate is {{ $value | humanizePercentage }}, exceeding the 1% rollback threshold. Automatic rollback will be triggered."
+          runbook_url: "https://docs.interface.tag.ooo/runbooks/canary-rollback"
+          dashboard_url: "https://grafana.interface.tag.ooo/d/canary-release"
+
+      - alert: CanaryErrorRateElevated
+        expr: |
+          (
+            sum(rate(http_requests_total{backend="canary", status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total{backend="canary"}[5m]))
+          ) > 0.005
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Canary error rate elevated (>0.5%)"
+          description: "Canary backend error rate is {{ $value | humanizePercentage }}. Monitor closely - rollback threshold is 1%."
+
+      # =======================================================================
+      # LATENCY ALERTS (Threshold: P99 > 500ms triggers rollback)
+      # =======================================================================
+      - alert: CanaryLatencyP99High
+        expr: |
+          histogram_quantile(0.99, 
+            sum(rate(http_request_duration_seconds_bucket{backend="canary"}[5m])) 
+            by (le)
+          ) * 1000 > 500
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          rollback: automatic
+          risk_id: RISK-CANARY-001
+        annotations:
+          summary: "Canary P99 latency exceeds 500ms threshold"
+          description: "Canary backend P99 latency is {{ $value | humanize }}ms, exceeding the 500ms rollback threshold."
+          runbook_url: "https://docs.interface.tag.ooo/runbooks/canary-rollback"
+
+      - alert: CanaryLatencyP99Elevated
+        expr: |
+          histogram_quantile(0.99, 
+            sum(rate(http_request_duration_seconds_bucket{backend="canary"}[5m])) 
+            by (le)
+          ) * 1000 > 400
+        for: 3m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Canary P99 latency elevated (>400ms)"
+          description: "Canary backend P99 latency is {{ $value | humanize }}ms. Approaching rollback threshold of 500ms."
+
+      - alert: CanaryLatencyP50High
+        expr: |
+          histogram_quantile(0.50, 
+            sum(rate(http_request_duration_seconds_bucket{backend="canary"}[5m])) 
+            by (le)
+          ) * 1000 > 100
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Canary P50 latency elevated (>100ms)"
+          description: "Canary backend median latency is {{ $value | humanize }}ms."
+
+      # =======================================================================
+      # COMPLIANCE ALERTS (Threshold: <95% blocks promotion)
+      # =======================================================================
+      - alert: CanaryComplianceScoreLow
+        expr: canary_compliance_score < 95
+        for: 5m
+        labels:
+          severity: critical
+          team: security
+          promotion: blocked
+        annotations:
+          summary: "Canary compliance score below 95%"
+          description: "CIS Benchmark compliance score is {{ $value }}%, below the 95% production threshold. Promotion blocked."
+          runbook_url: "https://docs.interface.tag.ooo/runbooks/compliance-remediation"
+
+      - alert: CanaryComplianceScanFailed
+        expr: canary_compliance_scan_status != 1
+        for: 10m
+        labels:
+          severity: warning
+          team: security
+        annotations:
+          summary: "Canary compliance scan failed or stale"
+          description: "Compliance scanner has not reported success in the last 10 minutes."
+
+      # =======================================================================
+      # STARLINGX INFRASTRUCTURE ALERTS
+      # =======================================================================
+      - alert: StarlingXContainerdDown
+        expr: starlingx_containerd_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: infrastructure
+          host: starlingx
+        annotations:
+          summary: "StarlingX containerd is down"
+          description: "containerd service on StarlingX (23.92.79.2) is not responding."
+
+      - alert: StarlingXVMNotRunning
+        expr: starlingx_vm_status{name="ubuntu-test"} != 1
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "Ubuntu 22.04 test VM not running"
+          description: "The ubuntu-test VM on StarlingX is not in running state."
+
+      # =======================================================================
+      # TRAFFIC SPLIT ALERTS
+      # =======================================================================
+      - alert: CanaryTrafficImbalance
+        expr: |
+          abs(
+            (sum(rate(http_requests_total{backend="canary"}[5m])) / sum(rate(http_requests_total[5m])))
+            - canary_expected_traffic_percentage
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Canary traffic differs from expected"
+          description: "Actual canary traffic differs from expected by more than 5%."
+
+      - alert: CanaryNoTraffic
+        expr: sum(rate(http_requests_total{backend="canary"}[5m])) == 0
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "No traffic to canary backend"
+          description: "Canary backend is receiving no traffic. Check nginx configuration."
+
+      # =======================================================================
+      # BUSINESS METRICS ALERTS
+      # =======================================================================
+      - alert: CanaryBusinessMetricDegraded
+        expr: |
+          (
+            (canary_conversion_rate - stable_conversion_rate) / stable_conversion_rate
+          ) < -0.05
+        for: 10m
+        labels:
+          severity: warning
+          team: product
+        annotations:
+          summary: "Canary conversion rate degraded >5%"
+          description: "Business conversion rate on canary is {{ $value | humanizePercentage }} lower than stable."
+

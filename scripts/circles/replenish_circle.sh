@@ -19,14 +19,14 @@ fi
 echo "🔄 Replenishing Circle: $CIRCLE"
 
 # Log observability pattern
-python3 "$PROJECT_ROOT/scripts/agentic/pattern_logger.py" "replenish_circle" --data "{\"circle\": \"$CIRCLE\"}" --mode "mutate"
+START_MS=$(python3 -c 'import time; print(int(time.time() * 1000))')
 
 # 1. Replenish: Add new items from QUICK_WINS.md
 # replenish_manager.py finds the correct backlogs for the circle
 echo "--- Step 1: Adding New Insights ---"
 python3 "$PROJECT_ROOT/scripts/circles/replenish_manager.py" "$CIRCLE" "$@"
 
-# Find backlog files. 
+# Find backlog files.
 CIRCLE_DIR="$PROJECT_ROOT/circles/$CIRCLE" # Simplified path assumption
 # Or try the deep path structure
 DEEP_DIR="$PROJECT_ROOT/investing/agentic-flow/circles/$CIRCLE"
@@ -47,3 +47,11 @@ find "$SEARCH_ROOT" -name "backlog.md" | while read backlog; do
     # Pass --circle explicitly for Adaptive Schema validation
     python3 "$PROJECT_ROOT/scripts/circles/wsjf_calculator.py" "$backlog" --circle "$CIRCLE" "$@"
 done
+
+END_MS=$(python3 -c 'import time; print(int(time.time() * 1000))')
+DURATION_MS=$((END_MS - START_MS))
+
+# Log observability pattern with duration
+python3 "$PROJECT_ROOT/scripts/agentic/pattern_logger.py" "replenish_circle" \
+  --data "{\"circle\": \"$CIRCLE\", \"duration_ms\": $DURATION_MS, \"action_completed\": true}" \
+  --mode "mutate"

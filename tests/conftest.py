@@ -23,8 +23,15 @@ Usage:
     AF_ENV=dev pytest -m "env_dev or env_local"
 """
 import os
-import pytest
+import sys
 from pathlib import Path
+
+import pytest
+
+
+PROJECT_ROOT = Path(__file__).parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
 
 def pytest_configure(config):

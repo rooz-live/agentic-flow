@@ -10,6 +10,17 @@
  * 6. observability_first - Metrics-driven execution
  */
 /**
+ * Alignment Score - Manthra/Yasna/Mithra Framework (P1-B Spiritual Dimension Recovery)
+ * Tracks thought-word-action consistency for philosophical integrity
+ */
+export interface AlignmentScore {
+    manthra_score: number;
+    yasna_score: number;
+    mithra_score: number;
+    overall_drift: number;
+    consequence_tracked: boolean;
+}
+/**
  * Base interface for all pattern metrics
  * All patterns must include these core fields
  */
@@ -21,6 +32,9 @@ export interface PatternMetric {
     run_id?: string;
     iteration?: number;
     circle?: string;
+    alignment_score?: AlignmentScore;
+    action_completed?: boolean;
+    consequence?: string;
     [key: string]: any;
 }
 /**
@@ -109,7 +123,22 @@ export declare class PatternLogger {
     private getCurrentRunId;
     private getCurrentIteration;
     private getCurrentCircle;
+    /**
+     * Compute alignment score using Manthra/Yasna/Mithra framework
+     * P1-B: Spiritual Dimension Recovery implementation
+     *
+     * @param intent - The declared intention (thought-power)
+     * @param policy - The governing policy/rule (structured action)
+     * @param evidence - The actual outcome/evidence (binding force)
+     * @param hasConsequence - Whether the outcome was tracked
+     */
+    computeAlignmentScore(intent: string | undefined, policy: string | undefined, evidence: boolean | undefined, hasConsequence?: boolean): AlignmentScore;
     private getBaseMetric;
+    /**
+     * Enhanced base metric with alignment score
+     * P1-B: Automatically compute spiritual dimension tracking
+     */
+    private getAlignedBaseMetric;
     private writeMetric;
     /**
      * Log safe_degrade pattern event
@@ -194,5 +223,30 @@ export declare function logRiskPrioritization(owner: string, p0Count: number): P
  * Log prod-cycle observability validation
  */
 export declare function logProdCycleObservability(metricsCount: number, missing: string[]): Promise<void>;
+/**
+ * P1-B: Log pattern with full Manthra/Yasna/Mithra alignment tracking
+ * Use this for patterns that need spiritual dimension recovery
+ *
+ * @param pattern - Pattern name
+ * @param data - Pattern-specific data
+ * @param alignment - Alignment context (intent, policy, outcome, consequence)
+ */
+export declare function logAlignedPattern(pattern: string, data: Record<string, any>, alignment: {
+    intent: string;
+    policy: string;
+    completed: boolean;
+    consequence: string;
+}): Promise<void>;
+/**
+ * P2-B: Calculate vigilance metrics from existing patterns
+ * Returns vigilance score and deficit analysis
+ */
+export declare function calculateVigilanceMetrics(patterns: PatternMetric[]): {
+    vigilance_score: number;
+    deficit: number;
+    patterns_with_consequence: number;
+    total_patterns: number;
+    avg_consequence_awareness: number;
+};
 export default PatternLogger;
 //# sourceMappingURL=pattern_logger.d.ts.map

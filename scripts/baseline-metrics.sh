@@ -6,7 +6,7 @@
 #
 # Usage: ./scripts/baseline-metrics.sh [--output <file>] [--format <json|markdown>]
 
-set -euo pipefail
+set -u
 
 # Configuration
 OUTPUT_FILE="logs/baseline-metrics-$(date +%Y%m%d-%H%M%S).json"
@@ -44,9 +44,11 @@ echo ""
 echo "Collecting system metrics..."
 CPU_CORES=$(sysctl -n hw.ncpu 2>/dev/null || nproc)
 TOTAL_MEM=$(sysctl -n hw.memsize 2>/dev/null || free -b | awk '/Mem:/ {print $2}')
-LOAD_1MIN=$(uptime | awk -F'load average:' '{print $2}' | cut -d, -f1 | xargs)
-LOAD_5MIN=$(uptime | awk -F'load average:' '{print $2}' | cut -d, -f2 | xargs)
-LOAD_15MIN=$(uptime | awk -F'load average:' '{print $2}' | cut -d, -f3 | xargs)
+# Robust load average parsing
+LOAD_AVG=$(uptime | awk -F'load average[s]*:' '{print $2}' | sed 's/,/ /g')
+LOAD_1MIN=$(echo "$LOAD_AVG" | awk '{print $1}')
+LOAD_5MIN=$(echo "$LOAD_AVG" | awk '{print $2}')
+LOAD_15MIN=$(echo "$LOAD_AVG" | awk '{print $3}')
 
 # Git metrics
 echo "Collecting git metrics..."
@@ -63,7 +65,8 @@ TOTAL_FILES=$(git ls-files | wc -l | xargs)
 TS_FILES=$(git ls-files '*.ts' '*.tsx' | wc -l | xargs)
 JS_FILES=$(git ls-files '*.js' '*.jsx' | wc -l | xargs)
 TEST_FILES=$(git ls-files '*test.ts' '*test.js' '*spec.ts' '*spec.js' | wc -l | xargs)
-TOTAL_LINES=$(git ls-files -z | xargs -0 wc -l 2>/dev/null | tail -1 | awk '{print $1}')
+# Only count lines in text-based source files to avoid binary issues
+TOTAL_LINES=$(git ls-files | grep -E '\.(ts|tsx|js|jsx|py|sh|md|json|yml|yaml|css|html|txt)$' | xargs cat 2>/dev/null | grep -v '^$' | grep -v '^[[:space:]]*//' | grep -v '^[[:space:]]*#' | wc -l | xargs)
 
 # Governor metrics
 echo "Collecting governor metrics..."

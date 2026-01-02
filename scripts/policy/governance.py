@@ -1577,6 +1577,28 @@ class GovernanceMiddleware:
         # Pattern 3: Autocommit Shadow
         if self.args.dry_run:
             env["AF_PROD_SHADOW_MODE"] = "1"
+
+            # Log autocommit-shadow telemetry
+            self.telemetry.log_pattern_event({
+                "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "run": "prod-cycle",
+                "run_id": self.run_id,
+                "iteration": self.current_iteration,
+                "circle": self.active_circle,
+                "depth": self.current_depth,
+                "pattern": "autocommit-shadow",
+                "mode": "shadow",
+                "mutation": False,
+                "gate": "commit",
+                "framework": "",
+                "scheduler": "",
+                "tags": ["Governance"],
+                "economic": {"cod": 0.0, "wsjf_score": 0.0},
+                "reason": "dry-run-enabled",
+                "action": "suppress-commit",
+            })
+            self.observability_metrics_written += 1
+
             # In shadow mode, we might want to disable actual commits in af or rely on af to handle shadow flag
             # The design says: "If enabled, cmd_commit prints ... but does not run git commit"
             # We pass this down via ENV.

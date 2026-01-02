@@ -1,0 +1,323 @@
+#!/bin/bash
+set -e
+
+# --- Configuration ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -z "$PROJECT_ROOT" ]; then
+  export PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+fi
+
+export PYTHONPATH="$SCRIPT_DIR:$PROJECT_ROOT:$PYTHONPATH"
+export AF_RUN_ID=${AF_RUN_ID:-$(uuidgen | tr '[:upper:]' '[:lower:]')}
+export AF_PROD_OBSERVABILITY_FIRST=${AF_PROD_OBSERVABILITY_FIRST:-1}
+
+if [ -z "${AF_ENV:-}" ]; then
+  if [ -f "$PROJECT_ROOT/.goalie/af_env" ]; then
+    AF_ENV="$(cat "$PROJECT_ROOT/.goalie/af_env" | tr -d ' \t\r\n')"
+  else
+    AF_ENV="local"
+  fi
+fi
+
+export AF_ENV
+case "$AF_ENV" in
+  local|dev|stg|prod)
+    ;;
+  *)
+    echo "Error: Invalid AF_ENV '$AF_ENV'. Valid choices are: local, dev, stg, prod" >&2
+    exit 1
+    ;;
+esac
+
+if [ "$AF_ENV" = "prod" ]; then
+  export AF_FORCE_MODE=${AF_FORCE_MODE:-advisory}
+  export AF_NO_DEPLOY=1
+  export AF_ALLOW_CODE_AUTOCOMMIT=0
+  export AF_FULL_CYCLE_AUTOCOMMIT=0
+  export AF_AUTOCOMMIT_SHADOW=0
+elif [ "$AF_ENV" = "dev" ]; then
+  export AF_NO_DEPLOY=1
+  export AF_ALLOW_CODE_AUTOCOMMIT=0
+  export AF_FULL_CYCLE_AUTOCOMMIT=0
+  export AF_AUTOCOMMIT_SHADOW=${AF_AUTOCOMMIT_SHADOW:-1}
+elif [ "$AF_ENV" = "local" ]; then
+  export AF_AUTOCOMMIT_SHADOW=${AF_AUTOCOMMIT_SHADOW:-1}
+elif [ "$AF_ENV" = "stg" ]; then
+  export AF_AUTOCOMMIT_SHADOW=${AF_AUTOCOMMIT_SHADOW:-1}
+  if [ "${AF_CI_GREEN:-0}" != "1" ] && [ "${AF_BREAK_GLASS:-0}" != "1" ]; then
+    export AF_NO_DEPLOY=1
+  fi
+fi
+
+# Ensure Goalie directories exist
+mkdir -p "$PROJECT_ROOT/.goalie/hooks"
+
+function af_break_glass_require() {
+    local blocked_cmd="$1"
+    local why="$2"
+    local rerun_cmd="$3"
+
+    if [ "${AF_BREAK_GLASS:-0}" != "1" ]; then
+        echo "❌ Blocked command: $blocked_cmd" >&2
+        echo "Reason (high-risk): $why" >&2
+        echo "" >&2
+        echo "To proceed (explicit break-glass), re-run with:" >&2
+        echo "  AF_BREAK_GLASS=1 AF_BREAK_GLASS_REASON=\"...\" AF_CHANGE_TICKET=\"...\" $rerun_cmd" >&2
+        echo "  OR" >&2
+        echo "  AF_BREAK_GLASS=1 AF_BREAK_GLASS_REASON=\"...\" AF_CAB_APPROVAL_ID=\"...\" $rerun_cmd" >&2
+        echo "" >&2
+        echo "Required context fields:" >&2
+        echo "  - AF_BREAK_GLASS_REASON: free-text justification" >&2
+        echo "  - AF_CHANGE_TICKET (or AF_CAB_APPROVAL_ID): change ticket / CAB approval reference" >&2
+        exit 1
+    fi
+
+    if [ -z "${AF_BREAK_GLASS_REASON:-}" ] || ( [ -z "${AF_CHANGE_TICKET:-}" ] && [ -z "${AF_CAB_APPROVAL_ID:-}" ] ); then
+        echo "❌ Break-glass requires AF_BREAK_GLASS_REASON and either AF_CHANGE_TICKET or AF_CAB_APPROVAL_ID" >&2
+        echo "Rerun with:" >&2
+        echo "  AF_BREAK_GLASS=1 AF_BREAK_GLASS_REASON=\"...\" AF_CHANGE_TICKET=\"...\" $rerun_cmd" >&2
+        echo "  OR" >&2
+        echo "  AF_BREAK_GLASS=1 AF_BREAK_GLASS_REASON=\"...\" AF_CAB_APPROVAL_ID=\"...\" $rerun_cmd" >&2
+        exit 1
+    fi
+
+    if [ -t 0 ] && [ "${AF_BREAK_GLASS_INTERACTIVE_CONFIRM:-1}" = "1" ]; then
+        local short_sha=""
+        short_sha=$(git -C "$PROJECT_ROOT" rev-parse --short=6 HEAD 2>/dev/null || true)
+
+        echo -n "BREAK-GLASS CONFIRMATION: type PROD to continue: " >&2
+        read -r _confirm_prod
+        if [ "${_confirm_prod:-}" != "PROD" ]; then
+            echo "Aborted (break-glass confirmation failed)." >&2
+            exit 1
+        fi
+
+        if [ -n "$short_sha" ]; then
+            echo -n "Type $short_sha to confirm git SHA: " >&2
+            read -r _confirm_sha
+            if [ "${_confirm_sha:-}" != "$short_sha" ]; then
+                echo "Aborted (git SHA confirmation failed)." >&2
+                exit 1
+            fi
+        fi
+    fi
+
+    local audit="$PROJECT_ROOT/.goalie/break_glass_audit.jsonl"
+    local ts sha dirty user host
+    ts=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    sha=$(git -C "$PROJECT_ROOT" rev-parse HEAD 2>/dev/null || echo "")
+    dirty=$(git -C "$PROJECT_ROOT" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+    user=$(whoami 2>/dev/null || echo "")
+    host=$(hostname 2>/dev/null || echo "")
+
+    echo "{\"ts\":\"$ts\",\"action\":\"break_glass\",\"af_env\":\"$AF_ENV\",\"blocked_cmd\":\"$blocked_cmd\",\"why\":\"$why\",\"rerun_cmd\":\"$rerun_cmd\",\"reason\":\"${AF_BREAK_GLASS_REASON}\",\"change_ticket\":\"${AF_CHANGE_TICKET}\",\"cab_approval_id\":\"${AF_CAB_APPROVAL_ID:-}\",\"git_sha\":\"$sha\",\"git_dirty_count\":${dirty:-0},\"user\":\"$user\",\"host\":\"$host\"}" >> "$audit"
+}
+
+function af_confirm_remote_require() {
+    local blocked_cmd="$1"
+    local why="$2"
+    local rerun_cmd="$3"
+
+    if [ "${AF_CONFIRM_REMOTE:-0}" != "1" ]; then
+        echo "❌ Blocked command: $blocked_cmd" >&2
+        echo "Reason: $why" >&2
+        echo "" >&2
+        echo "To proceed (explicit remote confirmation), re-run with:" >&2
+        echo "  AF_CONFIRM_REMOTE=1 $rerun_cmd" >&2
+        exit 1
+    fi
+}
+
+function af_run_with_watchdog() {
+    local label="$1"
+    shift
+
+    if [ "${AF_WATCHDOG_NESTED:-0}" = "1" ]; then
+        "$@"
+        return $?
+    fi
+
+    local mode="${AF_WATCHDOG_MODE:-auto}"
+    if [ "$mode" = "off" ] || [ "$mode" = "0" ]; then
+        "$@"
+        return $?
+    fi
+
+    local log_file="$PROJECT_ROOT/.goalie/$label.log"
+    local pid_file="$PROJECT_ROOT/.goalie/$label.pid"
+    local last_size=0
+    local use_pty=0
+
+    if [ -f "$log_file" ]; then
+        rm "$log_file"
+    fi
+
+    if [ -f "$pid_file" ]; then
+        rm "$pid_file"
+    fi
+
+    if [ -t 0 ]; then
+        use_pty=1
+    fi
+
+    local child_pid
+    if command -v setsid >/dev/null 2>&1; then
+        if [ "$use_pty" -eq 1 ]; then
+            setsid env AF_WATCHDOG_NESTED=1 AF_WATCHDOG_MODE=off script -q /dev/null "$@" >>"$log_file" 2>&1 &
+        else
+            setsid env AF_WATCHDOG_NESTED=1 AF_WATCHDOG_MODE=off "$@" >>"$log_file" 2>&1 &
+        fi
+    else
+        if [ "$use_pty" -eq 1 ]; then
+            env AF_WATCHDOG_NESTED=1 AF_WATCHDOG_MODE=off script -q /dev/null "$@" >>"$log_file" 2>&1 &
+        else
+            env AF_WATCHDOG_NESTED=1 AF_WATCHDOG_MODE=off "$@" >>"$log_file" 2>&1 &
+        fi
+    fi
+    child_pid=$!
+    echo "$child_pid" > "$pid_file"
+    echo "[watchdog] pid=$child_pid pid_file=$pid_file"
+
+    while kill -0 "$child_pid" 2>/dev/null; do
+        local size
+        size=$(wc -c <"$log_file" 2>/dev/null | tr -d '[:space:]')
+        size="${size:-0}"
+
+        if [ "$size" != "$last_size" ]; then
+            last_size="$size"
+            echo "[watchdog] $label log_size=$size"
+        fi
+        sleep 2
+    done
+
+    wait "$child_pid" || true
+    local ec=$?
+    echo "[watchdog] $label exit_code=$ec"
+    return $ec
+}
+
+# ... rest of the script remains the same ...
+                    echo "Error: .goalie/evidence.jsonl not found"
+                    exit 1
+                fi
+                ;;
+            *)
+                echo "Usage: $0 evidence {collect|assess|list|enable|disable|view} [OPTIONS]"
+                echo ""
+                echo "Evidence Commands:"
+                echo "  collect  --phase <phase> --circle <circle> --run-id <id>  - Collect evidence"
+                echo "  assess   [--run-id <id>] [--recent N]                      - Assess graduation"
+                echo "  list                                                        - List emitters"
+                echo "  enable   <emitter_name>                                     - Enable emitter"
+                echo "  disable  <emitter_name>                                     - Disable emitter"
+                echo "  view     <run_id>                                          - View evidence"
+                exit 1
+                ;;
+        esac
+        ;;
+
+    *)
+        echo "Usage: $0 {COMMAND} [OPTIONS]"
+        echo ""
+        echo "Core Commands:"
+        echo "  env                     - Manage environment selection for af + Claude MCP"
+        echo "    set {local|dev|stg|prod} - Persist AF_ENV, update active .claude/mcp.json, append .goalie audit"
+        echo "    show                  - Show current AF_ENV selection"
+        echo "    list                  - List supported environments"
+        echo "  aqe                     - AQE CLI helpers (secondary path; MCP server remains primary)"
+        echo "    init [--best-effort]  - Ensure .agentic-qe/memory.db exists and run 'npx aqe init'"
+        echo "    status                - Best-effort AQE fleet/learning status"
+        echo "  prod                    - Adaptive orchestrator (rotates cycle→swarm with needs assessment)"
+        echo "    --rotations N         - Maximum rotations (default: 3)"
+        echo "    --mode MODE           - Cycle mode: advisory, mutate, enforcement (default: advisory)"
+        echo "    --assess-only         - Only run needs assessment, don't execute"
+        echo "    --multipass           - Run preflight cycle+swarm with small iters to catch regressions early"
+        echo "    --preflight-iters N   - Preflight iters when --multipass is set (default: 5)"
+        echo "    --ledger-run          - Collect optional revenue attribution (ledger) metrics for this run"
+        echo "    --ledger-hours N      - Hours of data to include for ledger metrics (default: 6)"
+        echo "    --swarm-auto-compare  - When running prod-swarm from af prod, also pass --auto-compare"
+        echo "    --progress-tooltip MODE - Progress helper output: off|compact|rich|json|write-status-file"
+        echo "    --progress-status-file PATH - Status file path for write-status-file mode"
+        echo "    --report-md           - Write a postable Markdown report under .goalie/"
+        echo "    --report-md-path PATH - Output path for --report-md"
+        echo "    --with-monitoring     - Run full monitoring workflow after production cycles"
+        echo "    --with-build-orchestrator [MODE] - Run scripts/build-orchestrator.sh preflight (MODE: full|quick|test-only|validate)"
+        echo "    --with-dev-workflow [PHASE] - Run development workflow after prod (phases: swarm|integration|rust|tests|all)"
+        echo "    --json                - Output JSON format"
+        echo ""
+        echo "  prod-cycle              - Run production cycle with WSJF prioritization"
+        echo "    --with-health-check   - Run pre-cycle health check (quick-health)"
+        echo "    --with-evidence-assess - Run post-cycle graduation assessment"
+        echo "    --with-full-workflow  - Enable both pre-check and post-assess"
+        echo "    --with-build-orchestrator [MODE] - Run scripts/build-orchestrator.sh preflight (MODE: full|quick|test-only|validate)"
+        echo ""
+        echo "  prod-swarm              - Run production swarm comparison and analysis"
+        echo "    --default-emitters    - Use curated emitter set (revenue-safe + tier-depth + gaps + intent-coverage)"
+        echo "    --auto-compare        - Auto-run swarm-compare after saving table"
+        echo "    --ab-test             - Run A/B test comparing two configurations"
+        echo "    --winner-grade        - Print winner-grade assessment at end"
+        echo "    --with-health-check   - Run pre-swarm health check"
+        echo "    --with-evidence-assess - Run post-swarm graduation assessment"
+        echo "    --with-full-workflow  - Enable both pre-check and post-assess"
+        echo ""
+        echo "Analysis & Insights:"
+        echo "  pattern-stats           - View pattern metrics and statistics"
+        echo "  swarm-compare           - Compare three prod-swarm TSV tables (prior/current/auto-ref)"
+        echo "  goalie-gaps             - Detect observability gaps (goalie readiness)"
+        echo "  pattern-coverage        - Report pattern instrumentation coverage"
+        echo "  actionable-context      - Generate actionable context insights"
+        echo "  allocation-efficiency   - Analyze allocation efficiency metrics"
+        echo "  execution-velocity      - Analyze execution velocity metrics"
+        echo "  flow-efficiency        - Analyze flow efficiency metrics"
+        echo "  revenue-impact          - Analyze revenue impact metrics"
+        echo "  intent-coverage         - Calculate prompt intent coverage (pattern hit%)"
+        echo ""
+        echo "Goalie Artifacts:"
+        echo "  goalie-metrics          - View .goalie/metrics artifact"
+        echo "  goalie-insights         - View .goalie/insights artifact"
+        echo "  goalie-cycle-log       - View .goalie/cycle-log artifact"
+        echo "  goalie-actions          - View .goalie/actions artifact"
+        echo "  goalie-board            - View .goalie/board artifact"
+        echo ""
+        echo "WSJF & Prioritization:"
+        echo "  wsjf                    - View WSJF scores for all items"
+        echo "  wsjf-top                - Show top WSJF items"
+        echo "  wsjf-by-circle          - Show WSJF scores by circle"
+        echo "  wsjf-replenish          - Replenish with WSJF calculation"
+        echo ""
+        echo "Evidence & Graduation:"
+        echo "  evidence collect        - Collect evidence from emitters"
+        echo "  evidence assess         - Assess autocommit graduation readiness"
+        echo "  evidence list           - List available emitters and thresholds"
+        echo "  evidence enable         - Enable an emitter"
+        echo "  evidence disable        - Disable an emitter"
+        echo "  evidence view           - View evidence for a run"
+        echo ""
+        echo "Global Options:"
+        echo "  --json                  - Output JSON format"
+        echo "  --help                  - Show this help message"
+        echo "  --version               - Show version information"
+        echo ""
+        echo "Examples:"
+        echo "  # Adaptive rotation (recommended)"
+        echo "  $0 prod --rotations 3 --mode advisory"
+        echo ""
+        echo "  # Basic prod-cycle"
+        echo "  $0 prod-cycle --mode advisory --iterations 25"
+        echo ""
+        echo "  # Full workflow with health checks and graduation assessment"
+        echo "  $0 prod-cycle --mode advisory --iterations 25 --with-full-workflow --json"
+        echo ""
+        echo "  # Production swarm with full workflow"
+        echo "  $0 prod-swarm --golden-iters 25 --with-full-workflow --default-emitters"
+        echo ""
+        echo "  # A/B testing"
+        echo "  $0 prod-swarm --ab-test --variant-a-iters 25 --variant-b-iters 100 --ab-reps 3"
+        echo ""
+        echo "  # Other commands"
+        echo "  $0 swarm-compare --prior prior.tsv --current current.tsv --auto-ref autoref.tsv --json"
+        echo "  $0 actionable-context --json"
+        echo "  $0 wsjf-top 10 --json"
+        exit 1
+        ;;
+esac

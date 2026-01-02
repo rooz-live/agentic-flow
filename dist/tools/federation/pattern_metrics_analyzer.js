@@ -73,18 +73,40 @@ class PatternMetricsAnalyzer {
                 });
             }
         }
-        // Detect observability-first underuse
-        const observabilityMetrics = this.metrics.filter(m => m.pattern === 'observability-first');
-        const totalRuns = new Set(this.metrics.map(m => m.run_id)).size;
-        const observabilityCoverage = observabilityMetrics.length / Math.max(totalRuns, 1);
+        // Detect observability coverage (using behavioral_type, not pattern name)
+        // Count events that are observable: have behavioral_type === 'observability' OR have metrics
+        const observableEvents = this.metrics.filter(m => m.metadata?.behavioral_type === 'observability' ||
+            (m.data && m.data.metrics));
+        const totalEvents = this.metrics.length;
+        const observabilityCoverage = observableEvents.length / Math.max(totalEvents, 1);
+        // Also track the specific "observability-first" pattern for governance context
+        const observabilityFirstMetrics = this.metrics.filter(m => m.pattern === 'observability-first');
+        const governanceRuns = this.metrics.filter(m => m.run_kind === 'governance-agent').length;
         if (observabilityCoverage < 0.5) {
+            this.anomalies.push({
+                type: 'observability_gap',
+                pattern: 'observability',
+                severity: 'high',
+                description: `Only ${(observabilityCoverage * 100).toFixed(1)}% of events are observable (have behavioral_type=observability or metrics)`,
+                evidence: {
+                    coverage: observabilityCoverage,
+                    total_events: totalEvents,
+                    observable_events: observableEvents.length,
+                    governance_runs: governanceRuns,
+                    observability_first_count: observabilityFirstMetrics.length
+                },
+                recommendation: 'Increase observable event coverage by ensuring domain patterns include metrics or behavioral_type classification.'
+            });
+        }
+        // Separate check for governance-specific observability-first pattern
+        if (governanceRuns > 0 && observabilityFirstMetrics.length === 0) {
             this.anomalies.push({
                 type: 'pattern_underuse',
                 pattern: 'observability-first',
-                severity: 'critical',
-                description: `Observability-first pattern only used in ${(observabilityCoverage * 100).toFixed(1)}% of runs`,
-                evidence: { coverage: observabilityCoverage, total_runs: totalRuns },
-                recommendation: 'Add observability-first pattern events to all prod-cycle and full-cycle runs for complete telemetry coverage.'
+                severity: 'medium',
+                description: 'Observability-first pattern missing from governance runs',
+                evidence: { governance_runs: governanceRuns },
+                recommendation: 'Governance agent should emit observability-first pattern to track governance coverage.'
             });
         }
         // Detect mutation spikes
@@ -134,6 +156,76 @@ class PatternMetricsAnalyzer {
                     recommendation: 'Prioritize high-WSJF items to reduce COD. Consider increasing team capacity or reducing scope.'
                 });
             }
+        }
+        // Detect Security Audit Gaps (SEC-AUDIT-* / CVE-*)
+        const securityEvents = this.metrics.filter(m => m.pattern.startsWith('SEC-AUDIT-') || m.pattern.includes('CVE-'));
+        const cveEvents = this.metrics.filter(m => m.pattern.includes('CVE-'));
+        if (securityEvents.length === 0 && this.metrics.length > 20) {
+            this.anomalies.push({
+                type: 'pattern_underuse',
+                pattern: 'SEC-AUDIT-*',
+                severity: 'high',
+                description: 'No Security Audit patterns detected in recent activity.',
+                evidence: { total_events: this.metrics.length },
+                recommendation: 'Ensure security scanning (e.g. npm audit, dependabot) is integrated and emitting patterns.'
+            });
+        }
+        if (cveEvents.length > 0) {
+            this.anomalies.push({
+                type: 'pattern_overuse', // Using overuse to signal presence of bad things
+                pattern: 'CVE-*',
+                severity: 'critical',
+                description: `Detected ${cveEvents.length} CVE vulnerabilities.`,
+                evidence: { cves: cveEvents.map(m => m.pattern) },
+                recommendation: 'Immediate patch required for detected vulnerabilities.'
+            });
+        }
+        // Detect Circle Perspective Gaps
+        const circleKeywords = {
+            'Analyst': ['data', 'lineage', 'standard', 'quality'],
+            'Assessor': ['verify', 'assurance', 'audit', 'test'],
+            'Innovator': ['federation', 'wiring', 'investment', 'new'],
+            'Intuitive': ['observability', 'sensemaking', 'gap', 'monitoring'],
+            'Orchestrator': ['cadence', 'ceremony', 'prod-cycle', 'schedule'],
+            'Seeker': ['exploration', 'dependency', 'automation', 'research']
+        };
+        const activePerspectiveTypes = new Set();
+        // Naively classify patterns into perspectives
+        for (const m of this.metrics) {
+            for (const [perspective, keywords] of Object.entries(circleKeywords)) {
+                if (keywords.some(k => m.pattern.toLowerCase().includes(k))) {
+                    activePerspectiveTypes.add(perspective);
+                }
+            }
+        }
+        const missingPerspectives = Object.keys(circleKeywords).filter(p => !activePerspectiveTypes.has(p));
+        if (missingPerspectives.length > 2 && this.metrics.length > 50) {
+            this.anomalies.push({
+                type: 'behavioral_drift',
+                pattern: 'circle-perspective',
+                severity: 'medium',
+                description: `Missing perspectives: ${missingPerspectives.join(', ')}`,
+                evidence: { missing: missingPerspectives, active: Array.from(activePerspectiveTypes) },
+                recommendation: 'Diversify activity to include missing Circle Perspectives (e.g. run "Analyst" data checks or "Seeker" research).'
+            });
+        }
+        // Detect Depth Ladder Phase Tracking (PHASE-*)
+        const phaseEvents = this.metrics.filter(m => m.pattern.startsWith('PHASE-'));
+        if (phaseEvents.length > 0) {
+            // Just track them for now, maybe warn if out of order in future
+            const phases = Array.from(new Set(phaseEvents.map(m => m.pattern)));
+            // Example check: warn if PHASE-A-1 missing but PHASE-A-2 present?
+            // For now, simple presence check.
+        }
+        else if (this.metrics.length > 50) {
+            this.anomalies.push({
+                type: 'pattern_underuse',
+                pattern: 'PHASE-*',
+                severity: 'low',
+                description: 'No explicit Depth Ladder phases tracked.',
+                evidence: { total_events: this.metrics.length },
+                recommendation: 'Adopt explicit phase markers (e.g. PHASE-A-1) to improve maturity tracking.'
+            });
         }
     }
     proposeGovernanceAdjustments() {

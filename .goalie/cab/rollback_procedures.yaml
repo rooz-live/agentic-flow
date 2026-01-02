@@ -1,0 +1,187 @@
+# Rollback Procedures - Ubuntu 22.04 Canary Migration
+# Emergency Response Playbook
+# Version: 1.0.0
+
+metadata:
+  change_id: CHG-2025-12-31-001
+  last_updated: "2025-12-31"
+  owner: orchestrator_circle
+  review_required: true
+
+# =============================================================================
+# EMERGENCY CONTACTS
+# =============================================================================
+emergency_contacts:
+  primary_on_call:
+    role: Platform Engineer
+    contact: pagerduty://platform-oncall
+    response_sla: 5 minutes
+    
+  escalation_path:
+    - level: 1
+      role: On-Call Engineer
+      contact: pagerduty://primary
+      sla_minutes: 5
+      
+    - level: 2
+      role: Platform Team Lead
+      contact: pagerduty://platform-lead
+      sla_minutes: 15
+      
+    - level: 3
+      role: VP Engineering
+      contact: direct-call
+      sla_minutes: 30
+      
+  stakeholder_notification:
+    - channel: "#ops-alerts"
+      platform: Discord
+    - channel: "#engineering"
+      platform: Slack
+
+# =============================================================================
+# AUTOMATIC ROLLBACK PROCEDURE
+# =============================================================================
+automatic_rollback:
+  trigger_thresholds:
+    error_rate: 0.01          # 1%
+    latency_p99_ms: 500
+    consecutive_failures: 3
+    compliance_score_min: 90
+    
+  execution:
+    script: |
+      #!/bin/bash
+      # Automatic Rollback Script
+      set -e
+      
+      echo "🚨 AUTOMATIC ROLLBACK INITIATED"
+      echo "Timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      
+      # Step 1: Update nginx to route 100% to stable
+      sed -i 's/weight=[0-9]*;/weight=100;/1' /etc/nginx/sites-available/canary-split
+      sed -i 's/server canary-backend.*weight=[0-9]*;/server canary-backend.example.com weight=0;/' /etc/nginx/sites-available/canary-split
+      
+      # Step 2: Reload nginx
+      nginx -t && nginx -s reload
+      
+      # Step 3: Verify rollback
+      curl -s http://localhost/lb-health || exit 1
+      
+      # Step 4: Log to pattern metrics
+      echo '{"ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","pattern":"canary_rollback_complete","status":"success"}' >> .goalie/pattern_metrics.jsonl
+      
+      echo "✅ Rollback complete - all traffic on stable"
+    
+    estimated_duration: 2 minutes
+    validation_check: "curl -s http://localhost/health/stable | grep -q healthy"
+
+# =============================================================================
+# MANUAL ROLLBACK PROCEDURE
+# =============================================================================
+manual_rollback:
+  prerequisites:
+    - SSH access to load balancer (verified)
+    - Nginx configuration write access
+    - Monitoring dashboard access
+    
+  steps:
+    - step: 1
+      action: Confirm rollback decision
+      command: |
+        # Check current canary health
+        curl -s http://localhost:8081/health/canary
+        curl -s http://localhost:8081/health/stable
+      expected: "Canary unhealthy OR metrics exceed thresholds"
+      
+    - step: 2
+      action: Update nginx configuration
+      command: |
+        sudo vim /etc/nginx/sites-available/canary-split
+        # Change: weight=XX for canary to weight=0
+        # Change: weight=YY for stable to weight=100
+      verification: "grep 'weight=' /etc/nginx/sites-available/canary-split"
+      
+    - step: 3
+      action: Test nginx configuration
+      command: "sudo nginx -t"
+      expected: "syntax is ok, test is successful"
+      
+    - step: 4
+      action: Reload nginx
+      command: "sudo nginx -s reload"
+      verification: "sudo systemctl status nginx"
+      
+    - step: 5
+      action: Verify traffic routing
+      command: |
+        for i in {1..10}; do
+          curl -s -o /dev/null -w "%{http_code} %{time_total}s\n" http://app.interface.tag.ooo/
+        done
+      expected: "All requests return 200, served by stable backend"
+      
+    - step: 6
+      action: Update ROAM tracker
+      command: |
+        cat >> .goalie/ROAM_TRACKER.yaml << EOF
+          - event: CANARY_MANUAL_ROLLBACK
+            timestamp: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+            reason: "[FILL IN REASON]"
+            operator: "[FILL IN NAME]"
+        EOF
+      
+    - step: 7
+      action: Notify stakeholders
+      command: |
+        # Send Discord notification
+        curl -X POST "$DISCORD_WEBHOOK" \
+          -H "Content-Type: application/json" \
+          -d '{"content": "🚨 ROLLBACK COMPLETE: Ubuntu 22.04 canary migration rolled back. All traffic on stable."}'
+
+# =============================================================================
+# POST-ROLLBACK CHECKLIST
+# =============================================================================
+post_rollback_checklist:
+  immediate:
+    - Confirm stable backend serving 100% traffic
+    - Check error rates returning to baseline
+    - Verify no residual canary requests
+    
+  within_1_hour:
+    - Document root cause of rollback
+    - Review monitoring alerts
+    - Identify failed compliance rules
+    - Update ROAM tracker with findings
+    
+  within_24_hours:
+    - Conduct post-mortem meeting
+    - Update CAB documentation with learnings
+    - Adjust rollout thresholds if needed
+    - Plan remediation for next attempt
+
+# =============================================================================
+# RECOVERY PROCEDURES
+# =============================================================================
+recovery:
+  canary_backend_failure:
+    symptoms:
+      - HTTP 502/503 from canary
+      - containerd service crashed
+      - Container network unreachable
+    recovery:
+      - SSH to canary: ssh -p 2222 root@canary-backend
+      - Check containerd: systemctl status containerd
+      - Restart if needed: systemctl restart containerd
+      - Verify containers: ctr containers list
+      
+  nginx_failure:
+    symptoms:
+      - Load balancer unreachable
+      - Configuration syntax error
+      - SSL certificate issues
+    recovery:
+      - Check nginx: systemctl status nginx
+      - Test config: nginx -t
+      - Check logs: tail -f /var/log/nginx/error.log
+      - Restore backup: cp /etc/nginx/sites-available/canary-split.bak /etc/nginx/sites-available/canary-split
+

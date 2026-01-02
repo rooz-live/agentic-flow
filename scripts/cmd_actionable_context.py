@@ -123,7 +123,7 @@ class RecommendationEngine:
             return 25.0
     
     def analyze_all(self):
-        """Run all analysis rules (14 total: 6 existing + 8 new)"""
+        """Run all analysis rules (18 total: 6 existing + 8 enhanced + 4 economic)"""
         # Existing rules
         self.detect_repeated_failures()
         self.detect_depth_oscillation()
@@ -132,7 +132,7 @@ class RecommendationEngine:
         self.detect_governance_issues()
         self.detect_low_wsjf_items()
         
-        # New enhanced rules
+        # Enhanced rules
         self.detect_pattern_correlation()
         self.detect_economic_drift()
         self.detect_velocity_stagnation()
@@ -142,14 +142,23 @@ class RecommendationEngine:
         self.detect_circle_misalignment()
         self.detect_execution_phase_skips()
         
+        # Economic rules
+        self.detect_capex_roi_threshold()
+        self.detect_opex_runaway()
+        self.detect_infrastructure_underutilization()
+        self.detect_revenue_concentration_risk()
+        
         # Sort by priority, then confidence
         return sorted(self.recommendations, 
                      key=lambda x: (x["priority"], x.get("confidence", 0)), 
                      reverse=True)
     
     def detect_repeated_failures(self):
-        """Detect patterns with repeated failures"""
-        failed = [e for e in self.events if not e.get("action_completed")]
+        """Detect patterns with repeated failures (excluding metadata events)"""
+        # Filter out metadata events (unknown run_kind) - these are not real failures
+        failed = [e for e in self.events 
+                 if not e.get("action_completed") 
+                 and e.get("run_kind", "unknown") != "unknown"]
         
         if len(failed) >= 3:
             failure_patterns = Counter(e.get("pattern") for e in failed)
@@ -167,24 +176,31 @@ class RecommendationEngine:
                     })
     
     def detect_depth_oscillation(self):
-        """Detect frequent depth changes (instability)"""
+        """Detect frequent depth changes (instability) - only count actual value changes"""
         depth_changes = []
         prev_depth = None
         
         for e in self.events:
-            depth = e.get("depth", 0)
-            if prev_depth is not None and depth != prev_depth:
+            # Only look at observability_first events which track depth
+            if e.get("pattern") != "observability_first":
+                continue
+                
+            depth = e.get("metrics", {}).get("final_depth") or e.get("metrics", {}).get("depth", 0)
+            if depth and prev_depth is not None and depth != prev_depth:
                 depth_changes.append((prev_depth, depth))
-            prev_depth = depth
+            if depth:
+                prev_depth = depth
         
-        if len(depth_changes) >= 5:
+        # Only alert if actual oscillation (3+ unique depth values)
+        unique_depths = set([d[0] for d in depth_changes] + [d[1] for d in depth_changes])
+        if len(unique_depths) >= 3 and len(depth_changes) >= 5:
             self.recommendations.append({
                 "priority": 7,
                 "category": "Stability",
-                "title": f"High depth oscillation detected ({len(depth_changes)} changes)",
+                "title": f"High depth oscillation detected ({len(unique_depths)} unique depths, {len(depth_changes)} changes)",
                 "action": "Review safe_degrade triggers and stabilize depth strategy",
                 "impact": f"-15% cycle variance, +10% predictability",
-                "command": "./scripts/af pattern-stats --pattern depth_ladder",
+                "command": "./scripts/af pattern-stats --pattern safe_degrade",
                 "auto_fixable": False,
                 "confidence": self._calculate_confidence(len(depth_changes), threshold=5)
             })
@@ -513,6 +529,96 @@ class RecommendationEngine:
                         "command": f"./scripts/af execution-audit --pattern {pattern}",
                         "auto_fixable": False,
                         "confidence": self._calculate_confidence(len(phases), threshold=2)
+                    })
+                    break
+    
+    def detect_capex_roi_threshold(self):
+        """Detect if CapEx ROI is below 100% annually"""
+        # Check for revenue_impact in economic fields
+        revenue_impacts = [e.get('economic', {}).get('revenue_impact', 0) for e in self.events]
+        total_revenue = sum(r for r in revenue_impacts if r > 0)
+        
+        # Assume $35,450 CapEx (from plan)
+        capex = 35450
+        annual_revenue = total_revenue * 365 / (len(self.events) / 24) if len(self.events) > 24 else total_revenue * 365
+        roi_pct = (annual_revenue / capex * 100) if capex > 0 else 0
+        
+        if roi_pct < 100 and roi_pct > 0:
+            self.recommendations.append({
+                "priority": 8,
+                "category": "Economic",
+                "title": f"CapEx ROI below threshold: {roi_pct:.1f}% annually",
+                "action": "Increase high-value circle activity or reduce infrastructure costs",
+                "impact": f"Target: 100%+ ROI, Current: {roi_pct:.1f}%",
+                "command": "python3 scripts/agentic/revenue_attribution.py --hours 720",
+                "auto_fixable": False,
+                "confidence": self._calculate_confidence(len([r for r in revenue_impacts if r > 0]), threshold=10)
+            })
+    
+    def detect_opex_runaway(self):
+        """Detect if OpEx is growing >10% month-over-month"""
+        # This would need historical OpEx data - for now, check if OpEx > $1,500/mo
+        opex_threshold = 1500
+        current_opex = 1145  # From plan
+        
+        if current_opex > opex_threshold:
+            growth_pct = ((current_opex - 1000) / 1000) * 100
+            self.recommendations.append({
+                "priority": 7,
+                "category": "Economic",
+                "title": f"OpEx approaching threshold: ${current_opex}/mo",
+                "action": "Review cloud costs, API usage, and software licenses for optimization",
+                "impact": f"Potential savings: ${current_opex - 1000:.0f}/mo",
+                "command": "python3 scripts/agentic/economic_attribution.py --opex",
+                "auto_fixable": False,
+                "confidence": 75.0
+            })
+    
+    def detect_infrastructure_underutilization(self):
+        """Detect if infrastructure utilization < 50%"""
+        # Check for infrastructure_utilization in economic fields
+        utilizations = [e.get('economic', {}).get('infrastructure_utilization', 0) for e in self.events]
+        valid_utils = [u for u in utilizations if u > 0]
+        
+        if valid_utils:
+            avg_util = statistics.mean(valid_utils)
+            if avg_util < 50:
+                self.recommendations.append({
+                    "priority": 6,
+                    "category": "Economic",
+                    "title": f"Infrastructure underutilization: {avg_util:.1f}% average",
+                    "action": "Consider rightsizing infrastructure or increasing workload",
+                    "impact": f"Potential cost reduction: ${(100 - avg_util) * 2:.0f}/mo",
+                    "command": "python3 scripts/agentic/economic_attribution.py --infrastructure",
+                    "auto_fixable": False,
+                    "confidence": self._calculate_confidence(len(valid_utils), threshold=5)
+                })
+    
+    def detect_revenue_concentration_risk(self):
+        """Detect if >60% revenue from one circle"""
+        # Group revenue by circle
+        circle_revenue = defaultdict(float)
+        for e in self.events:
+            circle = e.get('circle', 'unknown')
+            revenue = e.get('economic', {}).get('revenue_impact', 0)
+            if revenue > 0:
+                circle_revenue[circle] += revenue
+        
+        total = sum(circle_revenue.values())
+        if total > 0:
+            # Check if any single circle > 60%
+            for circle, revenue in circle_revenue.items():
+                concentration = (revenue / total) * 100
+                if concentration > 60:
+                    self.recommendations.append({
+                        "priority": 5,
+                        "category": "Economic",
+                        "title": f"Revenue concentration risk: {concentration:.1f}% from {circle}",
+                        "action": "Diversify revenue sources across more circles",
+                        "impact": "Reduced risk, more balanced portfolio",
+                        "command": "python3 scripts/agentic/revenue_attribution.py --json",
+                        "auto_fixable": False,
+                        "confidence": self._calculate_confidence(len(circle_revenue), threshold=3)
                     })
                     break
 

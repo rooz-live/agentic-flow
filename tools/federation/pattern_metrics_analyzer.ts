@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Pattern Metrics Analyzer for Federation Agents
- * 
+ *
  * Consumes .goalie/pattern_metrics.jsonl and identifies:
  * - Anomalies in pattern behavior
  * - Governance parameter adjustment recommendations
@@ -38,7 +38,7 @@ interface PatternMetric {
 }
 
 interface Anomaly {
-  type: 'pattern_overuse' | 'pattern_underuse' | 'mutation_spike' | 'behavioral_drift' | 'economic_degradation';
+  type: 'pattern_overuse' | 'pattern_underuse' | 'mutation_spike' | 'behavioral_drift' | 'economic_degradation' | 'observability_gap';
   pattern: string;
   severity: 'low' | 'medium' | 'high' | 'critical';
   description: string;
@@ -83,16 +83,16 @@ class PatternMetricsAnalyzer {
     if (!this.jsonMode) {
       console.log(`Analyzing pattern metrics in: ${this.goalieDir}`);
     }
-    
+
     const metricsPath = path.join(this.goalieDir, 'pattern_metrics.jsonl');
-    
+
     if (!fs.existsSync(metricsPath)) {
       throw new Error(`Pattern metrics file not found: ${metricsPath}`);
     }
 
     const content = fs.readFileSync(metricsPath, 'utf-8');
     const lines = content.trim().split('\n').filter(line => line.trim());
-    
+
     let invalidCount = 0;
     this.metrics = lines.map(line => {
       try {
@@ -118,10 +118,10 @@ class PatternMetricsAnalyzer {
     // Detect safe-degrade overuse
     const safeDegradeMetrics = this.metrics.filter(m => m.pattern === 'safe-degrade');
     const recentSafeDegrade = safeDegradeMetrics.slice(-20); // Last 20 events
-    
+
     if (recentSafeDegrade.length >= 10) {
       const triggers = recentSafeDegrade.reduce((sum, m) => sum + (m.triggers || 0), 0);
-      
+
       if (triggers >= 5) {
         this.anomalies.push({
           type: 'pattern_overuse',
@@ -134,33 +134,60 @@ class PatternMetricsAnalyzer {
       }
     }
 
-    // Detect observability-first underuse
-    const observabilityMetrics = this.metrics.filter(m => m.pattern === 'observability-first');
-    const totalRuns = new Set(this.metrics.map(m => m.run_id)).size;
-    const observabilityCoverage = observabilityMetrics.length / Math.max(totalRuns, 1);
+    // Detect observability coverage (using behavioral_type, not pattern name)
+    // Count events that are observable: have behavioral_type === 'observability' OR have metrics
+    const observableEvents = this.metrics.filter(m =>
+      m.metadata?.behavioral_type === 'observability' ||
+      (m.data && m.data.metrics)
+    );
+
+    const totalEvents = this.metrics.length;
+    const observabilityCoverage = observableEvents.length / Math.max(totalEvents, 1);
+
+    // Also track the specific "observability-first" pattern for governance context
+    const observabilityFirstMetrics = this.metrics.filter(m => m.pattern === 'observability-first');
+    const governanceRuns = this.metrics.filter(m => m.run_kind === 'governance-agent').length;
 
     if (observabilityCoverage < 0.5) {
       this.anomalies.push({
+        type: 'observability_gap',
+        pattern: 'observability',
+        severity: 'high',
+        description: `Only ${(observabilityCoverage * 100).toFixed(1)}% of events are observable (have behavioral_type=observability or metrics)`,
+        evidence: {
+          coverage: observabilityCoverage,
+          total_events: totalEvents,
+          observable_events: observableEvents.length,
+          governance_runs: governanceRuns,
+          observability_first_count: observabilityFirstMetrics.length
+        },
+        recommendation: 'Increase observable event coverage by ensuring domain patterns include metrics or behavioral_type classification.'
+      });
+    }
+
+    // Separate check for governance-specific observability-first pattern
+    if (governanceRuns > 0 && observabilityFirstMetrics.length === 0) {
+      this.anomalies.push({
         type: 'pattern_underuse',
         pattern: 'observability-first',
-        severity: 'critical',
-        description: `Observability-first pattern only used in ${(observabilityCoverage * 100).toFixed(1)}% of runs`,
-        evidence: { coverage: observabilityCoverage, total_runs: totalRuns },
-        recommendation: 'Add observability-first pattern events to all prod-cycle and full-cycle runs for complete telemetry coverage.'
+        severity: 'medium',
+        description: 'Observability-first pattern missing from governance runs',
+        evidence: { governance_runs: governanceRuns },
+        recommendation: 'Governance agent should emit observability-first pattern to track governance coverage.'
       });
     }
 
     // Detect mutation spikes
     const mutationMetrics = this.metrics.filter(m => m.mutation === true || m.metadata?.mutation_status === true);
     const recentMutations = mutationMetrics.slice(-10);
-    
+
     if (recentMutations.length >= 7) {
       this.anomalies.push({
         type: 'mutation_spike',
         pattern: 'multiple',
         severity: 'medium',
         description: `High mutation rate detected: ${recentMutations.length}/10 recent events are mutations`,
-        evidence: { 
+        evidence: {
           mutation_patterns: recentMutations.map(m => m.pattern),
           behavioral_types: recentMutations.map(m => m.metadata?.behavioral_type)
         },
@@ -173,7 +200,7 @@ class PatternMetricsAnalyzer {
     for (const [pattern, metrics] of Object.entries(patternGroups)) {
       const modes = metrics.map(m => m.mode);
       const uniqueModes = new Set(modes);
-      
+
       if (uniqueModes.size > 2 && metrics.length >= 5) {
         this.anomalies.push({
           type: 'behavioral_drift',
@@ -191,7 +218,7 @@ class PatternMetricsAnalyzer {
     if (economicMetrics.length >= 3) {
       const recentCOD = economicMetrics.slice(-5).map(m => m.economic!.cod);
       const avgCOD = recentCOD.reduce((a, b) => a + b, 0) / recentCOD.length;
-      
+
       if (avgCOD > 50) {
         this.anomalies.push({
           type: 'economic_degradation',
@@ -203,12 +230,89 @@ class PatternMetricsAnalyzer {
         });
       }
     }
+
+    // Detect Security Audit Gaps (SEC-AUDIT-* / CVE-*)
+    const securityEvents = this.metrics.filter(m => m.pattern.startsWith('SEC-AUDIT-') || m.pattern.includes('CVE-'));
+    const cveEvents = this.metrics.filter(m => m.pattern.includes('CVE-'));
+
+    if (securityEvents.length === 0 && this.metrics.length > 20) {
+       this.anomalies.push({
+         type: 'pattern_underuse',
+         pattern: 'SEC-AUDIT-*',
+         severity: 'high',
+         description: 'No Security Audit patterns detected in recent activity.',
+         evidence: { total_events: this.metrics.length },
+         recommendation: 'Ensure security scanning (e.g. npm audit, dependabot) is integrated and emitting patterns.'
+       });
+    }
+
+    if (cveEvents.length > 0) {
+        this.anomalies.push({
+            type: 'pattern_overuse', // Using overuse to signal presence of bad things
+            pattern: 'CVE-*',
+            severity: 'critical',
+            description: `Detected ${cveEvents.length} CVE vulnerabilities.`,
+            evidence: { cves: cveEvents.map(m => m.pattern) },
+            recommendation: 'Immediate patch required for detected vulnerabilities.'
+        });
+    }
+
+    // Detect Circle Perspective Gaps
+    const circleKeywords: Record<string, string[]> = {
+        'Analyst': ['data', 'lineage', 'standard', 'quality'],
+        'Assessor': ['verify', 'assurance', 'audit', 'test'],
+        'Innovator': ['federation', 'wiring', 'investment', 'new'],
+        'Intuitive': ['observability', 'sensemaking', 'gap', 'monitoring'],
+        'Orchestrator': ['cadence', 'ceremony', 'prod-cycle', 'schedule'],
+        'Seeker': ['exploration', 'dependency', 'automation', 'research']
+    };
+
+    const activePerspectiveTypes = new Set<string>();
+
+    // Naively classify patterns into perspectives
+    for (const m of this.metrics) {
+        for (const [perspective, keywords] of Object.entries(circleKeywords)) {
+            if (keywords.some(k => m.pattern.toLowerCase().includes(k))) {
+                activePerspectiveTypes.add(perspective);
+            }
+        }
+    }
+
+    const missingPerspectives = Object.keys(circleKeywords).filter(p => !activePerspectiveTypes.has(p));
+    if (missingPerspectives.length > 2 && this.metrics.length > 50) {
+        this.anomalies.push({
+            type: 'behavioral_drift',
+            pattern: 'circle-perspective',
+            severity: 'medium',
+            description: `Missing perspectives: ${missingPerspectives.join(', ')}`,
+            evidence: { missing: missingPerspectives, active: Array.from(activePerspectiveTypes) },
+            recommendation: 'Diversify activity to include missing Circle Perspectives (e.g. run "Analyst" data checks or "Seeker" research).'
+        });
+    }
+
+    // Detect Depth Ladder Phase Tracking (PHASE-*)
+    const phaseEvents = this.metrics.filter(m => m.pattern.startsWith('PHASE-'));
+    if (phaseEvents.length > 0) {
+        // Just track them for now, maybe warn if out of order in future
+        const phases = Array.from(new Set(phaseEvents.map(m => m.pattern)));
+        // Example check: warn if PHASE-A-1 missing but PHASE-A-2 present?
+        // For now, simple presence check.
+    } else if (this.metrics.length > 50) {
+         this.anomalies.push({
+            type: 'pattern_underuse',
+            pattern: 'PHASE-*',
+            severity: 'low',
+            description: 'No explicit Depth Ladder phases tracked.',
+            evidence: { total_events: this.metrics.length },
+            recommendation: 'Adopt explicit phase markers (e.g. PHASE-A-1) to improve maturity tracking.'
+        });
+    }
   }
 
   private proposeGovernanceAdjustments(): void {
     // Adjust based on safe-degrade triggers
     const safeDegradeAnomaly = this.anomalies.find(a => a.pattern === 'safe-degrade' && a.type === 'pattern_overuse');
-    
+
     if (safeDegradeAnomaly) {
       this.adjustments.push({
         parameter: 'safe_degrade.incident_threshold',
@@ -229,7 +333,7 @@ class PatternMetricsAnalyzer {
 
     // Adjust based on mutation spike
     const mutationAnomaly = this.anomalies.find(a => a.type === 'mutation_spike');
-    
+
     if (mutationAnomaly) {
       this.adjustments.push({
         parameter: 'AF_PROD_CYCLE_MODE',
@@ -250,7 +354,7 @@ class PatternMetricsAnalyzer {
 
     // Adjust based on observability gaps
     const observabilityAnomaly = this.anomalies.find(a => a.pattern === 'observability-first');
-    
+
     if (observabilityAnomaly) {
       this.adjustments.push({
         parameter: 'AF_PROD_OBSERVABILITY_FIRST',
@@ -302,7 +406,7 @@ class PatternMetricsAnalyzer {
 
     // Standard learning questions
     const patterns = new Set(this.metrics.map(m => m.pattern));
-    
+
     if (patterns.has('depth-ladder')) {
       this.retroQuestions.push({
         category: 'learning',
@@ -352,7 +456,7 @@ class PatternMetricsAnalyzer {
   public async writeReport(outputPath?: string): Promise<void> {
     const report = this.getReport();
     const output = outputPath || path.join(this.goalieDir, 'pattern_analysis_report.json');
-    
+
     fs.writeFileSync(output, JSON.stringify(report, null, 2));
     if (!this.jsonMode) {
       console.log(`Analysis report written to: ${output}`);
@@ -363,31 +467,31 @@ class PatternMetricsAnalyzer {
 // CLI interface
 async function main() {
   const args = process.argv.slice(2);
-  const goalieDir = args.find(arg => arg.startsWith('--goalie-dir='))?.split('=')[1] 
-    || process.env.AF_GOALIE_DIR 
+  const goalieDir = args.find(arg => arg.startsWith('--goalie-dir='))?.split('=')[1]
+    || process.env.AF_GOALIE_DIR
     || path.join(process.cwd(), '.goalie');
-  
+
   const outputPath = args.find(arg => arg.startsWith('--output='))?.split('=')[1];
   const jsonMode = args.includes('--json');
 
   const analyzer = new PatternMetricsAnalyzer(goalieDir, jsonMode);
-  
+
   try {
     await analyzer.analyze();
-    
+
     if (jsonMode) {
       console.log(JSON.stringify(analyzer.getReport(), null, 2));
     } else {
       await analyzer.writeReport(outputPath);
-      
+
       const report = analyzer.getReport();
-      
+
       console.log('\n=== Pattern Metrics Analysis Summary ===');
       console.log(`Total Metrics: ${report.summary.total_metrics}`);
       console.log(`Patterns Tracked: ${report.summary.patterns_tracked}`);
       console.log(`Runs Analyzed: ${report.summary.runs_analyzed}`);
       console.log(`\nAnomalies Detected: ${report.summary.anomalies_detected}`);
-      
+
       if (report.anomalies.length > 0) {
         console.log('\n--- Anomalies ---');
         for (const anomaly of report.anomalies) {
@@ -421,4 +525,4 @@ if (require.main === module) {
   main().catch(console.error);
 }
 
-export { PatternMetricsAnalyzer, Anomaly, GovernanceAdjustment, RetroQuestion };
+export { Anomaly, GovernanceAdjustment, PatternMetricsAnalyzer, RetroQuestion };

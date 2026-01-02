@@ -1,6 +1,6 @@
 /**
  * Pattern Logger - Canonical implementation for all observability-first patterns
- * 
+ *
  * This module provides structured logging for the 6 core governance patterns:
  * 1. safe_degrade - Graceful degradation under load
  * 2. circle_risk_focus - Risk-based prioritization
@@ -14,6 +14,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
+ * Alignment Score - Manthra/Yasna/Mithra Framework (P1-B Spiritual Dimension Recovery)
+ * Tracks thought-word-action consistency for philosophical integrity
+ */
+export interface AlignmentScore {
+  manthra_score: number;   // Intent alignment (0-1): thought-power, directed intention
+  yasna_score: number;     // Policy alignment (0-1): structured action, ritual alignment
+  mithra_score: number;    // Evidence alignment (0-1): binding force, outcome tracking
+  overall_drift: number;   // Aggregate drift (0-1): lower is better
+  consequence_tracked: boolean; // Vigilance indicator: was outcome measured?
+}
+
+/**
  * Base interface for all pattern metrics
  * All patterns must include these core fields
  */
@@ -25,6 +37,9 @@ export interface PatternMetric {
   run_id?: string;
   iteration?: number;
   circle?: string;
+  alignment_score?: AlignmentScore; // P1-B: Spiritual dimension tracking
+  action_completed?: boolean;       // Ethical dimension: visible outcome
+  consequence?: string;             // Vigilance: what happened as a result
   [key: string]: any;
 }
 
@@ -117,7 +132,7 @@ export class PatternLogger {
   constructor(goalieDir?: string) {
     this.goalieDir = goalieDir || this.getGoalieDirFromEnv();
     this.metricsFile = path.join(this.goalieDir, 'pattern_metrics.jsonl');
-    
+
     // Ensure directory exists
     if (!fs.existsSync(this.goalieDir)) {
       fs.mkdirSync(this.goalieDir, { recursive: true });
@@ -151,6 +166,43 @@ export class PatternLogger {
     return process.env.AF_CIRCLE || 'default';
   }
 
+  /**
+   * Compute alignment score using Manthra/Yasna/Mithra framework
+   * P1-B: Spiritual Dimension Recovery implementation
+   *
+   * @param intent - The declared intention (thought-power)
+   * @param policy - The governing policy/rule (structured action)
+   * @param evidence - The actual outcome/evidence (binding force)
+   * @param hasConsequence - Whether the outcome was tracked
+   */
+  computeAlignmentScore(
+    intent: string | undefined,
+    policy: string | undefined,
+    evidence: boolean | undefined,
+    hasConsequence: boolean = false
+  ): AlignmentScore {
+    // Manthra score: Intent clarity (is there directed thought-power?)
+    const manthra_score = intent ? 0.9 : 0.3;
+
+    // Yasna score: Policy alignment (is there structured action?)
+    const yasna_score = policy ? 1.0 : 0.5;
+
+    // Mithra score: Evidence binding (is outcome tracked?)
+    const mithra_score = evidence !== undefined ? (evidence ? 1.0 : 0.7) : 0.3;
+
+    // Overall drift: inverse of alignment (0 = perfect alignment, 1 = total drift)
+    const avgAlignment = (manthra_score + yasna_score + mithra_score) / 3;
+    const overall_drift = Math.round((1 - avgAlignment) * 1000) / 1000;
+
+    return {
+      manthra_score,
+      yasna_score,
+      mithra_score,
+      overall_drift,
+      consequence_tracked: hasConsequence
+    };
+  }
+
   private getBaseMetric(): Partial<PatternMetric> {
     return {
       timestamp: new Date().toISOString(),
@@ -159,6 +211,25 @@ export class PatternLogger {
       run_id: this.getCurrentRunId(),
       iteration: this.getCurrentIteration(),
       circle: this.getCurrentCircle(),
+    };
+  }
+
+  /**
+   * Enhanced base metric with alignment score
+   * P1-B: Automatically compute spiritual dimension tracking
+   */
+  private getAlignedBaseMetric(
+    intent?: string,
+    policy?: string,
+    actionCompleted?: boolean,
+    consequence?: string
+  ): Partial<PatternMetric> {
+    const hasConsequence = consequence !== undefined && consequence.length > 0;
+    return {
+      ...this.getBaseMetric(),
+      alignment_score: this.computeAlignmentScore(intent, policy, actionCompleted, hasConsequence),
+      action_completed: actionCompleted ?? true,
+      consequence: consequence
     };
   }
 
@@ -333,7 +404,7 @@ export class PatternLogger {
 
     const content = fs.readFileSync(this.metricsFile, 'utf8');
     const lines = content.trim().split('\n').filter(l => l.length > 0);
-    
+
     const metrics: PatternMetric[] = [];
     for (const line of lines) {
       try {
@@ -416,6 +487,83 @@ export async function logProdCycleObservability(metricsCount: number, missing: s
     coverage_pct: missing.length === 0 ? 100 : 0,
     critical_missing: isCritical,
   });
+}
+
+/**
+ * P1-B: Log pattern with full Manthra/Yasna/Mithra alignment tracking
+ * Use this for patterns that need spiritual dimension recovery
+ *
+ * @param pattern - Pattern name
+ * @param data - Pattern-specific data
+ * @param alignment - Alignment context (intent, policy, outcome, consequence)
+ */
+export async function logAlignedPattern(
+  pattern: string,
+  data: Record<string, any>,
+  alignment: {
+    intent: string;      // Manthra: What was the directed thought-power?
+    policy: string;      // Yasna: What rule/phase governed the action?
+    completed: boolean;  // Was the action completed?
+    consequence: string; // What happened as a result?
+  }
+): Promise<void> {
+  const alignmentScore = patternLogger.computeAlignmentScore(
+    alignment.intent,
+    alignment.policy,
+    alignment.completed,
+    alignment.consequence.length > 0
+  );
+
+  const metric: PatternMetric = {
+    timestamp: new Date().toISOString(),
+    pattern,
+    depth: parseInt(process.env.AF_DEPTH_LEVEL || '0', 10),
+    run: process.env.AF_RUN || process.env.AF_CONTEXT,
+    run_id: process.env.AF_RUN_ID || `run-${Date.now()}`,
+    iteration: parseInt(process.env.AF_RUN_ITERATION || '0', 10),
+    circle: process.env.AF_CIRCLE || 'default',
+    alignment_score: alignmentScore,
+    action_completed: alignment.completed,
+    consequence: alignment.consequence,
+    ...data
+  };
+
+  // Write directly using already imported fs module
+  const goalieDir = process.env.GOALIE_DIR || '.goalie';
+  const metricsFile = `${goalieDir}/pattern_metrics.jsonl`;
+  fs.appendFileSync(metricsFile, JSON.stringify(metric) + '\n', 'utf8');
+}
+
+/**
+ * P2-B: Calculate vigilance metrics from existing patterns
+ * Returns vigilance score and deficit analysis
+ */
+export function calculateVigilanceMetrics(patterns: PatternMetric[]): {
+  vigilance_score: number;
+  deficit: number;
+  patterns_with_consequence: number;
+  total_patterns: number;
+  avg_consequence_awareness: number;
+} {
+  const patternsWithConsequence = patterns.filter(p =>
+    p.consequence !== undefined && p.consequence.length > 0
+  );
+
+  const patternsWithTracking = patterns.filter(p =>
+    p.alignment_score?.consequence_tracked === true
+  );
+
+  const total = patterns.length;
+  const tracked = patternsWithConsequence.length + patternsWithTracking.length;
+  const vigilance_score = total > 0 ? tracked / total : 0;
+
+  return {
+    vigilance_score,
+    deficit: 1 - vigilance_score,
+    patterns_with_consequence: tracked,
+    total_patterns: total,
+    avg_consequence_awareness: vigilance_score
+  };
 }
 
 export default PatternLogger;

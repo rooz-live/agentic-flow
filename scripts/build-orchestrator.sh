@@ -161,6 +161,13 @@ run_jest_tests() {
     run_step "Jest test suite" "npm test -- --passWithNoTests 2>&1" || true
 }
 
+# Run drift monitor checks (safe mode for CI: no network probes, no syslog emit)
+run_drift_checks() {
+    log_info "Running drift monitor checks..."
+    cd "$ROOT_DIR"
+    run_step "Drift monitor self-check" "npm run drift:check -- --skip-network --no-emit 2>&1" || true
+}
+
 # Run pytest tests
 run_pytest_tests() {
     if [ -z "${PYTHON_CMD:-}" ]; then
@@ -269,6 +276,7 @@ main() {
             build_typescript
             validate_python
             run_jest_tests
+            run_drift_checks
             run_pytest_tests
             validate_artifacts
             run_foundation_validation
@@ -282,6 +290,7 @@ main() {
         test-only)
             validate_environment
             run_jest_tests
+            run_drift_checks
             run_pytest_tests
             ;;
         validate)

@@ -221,7 +221,8 @@ class MetricsCollector:
 
         # Get file changes for this commit
         try:
-            diff_cmd = ["git", "show", "--stat", "--format=", commit_hash]
+            # Use --numstat for accurate machine-readable added/deleted counts
+            diff_cmd = ["git", "show", "--numstat", "--format=", commit_hash]
             result = subprocess.run(diff_cmd, cwd=self.repo_path,
                                   capture_output=True, text=True, check=True)
 
@@ -231,10 +232,18 @@ class MetricsCollector:
             lines_deleted = 0
 
             for line in lines:
-                if '|' in line and ('+' in line or '-' in line):
+                if not line.strip(): continue
+                parts = line.split('\t')
+                if len(parts) >= 3:
                     files_changed += 1
-                    if '+' in line: lines_added += line.count('+')
-                    if '-' in line: lines_deleted += line.count('-')
+                    # Handle binary files or cases where counts are '-'
+                    try:
+                        added = int(parts[0]) if parts[0] != '-' else 0
+                        deleted = int(parts[1]) if parts[1] != '-' else 0
+                        lines_added += added
+                        lines_deleted += deleted
+                    except ValueError:
+                        continue
 
         except subprocess.CalledProcessError:
             files_changed = lines_added = lines_deleted = 0

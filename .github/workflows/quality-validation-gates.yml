@@ -1,0 +1,152 @@
+name: Quality Validation Gates
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+
+jobs:
+  slop-detection:
+    name: AI Slop Detection
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Get PR diff
+        if: github.event_name == 'pull_request'
+        run: |
+          git diff origin/${{ github.base_ref }}...HEAD > pr_diff.txt
+
+      - name: Run Slop Detection
+        run: |
+          npx ts-node -e "
+          const { calculateSlopScore, blockMergeOnSlop } = require('./src/verification/slop_detection');
+          const fs = require('fs');
+
+          const diff = fs.readFileSync('pr_diff.txt', 'utf-8');
+          const result = blockMergeOnSlop(diff);
+
+          console.log(result.message);
+
+          if (result.blocked) {
+            process.exit(1);
+          }
+          "
+
+  mithra-coherence:
+    name: Mithra Coherence Validation
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Extract PR context
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr view ${{ github.event.pull_request.number }} --json body,commits -q '.body' > pr_description.txt
+          git log --format="%s" origin/${{ github.base_ref }}..HEAD > commit_messages.txt
+          git diff --name-only origin/${{ github.base_ref }}...HEAD > changed_files.txt
+
+      - name: Run Coherence Check
+        run: |
+          npx ts-node -e "
+          const { requestCoherenceReview } = require('./src/verification/mithra_coherence');
+          const fs = require('fs');
+
+          const description = fs.readFileSync('pr_description.txt', 'utf-8');
+          const commits = fs.readFileSync('commit_messages.txt', 'utf-8').split('\n').filter(Boolean);
+          const files = fs.readFileSync('changed_files.txt', 'utf-8').split('\n').filter(Boolean);
+
+          const context = {
+            description,
+            commitMessages: commits,
+            codeChanges: files.map(f => ({ file: f, additions: [], deletions: [] })),
+            documentationChanges: files.filter(f => f.endsWith('.md')),
+          };
+
+          const result = requestCoherenceReview(context);
+          console.log(result.message);
+
+          if (result.needsReview) {
+            console.log('::warning::Coherence check flagged for review');
+          }
+          "
+
+  policy-validation:
+    name: Security Policy Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for 0.0.0.0/0 in firewall rules
+        run: |
+          if grep -r "0.0.0.0/0" config/telemetry/ --include="*.tf" --include="*.yml"; then
+            echo "::error::Found 0.0.0.0/0 CIDR in configuration. This is not allowed."
+            exit 1
+          fi
+          echo "✅ No overly permissive CIDR blocks found"
+
+      - name: Validate SSH allowlist
+        run: |
+          if grep -r "from_port.*22" config/telemetry/ --include="*.tf" -A2 | grep -v "173.94.53.113"; then
+            echo "::warning::SSH rules may allow access from non-admin IPs"
+          fi
+          echo "✅ SSH allowlist validation complete"
+
+      - name: Validate syslog allowlist
+        run: |
+          if grep -r "from_port.*6514" config/telemetry/ --include="*.tf" -A2 | grep -v "23.92.79.2"; then
+            echo "::warning::Syslog rules may allow access from non-stx IPs"
+          fi
+          echo "✅ Syslog allowlist validation complete"
+
+      - name: Check for plaintext syslog
+        run: |
+          if grep -rE "(udp|port.*514[^0-9])" config/telemetry/ --include="*.j2" --include="*.conf"; then
+            echo "::error::Found potentially plaintext syslog configuration"
+            exit 1
+          fi
+          echo "✅ All syslog appears to use TLS"
+
+  secret-scanning:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for private keys
+        run: |
+          if grep -rE "BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY" . --include="*.pem" --include="*.key"; then
+            echo "::error::Private key detected in repository"
+            exit 1
+          fi
+          echo "✅ No private keys found in repository"
+
+      - name: Check for hardcoded secrets
+        run: |
+          if grep -rE "(password|secret|api_key|apikey).*=.*['\"][^'\"]{8,}" . --include="*.py" --include="*.ts" --include="*.js" | grep -v "example\|test\|mock"; then
+            echo "::warning::Potential hardcoded secrets detected"
+          fi
+          echo "✅ Secret scan complete"

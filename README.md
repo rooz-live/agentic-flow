@@ -59,6 +59,8 @@ Most AI coding agents are **painfully slow** and **frustratingly forgetful**. Th
 | **QUIC Transport** | Ultra-low latency agent communication via Rust/WASM QUIC protocol | 50-70% faster than TCP, 0-RTT | [Docs](https://github.com/ruvnet/agentic-flow/tree/main/crates/agentic-flow-quic) |
 | **Federation Hub** 🆕 | Ephemeral agents (5s-15min lifetime) with persistent cross-agent memory | Infinite scale, 0 waste | [Docs](./agentic-flow/src/federation) |
 | **Swarm Optimization** 🆕 | Self-learning parallel execution with AI topology selection | 3-5x speedup, auto-optimizes | [Docs](./docs/swarm-optimization-report.md) |
+| **Bounded Reasoning** 🆕 | Deterministic stochastic behavior via Tiny Recursive Models (TRM) | Zero variation in reproducible runs | [Docs](./docs/TRM_BOUNDED_REASONING.md) |
+| **Economic Micro-ledger** 🆕 | Per-agent action accounting and causal reward tracking | 100% financial transparency | [Docs](./docs/ECONOMIC_MICRO_LEDGER.md) |
 
 **CLI Usage**:
 - **AgentDB**: Full CLI with 17 commands (`npx agentdb <command>`)
@@ -168,6 +170,13 @@ docker run --rm \
   agentic-flow \
   --agent researcher \
   --task "Analyze cloud patterns"
+
+### 🌌 StarlingX & OpenStack Integration (Readiness)
+Agentic Flow is fully compatible with **StarlingX** and **OpenStack** environments. We provide automated health monitoring for:
+- Kubelet status and control plane health
+- Package manager and repository consistency
+- Host-level performance telemetry via `psutil`
+- Isolated agent execution via OpenStack sandboxes
 ```
 
 ---

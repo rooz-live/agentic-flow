@@ -1,0 +1,154 @@
+# SLA Alerting Rules for Greenfield Infrastructure
+# Targets: 99.9% availability, MTTR <15min, >1000 RPS, <200ms P95
+groups:
+  - name: sla_availability
+    interval: 30s
+    rules:
+      - alert: PlatformDown
+        expr: up{job=~"hostbill|wordpress|flarum|affiliate|trading"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          sla: availability
+        annotations:
+          summary: "Platform {{ $labels.platform }} is down"
+          description: "{{ $labels.platform }} has been unreachable for more than 1 minute. MTTR timer started."
+          runbook: "https://docs.interface.tag.ooo/runbooks/platform-down"
+
+      - alert: AvailabilityBelowSLA
+        expr: |
+          (
+            sum_over_time(up{job=~"hostbill|wordpress|flarum|affiliate|trading"}[24h])
+            / count_over_time(up{job=~"hostbill|wordpress|flarum|affiliate|trading"}[24h])
+          ) * 100 < 99.9
+        for: 5m
+        labels:
+          severity: critical
+          sla: availability
+        annotations:
+          summary: "24h availability below 99.9% SLA"
+          description: "Platform {{ $labels.platform }} availability is {{ $value | humanizePercentage }}"
+
+  - name: sla_mttr
+    interval: 30s
+    rules:
+      - alert: MTTRExceeded
+        expr: |
+          (time() - on(platform) group_left() 
+           (platform_incident_start_time > 0)) / 60 > 15
+        for: 0s
+        labels:
+          severity: critical
+          sla: mttr
+        annotations:
+          summary: "MTTR exceeded 15 minute target"
+          description: "Incident on {{ $labels.platform }} has exceeded MTTR target of 15 minutes"
+
+      - alert: IncidentDurationWarning
+        expr: |
+          (time() - on(platform) group_left() 
+           (platform_incident_start_time > 0)) / 60 > 10
+        for: 0s
+        labels:
+          severity: warning
+          sla: mttr
+        annotations:
+          summary: "Incident approaching MTTR limit"
+          description: "Incident on {{ $labels.platform }} has been open for {{ $value | humanize }} minutes"
+
+  - name: sla_throughput
+    interval: 30s
+    rules:
+      - alert: ThroughputBelowSLA
+        expr: |
+          sum(rate(http_requests_total[5m])) by (platform) < 1000
+        for: 5m
+        labels:
+          severity: warning
+          sla: throughput
+        annotations:
+          summary: "Throughput below 1000 RPS target"
+          description: "{{ $labels.platform }} throughput is {{ $value | humanize }} RPS"
+
+      - alert: ThroughputCritical
+        expr: |
+          sum(rate(http_requests_total[5m])) by (platform) < 500
+        for: 2m
+        labels:
+          severity: critical
+          sla: throughput
+        annotations:
+          summary: "Throughput critically low"
+          description: "{{ $labels.platform }} throughput dropped to {{ $value | humanize }} RPS"
+
+  - name: sla_latency
+    interval: 30s
+    rules:
+      - alert: P95LatencyExceeded
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, platform)
+          ) * 1000 > 200
+        for: 5m
+        labels:
+          severity: warning
+          sla: latency
+        annotations:
+          summary: "P95 latency exceeds 200ms target"
+          description: "{{ $labels.platform }} P95 latency is {{ $value | humanize }}ms"
+
+      - alert: P99LatencyHigh
+        expr: |
+          histogram_quantile(0.99, 
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, platform)
+          ) * 1000 > 500
+        for: 2m
+        labels:
+          severity: critical
+          sla: latency
+        annotations:
+          summary: "P99 latency exceeds 500ms"
+          description: "{{ $labels.platform }} P99 latency is {{ $value | humanize }}ms"
+
+  - name: platform_health
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m])) by (platform)
+          / sum(rate(http_requests_total[5m])) by (platform) > 0.01
+        for: 2m
+        labels:
+          severity: critical
+          sla: error_rate
+        annotations:
+          summary: "Error rate exceeds 1%"
+          description: "{{ $labels.platform }} error rate is {{ $value | humanizePercentage }}"
+
+      - alert: HighMemoryUsage
+        expr: |
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+
+      - alert: HighCPUUsage
+        expr: |
+          100 - (avg by (instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+
+      - alert: DiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes / node_filesystem_size_bytes) * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk space below 10% on {{ $labels.instance }}"
+

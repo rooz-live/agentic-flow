@@ -47,6 +47,33 @@ export class PatternLogger {
     getCurrentCircle() {
         return process.env.AF_CIRCLE || 'default';
     }
+    /**
+     * Compute alignment score using Manthra/Yasna/Mithra framework
+     * P1-B: Spiritual Dimension Recovery implementation
+     *
+     * @param intent - The declared intention (thought-power)
+     * @param policy - The governing policy/rule (structured action)
+     * @param evidence - The actual outcome/evidence (binding force)
+     * @param hasConsequence - Whether the outcome was tracked
+     */
+    computeAlignmentScore(intent, policy, evidence, hasConsequence = false) {
+        // Manthra score: Intent clarity (is there directed thought-power?)
+        const manthra_score = intent ? 0.9 : 0.3;
+        // Yasna score: Policy alignment (is there structured action?)
+        const yasna_score = policy ? 1.0 : 0.5;
+        // Mithra score: Evidence binding (is outcome tracked?)
+        const mithra_score = evidence !== undefined ? (evidence ? 1.0 : 0.7) : 0.3;
+        // Overall drift: inverse of alignment (0 = perfect alignment, 1 = total drift)
+        const avgAlignment = (manthra_score + yasna_score + mithra_score) / 3;
+        const overall_drift = Math.round((1 - avgAlignment) * 1000) / 1000;
+        return {
+            manthra_score,
+            yasna_score,
+            mithra_score,
+            overall_drift,
+            consequence_tracked: hasConsequence
+        };
+    }
     getBaseMetric() {
         return {
             timestamp: new Date().toISOString(),
@@ -55,6 +82,19 @@ export class PatternLogger {
             run_id: this.getCurrentRunId(),
             iteration: this.getCurrentIteration(),
             circle: this.getCurrentCircle(),
+        };
+    }
+    /**
+     * Enhanced base metric with alignment score
+     * P1-B: Automatically compute spiritual dimension tracking
+     */
+    getAlignedBaseMetric(intent, policy, actionCompleted, consequence) {
+        const hasConsequence = consequence !== undefined && consequence.length > 0;
+        return {
+            ...this.getBaseMetric(),
+            alignment_score: this.computeAlignmentScore(intent, policy, actionCompleted, hasConsequence),
+            action_completed: actionCompleted ?? true,
+            consequence: consequence
         };
     }
     async writeMetric(metric) {
@@ -240,6 +280,52 @@ export async function logProdCycleObservability(metricsCount, missing) {
         coverage_pct: missing.length === 0 ? 100 : 0,
         critical_missing: isCritical,
     });
+}
+/**
+ * P1-B: Log pattern with full Manthra/Yasna/Mithra alignment tracking
+ * Use this for patterns that need spiritual dimension recovery
+ *
+ * @param pattern - Pattern name
+ * @param data - Pattern-specific data
+ * @param alignment - Alignment context (intent, policy, outcome, consequence)
+ */
+export async function logAlignedPattern(pattern, data, alignment) {
+    const alignmentScore = patternLogger.computeAlignmentScore(alignment.intent, alignment.policy, alignment.completed, alignment.consequence.length > 0);
+    const metric = {
+        timestamp: new Date().toISOString(),
+        pattern,
+        depth: parseInt(process.env.AF_DEPTH_LEVEL || '0', 10),
+        run: process.env.AF_RUN || process.env.AF_CONTEXT,
+        run_id: process.env.AF_RUN_ID || `run-${Date.now()}`,
+        iteration: parseInt(process.env.AF_RUN_ITERATION || '0', 10),
+        circle: process.env.AF_CIRCLE || 'default',
+        alignment_score: alignmentScore,
+        action_completed: alignment.completed,
+        consequence: alignment.consequence,
+        ...data
+    };
+    // Write directly using already imported fs module
+    const goalieDir = process.env.GOALIE_DIR || '.goalie';
+    const metricsFile = `${goalieDir}/pattern_metrics.jsonl`;
+    fs.appendFileSync(metricsFile, JSON.stringify(metric) + '\n', 'utf8');
+}
+/**
+ * P2-B: Calculate vigilance metrics from existing patterns
+ * Returns vigilance score and deficit analysis
+ */
+export function calculateVigilanceMetrics(patterns) {
+    const patternsWithConsequence = patterns.filter(p => p.consequence !== undefined && p.consequence.length > 0);
+    const patternsWithTracking = patterns.filter(p => p.alignment_score?.consequence_tracked === true);
+    const total = patterns.length;
+    const tracked = patternsWithConsequence.length + patternsWithTracking.length;
+    const vigilance_score = total > 0 ? tracked / total : 0;
+    return {
+        vigilance_score,
+        deficit: 1 - vigilance_score,
+        patterns_with_consequence: tracked,
+        total_patterns: total,
+        avg_consequence_awareness: vigilance_score
+    };
 }
 export default PatternLogger;
 //# sourceMappingURL=pattern_logger.js.map

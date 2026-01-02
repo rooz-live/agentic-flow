@@ -1,0 +1,105 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mysql-data-pv
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes: ["ReadWriteOnce"]
+  hostPath:
+    path: /data/mysql
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-data
+  namespace: databases
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: ""
+  volumeName: mysql-data-pv
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: mysql-secrets
+  namespace: databases
+type: Opaque
+stringData:
+  root-password: "RootGreenfield2024!"
+  hostbill-password: "HostbillDb2024!"
+  wordpress-password: "WordpressDb2024!"
+  flarum-password: "FlarumDb2024!"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mysql-init
+  namespace: databases
+data:
+  init.sql: |
+    CREATE DATABASE IF NOT EXISTS hostbill;
+    CREATE DATABASE IF NOT EXISTS wordpress;
+    CREATE DATABASE IF NOT EXISTS flarum;
+    CREATE USER IF NOT EXISTS 'hostbill'@'%' IDENTIFIED BY 'HostbillDb2024!';
+    CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED BY 'WordpressDb2024!';
+    CREATE USER IF NOT EXISTS 'flarum'@'%' IDENTIFIED BY 'FlarumDb2024!';
+    GRANT ALL PRIVILEGES ON hostbill.* TO 'hostbill'@'%';
+    GRANT ALL PRIVILEGES ON wordpress.* TO 'wordpress'@'%';
+    GRANT ALL PRIVILEGES ON flarum.* TO 'flarum'@'%';
+    FLUSH PRIVILEGES;
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+  namespace: databases
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0
+        ports:
+        - containerPort: 3306
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secrets
+              key: root-password
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/mysql
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: mysql-data
+      - name: init-scripts
+        configMap:
+          name: mysql-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: databases
+spec:
+  ports:
+  - port: 3306
+  selector:
+    app: mysql
+  clusterIP: None
+

@@ -86,6 +86,32 @@ export const Disposable = {
   from: jest.fn((..._disposables: any[]) => ({ dispose: jest.fn() })),
 };
 
+export enum TreeItemCollapsibleState {
+  None = 0,
+  Collapsed = 1,
+  Expanded = 2,
+}
+
+export class TreeItem {
+  label?: string;
+  collapsibleState?: TreeItemCollapsibleState;
+  iconPath?: any;
+  description?: string;
+  tooltip?: string;
+  command?: any;
+  contextValue?: string;
+  resourceUri?: any;
+
+  constructor(label: string, collapsibleState?: TreeItemCollapsibleState) {
+    this.label = label;
+    this.collapsibleState = collapsibleState ?? TreeItemCollapsibleState.None;
+  }
+}
+
+export const ThemeIcon = class {
+  constructor(public id: string, public color?: any) {}
+};
+
 export default {
   TelemetryLogger,
   env,
@@ -96,5 +122,8 @@ export default {
   commands,
   EventEmitter,
   Disposable,
+  TreeItem,
+  TreeItemCollapsibleState,
+  ThemeIcon,
 };
 

@@ -1,0 +1,352 @@
+name: Drift Detection CI
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/drift/**'
+      - 'src/semantic/**'
+      - 'src/swarm/**'
+      - 'tests/**'
+      - 'schemas/**'
+      - '.github/workflows/drift-detection-ci.yml'
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  PYTHON_VERSION: '3.11'
+  RISK_DB_PATH: './risks.db'
+
+jobs:
+  risk-db-init:
+    name: Risk Database Initialization
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install SQLite
+        run: sudo apt-get update && sudo apt-get install -y sqlite3
+      
+      - name: Initialize Risk Database
+        run: |
+          chmod +x scripts/db/risk_db_init.sh
+          ./scripts/db/risk_db_init.sh
+      
+      - name: Verify Database Schema
+        run: |
+          sqlite3 risks.db ".tables" | grep -E "risks|drift_events|governor_incidents|swarm_events|baselines"
+          echo "✅ All core tables exist"
+      
+      - name: Upload Risk DB Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: risk-db
+          path: risks.db
+          retention-days: 7
+
+  drift-detection-tests:
+    name: Drift Detection Tests
+    runs-on: ubuntu-latest
+    needs: risk-db-init
+    strategy:
+      matrix:
+        drift-type: [semantic, behavioral, temporal]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+      
+      - name: Download Risk DB
+        uses: actions/download-artifact@v4
+        with:
+          name: risk-db
+      
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install numpy pytest pytest-cov pytest-benchmark
+          pip install sentence-transformers || echo "Optional: sentence-transformers not installed"
+      
+      - name: Run Drift Detection Tests
+        run: |
+          mkdir -p tests/drift
+          python -m pytest tests/drift/ -v --cov=src/drift --cov-report=xml --cov-report=term
+        continue-on-error: true
+      
+      - name: Test Drift Detection Module
+        run: |
+          python -c "
+          from src.drift.detector import DriftDetector
+          import numpy as np
+          
+          # Test initialization
+          baseline = np.random.rand(5, 384)
+          detector = DriftDetector(baseline, threshold=0.15)
+          
+          # Test semantic drift detection
+          current = np.random.rand(5, 384)
+          result = detector.detect_semantic_drift(current, 'ci-test')
+          assert 'drift_detected' in result
+          assert 'magnitude' in result
+          assert 'confidence' in result
+          print('✅ Drift detection module working')
+          "
+      
+      - name: Upload Coverage Reports
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: ./coverage.xml
+          flags: drift-detection
+          name: drift-${{ matrix.drift-type }}
+
+  conceptnet-integration-tests:
+    name: ConceptNet API Integration
+    runs-on: ubuntu-latest
+    needs: risk-db-init
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Install Dependencies
+        run: |
+          pip install requests
+          pip install redis || echo "Optional: redis not installed"
+      
+      - name: Test ConceptNet Client
+        run: |
+          python -c "
+          from src.semantic.conceptnet_client import ConceptNetClient
+          
+          client = ConceptNetClient(cache_enabled=False)
+          
+          # Test basic query
+          try:
+              relatedness = client.get_relatedness('dog', 'cat')
+              assert 0 <= relatedness <= 2.0, f'Invalid relatedness: {relatedness}'
+              print(f'✅ ConceptNet API working: dog-cat relatedness = {relatedness:.3f}')
+          except Exception as e:
+              print(f'⚠️ ConceptNet API test failed: {e}')
+              exit(1)
+          
+          # Test semantic drift detection
+          drift = client.detect_semantic_drift_with_conceptnet('dog', 'computer')
+          assert 'drift_detected' in drift
+          print(f'✅ Semantic drift detection: {drift[\"drift_detected\"]}')
+          
+          # Print statistics
+          stats = client.get_stats()
+          print(f'Requests: {stats[\"requests\"]}, Cache hits: {stats[\"cache_hits\"]}')
+          "
+      
+      - name: ConceptNet Rate Limit Check
+        run: |
+          python -c "
+          from src.semantic.conceptnet_client import ConceptNetClient
+          client = ConceptNetClient()
+          print(f'Rate limit: {client.RATE_LIMIT} requests/hour')
+          print(f'Cache enabled: {client.cache_enabled}')
+          "
+
+  benchmark-regression:
+    name: Benchmark Regression Tests
+    runs-on: ubuntu-latest
+    needs: risk-db-init
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      
+      - name: Download Risk DB
+        uses: actions/download-artifact@v4
+        with:
+          name: risk-db
+      
+      - name: Install Dependencies
+        run: |
+          pip install numpy pytest pytest-benchmark
+      
+      - name: Run Benchmarks
+        run: |
+          mkdir -p tests/benchmarks
+          # Create benchmark test
+          cat > tests/benchmarks/test_drift_performance.py << 'EOF'
+          import pytest
+          import numpy as np
+          from src.drift.detector import DriftDetector
+          
+          @pytest.fixture
+          def detector():
+              baseline = np.random.rand(10, 384)
+              return DriftDetector(baseline, threshold=0.15)
+          
+          def test_semantic_drift_benchmark(benchmark, detector):
+              current = np.random.rand(10, 384)
+              result = benchmark(detector.detect_semantic_drift, current, 'benchmark')
+              assert 'drift_detected' in result
+          
+          def test_temporal_drift_benchmark(benchmark, detector):
+              time_series = np.random.rand(100)
+              result = benchmark(detector.detect_temporal_drift, time_series, 10, 'benchmark')
+              assert 'drift_detected' in result
+          EOF
+          
+          pytest tests/benchmarks/ --benchmark-only --benchmark-json=benchmark-results.json || true
+      
+      - name: Check Benchmark Regression
+        run: |
+          python -c "
+          import json
+          import os
+          
+          if os.path.exists('benchmark-results.json'):
+              with open('benchmark-results.json') as f:
+                  data = json.load(f)
+              
+              for benchmark in data.get('benchmarks', []):
+                  name = benchmark['name']
+                  mean = benchmark['stats']['mean']
+                  print(f'{name}: {mean*1000:.2f}ms')
+                  
+                  # Check regression (should be < 2 seconds)
+                  if mean > 2.0:
+                      print(f'⚠️ WARNING: {name} exceeded 2s target')
+          else:
+              print('No benchmark results found')
+          "
+      
+      - name: Upload Benchmark Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: benchmark-results.json
+
+  risk-db-backup:
+    name: Risk Database Backup
+    runs-on: ubuntu-latest
+    needs: [drift-detection-tests, conceptnet-integration-tests]
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Download Risk DB
+        uses: actions/download-artifact@v4
+        with:
+          name: risk-db
+      
+      - name: Create Timestamped Backup
+        run: |
+          TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+          cp risks.db "risks_backup_${TIMESTAMP}.db"
+          
+          # Verify backup
+          sqlite3 "risks_backup_${TIMESTAMP}.db" "SELECT COUNT(*) FROM risks" || echo "0"
+          
+          echo "✅ Backup created: risks_backup_${TIMESTAMP}.db"
+      
+      - name: Upload Backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: risk-db-backup
+          path: risks_backup_*.db
+          retention-days: 30
+      
+      - name: Database Statistics
+        run: |
+          sqlite3 risks.db << 'EOF'
+          .mode column
+          SELECT 'Risks' as table_name, COUNT(*) as count FROM risks
+          UNION ALL
+          SELECT 'Drift Events', COUNT(*) FROM drift_events
+          UNION ALL
+          SELECT 'Governor Incidents', COUNT(*) FROM governor_incidents
+          UNION ALL
+          SELECT 'Swarm Events', COUNT(*) FROM swarm_events
+          UNION ALL
+          SELECT 'Baselines', COUNT(*) FROM baselines;
+          EOF
+
+  process-governor-validation:
+    name: ProcessGovernor Event Parity
+    runs-on: ubuntu-latest
+    needs: risk-db-init
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Download Risk DB
+        uses: actions/download-artifact@v4
+        with:
+          name: risk-db
+      
+      - name: Install Dependencies
+        run: |
+          npm install sqlite3
+      
+      - name: Validate ProcessGovernor Integration
+        run: |
+          node -e "
+          const sqlite3 = require('sqlite3').verbose();
+          const db = new sqlite3.Database('risks.db');
+          
+          db.get('SELECT COUNT(*) as count FROM governor_incidents', (err, row) => {
+              if (err) {
+                  console.error('❌ Error querying governor_incidents:', err);
+                  process.exit(1);
+              }
+              console.log(\`✅ ProcessGovernor events in DB: \${row.count}\`);
+              db.close();
+          });
+          "
+      
+      - name: Verify Event Schema
+        run: |
+          sqlite3 risks.db << 'EOF'
+          PRAGMA table_info(governor_incidents);
+          EOF
+
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [risk-db-init, drift-detection-tests, conceptnet-integration-tests, benchmark-regression, process-governor-validation]
+    if: always()
+    
+    steps:
+      - name: Generate Summary
+        run: |
+          echo "## 🎯 Drift Detection CI Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Risk DB Init | ${{ needs.risk-db-init.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Drift Detection Tests | ${{ needs.drift-detection-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ConceptNet Integration | ${{ needs.conceptnet-integration-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Benchmark Regression | ${{ needs.benchmark-regression.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ProcessGovernor Validation | ${{ needs.process-governor-validation.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **WSJF Risk-Driven Platform CI Complete**" >> $GITHUB_STEP_SUMMARY

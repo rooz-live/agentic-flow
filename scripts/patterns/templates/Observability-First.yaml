@@ -1,0 +1,115 @@
+pattern: Observability-First
+description: Instrument metrics, logging, and tracing before implementation - measure then mutate
+category: governance
+
+definition_of_ready:
+  - criterion: Metrics defined
+    description: All key metrics identified with units and thresholds
+    validation: Metrics schema documented
+    command: "test -f docs/metrics/{{module}}_metrics.yaml"
+    
+  - criterion: Baseline captured
+    description: Pre-change baseline measurements recorded
+    validation: Baseline data exists in metrics DB
+    command: "python3 scripts/metrics/check_baseline.py --module {{module}}"
+    
+  - criterion: Dashboards created
+    description: Grafana/monitoring dashboards prepared
+    validation: Dashboard JSON exists and is importable
+    command: "test -f monitoring/dashboards/{{module}}_dashboard.json"
+
+definition_of_done:
+  - criterion: Metrics emitting
+    description: All defined metrics flowing to telemetry system
+    validation: Metrics visible in last 5 minutes
+    command: "python3 scripts/metrics/verify_metrics.py --module {{module}} --window 5m"
+    blocking: true
+    threshold: 100
+    
+  - criterion: Alerting configured
+    description: Critical metric thresholds trigger alerts
+    validation: Alert rules deployed and tested
+    command: "python3 scripts/metrics/test_alerts.py --module {{module}}"
+    blocking: true
+    
+  - criterion: Baseline comparison
+    description: Post-change metrics compared to baseline
+    validation: Regression analysis shows acceptable delta
+    command: "python3 scripts/metrics/compare_baseline.py --module {{module}}"
+    blocking: true
+    threshold: 20  # Max 20% regression
+    
+  - criterion: Logs structured
+    description: JSON-formatted logs with trace IDs
+    validation: Logs parseable and contain required fields
+    command: "python3 scripts/logs/validate_structure.py --module {{module}}"
+    blocking: false
+    
+  - criterion: Documentation updated
+    description: Metrics catalog and runbooks current
+    validation: Metrics documented in catalog
+    manual: true
+
+telemetry:
+  emit_on_start: true
+  emit_on_complete: true
+  metrics:
+    - metric_count
+    - dashboard_count
+    - alert_rule_count
+    - baseline_delta_percentage
+    
+wsjf_guidance:
+  user_value: "Medium - enables data-driven decisions"
+  time_criticality: "Low-Medium - foundational work"
+  risk_reduction: "Very High - catches issues before production"
+  job_size: "Small 1-2 (mostly configuration)"
+  
+examples:
+  - title: "Payment API instrumentation before refactor"
+    wsjf: 14.0
+    cod: 28
+    size: 2
+    outcome: "Success - Detected 15% latency regression in staging, fixed before deploy"
+    
+  - title: "Database query monitoring during migration"
+    wsjf: 16.0
+    cod: 32
+    size: 2
+    outcome: "Success - Identified slow query causing 40% CPU spike"
+    
+  - title: "Feature flag telemetry for A/B test"
+    wsjf: 10.0
+    cod: 20
+    size: 2
+    outcome: "Success - Real-time conversion tracking informed rollout decision"
+
+required_metrics:
+  golden_signals:
+    - name: "Latency"
+      unit: "milliseconds"
+      p50_threshold: 100
+      p99_threshold: 500
+      
+    - name: "Error Rate"
+      unit: "percentage"
+      threshold: 1.0
+      
+    - name: "Throughput"
+      unit: "requests_per_second"
+      min_threshold: 100
+      
+    - name: "Saturation"
+      unit: "percentage"
+      threshold: 80
+
+log_requirements:
+  format: "json"
+  required_fields:
+    - timestamp
+    - level
+    - message
+    - trace_id
+    - user_id
+    - service_name
+  retention_days: 30

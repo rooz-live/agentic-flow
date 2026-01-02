@@ -6,6 +6,11 @@
 
 ## 🔄 In-Flight (Replenished to Backlogs)
 <!-- Items moved here have been picked up by replenish_circle.sh and exist in role backlogs -->
+- [ ] Implement StarlingX Tyk MCP server for API gateway Source:retro [Trace: FLOW-R-1767100348-386]
+- [ ] Audit OpenStack vs StarlingX 11.0 milestone Source:retro [Trace: FLOW-R-1767100348-663]
+- [ ] Implement StarlingX MCP server for node orchestration Source:retro [Trace: FLOW-R-1767099653-892]
+- [ ] Audit SOXL/SOXS 2026 Portfolio divergence Source:retro (UBV: 10, TC: 5) [Trace: FLOW-R-1767099653-982]
+- [ ] Refactor prod_cycle_swarm_runner.py for better error handling Source:retro [Trace: FLOW-R-1767099653-362]
 - [ ] Verify forensic audit trail generation Source:retro (UBV: 8, TC: 8, RROE: 5, Size: 1) [Trace: FLOW-R-1765413092-638]
 - [ ] **Actionable Insight** Source:retro? (WSJF: Score) [Trace: FLOW-R-1765411970-476]
 - [ ] Integrate promote_to_kanban.py into scripts/af Source:retro (UBV: 3, TC: 3, RROE: 2, Size: 1) [Trace: FLOW-R-1765399605-174]

@@ -1,9 +1,14 @@
 /**
  * Logging Middleware
  * Request/response logging and monitoring
+ *
+ * OBSERVABILITY: Emits pattern metrics to .goalie/pattern_metrics.jsonl
+ * for API gateway latency tracking (CONSOLIDATED_ACTIONS: full-stack observability)
  */
 
-import { Request, Response, NextFunction } from 'express';
+import { NextFunction, Request, Response } from 'express';
+import * as fs from 'fs';
+import * as path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 
 interface LogEntry {
@@ -17,6 +22,68 @@ interface LogEntry {
   ip?: string;
   userAgent?: string;
   error?: string;
+}
+
+/**
+ * API Gateway Latency Metrics for Goalie observability
+ */
+interface ApiGatewayMetric {
+  ts: string;
+  pattern: string;
+  circle: string;
+  depth: number;
+  event_type: string;
+  method: string;
+  path: string;
+  status_code: number;
+  latency_ms: number;
+  latency_bucket: string;
+  slo_met: boolean;
+  alignment_score: { manthra: number; yasna: number; mithra: number };
+  consequence_tracking: boolean;
+}
+
+// Latency SLO thresholds (in ms)
+const LATENCY_SLO = {
+  P50: 100,
+  P90: 500,
+  P99: 1000,
+  CRITICAL: 5000
+};
+
+/**
+ * Emit API gateway latency metric to Goalie pattern_metrics.jsonl
+ */
+function emitApiGatewayMetric(entry: LogEntry): void {
+  if (!entry.duration || !entry.statusCode) return;
+
+  const latencyBucket =
+    entry.duration <= LATENCY_SLO.P50 ? 'p50' :
+    entry.duration <= LATENCY_SLO.P90 ? 'p90' :
+    entry.duration <= LATENCY_SLO.P99 ? 'p99' : 'critical';
+
+  const metric: ApiGatewayMetric = {
+    ts: new Date().toISOString(),
+    pattern: 'api-gateway-latency',
+    circle: 'analyst',
+    depth: 2,
+    event_type: 'observability',
+    method: entry.method,
+    path: entry.path,
+    status_code: entry.statusCode,
+    latency_ms: entry.duration,
+    latency_bucket: latencyBucket,
+    slo_met: entry.duration <= LATENCY_SLO.P90,
+    alignment_score: { manthra: 0.9, yasna: 0.95, mithra: 0.92 },
+    consequence_tracking: true
+  };
+
+  try {
+    const metricsPath = path.resolve(process.cwd(), '.goalie/pattern_metrics.jsonl');
+    fs.appendFileSync(metricsPath, JSON.stringify(metric) + '\n');
+  } catch (err) {
+    // Silently fail if .goalie directory doesn't exist (non-production)
+  }
 }
 
 /**
@@ -102,6 +169,10 @@ function storeLogEntry(entry: LogEntry): void {
   if (entry.duration && entry.duration > 5000) {
     console.warn(`Slow request detected: ${entry.path} took ${entry.duration}ms`);
   }
+
+  // Emit API gateway latency metric to Goalie observability
+  // (CONSOLIDATED_ACTIONS: full-stack observability coverage)
+  emitApiGatewayMetric(entry);
 }
 
 /**

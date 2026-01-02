@@ -872,7 +872,11 @@ def _iris_event_is_alert(ev: Dict[str, Any]) -> bool:
     """
     actions = ev.get("actions_taken") or []
     for action in actions:
-        prio = str(action.get("priority") or "").lower()
+        # Handle both dict and string actions
+        if isinstance(action, dict):
+            prio = str(action.get("priority") or "").lower()
+        else:
+            prio = ""
         if prio in {"critical", "urgent", "important"}:
             return True
 
@@ -942,9 +946,14 @@ def summarize_iris_for_dt(
             circle_participation[c] = circle_participation.get(c, 0) + 1
 
         for action in ev.get("actions_taken") or []:
-            prio = str(action.get("priority") or "normal")
+            # Handle both dict and string actions
+            if isinstance(action, dict):
+                prio = str(action.get("priority") or "normal")
+                circle = str(action.get("circle") or "")
+            else:
+                prio = "normal"
+                circle = ""
             actions_by_priority[prio] = actions_by_priority.get(prio, 0) + 1
-            circle = str(action.get("circle") or "")
             if circle:
                 per_circle = actions_by_circle.setdefault(circle, {})
                 per_circle[prio] = per_circle.get(prio, 0) + 1

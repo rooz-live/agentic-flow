@@ -8,7 +8,7 @@
  * - Auto-generated retro questions based on pattern triggers
  */
 interface Anomaly {
-    type: 'pattern_overuse' | 'pattern_underuse' | 'mutation_spike' | 'behavioral_drift' | 'economic_degradation';
+    type: 'pattern_overuse' | 'pattern_underuse' | 'mutation_spike' | 'behavioral_drift' | 'economic_degradation' | 'observability_gap';
     pattern: string;
     severity: 'low' | 'medium' | 'high' | 'critical';
     description: string;
@@ -45,5 +45,5 @@ declare class PatternMetricsAnalyzer {
     getReport(): any;
     writeReport(outputPath?: string): Promise<void>;
 }
-export { PatternMetricsAnalyzer, Anomaly, GovernanceAdjustment, RetroQuestion };
+export { Anomaly, GovernanceAdjustment, PatternMetricsAnalyzer, RetroQuestion };
 //# sourceMappingURL=pattern_metrics_analyzer.d.ts.map

@@ -1,12 +1,12 @@
 /**
  * ProcessGovernor Bridge - Pattern Metrics Integration
- * 
+ *
  * Maps ProcessGovernor events to standardized pattern metrics for value stream delivery:
  * - CPU_OVERLOAD → safe-degrade pattern
  * - RATE_LIMITED → iteration-budget pattern
  * - BACKOFF → failure-strategy pattern
  * - CIRCUIT_OPEN → fault-tolerance pattern
- * 
+ *
  * Design:
  * - <2s overhead via buffered JSONL writes
  * - Advisory by default (AF_PROD_CYCLE_MODE=advisory)
@@ -14,13 +14,12 @@
  * - Zero dependencies beyond Node stdlib
  */
 
+import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
-import { spawnSync } from 'child_process';
 
 // Configuration
-const PATTERN_METRICS_PATH = process.env.AF_PATTERN_METRICS_PATH 
+const PATTERN_METRICS_PATH = process.env.AF_PATTERN_METRICS_PATH
   || path.join(process.cwd(), '.goalie', 'pattern_metrics.jsonl');
 
 const CYCLE_LOG_PATH = process.env.AF_CYCLE_LOG_PATH
@@ -58,8 +57,8 @@ interface PatternMetric {
 
 interface GovernorEvent {
   timestamp: string;
-  type: 'CPU_OVERLOAD' | 'RATE_LIMITED' | 'BACKOFF' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' | 
-        'CIRCUIT_CLOSED' | 'WIP_VIOLATION' | 'ADAPTIVE_THROTTLING' | 'BATCH_COMPLETE' | 
+  type: 'CPU_OVERLOAD' | 'RATE_LIMITED' | 'BACKOFF' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' |
+        'CIRCUIT_CLOSED' | 'WIP_VIOLATION' | 'ADAPTIVE_THROTTLING' | 'BATCH_COMPLETE' |
         'PREDICTIVE_THROTTLING' | 'DEPENDENCY_ANALYSIS';
   details: Record<string, unknown>;
 }
@@ -74,7 +73,7 @@ let isShuttingDown = false;
  */
 function buildPatternState(metric: PatternMetric): Record<string, any> {
   const state: Record<string, any> = {};
-  
+
   switch (metric.pattern) {
     case 'safe-degrade':
       state.safe_degrade = {
@@ -82,28 +81,28 @@ function buildPatternState(metric: PatternMetric): Record<string, any> {
         actions: metric.degraded ? ['throttled'] : [],
       };
       break;
-    
+
     case 'iteration-budget':
       state.iteration_budget = {
         requested: metric.details.requestedTokens || 0,
         enforced: metric.details.availableTokens || 0,
       };
       break;
-    
+
     case 'failure-strategy':
       state.failure_strategy = {
         degrade_reason: metric.details.reason || '',
         attempt: metric.details.attempt || 0,
       };
       break;
-    
+
     case 'adaptive-throttling':
       state.adaptive_throttling = {
         throttling_level: metric.details.throttlingLevel || 0,
         predictive_score: metric.details.predictiveScore || 0,
       };
       break;
-    
+
     case 'fault-tolerance':
       state.fault_tolerance = {
         state: metric.details.state || 'unknown',
@@ -111,7 +110,7 @@ function buildPatternState(metric: PatternMetric): Record<string, any> {
       };
       break;
   }
-  
+
   return state;
 }
 
@@ -128,11 +127,11 @@ function calculateEconomicsFallback(metric: PatternMetric): Economic {
     'adaptive-throttling': {cod: 150, wsjf: 100, risk: 5},
     'fault-tolerance': {cod: 3000, wsjf: 2500, risk: 8},
   };
-  
+
   const base = baseEconomics[metric.pattern] || {cod: 100, wsjf: 50, risk: 5};
   let cod = 0;
   let wsjf_score = 0;
-  
+
   // Pattern-specific logic
   if (metric.pattern === 'safe-degrade' && metric.degraded) {
     cod = base.cod;
@@ -157,11 +156,11 @@ function calculateEconomicsFallback(metric: PatternMetric): Economic {
     cod = base.cod;
     wsjf_score = base.wsjf;
   }
-  
+
   // Mode multiplier
-  const modeFactor = metric.behavior === 'mutation' ? 1.5 : 
+  const modeFactor = metric.behavior === 'mutation' ? 1.5 :
                      metric.behavior === 'advisory' ? 0.5 : 1.0;
-  
+
   return {
     cod: Math.round(cod * modeFactor * 100) / 100,
     wsjf_score: Math.round(wsjf_score * modeFactor * 100) / 100,
@@ -178,7 +177,7 @@ function enrichWithEconomics(metric: PatternMetric): PatternMetric {
     const patternState = JSON.stringify(buildPatternState(metric));
     const depth = metric.depth || 3;
     const mode = metric.behavior;
-    
+
     const result = spawnSync('python3', [
       path.join(process.cwd(), 'scripts/agentic/pattern_logging_helper.py'),
       '--pattern', metric.pattern,
@@ -191,7 +190,7 @@ function enrichWithEconomics(metric: PatternMetric): PatternMetric {
       timeout: 100, // 100ms timeout
       encoding: 'utf8'
     });
-    
+
     if (result.status === 0 && result.stdout) {
       const economic = JSON.parse(result.stdout.trim());
       return { ...metric, economic, mode, depth };
@@ -199,25 +198,44 @@ function enrichWithEconomics(metric: PatternMetric): PatternMetric {
   } catch (error) {
     // Fallback to TypeScript calculator
   }
-  
+
   // TypeScript fallback
-  return { 
-    ...metric, 
+  return {
+    ...metric,
     economic: calculateEconomicsFallback(metric),
     mode: metric.behavior,
     depth: metric.depth || 3
   };
 }
 
+// Track event start times for duration calculation
+const eventStartTimes: Map<string, number> = new Map();
+
+/**
+ * Get or create start time for an event type, returns duration since last event of same type
+ */
+function getEventDurationMs(eventType: string): number {
+  const now = Date.now();
+  const lastStart = eventStartTimes.get(eventType);
+  eventStartTimes.set(eventType, now);
+
+  // If we have a previous start time, return duration since then
+  // Otherwise return 0 for first event of this type
+  return lastStart ? Math.max(0, now - lastStart) : 0;
+}
+
 /**
  * Map ProcessGovernor incident types to pattern metrics
  */
 function mapEventToPattern(event: GovernorEvent): PatternMetric | null {
+  // Calculate actual duration since last event of this type
+  const durationMs = getEventDurationMs(event.type);
+
   const baseMetric = {
     ts: event.timestamp,
     runId: RUN_ID,
     success: true,
-    durationMs: 0,
+    durationMs,
     circle: 'orchestrator', // Governor is orchestrator-level concern
     gate: 'health',
   };
@@ -407,7 +425,7 @@ async function appendToSink(sinkPath: string, records: unknown[]): Promise<void>
 function scheduleFlush(): void {
   if (!flushTimer && ENABLED) {
     flushTimer = setInterval(() => {
-      flushBuffer().catch(err => 
+      flushBuffer().catch(err =>
         console.warn('[ProcessGovernorBridge] Flush error:', err)
       );
     }, BUFFER_FLUSH_INTERVAL_MS);
@@ -435,7 +453,7 @@ export function ingestGovernorEvent(event: GovernorEvent): void {
 
   // Immediate flush for critical events
   if (event.type === 'CPU_OVERLOAD' || event.type === 'CIRCUIT_OPEN') {
-    flushBuffer().catch(err => 
+    flushBuffer().catch(err =>
       console.warn('[ProcessGovernorBridge] Immediate flush failed:', err)
     );
   }

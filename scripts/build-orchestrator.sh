@@ -31,6 +31,7 @@ ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_MODE="${1:-full}"
 FAILED_STEPS=0
 TOTAL_STEPS=0
+TEST_FAILURES=0
 START_TIME=$(date +%s)
 
 # Logging
@@ -128,7 +129,11 @@ install_dependencies() {
 build_typescript() {
     log_info "Building TypeScript..."
     cd "$ROOT_DIR"
-    run_step "TypeScript compilation" "npm run build 2>&1 || true"
+    # FAIL-FAST: TypeScript compilation must succeed
+    if ! run_step "TypeScript compilation" "npm run build 2>&1"; then
+        log_error "TypeScript compilation failed - aborting build"
+        exit 1
+    fi
 }
 
 # Python syntax validation
@@ -149,7 +154,9 @@ validate_python() {
     # Validate analysis scripts
     for py_file in scripts/analysis/*.py; do
         if [ -f "$py_file" ]; then
-            run_step "$(basename "$py_file") syntax" "$PYTHON_CMD -m py_compile $py_file" || true
+            if ! run_step "$(basename "$py_file") syntax" "$PYTHON_CMD -m py_compile $py_file"; then
+                log_warning "Python syntax validation failed for $(basename "$py_file")"
+            fi
         fi
     done
 }
@@ -158,14 +165,23 @@ validate_python() {
 run_jest_tests() {
     log_info "Running Jest tests..."
     cd "$ROOT_DIR"
-    run_step "Jest test suite" "npm test -- --passWithNoTests 2>&1" || true
+    # Tests should report failures but not abort the entire build
+    # However, we track the exit code for summary
+    if run_step "Jest test suite" "npm test -- --passWithNoTests 2>&1"; then
+        log_success "All Jest tests passed"
+    else
+        log_warning "Some Jest tests failed - review required"
+        TEST_FAILURES=$((TEST_FAILURES + 1))
+    fi
 }
 
 # Run drift monitor checks (safe mode for CI: no network probes, no syslog emit)
 run_drift_checks() {
     log_info "Running drift monitor checks..."
     cd "$ROOT_DIR"
-    run_step "Drift monitor self-check" "npm run drift:check -- --skip-network --no-emit 2>&1" || true
+    if ! run_step "Drift monitor self-check" "npm run drift:check -- --skip-network --no-emit 2>&1"; then
+        log_warning "Drift monitor checks had issues - review recommended"
+    fi
 }
 
 # Run pytest tests
@@ -179,7 +195,12 @@ run_pytest_tests() {
     cd "$ROOT_DIR"
     
     if $PYTHON_CMD -c "import pytest" 2>/dev/null; then
-        run_step "pytest suite" "$PYTHON_CMD -m pytest tests/ -v --tb=short 2>&1" || true
+        if run_step "pytest suite" "$PYTHON_CMD -m pytest tests/ -v --tb=short 2>&1"; then
+            log_success "All Python tests passed"
+        else
+            log_warning "Some Python tests failed - review required"
+            TEST_FAILURES=$((TEST_FAILURES + 1))
+        fi
     else
         log_warning "pytest not installed, skipping Python tests"
     fi
@@ -226,7 +247,9 @@ run_foundation_validation() {
     cd "$ROOT_DIR"
     
     if [ -x "scripts/validate-foundation.sh" ]; then
-        run_step "Foundation validation" "./scripts/validate-foundation.sh" || true
+        if ! run_step "Foundation validation" "./scripts/validate-foundation.sh"; then
+            log_warning "Foundation validation had issues - review recommended"
+        fi
     else
         log_warning "validate-foundation.sh not found or not executable"
     fi

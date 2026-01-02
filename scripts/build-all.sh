@@ -1,6 +1,7 @@
 #!/bin/bash
 # Build all packages in the monorepo for npm publishing
 # Author: ruv (@ruvnet)
+# Modified: 2026-01-02 - Removed || true patterns for fail-fast behavior
 
 set -e  # Exit on error
 
@@ -12,6 +13,9 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
+
+# Track build failures
+BUILD_FAILURES=0
 
 # Function to print colored output
 print_status() {
@@ -64,8 +68,12 @@ if [ -d "agent-booster" ]; then
     fi
 
     if [ -f "package.json" ]; then
-        npm run build || true
-        print_success "Agent-booster built successfully"
+        if npm run build; then
+            print_success "Agent-booster built successfully"
+        else
+            print_error "Agent-booster build failed"
+            BUILD_FAILURES=$((BUILD_FAILURES + 1))
+        fi
     fi
 
     cd "$ROOT_DIR"
@@ -81,14 +89,25 @@ if [ -d "reasoningbank" ]; then
     fi
 
     if [ -f "package.json" ]; then
-        npm run build || true
-        print_success "ReasoningBank built successfully"
+        if npm run build; then
+            print_success "ReasoningBank built successfully"
+        else
+            print_error "ReasoningBank build failed"
+            BUILD_FAILURES=$((BUILD_FAILURES + 1))
+        fi
     fi
 
     cd "$ROOT_DIR"
 fi
 
 echo ""
+
+# Check for any build failures
+if [ $BUILD_FAILURES -gt 0 ]; then
+    print_error "Build completed with $BUILD_FAILURES failure(s)"
+    exit 1
+fi
+
 echo "✅ All packages built successfully!"
 echo ""
 echo "📦 Package structure:"

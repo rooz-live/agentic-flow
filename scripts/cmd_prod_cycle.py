@@ -939,7 +939,7 @@ def validate_critical_patterns(metrics_file):
         if critical_patterns:
             pattern_details = [
                 f"line {p['line']}: {p['pattern']} "
-                f"({p.get('issue', f"triggers={p.get('trigger_count')}")})"
+                f"({p.get('issue', 'triggers=' + str(p.get('trigger_count', 'N/A')))})"
                 for p in critical_patterns[:3]  # Limit to first 3 for readability
             ]
             return False, (

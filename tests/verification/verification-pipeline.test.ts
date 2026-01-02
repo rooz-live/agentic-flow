@@ -2,12 +2,11 @@
  * Tests for Verification Pipeline
  */
 
-import {
-  VerificationPipeline,
-  VerificationInput,
-  HallucinationDetection,
-} from '../../src/verification/pipeline/verification-pipeline';
 import { MedicalCitation } from '../../src/verification/core/confidence-scorer';
+import {
+    VerificationInput,
+    VerificationPipeline
+} from '../../src/verification/pipeline/verification-pipeline';
 
 describe('VerificationPipeline', () => {
   let pipeline: VerificationPipeline;
@@ -136,7 +135,7 @@ describe('VerificationPipeline', () => {
     });
 
     it('should detect future dates', async () => {
-      const text = 'A 2026 study showed that this treatment is effective';
+      const text = 'A 2030 study showed that this treatment is effective';
 
       const hallucinations = await pipeline.detectHallucinations(text);
 

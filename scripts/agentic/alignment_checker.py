@@ -211,6 +211,245 @@ def detect_vigilance_deficit(patterns: List[Dict]) -> Dict:
     }
 
 
+def _extract_alignment(p: Dict) -> Dict:
+    """
+    Extract alignment score from pattern, checking multiple locations.
+    Patterns may have alignment in: alignment_score, data.alignment_score, or as top-level fields.
+
+    Handles edge cases: malformed alignment_score, None values, non-dict types.
+    """
+    # Default return for malformed patterns
+    default_alignment = {
+        'manthra_score': 0,
+        'yasna_score': 0,
+        'mithra_score': 0,
+        'consequence_tracked': False,
+        'overall_drift': 0
+    }
+
+    # Primary location - with type safety
+    alignment = p.get('alignment_score')
+    if alignment and isinstance(alignment, dict):
+        # Check for manthra_score or manthra (different formats)
+        if alignment.get('manthra_score') or alignment.get('manthra'):
+            return {
+                'manthra_score': alignment.get('manthra_score') or alignment.get('manthra', 0),
+                'yasna_score': alignment.get('yasna_score') or alignment.get('yasna', 0),
+                'mithra_score': alignment.get('mithra_score') or alignment.get('mithra', 0),
+                'consequence_tracked': alignment.get('consequence_tracked', False),
+                'overall_drift': alignment.get('overall_drift') or alignment.get('overall', 0)
+            }
+
+    # Secondary: check in data.alignment_score - with type safety
+    data = p.get('data')
+    if isinstance(data, dict):
+        data_alignment = data.get('alignment_score')
+        if data_alignment and isinstance(data_alignment, dict):
+            if data_alignment.get('manthra_score') or data_alignment.get('manthra'):
+                return {
+                    'manthra_score': data_alignment.get('manthra_score') or data_alignment.get('manthra', 0),
+                    'yasna_score': data_alignment.get('yasna_score') or data_alignment.get('yasna', 0),
+                    'mithra_score': data_alignment.get('mithra_score') or data_alignment.get('mithra', 0),
+                    'consequence_tracked': data_alignment.get('consequence_tracked', False),
+                    'overall_drift': data_alignment.get('overall_drift') or data_alignment.get('overall', 0)
+                }
+
+    # Tertiary: check consequence_tracking field - with type safety
+    consequence_tracking = p.get('consequence_tracking')
+    has_consequence = False
+    if isinstance(consequence_tracking, dict):
+        has_consequence = (
+            consequence_tracking.get('vigilance_maintained', False) or
+            consequence_tracking.get('consequence_awareness', 0) > 0.5
+        )
+
+    # Also check direct fields
+    if not has_consequence:
+        has_consequence = bool(
+            p.get('consequence') or  # Direct consequence field
+            p.get('action_completed', False)  # Action was verified
+        )
+
+    default_alignment['consequence_tracked'] = has_consequence
+    return default_alignment
+
+
+def _extract_rationale(p: Dict) -> Optional[str]:
+    """
+    Extract rationale from pattern, checking multiple locations.
+    Rationale can be in: rationale, data.reason, data.rationale, reason, or explanation fields.
+    Handles both string rationales and dict rationales (P1-TIME auto-generated).
+
+    Handles edge cases: malformed data field, None values, non-dict types.
+    """
+    # Direct rationale field - can be string or dict
+    rationale = p.get('rationale')
+    if rationale:
+        if isinstance(rationale, dict):
+            # P1-TIME: Dict rationale with 'why' key
+            why = rationale.get('why', '')
+            if why and len(str(why)) >= 10:
+                return str(why)
+        elif isinstance(rationale, str) and len(rationale) >= 20:
+            return rationale
+
+    # Get data field with type safety
+    data = p.get('data')
+    if isinstance(data, dict):
+        # data.reason field (common in existing patterns)
+        data_reason = data.get('reason')
+        if data_reason and len(str(data_reason)) >= 10:  # More lenient for legacy
+            return str(data_reason)
+
+        # data.rationale field
+        data_rationale = data.get('rationale')
+        if data_rationale:
+            if isinstance(data_rationale, dict):
+                why = data_rationale.get('why', '')
+                if why and len(str(why)) >= 10:
+                    return str(why)
+            elif len(str(data_rationale)) >= 20:
+                return str(data_rationale)
+
+    # Top-level reason
+    if p.get('reason') and len(str(p.get('reason'))) >= 10:
+        return str(p.get('reason'))
+
+    # Explanation field
+    if p.get('explanation') and len(str(p.get('explanation'))) >= 20:
+        return str(p.get('explanation'))
+
+    return None
+
+
+def detect_proxy_gaming(patterns: List[Dict]) -> Dict:
+    """
+    P2-TRUTH: Detect proxy gaming - when metrics are optimized without genuine improvement.
+
+    Gaming indicators:
+    1. High alignment scores with low consequence tracking (checkbox compliance)
+    2. Suspiciously uniform scores across patterns (artificial consistency)
+    3. High WSJF scores with low actual economic impact (inflated priorities)
+    4. Rapid score improvements without corresponding action changes
+    5. High yasna (policy) with missing rationale (blind compliance)
+    """
+    if not patterns:
+        return {'gaming_detected': False, 'indicators': [], 'risk_level': 'LOW'}
+
+    indicators = []
+    gaming_score = 0.0
+
+    # Collect metrics for analysis
+    alignment_scores = []
+    wsjf_scores = []
+    consequence_rates = []
+    rationale_rates = []
+
+    for p in patterns:
+        alignment = _extract_alignment(p)
+        economic = p.get('economic', {})
+
+        # Calculate composite alignment if we have scores
+        manthra = alignment.get('manthra_score', 0)
+        yasna = alignment.get('yasna_score', 0)
+        mithra = alignment.get('mithra_score', 0)
+
+        if manthra > 0 or yasna > 0 or mithra > 0:
+            composite = (manthra + yasna + mithra) / 3
+            alignment_scores.append(composite)
+
+        # Track consequence tracking (now properly extracted)
+        has_consequence = alignment.get('consequence_tracked', False)
+        consequence_rates.append(1.0 if has_consequence else 0.0)
+
+        if economic:
+            wsjf = economic.get('wsjf_score', 0)
+            wsjf_scores.append(wsjf)
+
+        # Track rationale presence (now checks multiple locations)
+        rationale = _extract_rationale(p)
+        rationale_rates.append(1.0 if rationale else 0.0)
+
+    # INDICATOR 1: High alignment with low consequence tracking
+    if alignment_scores and consequence_rates:
+        avg_alignment = sum(alignment_scores) / len(alignment_scores)
+        avg_consequence = sum(consequence_rates) / len(consequence_rates)
+
+        if avg_alignment > 0.8 and avg_consequence < 0.3:
+            indicators.append({
+                'type': 'CHECKBOX_COMPLIANCE',
+                'severity': 'HIGH',
+                'evidence': f'High alignment ({avg_alignment:.2f}) with low consequence tracking ({avg_consequence:.2f})',
+                'recommendation': 'Ensure alignment scores reflect actual outcome tracking'
+            })
+            gaming_score += 0.3
+
+    # INDICATOR 2: Suspiciously uniform scores (low variance)
+    if len(alignment_scores) >= 10:
+        mean_score = sum(alignment_scores) / len(alignment_scores)
+        variance = sum((s - mean_score)**2 for s in alignment_scores) / len(alignment_scores)
+
+        if variance < 0.01 and mean_score > 0.8:
+            indicators.append({
+                'type': 'ARTIFICIAL_CONSISTENCY',
+                'severity': 'MEDIUM',
+                'evidence': f'Suspiciously uniform scores (variance={variance:.4f}, mean={mean_score:.2f})',
+                'recommendation': 'Review scoring methodology for genuine variation'
+            })
+            gaming_score += 0.2
+
+    # INDICATOR 3: High WSJF with low revenue impact
+    if wsjf_scores:
+        avg_wsjf = sum(wsjf_scores) / len(wsjf_scores)
+        revenue_impacts = [p.get('economic', {}).get('revenue_impact', 0) for p in patterns]
+        avg_revenue = sum(revenue_impacts) / len(revenue_impacts) if revenue_impacts else 0
+
+        if avg_wsjf > 20 and avg_revenue < 100:
+            indicators.append({
+                'type': 'INFLATED_PRIORITIES',
+                'severity': 'MEDIUM',
+                'evidence': f'High WSJF ({avg_wsjf:.1f}) with low revenue impact (${avg_revenue:.0f})',
+                'recommendation': 'Calibrate WSJF scoring against actual business outcomes'
+            })
+            gaming_score += 0.2
+
+    # INDICATOR 4: High yasna (policy) with missing rationale
+    if rationale_rates:
+        avg_rationale = sum(rationale_rates) / len(rationale_rates)
+        # Type-safe yasna extraction
+        yasna_scores = []
+        for p in patterns:
+            alignment = _extract_alignment(p)
+            yasna_scores.append(alignment.get('yasna_score', 0))
+        avg_yasna = sum(yasna_scores) / len(yasna_scores) if yasna_scores else 0
+
+        if avg_yasna > 0.9 and avg_rationale < 0.2:
+            indicators.append({
+                'type': 'BLIND_COMPLIANCE',
+                'severity': 'HIGH',
+                'evidence': f'High policy compliance ({avg_yasna:.2f}) without rationale ({avg_rationale:.2f})',
+                'recommendation': 'Add semantic rationale to explain policy decisions'
+            })
+            gaming_score += 0.3
+
+    # Determine risk level
+    if gaming_score >= 0.5:
+        risk_level = 'HIGH'
+    elif gaming_score >= 0.3:
+        risk_level = 'MEDIUM'
+    else:
+        risk_level = 'LOW'
+
+    return {
+        'gaming_detected': gaming_score >= 0.3,
+        'gaming_score': round(gaming_score, 3),
+        'risk_level': risk_level,
+        'indicators': indicators,
+        'patterns_analyzed': len(patterns),
+        'recommendation': 'Review flagged indicators and ensure metrics reflect genuine outcomes' if indicators else None
+    }
+
+
 def calculate_calibrated_judgment(analysis: Dict) -> Dict:
     """
     P2-2: Validate calibrated judgment using the three-dimensional framework.
@@ -446,11 +685,13 @@ def main():
         vigilance = detect_vigilance_deficit(patterns)
         calibration = calculate_calibrated_judgment(analysis)
         dimensional = analyze_three_dimensional_integrity(patterns)
+        proxy_gaming = detect_proxy_gaming(patterns)
         philosophical_analysis = {
             'authority_insight_warnings': authority_warnings,
             'vigilance_deficit': vigilance,
             'calibrated_judgment': calibration,
-            'three_dimensional_integrity': dimensional
+            'three_dimensional_integrity': dimensional,
+            'proxy_gaming': proxy_gaming
         }
 
     # Generate report if requested
@@ -518,6 +759,24 @@ def main():
                     if fm.get('embodied_fragility'):
                         print("    ⚠ Embodied fragility: Truth cannot survive stress")
                 print(f"  Recommendation: {dim.get('recommendation', 'N/A')}")
+
+            # Proxy gaming detection output
+            pg = philosophical_analysis.get('proxy_gaming', {})
+            if pg:
+                print()
+                print("=== Proxy Gaming Detection ===")
+                print(f"Gaming Detected: {pg.get('gaming_detected', False)}")
+                print(f"Risk Level: {pg.get('risk_level', 'LOW')}")
+                print(f"Gaming Score: {pg.get('gaming_score', 0)}")
+                indicators = pg.get('indicators', [])
+                if indicators:
+                    print(f"Indicators Found: {len(indicators)}")
+                    for ind in indicators:
+                        print(f"  ⚠ {ind['type']} ({ind['severity']})")
+                        print(f"    Evidence: {ind['evidence']}")
+                        print(f"    Action: {ind['recommendation']}")
+                if pg.get('recommendation'):
+                    print(f"Overall: {pg['recommendation']}")
 
         print()
         if flagged:

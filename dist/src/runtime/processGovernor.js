@@ -88,6 +88,11 @@ const state = {
     adaptiveThrottlingLevel: 1.0,
     predictiveLoadScore: 0.0,
     lastDependencyAnalysis: 0,
+    // Phase 2.0: Dynamic threshold state
+    dynamicThresholds: null,
+    lastThresholdUpdate: 0,
+    recentPerformance: [],
+    cascadeFailureWindow: [],
     incidentBuffer: [],
     incidents: [],
     metrics: {
@@ -99,6 +104,9 @@ const state = {
         dropped_events: 0,
         queue_depth: 0,
         flush_latency_ms: 0,
+        degradation_score: 0,
+        cascade_failure_count: 0,
+        divergence_rate_current: 0,
     },
 };
 const INCIDENT_LOG_PATH = process.env.AF_INCIDENT_LOG || 'logs/governor_incidents.jsonl';

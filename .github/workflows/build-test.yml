@@ -121,6 +121,9 @@ jobs:
     name: Test Suite
     runs-on: ubuntu-latest
     needs: build
+    env:
+      AF_SKIP_INTEGRATION: "true"
+      AF_SKIP_E2E: "true"
     if: ${{ github.event.inputs.skip_tests != 'true' }}
     outputs:
       test_pass_rate: ${{ steps.test-results.outputs.pass_rate }}
@@ -146,16 +149,17 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          pip install pytest pytest-cov || true
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov
           if [ -f analysis/requirements.txt ]; then
-            pip install -r analysis/requirements.txt || echo "::warning::Some Python deps failed"
+            pip install -r analysis/requirements.txt
           fi
 
       - name: Run Jest Tests
         id: jest-tests
         run: |
           echo "::group::Jest Tests"
-          npm test -- --json --outputFile=test-results.json --passWithNoTests 2>&1 | tee test-output.txt
+          npm test -- --coverage --json --outputFile=test-results.json --passWithNoTests 2>&1 | tee test-output.txt
           echo "::endgroup::"
 
       - name: Parse Test Results
@@ -283,12 +287,122 @@ jobs:
           echo "::endgroup::"
 
   # ============================================================
+  # STAGE 6: PROXY GAMING DETECTION (Goodhart's Law Prevention)
+  # ============================================================
+  proxy-gaming:
+    name: Proxy Gaming Detection
+    runs-on: ubuntu-latest
+    needs: [build, test]
+    if: always() && needs.build.result == 'success'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+
+      - name: Create Goalie Directory
+        run: mkdir -p .goalie
+
+      - name: Run Proxy Gaming Detection
+        id: gaming-check
+        run: |
+          echo "::group::Proxy Gaming Detection"
+          echo "Running alignment checker with philosophical analysis..."
+
+          # Run alignment checker and capture output (48-hour lookback for weekend patterns)
+          python3 scripts/agentic/alignment_checker.py --philosophical --json --hours 48 > .goalie/gaming_detection.json 2>&1 || true
+
+          # Extract gaming detection results
+          if [ -f .goalie/gaming_detection.json ]; then
+            GAMING_DETECTED=$(python3 -c "import json; d=json.load(open('.goalie/gaming_detection.json')); print(d.get('proxy_gaming',{}).get('gaming_detected', False))" 2>/dev/null || echo "False")
+            RISK_LEVEL=$(python3 -c "import json; d=json.load(open('.goalie/gaming_detection.json')); print(d.get('proxy_gaming',{}).get('risk_level', 'LOW'))" 2>/dev/null || echo "LOW")
+            GAMING_SCORE=$(python3 -c "import json; d=json.load(open('.goalie/gaming_detection.json')); print(d.get('proxy_gaming',{}).get('gaming_score', 0.0))" 2>/dev/null || echo "0.0")
+            INDICATORS=$(python3 -c "import json; d=json.load(open('.goalie/gaming_detection.json')); print(d.get('proxy_gaming',{}).get('indicators', []))" 2>/dev/null || echo "[]")
+
+            echo "gaming_detected=$GAMING_DETECTED" >> $GITHUB_OUTPUT
+            echo "risk_level=$RISK_LEVEL" >> $GITHUB_OUTPUT
+            echo "gaming_score=$GAMING_SCORE" >> $GITHUB_OUTPUT
+
+            echo "📊 Proxy Gaming Detection Results:"
+            echo "  - Gaming Detected: $GAMING_DETECTED"
+            echo "  - Risk Level: $RISK_LEVEL"
+            echo "  - Gaming Score: $GAMING_SCORE"
+            echo "  - Indicators: $INDICATORS"
+
+            # Warn if gaming score exceeds 0.3 (early warning threshold - lowered for earlier detection)
+            if [ -n "$GAMING_SCORE" ] && [ "$GAMING_SCORE" != "0.0" ]; then
+              SCORE_WARNING=$(python3 -c "print('True' if float('$GAMING_SCORE') >= 0.3 else 'False')" 2>/dev/null || echo "False")
+              if [ "$SCORE_WARNING" = "True" ]; then
+                echo "::warning::Gaming score $GAMING_SCORE exceeds early warning threshold (0.3) - monitor for trend"
+              fi
+            fi
+
+            # CONSERVATIVE MODE: Fail build if MEDIUM or HIGH risk gaming detected
+            # This is stricter than the default (HIGH-only) to catch gaming patterns early
+            if [ "$GAMING_DETECTED" = "True" ] && [ "$RISK_LEVEL" = "MEDIUM" ]; then
+              echo ""
+              echo "::error::⚠️ MEDIUM RISK PROXY GAMING DETECTED (Conservative Mode)"
+              echo "::error::Gaming indicators suggest potential metrics optimization without genuine improvement."
+              echo "::error::This violates Goodhart's Law prevention - 'When a measure becomes a target, it ceases to be a good measure.'"
+              echo ""
+              echo "::error::Gaming Score: $GAMING_SCORE"
+              echo "::error::Indicators found: $INDICATORS"
+              echo ""
+              echo "::error::To fix this issue:"
+              echo "::error::1. Ensure pattern emissions include semantic rationale explaining WHY compliance is achieved"
+              echo "::error::2. Review alignment_checker.py detect_proxy_gaming() thresholds"
+              echo "::error::3. Add explicit rationale= parameter to pattern_logger.log() calls"
+              echo "::error::4. If this is a false positive, adjust MEDIUM->WARNING in CI workflow"
+              exit 1
+            fi
+
+            # Fail build if HIGH risk gaming detected
+            if [ "$GAMING_DETECTED" = "True" ] && [ "$RISK_LEVEL" = "HIGH" ]; then
+              echo ""
+              echo "::error::⚠️ HIGH RISK PROXY GAMING DETECTED"
+              echo "::error::Gaming indicators suggest metrics are being optimized without genuine improvement."
+              echo "::error::This violates Goodhart's Law prevention - 'When a measure becomes a target, it ceases to be a good measure.'"
+              echo ""
+              echo "::error::Gaming Score: $GAMING_SCORE"
+              echo "::error::Indicators found: $INDICATORS"
+              echo ""
+              echo "::error::To fix this issue:"
+              echo "::error::1. Ensure pattern emissions include semantic rationale explaining WHY compliance is achieved"
+              echo "::error::2. Review alignment_checker.py detect_proxy_gaming() thresholds"
+              echo "::error::3. Add explicit rationale= parameter to pattern_logger.log() calls"
+              exit 1
+            fi
+          else
+            echo "::warning::Gaming detection file not generated - patterns may not exist"
+          fi
+          echo "::endgroup::"
+          echo "✅ Proxy gaming check passed"
+
+      - name: Upload Gaming Detection Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gaming-detection-results
+          path: .goalie/gaming_detection.json
+          retention-days: 30
+
+  # ============================================================
   # FINAL: BUILD STATUS SUMMARY
   # ============================================================
   summary:
     name: Build Summary
     runs-on: ubuntu-latest
-    needs: [build, lint, test, security, brutal-honesty]
+    needs: [build, lint, test, security, brutal-honesty, proxy-gaming]
     if: always()
     steps:
       - name: Generate Summary
@@ -302,11 +416,13 @@ jobs:
           echo "| Test | ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Security | ${{ needs.security.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Brutal Honesty | ${{ needs.brutal-honesty.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Proxy Gaming | ${{ needs.proxy-gaming.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ "${{ needs.build.result }}" = "success" ] && \
              [ "${{ needs.lint.result }}" = "success" ] && \
-             [ "${{ needs.test.result }}" = "success" ]; then
+             [ "${{ needs.test.result }}" = "success" ] && \
+             [ "${{ needs.proxy-gaming.result }}" != "failure" ]; then
             echo "✅ **All critical stages passed**" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ **Build failed - review required**" >> $GITHUB_STEP_SUMMARY

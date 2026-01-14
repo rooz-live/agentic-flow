@@ -120,7 +120,9 @@ def check_risk_analytics_health() -> IntegrationHealth:
         )
 
 
-def _emit_safe_degrade_pattern(trigger: str, action: str, details: Dict = None) -> None:
+def _emit_safe_degrade_pattern(
+    trigger: str, action: str, details: Dict = None
+) -> None:
     """Emit safe_degrade pattern event for system degradation scenarios.
 
     This helper emits telemetry for graceful degradation when:
@@ -130,49 +132,129 @@ def _emit_safe_degrade_pattern(trigger: str, action: str, details: Dict = None) 
     - System health drops below thresholds
     """
     import json
-    from pathlib import Path
+    import subprocess
+    import sys
     from datetime import datetime
+    from pathlib import Path
 
-    goalie_dir = Path(os.environ.get("GOALIE_DIR", ".goalie"))
-    metrics_file = goalie_dir / "pattern_metrics.jsonl"
+    payload_details = details or {}
+    evidence_text = json.dumps(payload_details, ensure_ascii=False)
 
-    event = {
-        "ts": datetime.utcnow().isoformat() + "Z",
-        "run": os.environ.get("AF_RUN", "integration-health"),
-        "run_id": os.environ.get("AF_RUN_ID", f"health-{datetime.now().strftime('%Y%m%d%H%M%S')}"),
-        "iteration": int(os.environ.get("AF_ITERATION", "0")),
-        "circle": os.environ.get("AF_CIRCLE", "monitoring"),
-        "depth": int(os.environ.get("AF_DEPTH", "1")),
-        "pattern": "safe_degrade",
-        "pattern:kebab-name": "safe-degrade",
-        "mode": os.environ.get("AF_PROD_CYCLE_MODE", "advisory"),
-        "mutation": False,
-        "gate": "system-risk",
-        "framework": "integration-health",
-        "scheduler": "",
-        "tags": ["Federation", "HPC"],  # Required for tag coverage
-        "economic": {
-            "cod": 5.0,  # High cost of delay for degradation events
-            "wsjf_score": 8.0,
+    failure_class = "provider_unknown"
+    if trigger.endswith("_timeout"):
+        failure_class = "provider_timeout"
+    elif (
+        "CERTIFICATE_VERIFY_FAILED" in evidence_text
+        or "certificate verify" in evidence_text.lower()
+    ):
+        failure_class = "provider_tls_error"
+    elif any(
+        x in evidence_text for x in ["ENOTFOUND", "ECONNREFUSED", "EAI_AGAIN"]
+    ):
+        failure_class = "provider_unreachable"
+    elif any(
+        x in evidence_text.lower()
+        for x in [
+            "no such file or directory",
+            "command not found",
+            "not installed",
+        ]
+    ):
+        failure_class = "provider_misconfigured"
+
+    provider = (
+        payload_details.get("provider")
+        or payload_details.get("integration")
+        or "unknown"
+    )
+    cmd_or_endpoint = payload_details.get("command") or payload_details.get(
+        "endpoint"
+    )
+
+    safe_degrade_state = {
+        "triggers": 1,
+        "trigger": trigger,
+        "action": action,
+        "integration": payload_details.get("integration"),
+        "provider": provider,
+        "failure_class": failure_class,
+        "evidence": {
+            "command_or_endpoint": cmd_or_endpoint,
+            "stderr": payload_details.get("stderr"),
+            "exit_code": payload_details.get("exit_code"),
+            "error": payload_details.get("error"),
+            "timeout_seconds": payload_details.get("timeout_seconds"),
         },
-        "reason": f"safe_degrade:{trigger}",
-        "data": {
-            "trigger": trigger,
-            "action": action,
-            "recovery_cycles": 0,
-            "degradation_level": "partial",
-            **(details or {})
-        },
-        "duration_ms": 1,
-        "duration_measured": True
+        "retry_count": payload_details.get("retry_count", 0),
+        "cooldown_sec": payload_details.get("cooldown_sec", 0),
+        "circuit_state": payload_details.get("circuit_state", "closed"),
+        "recovery_cycles": 0,
+        "degradation_level": payload_details.get(
+            "degradation_level", "partial"
+        ),
     }
 
+    economic = {"cod": 5.0, "wsjf_score": 8.0}
+
+    pattern_state = {"safe_degrade": safe_degrade_state}
+    metadata = {
+        "reason": f"safe_degrade:{trigger}",
+        "action": action,
+        "integration": payload_details.get("integration"),
+    }
+
+    circle = os.environ.get("AF_CIRCLE", "monitoring")
+    depth = int(os.environ.get("AF_DEPTH", "1"))
+    mode = os.environ.get("AF_PROD_CYCLE_MODE", "advisory")
+    run_id = os.environ.get(
+        "AF_RUN_ID", f"health-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    )
+    iteration = int(os.environ.get("AF_ITERATION", "0"))
+
+    project_root = Path(__file__).resolve().parents[2]
+    helper = project_root / "scripts" / "agentic" / "pattern_logging_helper.py"
+
+    cmd = [
+        sys.executable,
+        str(helper),
+        "--pattern",
+        "safe-degrade",
+        "--circle",
+        circle,
+        "--depth",
+        str(depth),
+        "--gate",
+        "system-risk",
+        "--mode",
+        mode,
+        "--behavioral-type",
+        "observability",
+        "--pattern-state",
+        json.dumps(pattern_state, ensure_ascii=False),
+        "--run-id",
+        run_id,
+        "--iteration",
+        str(iteration),
+        "--metadata-json",
+        json.dumps(metadata, ensure_ascii=False),
+        "--economic-json",
+        json.dumps(economic, ensure_ascii=False),
+        "--tags",
+        "pattern:safe-degrade",
+        "gate:system-risk",
+        "Federation",
+        "HPC",
+    ]
+
+    if os.environ.get("AF_PATTERN_MIRROR_METRICS", "1") == "1":
+        cmd.append("--mirror-metrics")
+
     try:
-        goalie_dir.mkdir(parents=True, exist_ok=True)
-        with open(metrics_file, "a") as f:
-            f.write(json.dumps(event) + "\n")
+        subprocess.run(
+            cmd, capture_output=True, text=True, timeout=5, check=False
+        )
     except Exception:
-        pass  # Silent fail for telemetry
+        pass
 
 
 def _csv_env(var_name: str) -> List[str]:

@@ -21,6 +21,40 @@ export interface AlignmentScore {
     consequence_tracked: boolean;
 }
 /**
+ * Semantic Rationale - P1-TIME: Structured context for pattern decisions
+ * Provides human-readable and machine-parseable decision context
+ */
+export interface SemanticRationale {
+    why: string;
+    context?: string;
+    decision_logic?: string;
+    alternatives_considered?: string[];
+}
+/**
+ * Decision Context - P1-TIME: Extended context for governance decisions
+ * Links pattern execution to broader governance framework
+ */
+export interface DecisionContext {
+    trigger_source: string;
+    governance_dimension?: 'TRUTH' | 'TIME' | 'LIVE';
+    plan_id?: string;
+    do_id?: string;
+    act_id?: string;
+    circle?: string;
+    escalation_path?: string[];
+}
+/**
+ * ROAM Reference - P1-TIME: Link to ROAM tracker items
+ * Connects pattern execution to risk/blocker tracking
+ */
+export interface ROAMReference {
+    roam_id: string;
+    roam_status: 'RESOLVED' | 'OWNED' | 'ACCEPTED' | 'MITIGATING';
+    roam_type: 'risk' | 'blocker' | 'dependency';
+    mitigation_applied?: string;
+    resolution_evidence?: string;
+}
+/**
  * Base interface for all pattern metrics
  * All patterns must include these core fields
  */
@@ -35,6 +69,9 @@ export interface PatternMetric {
     alignment_score?: AlignmentScore;
     action_completed?: boolean;
     consequence?: string;
+    rationale?: SemanticRationale;
+    decision_context?: DecisionContext;
+    roam_reference?: ROAMReference;
     [key: string]: any;
 }
 /**
@@ -135,8 +172,9 @@ export declare class PatternLogger {
     computeAlignmentScore(intent: string | undefined, policy: string | undefined, evidence: boolean | undefined, hasConsequence?: boolean): AlignmentScore;
     private getBaseMetric;
     /**
-     * Enhanced base metric with alignment score
+     * Enhanced base metric with alignment score and semantic rationale
      * P1-B: Automatically compute spiritual dimension tracking
+     * P1-TIME: Include semantic context for decisions
      */
     private getAlignedBaseMetric;
     private writeMetric;
@@ -147,6 +185,8 @@ export declare class PatternLogger {
     logSafeDegrade(triggers: number, actions: string[], recovery_cycles: number, options?: {
         load_metric?: number;
         degradation_level?: 'none' | 'partial' | 'full';
+        rationale?: SemanticRationale;
+        roam_reference?: ROAMReference;
     }): Promise<void>;
     /**
      * Log circle_risk_focus pattern event
@@ -155,6 +195,8 @@ export declare class PatternLogger {
     logCircleRiskFocus(top_owner: string, extra_iterations: number, roam_reduction: number, options?: {
         risk_count?: number;
         p0_risks?: number;
+        rationale?: SemanticRationale;
+        roam_reference?: ROAMReference;
     }): Promise<void>;
     /**
      * Log autocommit_shadow pattern event
@@ -203,6 +245,11 @@ export declare class PatternLogger {
      * Returns true if observability_first pattern is present for current run
      */
     validateObservabilityFirst(): Promise<boolean>;
+    /**
+     * P1-TRUTH: Compute learned threshold based on P99 latency
+     * Auto-generates circuit breaker thresholds from historical performance
+     */
+    computeLearnedThreshold(pattern: string): Promise<number | null>;
 }
 /**
  * Singleton instance for convenience

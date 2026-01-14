@@ -3,7 +3,7 @@
  * Handles role-based permissions, cooldowns, and access control
  */
 
-import { GuildMember, User, PermissionResolvable } from 'discord.js';
+import { GuildMember, User, PermissionResolvable, PermissionsBitField } from 'discord.js';
 import { DiscordBotConfig } from './discord_config';
 import { DiscordCommand } from './discord_bot';
 
@@ -183,7 +183,7 @@ export class PermissionManager {
     const serverConfig = this.config.servers[member.guild.id];
     
     // Check Discord admin permissions
-    if (member.permissions.has('ADMINISTRATOR')) {
+    if (member.permissions.has(PermissionsBitField.Flags.Administrator)) {
       return true;
     }
 
@@ -453,7 +453,7 @@ export class PermissionManager {
       reason = 'Admin bypass';
     } else {
       // Check Discord permissions
-      const discordPerms = member.permissions.has('ADMINISTRATOR');
+      const discordPerms = member.permissions.has(PermissionsBitField.Flags.Administrator);
       if (discordPerms) {
         hasPermission = true;
         reason = 'Discord administrator';

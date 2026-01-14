@@ -163,42 +163,30 @@ export class RealTimeService {
    * Handle incoming WebSocket messages
    */
   private handleMessage(message: WebSocketMessage): void {
-    switch (message.type) {
-      case 'pattern_update':
-        if (message.data) {
-          this.callbacks.onPatternUpdate(message.data);
-        }
-        break;
-
-      case 'anomaly':
-        if (message.data) {
-          this.callbacks.onAnomalyDetected(message.data);
-        }
-        break;
-
-      case 'status':
-        if (message.data) {
-          this.callbacks.onExecutionStatusChange(message.data);
-        }
-        break;
-
-      case 'metrics':
-        if (message.data) {
-          this.callbacks.onMetricsUpdate(message.data);
-        }
-        break;
-
-      case 'heartbeat':
-        // Respond to server heartbeat
-        this.send({ type: 'heartbeat_response', timestamp: Date.now() });
-        break;
-
-      case 'error':
-        this.callbacks.onError(new Error(message.data?.message || 'Server error'));
-        break;
-
-      default:
-        console.warn('Unknown message type:', message.type);
+    // Handle all message types with type guard
+    if (message.type === 'pattern_update') {
+      if (message.data) {
+        this.callbacks.onPatternUpdate(message.data);
+      }
+    } else if (message.type === 'anomaly') {
+      if (message.data) {
+        this.callbacks.onAnomalyDetected(message.data);
+      }
+    } else if (message.type === 'status') {
+      if (message.data) {
+        this.callbacks.onExecutionStatusChange(message.data);
+      }
+    } else if (message.type === 'metrics') {
+      if (message.data) {
+        this.callbacks.onMetricsUpdate(message.data);
+      }
+    } else if (message.type === 'heartbeat') {
+      // Respond to server heartbeat
+      this.send({ type: 'heartbeat_response', timestamp: Date.now() });
+    } else if (message.type === 'error') {
+      this.callbacks.onError(new Error(message.data?.message || 'Server error'));
+    } else {
+      console.warn('Unknown message type:', (message as any).type);
     }
   }
 

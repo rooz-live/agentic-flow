@@ -61,12 +61,13 @@ GIT_AHEAD=$(git rev-list @{u}..HEAD --count 2>/dev/null || echo "0")
 
 # Codebase metrics
 echo "Collecting codebase metrics..."
-TOTAL_FILES=$(git ls-files | wc -l | xargs)
-TS_FILES=$(git ls-files '*.ts' '*.tsx' | wc -l | xargs)
-JS_FILES=$(git ls-files '*.js' '*.jsx' | wc -l | xargs)
-TEST_FILES=$(git ls-files '*test.ts' '*test.js' '*spec.ts' '*spec.js' | wc -l | xargs)
-# Only count lines in text-based source files to avoid binary issues
-TOTAL_LINES=$(git ls-files | grep -E '\.(ts|tsx|js|jsx|py|sh|md|json|yml|yaml|css|html|txt)$' | xargs cat 2>/dev/null | grep -v '^$' | grep -v '^[[:space:]]*//' | grep -v '^[[:space:]]*#' | wc -l | xargs)
+TOTAL_FILES=$(git ls-files 2>/dev/null | wc -l | xargs)
+TS_FILES=$(git ls-files 2>/dev/null | grep -E '\.(ts|tsx)$' | wc -l | xargs)
+JS_FILES=$(git ls-files 2>/dev/null | grep -E '\.(js|jsx)$' | wc -l | xargs)
+TEST_FILES=$(git ls-files 2>/dev/null | grep -E '(test|spec)\.(ts|tsx|js|jsx)$' | wc -l | xargs)
+# Fast line count: use git to list files, count lines without consuming entire file content
+# This is much faster than piping files through cat and grep
+TOTAL_LINES=$(git ls-files 2>/dev/null | grep -E '\.(ts|tsx|js|jsx|py|sh|md|json|yml|yaml|css|html|txt)$' | xargs wc -l 2>/dev/null | tail -1 | awk '{print $1}' || echo "0")
 
 # Governor metrics
 echo "Collecting governor metrics..."
@@ -74,10 +75,14 @@ GOVERNOR_INCIDENTS=0
 GOVERNOR_WIP_VIOLATIONS=0
 GOVERNOR_CPU_OVERLOADS=0
 if [ -f "logs/governor_incidents.jsonl" ]; then
-    GOVERNOR_INCIDENTS=$(wc -l < logs/governor_incidents.jsonl | xargs)
+    GOVERNOR_INCIDENTS=$(wc -l < logs/governor_incidents.jsonl 2>/dev/null | xargs || echo "0")
     GOVERNOR_WIP_VIOLATIONS=$(grep -c 'WIP_VIOLATION' logs/governor_incidents.jsonl 2>/dev/null || echo "0")
     GOVERNOR_CPU_OVERLOADS=$(grep -c 'CPU_OVERLOAD' logs/governor_incidents.jsonl 2>/dev/null || echo "0")
 fi
+# Ensure numeric values
+GOVERNOR_INCIDENTS=${GOVERNOR_INCIDENTS//[^0-9]/0}
+GOVERNOR_WIP_VIOLATIONS=${GOVERNOR_WIP_VIOLATIONS//[^0-9]/0}
+GOVERNOR_CPU_OVERLOADS=${GOVERNOR_CPU_OVERLOADS//[^0-9]/0}
 
 # Test metrics
 echo "Collecting test metrics..."

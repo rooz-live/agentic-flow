@@ -18,7 +18,7 @@ export interface WSJFNodeData {
   cod?: number;
   jobSize?: number;
   tier?: 1 | 2 | 3;
-  phase?: 'spectrum' | 'signal' | 'goap';
+  phase?: 'spectrum' | 'signal' | 'goap' | 'FOUNDATION' | 'LEARNING' | 'TRANSFER' | 'OPTIMIZATION' | 'EMERGENCE';
   status?: 'pending' | 'in_progress' | 'completed';
   circle?: string;
 }

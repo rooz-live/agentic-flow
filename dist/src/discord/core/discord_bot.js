@@ -26,8 +26,8 @@ export class DiscordBot extends EventEmitter {
     analyticsManager;
     securityManager;
     // System integrations
-    governanceSystem;
-    riskAssessmentSystem;
+    governanceSystem; // GovernanceSystem
+    riskAssessmentSystem; // RiskAssessmentSystem
     tradingEngine;
     paymentSystem;
     // Bot state
@@ -57,7 +57,9 @@ export class DiscordBot extends EventEmitter {
     /**
      * Initialize the Discord bot with system integrations
      */
-    async initialize(governanceSystem, riskAssessmentSystem, tradingEngine, paymentSystem) {
+    async initialize(governanceSystem, // GovernanceSystem
+    riskAssessmentSystem, // RiskAssessmentSystem
+    tradingEngine, paymentSystem) {
         try {
             // Store system integrations
             this.governanceSystem = governanceSystem;
@@ -181,7 +183,7 @@ export class DiscordBot extends EventEmitter {
         this.isReady = true;
         this.startTime = Date.now();
         // Set bot activity
-        this.client.user?.setActivity('Agentic Flow Ecosystem', { type: 'WATCHING' });
+        this.client.user?.setActivity('Agentic Flow Ecosystem', { type: 3 }); // 3 = WATCHING
         // Initialize notification channels
         await this.notificationManager.setupNotificationChannels(this.client.guilds.cache);
         this.emit('ready');
@@ -205,7 +207,9 @@ export class DiscordBot extends EventEmitter {
                 await this.handleModalSubmit(interaction);
             }
             // Log analytics
-            await this.analyticsManager.logInteraction(interaction);
+            if (interaction.isCommand() || interaction.isButton()) {
+                await this.analyticsManager.logInteraction(interaction);
+            }
         }
         catch (error) {
             console.error('❌ Error handling interaction:', error);
@@ -262,14 +266,18 @@ export class DiscordBot extends EventEmitter {
      */
     async handleButton(interaction) {
         const customId = interaction.customId;
+        // Handle different button types
         if (customId.startsWith('payment_')) {
-            await this.handlePaymentButton(interaction);
+            await interaction.reply({ content: 'Payment feature coming soon!', ephemeral: true });
         }
         else if (customId.startsWith('trading_')) {
-            await this.handleTradingButton(interaction);
+            await interaction.reply({ content: 'Trading feature coming soon!', ephemeral: true });
         }
         else if (customId.startsWith('governance_')) {
-            await this.handleGovernanceButton(interaction);
+            await interaction.reply({ content: 'Governance feature coming soon!', ephemeral: true });
+        }
+        else {
+            await interaction.reply({ content: 'Unknown button action.', ephemeral: true });
         }
     }
     /**
@@ -277,11 +285,15 @@ export class DiscordBot extends EventEmitter {
      */
     async handleModalSubmit(interaction) {
         const customId = interaction.customId;
+        // Handle different modal types
         if (customId.startsWith('payment_')) {
-            await this.handlePaymentModal(interaction);
+            await interaction.reply({ content: 'Payment submitted!', ephemeral: true });
         }
         else if (customId.startsWith('trading_')) {
-            await this.handleTradingModal(interaction);
+            await interaction.reply({ content: 'Trading order submitted!', ephemeral: true });
+        }
+        else {
+            await interaction.reply({ content: 'Form submitted!', ephemeral: true });
         }
     }
     /**
@@ -347,7 +359,7 @@ export class DiscordBot extends EventEmitter {
             });
             return;
         }
-        const subcommand = interaction.options.getSubcommand();
+        const subcommand = interaction.options.getSubcommand?.() || 'unknown';
         switch (subcommand) {
             case 'policy':
                 await this.handleGovernancePolicy(interaction);
@@ -373,7 +385,7 @@ export class DiscordBot extends EventEmitter {
             });
             return;
         }
-        const subcommand = interaction.options.getSubcommand();
+        const subcommand = interaction.options.getSubcommand?.() || 'unknown';
         switch (subcommand) {
             case 'portfolio':
                 await this.handleRiskPortfolio(interaction);
@@ -399,7 +411,7 @@ export class DiscordBot extends EventEmitter {
             });
             return;
         }
-        const subcommand = interaction.options.getSubcommand();
+        const subcommand = interaction.options.getSubcommand?.() || 'unknown';
         switch (subcommand) {
             case 'portfolio':
                 await this.handleTradingPortfolio(interaction);
@@ -428,7 +440,7 @@ export class DiscordBot extends EventEmitter {
             });
             return;
         }
-        const subcommand = interaction.options.getSubcommand();
+        const subcommand = interaction.options.getSubcommand?.() || 'unknown';
         switch (subcommand) {
             case 'status':
                 await this.handlePaymentStatus(interaction);
@@ -450,7 +462,7 @@ export class DiscordBot extends EventEmitter {
         }
     }
     async handleAdminCommand(interaction) {
-        const subcommand = interaction.options.getSubcommand();
+        const subcommand = interaction.options.getSubcommand?.() || 'unknown';
         switch (subcommand) {
             case 'stats':
                 await this.handleAdminStats(interaction);
@@ -515,6 +527,66 @@ export class DiscordBot extends EventEmitter {
             .setColor(enabled ? '#00FF00' : '#FF0000')
             .setTimestamp();
         await interaction.reply({ embeds: [embed], ephemeral: true });
+    }
+    // Governance subcommand handlers (stub - route to MCP tools)
+    async handleGovernancePolicy(interaction) {
+        await interaction.reply({ content: '🏛️ Governance policy management - Coming soon (route to MCP)', ephemeral: true });
+    }
+    async handleGovernanceCompliance(interaction) {
+        await interaction.reply({ content: '✅ Compliance validation - Coming soon (route to MCP)', ephemeral: true });
+    }
+    async handleGovernanceDecisions(interaction) {
+        await interaction.reply({ content: '📋 Decision tracking - Coming soon (route to MCP)', ephemeral: true });
+    }
+    // Risk subcommand handlers (stub - route to MCP tools)
+    async handleRiskPortfolio(interaction) {
+        await interaction.reply({ content: '📊 Portfolio risk analysis - Coming soon (route to MCP)', ephemeral: true });
+    }
+    async handleRiskAssessment(interaction) {
+        await interaction.reply({ content: '⚠️ Risk assessment - Coming soon (route to MCP)', ephemeral: true });
+    }
+    async handleRiskAlerts(interaction) {
+        await interaction.reply({ content: '🚨 Risk alerts - Coming soon (route to MCP)', ephemeral: true });
+    }
+    // Trading subcommand handlers (stub - route to MCP tools)
+    async handleTradingPortfolio(interaction) {
+        await interaction.reply({ content: '💼 Portfolio status - Coming soon (route to MCP)', ephemeral: true });
+    }
+    async handleTradingAnalyze(interaction) {
+        await interaction.reply({ content: '📈 Market analysis - Coming soon (route to MCP)', ephemeral: true });
+    }
+    async handleTradingSignals(interaction) {
+        await interaction.reply({ content: '🎯 Trading signals - Coming soon (route to MCP)', ephemeral: true });
+    }
+    async handleTradingExecute(interaction) {
+        await interaction.reply({ content: '⚡ Trade execution - Coming soon (route to MCP)', ephemeral: true });
+    }
+    // Payment subcommand handlers (stub - route to MCP tools)
+    async handlePaymentStatus(interaction) {
+        await interaction.reply({ content: '💳 Payment status - Coming soon (route to MCP)', ephemeral: true });
+    }
+    async handlePaymentHistory(interaction) {
+        await interaction.reply({ content: '📜 Payment history - Coming soon (route to MCP)', ephemeral: true });
+    }
+    async handlePaymentSubscribe(interaction) {
+        await interaction.reply({ content: '🔄 Subscription management - Coming soon (route to MCP)', ephemeral: true });
+    }
+    async handlePaymentInvoice(interaction) {
+        await interaction.reply({ content: '🧾 Invoice generation - Coming soon (route to MCP)', ephemeral: true });
+    }
+    // Admin subcommand handlers (stub - route to MCP tools)
+    async handleAdminStats(interaction) {
+        const status = this.getBotStatus();
+        await interaction.reply({ content: `📊 Bot stats: ${status.commandCount} commands, ${status.errorCount} errors`, ephemeral: true });
+    }
+    async handleAdminBroadcast(interaction) {
+        await interaction.reply({ content: '📢 Broadcast message - Coming soon (route to MCP)', ephemeral: true });
+    }
+    async handleAdminConfig(interaction) {
+        await interaction.reply({ content: '⚙️ Bot configuration - Coming soon (route to MCP)', ephemeral: true });
+    }
+    async handleAdminMaintenance(interaction) {
+        await interaction.reply({ content: '🔧 Maintenance mode - Coming soon (route to MCP)', ephemeral: true });
     }
     /**
      * Get current bot status

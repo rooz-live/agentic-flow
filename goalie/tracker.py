@@ -213,6 +213,33 @@ class GoalieTracker:
             "total_actions": sum(len(g.actions) for g in all_goals),
         }
 
+    def check_roam_staleness(self, roam_path: str = ".goalie/ROAM_TRACKER.yaml") -> List[Dict]:
+        """P1-TIME: ROAMSTALENESSDETECTOR for >7 days old entries."""
+        path = Path(roam_path)
+        if not path.exists():
+            return [{"type": "error", "message": f"ROAM tracker not found at {roam_path}"}]
+
+        try:
+            # We don't have yaml library easily available in Python env here,
+            # so we'll use file modification time as a proxy for staleness,
+            # and potentially parse it if needed.
+            import os
+            mtime = os.path.getmtime(path)
+            age_days = (datetime.now().timestamp() - mtime) / (60 * 60 * 24)
+
+            staleness_warnings = []
+            if age_days > 7:
+                staleness_warnings.append({
+                    "id": "ROAM-STALE",
+                    "type": "warning",
+                    "message": f"ROAM tracker is {int(age_days)} days old (staleness threshold is 7 days)",
+                    "age_days": age_days
+                })
+
+            return staleness_warnings
+        except Exception as e:
+            return [{"type": "error", "message": f"Failed to check ROAM staleness: {e}"}]
+
 # Global tracker instance
 tracker = GoalieTracker()
 

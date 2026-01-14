@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 export declare class GoalieHealthProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     private workspaceRoot;
     private _onDidChangeTreeData;
-    readonly onDidChangeTreeData: vscode.Event<void | vscode.TreeItem | undefined>;
+    readonly onDidChangeTreeData: vscode.Event<void | vscode.TreeItem>;
     constructor(workspaceRoot: string | undefined);
     refresh(): void;
     getTreeItem(element: vscode.TreeItem): vscode.TreeItem;

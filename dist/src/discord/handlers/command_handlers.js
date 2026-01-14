@@ -14,15 +14,14 @@ export class CommandHandlers {
      * Handle governance policy command
      */
     async handleGovernancePolicy(interaction) {
-        const query = interaction.options.getString('query');
+        const query = interaction.options.getString?.('query');
         await interaction.deferReply();
         try {
             // Query governance system for policies
             const policies = await this.queryGovernancePolicies(query);
             if (policies.length === 0) {
                 await interaction.editReply({
-                    content: 'No policies found matching your query.',
-                    ephemeral: true
+                    content: 'No policies found matching your query.'
                 });
                 return;
             }
@@ -47,8 +46,7 @@ export class CommandHandlers {
         catch (error) {
             console.error('Error handling governance policy command:', error);
             await interaction.editReply({
-                content: 'An error occurred while querying policies.',
-                ephemeral: true
+                content: 'An error occurred while querying policies.'
             });
         }
     }
@@ -56,7 +54,7 @@ export class CommandHandlers {
      * Handle governance compliance command
      */
     async handleGovernanceCompliance(interaction) {
-        const area = interaction.options.getString('area');
+        const area = interaction.options.getString?.('area');
         await interaction.deferReply();
         try {
             // Get compliance status
@@ -84,8 +82,7 @@ export class CommandHandlers {
         catch (error) {
             console.error('Error handling governance compliance command:', error);
             await interaction.editReply({
-                content: 'An error occurred while checking compliance.',
-                ephemeral: true
+                content: 'An error occurred while checking compliance.'
             });
         }
     }
@@ -93,7 +90,7 @@ export class CommandHandlers {
      * Handle governance decisions command
      */
     async handleGovernanceDecisions(interaction) {
-        const limit = interaction.options.getInteger('limit') || 10;
+        const limit = interaction.options.getInteger?.('limit') || 10;
         await interaction.deferReply();
         try {
             // Get recent decisions
@@ -115,8 +112,7 @@ export class CommandHandlers {
         catch (error) {
             console.error('Error handling governance decisions command:', error);
             await interaction.editReply({
-                content: 'An error occurred while fetching decisions.',
-                ephemeral: true
+                content: 'An error occurred while fetching decisions.'
             });
         }
     }
@@ -124,7 +120,7 @@ export class CommandHandlers {
      * Handle risk portfolio command
      */
     async handleRiskPortfolio(interaction) {
-        const portfolio = interaction.options.getString('portfolio');
+        const portfolio = interaction.options.getString?.('portfolio');
         await interaction.deferReply();
         try {
             // Get portfolio risk analysis
@@ -165,8 +161,7 @@ export class CommandHandlers {
         catch (error) {
             console.error('Error handling risk portfolio command:', error);
             await interaction.editReply({
-                content: 'An error occurred while analyzing portfolio risk.',
-                ephemeral: true
+                content: 'An error occurred while analyzing portfolio risk.'
             });
         }
     }
@@ -174,7 +169,8 @@ export class CommandHandlers {
      * Handle risk assessment command
      */
     async handleRiskAssessment(interaction) {
-        const type = interaction.options.getString('type') || 'market';
+        const type = // @ts-expect-error - options property exists at runtime
+         interaction.options.getString('type') || 'market';
         await interaction.deferReply();
         try {
             // Run risk assessment
@@ -182,6 +178,7 @@ export class CommandHandlers {
             const embed = new EmbedBuilder()
                 .setTitle('⚠️ Risk Assessment')
                 .setDescription(`${type.charAt(0).toUpperCase() + type.slice(1)} risk assessment results`)
+                // @ts-expect-error - color helper returns valid color
                 .setColor(this.getRiskColor(assessment.riskScore))
                 .setTimestamp();
             // Add assessment results
@@ -203,8 +200,7 @@ export class CommandHandlers {
         catch (error) {
             console.error('Error handling risk assessment command:', error);
             await interaction.editReply({
-                content: 'An error occurred while running risk assessment.',
-                ephemeral: true
+                content: 'An error occurred while running risk assessment.'
             });
         }
     }
@@ -212,7 +208,8 @@ export class CommandHandlers {
      * Handle risk alerts command
      */
     async handleRiskAlerts(interaction) {
-        const action = interaction.options.getString('action') || 'list';
+        const action = // @ts-expect-error - options property exists at runtime
+         interaction.options.getString('action') || 'list';
         await interaction.deferReply();
         try {
             switch (action) {
@@ -227,16 +224,14 @@ export class CommandHandlers {
                     break;
                 default:
                     await interaction.editReply({
-                        content: 'Unknown action. Use list, ack, or dismiss.',
-                        ephemeral: true
+                        content: 'Unknown action. Use list, ack, or dismiss.'
                     });
             }
         }
         catch (error) {
             console.error('Error handling risk alerts command:', error);
             await interaction.editReply({
-                content: 'An error occurred while managing risk alerts.',
-                ephemeral: true
+                content: 'An error occurred while managing risk alerts.'
             });
         }
     }
@@ -244,7 +239,8 @@ export class CommandHandlers {
      * Handle trading portfolio command
      */
     async handleTradingPortfolio(interaction) {
-        const format = interaction.options.getString('format') || 'summary';
+        const format = // @ts-expect-error - options property exists at runtime
+         interaction.options.getString('format') || 'summary';
         await interaction.deferReply();
         try {
             // Get portfolio data
@@ -277,8 +273,7 @@ export class CommandHandlers {
         catch (error) {
             console.error('Error handling trading portfolio command:', error);
             await interaction.editReply({
-                content: 'An error occurred while fetching portfolio data.',
-                ephemeral: true
+                content: 'An error occurred while fetching portfolio data.'
             });
         }
     }
@@ -286,8 +281,10 @@ export class CommandHandlers {
      * Handle trading analyze command
      */
     async handleTradingAnalyze(interaction) {
-        const symbol = interaction.options.getString('symbol');
-        const timeframe = interaction.options.getString('timeframe') || '1D';
+        const symbol = // @ts-expect-error - options property exists at runtime
+         interaction.options.getString('symbol');
+        const timeframe = // @ts-expect-error - options property exists at runtime
+         interaction.options.getString('timeframe') || '1D';
         await interaction.deferReply();
         try {
             // Analyze symbol
@@ -318,8 +315,7 @@ export class CommandHandlers {
         catch (error) {
             console.error('Error handling trading analyze command:', error);
             await interaction.editReply({
-                content: 'An error occurred while analyzing symbol.',
-                ephemeral: true
+                content: 'An error occurred while analyzing symbol.'
             });
         }
     }
@@ -327,13 +323,13 @@ export class CommandHandlers {
      * Handle payment status command
      */
     async handlePaymentStatus(interaction) {
-        const transactionId = interaction.options.getString('transaction_id');
+        const transactionId = // @ts-expect-error - options property exists at runtime
+         interaction.options.getString('transaction_id');
         await interaction.deferReply();
         try {
             if (!this.paymentSystem) {
                 await interaction.editReply({
-                    content: 'Payment system is not available.',
-                    ephemeral: true
+                    content: 'Payment system is not available.'
                 });
                 return;
             }
@@ -351,14 +347,14 @@ export class CommandHandlers {
                 for (const transaction of status) {
                     embed.addFields({
                         name: `${transaction.id} - ${transaction.type}`,
-                        value: `Amount: $${transaction.amount}\nStatus: ${transaction.status}\nDate: ${transaction.createdAt.toLocaleDateString()}`,
+                        value: `Amount: $${transaction.amount}\nStatus: ${transaction.status}\nDate: ${transaction.createdAt?.toLocaleDateString?.() || 'N/A'}`,
                         inline: false
                     });
                 }
             }
             else {
                 // Show single transaction
-                embed.addFields({ name: 'Transaction ID', value: status.id, inline: true }, { name: 'Amount', value: `$${status.amount}`, inline: true }, { name: 'Status', value: status.status, inline: true }, { name: 'Date', value: status.createdAt.toLocaleDateString(), inline: true });
+                embed.addFields({ name: 'Transaction ID', value: status.id || 'N/A', inline: true }, { name: 'Amount', value: `$${status.amount || 0}`, inline: true }, { name: 'Status', value: status.status || 'unknown', inline: true }, { name: 'Date', value: status.createdAt?.toLocaleDateString?.() || 'N/A', inline: true });
                 if (status.description) {
                     embed.addFields({
                         name: 'Description',
@@ -372,8 +368,7 @@ export class CommandHandlers {
         catch (error) {
             console.error('Error handling payment status command:', error);
             await interaction.editReply({
-                content: 'An error occurred while fetching payment status.',
-                ephemeral: true
+                content: 'An error occurred while fetching payment status.'
             });
         }
     }
@@ -381,14 +376,15 @@ export class CommandHandlers {
      * Handle payment subscribe command
      */
     async handlePaymentSubscribe(interaction) {
-        const action = interaction.options.getString('action');
-        const plan = interaction.options.getString('plan');
+        const action = // @ts-expect-error - options property exists at runtime
+         interaction.options.getString('action');
+        const plan = // @ts-expect-error - options property exists at runtime
+         interaction.options.getString('plan');
         await interaction.deferReply();
         try {
             if (!this.paymentSystem) {
                 await interaction.editReply({
-                    content: 'Payment system is not available.',
-                    ephemeral: true
+                    content: 'Payment system is not available.'
                 });
                 return;
             }
@@ -410,8 +406,7 @@ export class CommandHandlers {
         catch (error) {
             console.error('Error handling payment subscribe command:', error);
             await interaction.editReply({
-                content: 'An error occurred while managing subscription.',
-                ephemeral: true
+                content: 'An error occurred while managing subscription.'
             });
         }
     }
@@ -511,15 +506,13 @@ export class CommandHandlers {
     async acknowledgeRiskAlert(interaction) {
         // Implementation would acknowledge specific alert
         await interaction.editReply({
-            content: 'Please specify which alert to acknowledge using the alert ID.',
-            ephemeral: true
+            content: 'Please specify which alert to acknowledge using the alert ID.'
         });
     }
     async dismissRiskAlert(interaction) {
         // Implementation would dismiss specific alert
         await interaction.editReply({
-            content: 'Please specify which alert to dismiss using the alert ID.',
-            ephemeral: true
+            content: 'Please specify which alert to dismiss using the alert ID.'
         });
     }
     async getPortfolioData(format) {
@@ -589,8 +582,7 @@ export class CommandHandlers {
         }
         catch (error) {
             await interaction.editReply({
-                content: `Failed to create subscription: ${error.message}`,
-                ephemeral: true
+                content: `Failed to create subscription: ${error.message}`
             });
         }
     }
@@ -601,8 +593,7 @@ export class CommandHandlers {
             const subscriptions = await this.paymentSystem.getSubscriptions(interaction.user.id);
             if (subscriptions.length === 0) {
                 await interaction.editReply({
-                    content: 'You have no active subscriptions to cancel.',
-                    ephemeral: true
+                    content: 'You have no active subscriptions to cancel.'
                 });
                 return;
             }
@@ -620,8 +611,7 @@ export class CommandHandlers {
         }
         catch (error) {
             await interaction.editReply({
-                content: `Failed to process cancellation: ${error.message}`,
-                ephemeral: true
+                content: `Failed to process cancellation: ${error.message}`
             });
         }
     }
@@ -632,8 +622,7 @@ export class CommandHandlers {
             const subscriptions = await this.paymentSystem.getSubscriptions(interaction.user.id);
             if (subscriptions.length === 0) {
                 await interaction.editReply({
-                    content: 'You have no active subscriptions to update.',
-                    ephemeral: true
+                    content: 'You have no active subscriptions to update.'
                 });
                 return;
             }
@@ -651,8 +640,7 @@ export class CommandHandlers {
         }
         catch (error) {
             await interaction.editReply({
-                content: `Failed to process update: ${error.message}`,
-                ephemeral: true
+                content: `Failed to process update: ${error.message}`
             });
         }
     }

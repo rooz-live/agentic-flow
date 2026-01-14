@@ -1,4 +1,8 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+/**
+ * Main dashboard application component
+ */
+import { useState } from 'react';
 import { DashboardLayout } from './components/DashboardLayout';
 import { OverviewDashboard } from './components/OverviewDashboard';
 import { PatternExecutionStatus } from './components/PatternExecutionStatus';

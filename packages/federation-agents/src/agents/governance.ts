@@ -14,9 +14,22 @@ interface PatternEvent {
   gate: string;
   circle: string;
   economic?: {
-    cod: number;
     wsjf_score: number;
+    cost_of_delay: number;
+    job_duration: number;
+    user_business_value: number;
   };
+}
+
+export interface DecisionAuditEntry {
+  ts: string;
+  agentId: string;
+  action: string;
+  rationale: string;
+  alternatives: string[];
+  evidenceChain: string[];
+  status: 'APPROVED' | 'REJECTED' | 'ADVISORY';
+  complianceResult?: any;
 }
 
 interface GovernanceRule {
@@ -28,6 +41,7 @@ interface GovernanceRule {
 
 export class GovernanceAgent {
   private goalieDir: string;
+  private dbPath: string;
   private rules: GovernanceRule[] = [
     { pattern: 'safe-degrade', maxFrequency: 20 }, // Max 20 degrades per hour indicates stress
     { pattern: 'guardrail-lock', requiredMode: 'enforcement' }, // Must be in enforcement mode
@@ -36,6 +50,56 @@ export class GovernanceAgent {
 
   constructor(goalieDir: string = '.goalie') {
     this.goalieDir = goalieDir;
+    this.dbPath = join(process.cwd(), 'agentdb.db');
+  }
+
+  /**
+   * Log a governance decision to agentdb.db
+   */
+  public async logDecision(decision: DecisionAuditEntry): Promise<void> {
+    try {
+      const sqlite3 = require('sqlite3').verbose();
+      const db = new sqlite3.Database(this.dbPath);
+
+      return new Promise((resolve, reject) => {
+        db.serialize(() => {
+          db.run(`CREATE TABLE IF NOT EXISTS decision_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts TEXT,
+            agent_id TEXT,
+            action TEXT,
+            rationale TEXT,
+            alternatives TEXT,
+            evidence_chain TEXT,
+            status TEXT,
+            compliance_result TEXT
+          )`);
+
+          const stmt = db.prepare(`INSERT INTO decision_audit (
+            ts, agent_id, action, rationale, alternatives, evidence_chain, status, compliance_result
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`);
+
+          stmt.run(
+            decision.ts,
+            decision.agentId,
+            decision.action,
+            decision.rationale,
+            JSON.stringify(decision.alternatives),
+            JSON.stringify(decision.evidenceChain),
+            decision.status,
+            JSON.stringify(decision.complianceResult),
+            (err: Error | null) => {
+              if (err) reject(err);
+              else resolve();
+            }
+          );
+          stmt.finalize();
+        });
+        db.close();
+      });
+    } catch (error) {
+      console.error('Failed to log governance decision:', error);
+    }
   }
 
   /**

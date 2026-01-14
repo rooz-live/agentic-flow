@@ -149,7 +149,7 @@ log_header "BLOCKER-007: StarlingX Infrastructure"
 STX_HOST="${STX_HOSTNAME:-stx-aio-0.corp.interface.tag.ooo}"
 STX_IP="${STX_IP_ADDRESS:-}"
 STX_PORT="${STX_SSH_PORT:-2222}"
-STX_USER="${STX_SSH_USER:-root}"
+STX_USER="${STX_SSH_USER:-ubuntu}"
 
 if is_placeholder "$STX_IP"; then
     log_skip "StarlingX IP address is placeholder - contact infra team"

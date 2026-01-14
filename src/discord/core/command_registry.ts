@@ -134,8 +134,8 @@ export class CommandRegistry {
   /**
    * Add governance subcommands
    */
-  private addGovernanceSubcommands(builder: SlashCommandBuilder): SlashCommandBuilder {
-    return builder
+  private addGovernanceSubcommands(builder: SlashCommandBuilder): void {
+    builder
       .addSubcommand(
         new SlashCommandSubcommandBuilder()
           .setName('policy')
@@ -182,8 +182,8 @@ export class CommandRegistry {
   /**
    * Add risk assessment subcommands
    */
-  private addRiskSubcommands(builder: SlashCommandBuilder): SlashCommandBuilder {
-    return builder
+  private addRiskSubcommands(builder: SlashCommandBuilder): void {
+    builder
       .addSubcommand(
         new SlashCommandSubcommandBuilder()
           .setName('portfolio')

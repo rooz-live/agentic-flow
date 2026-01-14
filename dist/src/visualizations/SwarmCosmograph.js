@@ -55,7 +55,23 @@ export const SwarmCosmograph = ({ swarmData, width = 800, height = 600, showLabe
         console.log('Agent clicked:', node);
         alert(`Agent: ${node.agent_id}\nRole: ${node.role}\nTasks: ${node.tasks_completed}\nSuccess Rate: ${(node.success_rate * 100).toFixed(1)}%`);
     }, []);
-    return (_jsx(CosmographProvider, { nodes: nodes, links: links, children: _jsxs("div", { style: { width, height, position: 'relative' }, children: [_jsx(Cosmograph, { nodeColor: (n) => n.color, nodeSize: (n) => n.size, linkWidth: (l) => l.weight * 2, linkColor: () => 'rgba(255,255,255,0.3)', showLabels: showLabels, onClick: handleNodeClick, backgroundColor: "#1a1a2e", simulationGravity: 0.3, simulationRepulsion: 1.5 }), _jsxs("div", { style: {
+    return (
+    // @ts-expect-error - Cosmograph type definitions need updating
+    _jsx(CosmographProvider, { nodes: nodes, links: links, children: _jsxs("div", { style: { width, height, position: 'relative' }, children: [_jsx(Cosmograph, { ...{
+                        nodeColor: (n) => n.color || '#999',
+                        nodeSize: (n) => n.size || 5,
+                        linkWidth: 2,
+                        linkColor: 'rgba(255,255,255,0.3)',
+                        showLabels,
+                        onClick: (index) => {
+                            const node = nodes[index];
+                            if (node)
+                                handleNodeClick(node);
+                        },
+                        backgroundColor: '#1a1a2e',
+                        simulationGravity: 0.3,
+                        simulationRepulsion: 1.5,
+                    } }), _jsxs("div", { style: {
                         position: 'absolute',
                         bottom: 10,
                         left: 10,

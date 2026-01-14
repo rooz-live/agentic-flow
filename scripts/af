@@ -57,6 +57,87 @@ validate_mutually_exclusive_flags() {
     fi
 }
 
+cmd_stx_health() {
+    if [ -z "${AF_YOLIFE_RUN_ID:-}" ]; then
+        export AF_YOLIFE_RUN_ID="stx-health-$(date +%Y%m%d%H%M%S)-$$"
+    fi
+
+    local host="${YOLIFE_STX_HOST:-}"
+    local ports_csv="${YOLIFE_STX_PORTS:-2222,22}"
+    local user="${YOLIFE_STX_USER:-ubuntu}"
+    local key_path="${YOLIFE_STX_KEY:-}"
+
+    if [ -z "$host" ]; then
+        echo -e "${RED}[stx health] missing YOLIFE_STX_HOST${NC}" >&2
+        yolife_emit_provider_event "config_missing" "stx" "" "" "$user" "1" "missing_host" "stx-health"
+        return 1
+    fi
+
+    local ssh_key_args=()
+    if [ -n "${key_path:-}" ] && [ -f "$key_path" ]; then
+        ssh_key_args+=( -i "$key_path" )
+    fi
+
+    local ports=()
+    IFS=',' read -r -a ports <<< "$ports_csv"
+
+    local ok=1
+    for port in "${ports[@]}"; do
+        port="$(echo "$port" | tr -d '[:space:]')"
+        if [ -z "$port" ]; then
+            continue
+        fi
+
+        echo -e "${BLUE}[stx health] attempting $user@$host:$port${NC}" >&2
+        yolife_emit_provider_event "attempt" "stx" "$host" "$port" "$user" "0" "start" "stx-health"
+
+        local output
+        output="$(ssh -o BatchMode=yes -o ConnectTimeout=7 -o ConnectionAttempts=1 \
+            -o ServerAliveInterval=5 -o ServerAliveCountMax=1 \
+            -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o NumberOfPasswordPrompts=0 \
+            -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${ssh_key_args[@]}" -p "$port" "$user@$host" \
+            'echo "__AF_OK__"; hostname; uname -a; (cat /etc/os-release 2>/dev/null || true); whoami; id; uptime; df -h /; (free -m 2>/dev/null || true); (systemctl is-system-running 2>/dev/null || true); (systemctl --failed --no-pager 2>/dev/null | head -n 60 || true); (ss -lntp 2>/dev/null | head -n 60 || true)' 2>&1)"
+        local rc=$?
+
+        printf "%s\n" "$output"
+
+        if [ $rc -eq 0 ] && echo "$output" | grep -q "__AF_OK__"; then
+            yolife_emit_provider_event "success" "stx" "$host" "$port" "$user" "$rc" "ok" "stx-health"
+            ok=0
+            break
+        fi
+
+        yolife_emit_provider_event "failure" "stx" "$host" "$port" "$user" "$rc" "ssh_failed" "stx-health"
+    done
+
+    if [ "$ok" -ne 0 ]; then
+        echo -e "${RED}[stx health] failed (host=$host ports=$ports_csv user=$user)${NC}" >&2
+        return 1
+    fi
+
+    return 0
+}
+
+cmd_stx() {
+    local sub="${1:-help}"
+    shift || true
+
+    case "$sub" in
+        health)
+            cmd_stx_health "$@"
+            ;;
+        help|--help|-h)
+            echo "Usage: af stx health" >&2
+            return 0
+            ;;
+        *)
+            echo "Usage: af stx health" >&2
+            return 1
+            ;;
+    esac
+}
+
 # Enhanced flag parsing with validation
 validate_mutually_exclusive_flags "$@"
 
@@ -1239,6 +1320,12 @@ cmd_quick_wins() {
 
 # WSJF calculation
 cmd_wsjf() {
+    if [ "${1:-}" = "scan" ]; then
+        shift || true
+        cmd_wsjf_scan "$@"
+        return $?
+    fi
+
     local script_path="$PROJECT_ROOT/scripts/wsjf/aggregate_wsjf.sh"
     if [ -f "$script_path" ]; then
         bash "$script_path"
@@ -1247,6 +1334,328 @@ cmd_wsjf() {
         # Fallback to legacy behavior if needed, or just error out
         cd "$PROJECT_ROOT" && npx goalie@latest recalc-wsjf 2>&1 || echo -e "${YELLOW}goalie not available${NC}"
     fi
+}
+
+cmd_wsjf_scan() {
+    local json_mode=0
+    local scope="${AY_SCAN_SCOPE:-repo}"
+    local output_path=""
+    local max_events="${AY_SCAN_MAX_EVENTS:-5000}"
+    local max_scripts="${AY_SCAN_MAX_SCRIPTS:-200}"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json)
+                json_mode=1
+                shift
+                ;;
+            --scope)
+                scope="${2:-repo}"
+                shift 2
+                ;;
+            --output)
+                output_path="${2:-}"
+                shift 2
+                ;;
+            --max-events)
+                max_events="${2:-5000}"
+                shift 2
+                ;;
+            --max-scripts)
+                max_scripts="${2:-200}"
+                shift 2
+                ;;
+            *)
+                echo -e "${YELLOW}[wsjf scan] Ignoring unknown option: $1${NC}" >&2
+                shift
+                ;;
+        esac
+    done
+
+    PROJECT_ROOT="$PROJECT_ROOT" \
+    WSJF_SCAN_SCOPE="$scope" \
+    WSJF_SCAN_JSON="$json_mode" \
+    WSJF_SCAN_OUTPUT="$output_path" \
+    WSJF_SCAN_MAX_EVENTS="$max_events" \
+    WSJF_SCAN_MAX_SCRIPTS="$max_scripts" \
+    python3 - <<'PY'
+import json, os, sys
+from collections import defaultdict, deque
+from datetime import datetime, timezone
+from pathlib import Path
+
+def iso_now() -> str:
+  return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+project_root = Path(os.environ.get("PROJECT_ROOT", os.getcwd())).resolve()
+scope = (os.environ.get("WSJF_SCAN_SCOPE") or "repo").strip()
+json_mode = (os.environ.get("WSJF_SCAN_JSON") == "1")
+output_path = (os.environ.get("WSJF_SCAN_OUTPUT") or "").strip()
+
+def _num(s: str, default: int) -> int:
+  try:
+    return int(float(s))
+  except Exception:
+    return default
+
+max_events = _num(os.environ.get("WSJF_SCAN_MAX_EVENTS", "5000"), 5000)
+max_scripts = _num(os.environ.get("WSJF_SCAN_MAX_SCRIPTS", "200"), 200)
+
+goalie_dir = project_root / ".goalie"
+wsjf_json = goalie_dir / "wsjf.json"
+board_yaml = goalie_dir / "CONSOLIDATED_ACTIONS.yaml"
+pattern_metrics = goalie_dir / "pattern_metrics.jsonl"
+provider_events = project_root / "src" / ".telemetry" / "provider_events.jsonl"
+
+warnings = []
+
+def stat_path(p: Path):
+  if not p.exists():
+    return {"exists": False}
+  st = p.stat()
+  return {
+    "exists": True,
+    "size": st.st_size,
+    "mtime_epoch": int(st.st_mtime),
+    "mtime": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+  }
+
+evidence = {
+  "wsjf_json": {"path": str(wsjf_json), **stat_path(wsjf_json)},
+  "board_yaml": {"path": str(board_yaml), **stat_path(board_yaml)},
+  "pattern_metrics": {"path": str(pattern_metrics), **stat_path(pattern_metrics)},
+  "provider_events": {"path": str(provider_events), **stat_path(provider_events)},
+}
+
+provider_summary = {}
+if provider_events.exists():
+  dq = deque(maxlen=max_events)
+  try:
+    with provider_events.open("r", encoding="utf-8", errors="ignore") as f:
+      for line in f:
+        line = line.strip()
+        if not line:
+          continue
+        dq.append(line)
+  except Exception as exc:
+    warnings.append(f"failed_read_provider_events: {exc}")
+
+  stats = defaultdict(lambda: {"attempt": 0, "success": 0, "failure": 0, "ports_success": set(), "ports_failure": set(), "last_ts": ""})
+  for raw in dq:
+    try:
+      ev = json.loads(raw)
+    except Exception:
+      continue
+    label = str(ev.get("label") or "unknown")
+    status = str(ev.get("status") or "").lower()
+    port = str(ev.get("port") or "")
+    ts = str(ev.get("ts") or "")
+    rec = stats[label]
+    if status == "attempt":
+      rec["attempt"] += 1
+    elif status == "success":
+      rec["success"] += 1
+      if port:
+        rec["ports_success"].add(port)
+    elif status in {"failure", "config_missing"}:
+      rec["failure"] += 1
+      if port:
+        rec["ports_failure"].add(port)
+    if ts:
+      rec["last_ts"] = ts
+
+  for label, rec in stats.items():
+    provider_summary[label] = {
+      "attempt": rec["attempt"],
+      "success": rec["success"],
+      "failure": rec["failure"],
+      "ports_success": sorted(rec["ports_success"]),
+      "ports_failure": sorted(rec["ports_failure"]),
+      "last_ts": rec["last_ts"],
+    }
+else:
+  warnings.append("missing_provider_events")
+
+wsjf_lane = {"now": 0, "next": 0, "later": 0}
+wsjf_mentions = {"prod": 0, "yolife": 0}
+if wsjf_json.exists():
+  try:
+    ws = json.loads(wsjf_json.read_text())
+    for lane_key, out_key in [("now_lane", "now"), ("next_lane", "next"), ("later_lane", "later")]:
+      items = ((ws.get(lane_key) or {}).get("items") or [])
+      if isinstance(items, list):
+        wsjf_lane[out_key] = len(items)
+        for it in items:
+          if not isinstance(it, dict):
+            continue
+          hay = " ".join([
+            str(it.get("id") or ""),
+            str(it.get("title") or ""),
+            str(it.get("domain") or ""),
+            " ".join(it.get("tags") or []) if isinstance(it.get("tags"), list) else "",
+          ]).lower()
+          if "prod" in hay:
+            wsjf_mentions["prod"] += 1
+          if "yolife" in hay:
+            wsjf_mentions["yolife"] += 1
+  except Exception as exc:
+    warnings.append(f"failed_parse_wsjf_json: {exc}")
+else:
+  warnings.append("missing_wsjf_json")
+
+ordering = "yolife-first"
+if wsjf_mentions["prod"] > wsjf_mentions["yolife"]:
+  ordering = "prod-first"
+
+board_wsjf_tag_count = 0
+if board_yaml.exists():
+  try:
+    txt = board_yaml.read_text(errors="ignore")
+    board_wsjf_tag_count = txt.count("pattern:wsjf")
+  except Exception as exc:
+    warnings.append(f"failed_read_board_yaml: {exc}")
+
+scripts = []
+scripts_dir = project_root / "scripts"
+if scripts_dir.exists() and scripts_dir.is_dir():
+  count = 0
+  for p in sorted(scripts_dir.rglob("*")):
+    if count >= max_scripts:
+      break
+    if p.is_file():
+      try:
+        st = p.stat()
+        scripts.append({
+          "path": str(p.relative_to(project_root)),
+          "size": st.st_size,
+          "mtime": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+          "executable": os.access(str(p), os.X_OK),
+        })
+        count += 1
+      except Exception:
+        continue
+
+workspace = {}
+if scope == "workspace":
+  try:
+    workspace_root = project_root.parents[2]
+  except Exception:
+    workspace_root = project_root
+  core_dir = workspace_root / "agentic-flow-core"
+  core = {"path": str(core_dir), **stat_path(core_dir)}
+  if core_dir.exists() and core_dir.is_dir():
+    pkg = core_dir / "package.json"
+    lock = core_dir / "package-lock.json"
+    core["package_json"] = {"path": str(pkg), **stat_path(pkg)}
+    core["package_lock"] = {"path": str(lock), **stat_path(lock)}
+    types_node = core_dir / "node_modules" / "@types" / "node" / "package.json"
+    if types_node.exists():
+      try:
+        core["types_node"] = {"path": str(types_node), **stat_path(types_node), "version": json.loads(types_node.read_text()).get("version")}
+      except Exception:
+        core["types_node"] = {"path": str(types_node), **stat_path(types_node)}
+  workspace["agentic_flow_core"] = core
+
+action_items = []
+for label, rec in provider_summary.items():
+  if label == "unknown":
+    continue
+  if rec.get("success", 0) == 0 and rec.get("failure", 0) > 0:
+    action_items.append({"type": "connectivity", "label": label, "severity": "high", "summary": "no successful SSH probes"})
+
+result = {
+  "generated_at": iso_now(),
+  "scope": scope,
+  "project_root": str(project_root),
+  "evidence": evidence,
+  "provider_summary": provider_summary,
+  "wsjf": {"lane_counts": wsjf_lane, "mentions": wsjf_mentions, "recommended_order": ordering, "board_wsjf_tag_count": board_wsjf_tag_count},
+  "scripts": {"count": len(scripts), "max": max_scripts, "items": scripts},
+  "workspace": workspace,
+  "action_items": action_items,
+  "warnings": warnings,
+}
+
+def to_markdown(res: dict) -> str:
+  lines = []
+  lines.append(f"# WSJF Scan Report")
+  generated_at_value = res.get("generated_at")
+  scope_value = res.get("scope")
+  lines.append(f"generated_at: `{generated_at_value}`")
+  lines.append(f"scope: `{scope_value}`")
+  lines.append("")
+
+  ev = res.get("evidence") or {}
+  lines.append("## Evidence")
+  for key in ("provider_events", "wsjf_json", "board_yaml", "pattern_metrics"):
+    item = ev.get(key) or {}
+    if item.get("exists"):
+      path_value = item.get("path")
+      mtime_value = item.get("mtime")
+      size_value = item.get("size")
+      lines.append(f"- **{key}**: present (`{path_value}` mtime={mtime_value} size={size_value})")
+    else:
+      path_value = item.get("path")
+      lines.append(f"- **{key}**: missing (`{path_value}`)")
+  lines.append("")
+
+  ws = (res.get("wsjf") or {})
+  lines.append("## WSJF")
+  lane = ws.get("lane_counts") or {}
+  mentions = ws.get("mentions") or {}
+  lines.append(f"- **lane_counts**: now={lane.get('now',0)} next={lane.get('next',0)} later={lane.get('later',0)}")
+  lines.append(f"- **mentions**: prod={mentions.get('prod',0)} yolife={mentions.get('yolife',0)}")
+  lines.append(f"- **recommended_order**: `{ws.get('recommended_order')}`")
+  lines.append(f"- **board_wsjf_tag_count**: {ws.get('board_wsjf_tag_count',0)}")
+  lines.append("")
+
+  lines.append("## Provider connectivity (from provider_events.jsonl)")
+  prov = res.get("provider_summary") or {}
+  if not prov:
+    lines.append("- (no provider events found)")
+  else:
+    for label in sorted(prov.keys()):
+      rec = prov[label]
+      success_value = rec.get("success", 0)
+      failure_value = rec.get("failure", 0)
+      ports_success_value = rec.get("ports_success", [])
+      ports_failure_value = rec.get("ports_failure", [])
+      last_value = rec.get("last_ts", "")
+      lines.append(f"- **{label}**: success={success_value} failure={failure_value} ports_success={ports_success_value} ports_failure={ports_failure_value} last={last_value}")
+  lines.append("")
+
+  items = res.get("action_items") or []
+  lines.append("## Action items (read-only suggestions)")
+  if not items:
+    lines.append("- (none)\n")
+  else:
+    for it in items:
+      sev_value = it.get("severity")
+      type_value = it.get("type")
+      label_value = it.get("label")
+      summary_value = it.get("summary")
+      lines.append(f"- **{sev_value}** `{type_value}` {label_value}: {summary_value}")
+    lines.append("")
+
+  warns = res.get("warnings") or []
+  if warns:
+    lines.append("## Warnings")
+    for w in warns:
+      lines.append(f"- {w}")
+    lines.append("")
+
+  return "\n".join(lines)
+
+out_text = json.dumps(result, indent=2, sort_keys=True) if json_mode else to_markdown(result)
+
+if output_path:
+  try:
+    Path(output_path).write_text(out_text)
+  except Exception as exc:
+    sys.stderr.write(f"[wsjf scan] failed to write output: {exc}\n")
+
+sys.stdout.write(out_text + ("\n" if not out_text.endswith("\n") else ""))
+PY
 }
 
 # Environment snapshot
@@ -1432,7 +1841,13 @@ cmd_full_cycle() {
         echo ""
         cmd_cycle
         echo ""
-        cmd_governor_health
+        if [ "${AF_SKIP_GOVERNOR_HEALTH:-0}" = "1" ]; then
+            echo -e "${YELLOW}[full-cycle] Skipping governor health suite (AF_SKIP_GOVERNOR_HEALTH=1)${NC}"
+        else
+            if ! cmd_governor_health; then
+                echo -e "${YELLOW}[full-cycle] Governor health suite failed; continuing cycle${NC}"
+            fi
+        fi
         echo ""
 
         # Enhanced IRIS Integration with comprehensive monitoring
@@ -1608,7 +2023,10 @@ cmd_full_cycle() {
 # Kanban board
 cmd_board() {
     if [ -f "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" ]; then
-        cat "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep -A 50 "NOW:" | head -60
+        if ! cat "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep -A 50 "NOW:" | head -60; then
+            echo -e "${YELLOW}NOW section not found; showing NEXT section instead${NC}"
+            cat "$PROJECT_ROOT/.goalie/KANBAN_BOARD.yaml" | grep -A 50 "NEXT:" | head -60 || true
+        fi
     else
         echo -e "${YELLOW}KANBAN_BOARD.yaml not found${NC}"
     fi
@@ -2406,7 +2824,138 @@ adjust_governance_from_retro() {
 }
 
 # Production maturity cycle (Delegated to Governance Middleware)
+prod_preflight_inventory_evidence() {
+    local mode="${AF_PROD_PREFLIGHT_MODE:-warn}"
+    local provider_events="$PROJECT_ROOT/src/.telemetry/provider_events.jsonl"
+    local required_labels="${AF_PROD_PREFLIGHT_REQUIRED_LABELS:-}"
+
+    AF_PREFLIGHT_MODE="$mode" \
+    AF_PREFLIGHT_PROVIDER_EVENTS="$provider_events" \
+    AF_PREFLIGHT_REQUIRED_LABELS="$required_labels" \
+    python3 - <<'PY'
+import json
+import os
+import sys
+from collections import defaultdict
+
+mode = (os.environ.get("AF_PREFLIGHT_MODE") or "warn").strip().lower()
+provider_events = os.environ.get("AF_PREFLIGHT_PROVIDER_EVENTS") or ""
+required_raw = os.environ.get("AF_PREFLIGHT_REQUIRED_LABELS") or ""
+
+def parse_labels(raw: str):
+  raw = raw.replace(",", " ").strip()
+  if not raw:
+    return []
+  return [x.strip() for x in raw.split() if x.strip()]
+
+required = parse_labels(required_raw)
+
+if not provider_events or not os.path.exists(provider_events):
+  msg = f"[prod-preflight] provider_events missing: {provider_events}\n"
+  if mode == "block":
+    sys.stderr.write(msg)
+    sys.exit(2)
+  sys.stderr.write(msg)
+  sys.exit(0)
+
+stats = defaultdict(lambda: {"success": 0, "failure": 0})
+try:
+  with open(provider_events, "r", encoding="utf-8", errors="ignore") as f:
+    for line in f:
+      line = line.strip()
+      if not line:
+        continue
+      try:
+        ev = json.loads(line)
+      except Exception:
+        continue
+      label = str(ev.get("label") or "unknown")
+      status = str(ev.get("status") or "").lower()
+      if status == "success":
+        stats[label]["success"] += 1
+      elif status in ("failure", "config_missing"):
+        stats[label]["failure"] += 1
+except Exception as exc:
+  sys.stderr.write(f"[prod-preflight] failed_read_provider_events: {exc}\n")
+  if mode == "block":
+    sys.exit(2)
+  sys.exit(0)
+
+problems = []
+
+if required:
+  for label in required:
+    rec = stats.get(label)
+    if not rec:
+      problems.append(label)
+      continue
+    if rec.get("success", 0) <= 0:
+      problems.append(label)
+else:
+  for label, rec in stats.items():
+    if label == "unknown":
+      continue
+    if rec.get("failure", 0) > 0 and rec.get("success", 0) == 0:
+      problems.append(label)
+
+if problems:
+  sys.stderr.write("[prod-preflight] inventory evidence not ready for: " + ", ".join(sorted(set(problems))) + "\n")
+  if mode == "block":
+    sys.exit(2)
+  sys.exit(0)
+
+sys.stderr.write("[prod-preflight] inventory evidence OK\n")
+sys.exit(0)
+PY
+}
+
 cmd_prod_cycle() {
+    # Check for help flag
+    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" || "${1:-}" == "help" ]]; then
+        echo "[DEBUG] Help flag detected, showing help..." >&2
+        cat >&2 <<'HELP'
+Usage: af prod-cycle [ITERATIONS] [OPTIONS]
+
+Run enhanced production Build-Measure-Learn cycles with governance middleware.
+
+Arguments:
+  ITERATIONS              Number of iterations to run (default: 100)
+
+Options:
+  --environment ENV       Set environment context
+  --force                Skip pre-flight inventory evidence checks
+  --help, -h             Show this help message
+
+Environment Variables:
+  AF_WSJF_PRESET         WSJF priority preset (P1=prod, P2=yolife)
+                         Set by ay_prod (P1) or ay_yo (P2) automatically
+  AF_ENABLE_IRIS_METRICS Enable IRIS metrics logging (0 or 1)
+  AF_PROD_CYCLE_MODE     Cycle mode (advisory, enforce)
+  AF_PROD_PREFLIGHT_INVENTORY_EVIDENCE
+                         Enable pre-flight checks (default: 1)
+
+Examples:
+  af prod-cycle 25           # Run 25 iterations (default preset if any)
+  ay prod 50                 # Run 50 iterations with P1 WSJF preset
+  AF_WSJF_PRESET=P2 ay prod  # Override to use P2 preset
+  af prod-cycle --force 10   # Skip pre-flight, run 10 iterations
+
+Integration:
+  - Pre-flight checks validate inventory evidence
+  - Agentic Jujutsu integration for enhanced coordination
+  - Pattern event tracking for observability
+  - Governance middleware enforcement
+  - Iteration budget tracking and metrics
+
+WSJF Presets:
+  P1 - Production priority (higher urgency, risk-weighted)
+  P2 - YoLife priority (balanced, learning-focused)
+
+For more details: https://github.com/yourusername/agentic-flow
+HELP
+        return 0
+    fi
+
     local middleware_script="$SCRIPT_DIR/policy/governance.py"
 
     if [ ! -f "$middleware_script" ]; then
@@ -2414,7 +2963,23 @@ cmd_prod_cycle() {
         return 1
     fi
 
+    # Show WSJF preset if set
+    if [ -n "${AF_WSJF_PRESET:-}" ]; then
+        echo -e "${GREEN}[prod-cycle] Using WSJF preset: ${AF_WSJF_PRESET}${NC}" >&2
+    fi
+
     python3 "$PATTERN_LOGGING_HELPER" --ensure-risk-db >/dev/null 2>&1 || true
+
+    local preflight_force=0
+    for arg in "$@"; do
+        if [ "$arg" = "--force" ]; then
+            preflight_force=1
+            break
+        fi
+    done
+    if [ "${AF_PROD_PREFLIGHT_INVENTORY_EVIDENCE:-1}" = "1" ] && [ "$preflight_force" -eq 0 ]; then
+        prod_preflight_inventory_evidence || return $?
+    fi
 
     local iterations="${1:-5}"
 
@@ -2571,7 +3136,7 @@ fi
 }
 
 # Dynamic Policy Hook
-if [ -f "$SCRIPT_DIR/policy/dynamic_autocommit.sh" ] && [ "$1" == "prod-cycle" ]; then
+if [ -f "$SCRIPT_DIR/policy/dynamic_autocommit.sh" ] && [ "${1:-}" == "prod-cycle" ]; then
     source "$SCRIPT_DIR/policy/dynamic_autocommit.sh"
 fi
 
@@ -3321,6 +3886,784 @@ if [ -n "${AF_CONFIG_MONITOR:-}" ] && [ -f "${AF_CONFIG_MONITOR:-}" ]; then
     monitor_config_drift "$AF_CONFIG_MONITOR" "$PROJECT_ROOT/.goalie/config_baseline.yaml"
 fi
 
+cmd_yolife_ts_refresh() {
+    local workspace_root
+    workspace_root="$(cd "$PROJECT_ROOT/../.." && pwd)"
+
+    local target_dir="${YOLIFE_TS_ROOT:-$workspace_root/agentic-flow-core}"
+
+    if [ ! -d "$target_dir" ]; then
+        echo -e "${RED}[yolife ts-refresh] missing dir: $target_dir (set YOLIFE_TS_ROOT to override)${NC}" >&2
+        return 1
+    fi
+    if [ ! -f "$target_dir/package.json" ]; then
+        echo -e "${RED}[yolife ts-refresh] missing package.json: $target_dir/package.json${NC}" >&2
+        return 1
+    fi
+
+    (
+        cd "$target_dir"
+        if [ -f package-lock.json ]; then
+            if ! npm ci; then
+                echo -e "${YELLOW}[yolife ts-refresh] npm ci failed; falling back to npm install to resync lockfile${NC}" >&2
+                npm install
+            fi
+        else
+            npm install
+        fi
+    )
+}
+
+yolife_provider_events_path() {
+    echo "$PROJECT_ROOT/src/.telemetry/provider_events.jsonl"
+}
+
+yolife_emit_provider_event() {
+    local status="${1:-}"
+    local label="${2:-}"
+    local host="${3:-}"
+    local port="${4:-}"
+    local user="${5:-}"
+    local exit_code="${6:-}"
+    local reason="${7:-}"
+    local operation="${8:-ssh-probe}"
+
+    local telemetry
+    telemetry="$(yolife_provider_events_path)"
+    mkdir -p "$(dirname "$telemetry")"
+
+    python3 -c 'import json,sys,datetime as dt
+status, label, host, port, user, exit_code, reason, operation = sys.argv[1:9]
+ts = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+event = {
+  "ts": ts,
+  "run": "yolife",
+  "run_id": (sys.argv[9] if len(sys.argv) > 9 else ""),
+  "provider": "ssh",
+  "operation": operation,
+  "status": status,
+  "label": label,
+  "host": host,
+  "port": port,
+  "user": user,
+  "exit_code": int(exit_code) if str(exit_code).isdigit() else exit_code,
+  "reason": reason,
+}
+print(json.dumps(event, ensure_ascii=False))
+' "$status" "$label" "$host" "$port" "$user" "$exit_code" "$reason" "$operation" "${AF_YOLIFE_RUN_ID:-}" >> "$telemetry" 2>/dev/null || true
+}
+
+cmd_yolife_ssh_probe_host() {
+    local label="${1:-}"
+    local host="${2:-}"
+    local ports_csv="${3:-}"
+    local user="${4:-}"
+    local key_path="${5:-}"
+
+    if [ -z "$host" ]; then
+        echo -e "${YELLOW}[yolife ssh-probe] $label missing host${NC}" >&2
+        yolife_emit_provider_event "config_missing" "$label" "" "" "${user:-}" "1" "missing_host" "ssh-probe"
+        return 1
+    fi
+
+    if [ -z "$ports_csv" ]; then
+        ports_csv="22"
+    fi
+    if [ -z "$user" ]; then
+        user="ubuntu"
+    fi
+
+    if [ "${YOLIFE_REQUIRE_KEYS:-0}" = "1" ]; then
+        if [ -z "${key_path:-}" ]; then
+            echo -e "${RED}[yolife ssh-probe] $label missing key (YOLIFE_REQUIRE_KEYS=1)${NC}" >&2
+            yolife_emit_provider_event "config_missing" "$label" "$host" "" "$user" "1" "missing_key" "ssh-probe"
+            return 1
+        fi
+        if [ ! -f "$key_path" ]; then
+            echo -e "${RED}[yolife ssh-probe] $label key missing: $key_path${NC}" >&2
+            yolife_emit_provider_event "config_missing" "$label" "$host" "" "$user" "1" "key_file_missing" "ssh-probe"
+            return 1
+        fi
+    fi
+
+    local ssh_key_args=()
+    if [ -n "${key_path:-}" ]; then
+        if [ -f "$key_path" ]; then
+            ssh_key_args+=( -i "$key_path" )
+        else
+            echo -e "${YELLOW}[yolife ssh-probe] $label key missing: $key_path (continuing without -i)${NC}" >&2
+        fi
+    fi
+
+    local ports=()
+    IFS=',' read -r -a ports <<< "$ports_csv"
+
+    local ok=1
+    for port in "${ports[@]}"; do
+        port="$(echo "$port" | tr -d '[:space:]')"
+        if [ -z "$port" ]; then
+            continue
+        fi
+
+        echo -e "${BLUE}[yolife ssh-probe] $label attempting $user@$host:$port${NC}" >&2
+        yolife_emit_provider_event "attempt" "$label" "$host" "$port" "$user" "0" "start" "ssh-probe"
+
+        local output
+        local rc=0
+        local _af_errexit=0
+        case "$-" in *e*) _af_errexit=1 ;; esac
+        set +e
+        output="$(ssh -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=7 -o ConnectionAttempts=1 \
+            -o ServerAliveInterval=5 -o ServerAliveCountMax=1 \
+            -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInteractiveAuthentication=no -o NumberOfPasswordPrompts=0 \
+            -o LogLevel=ERROR -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            "${ssh_key_args[@]}" -p "$port" "$user@$host" \
+            'echo "__AF_OK__"; hostname; uname -a; (cat /etc/os-release 2>/dev/null || true)' 2>&1)"
+        rc=$?
+        if [ "$_af_errexit" -eq 1 ]; then
+            set -e
+        fi
+
+        printf "%s\n" "$output"
+
+        if [ $rc -eq 0 ] && echo "$output" | grep -q "__AF_OK__"; then
+            yolife_emit_provider_event "success" "$label" "$host" "$port" "$user" "$rc" "ok" "ssh-probe"
+            ok=0
+            break
+        fi
+
+        yolife_emit_provider_event "failure" "$label" "$host" "$port" "$user" "$rc" "ssh_failed" "ssh-probe"
+    done
+
+    if [ "$ok" -ne 0 ]; then
+        echo -e "${RED}[yolife ssh-probe] $label failed (host=$host ports=$ports_csv user=$user)${NC}" >&2
+        return 1
+    fi
+
+    return 0
+}
+
+cmd_yolife_inventory() {
+    local failures=0
+
+    if [ -z "${AF_YOLIFE_RUN_ID:-}" ]; then
+        export AF_YOLIFE_RUN_ID="yolife-inventory-$(date +%Y%m%d%H%M%S)-$$"
+    fi
+
+    local stx_host="${YOLIFE_STX_HOST:-}"
+    local stx_ports="${YOLIFE_STX_PORTS:-${YOLIFE_STX_PORTS_CSV:-2222,22}}"
+    local stx_user="${YOLIFE_STX_USER:-ubuntu}"
+    local stx_key="${YOLIFE_STX_KEY:-}"
+
+    local cpanel_host="${YOLIFE_CPANEL_HOST:-}"
+    local cpanel_ports="${YOLIFE_CPANEL_PORTS:-${YOLIFE_CPANEL_PORTS_CSV:-}}"
+    local cpanel_user="${YOLIFE_CPANEL_USER:-ubuntu}"
+    local cpanel_key="${YOLIFE_CPANEL_KEY:-}"
+
+    local gitlab_host="${YOLIFE_GITLAB_HOST:-}"
+    local gitlab_ports="${YOLIFE_GITLAB_PORTS:-${YOLIFE_GITLAB_PORTS_CSV:-}}"
+    local gitlab_user="${YOLIFE_GITLAB_USER:-ubuntu}"
+    local gitlab_key="${YOLIFE_GITLAB_KEY:-}"
+
+     if [ -z "$stx_host" ] && [ -z "$cpanel_host" ] && [ -z "$gitlab_host" ]; then
+         echo -e "${YELLOW}[yolife inventory] no hosts configured. Export YOLIFE_STX_HOST / YOLIFE_CPANEL_HOST / YOLIFE_GITLAB_HOST then rerun.${NC}" >&2
+         return 1
+     fi
+
+     echo -e "${BLUE}[yolife inventory] starting${NC}" >&2
+
+    if [ -n "$stx_host" ]; then
+        cmd_yolife_ssh_probe_host "stx" "$stx_host" "$stx_ports" "$stx_user" "$stx_key" || failures=1
+    fi
+    if [ -n "$cpanel_host" ]; then
+        cmd_yolife_ssh_probe_host "cpanel" "$cpanel_host" "$cpanel_ports" "$cpanel_user" "$cpanel_key" || failures=1
+    fi
+    if [ -n "$gitlab_host" ]; then
+        cmd_yolife_ssh_probe_host "gitlab" "$gitlab_host" "$gitlab_ports" "$gitlab_user" "$gitlab_key" || failures=1
+    fi
+
+     if [ "$failures" -eq 0 ]; then
+         echo -e "${GREEN}[yolife inventory] OK${NC}" >&2
+     else
+         echo -e "${RED}[yolife inventory] FAIL${NC}" >&2
+     fi
+
+    return $failures
+}
+
+cmd_yolife_ssh_probe() {
+    if [ -z "${AF_YOLIFE_RUN_ID:-}" ]; then
+        export AF_YOLIFE_RUN_ID="yolife-ssh-probe-$(date +%Y%m%d%H%M%S)-$$"
+    fi
+
+    local target="${1:-}"
+    shift || true
+
+    case "$target" in
+        stx)
+            cmd_yolife_ssh_probe_host "stx" "${YOLIFE_STX_HOST:-}" "${YOLIFE_STX_PORTS:-${YOLIFE_STX_PORT:-}}" "${YOLIFE_STX_USER:-ubuntu}" "${YOLIFE_STX_KEY:-}"
+            ;;
+        cpanel)
+            cmd_yolife_ssh_probe_host "cpanel" "${YOLIFE_CPANEL_HOST:-}" "${YOLIFE_CPANEL_PORTS:-${YOLIFE_CPANEL_PORT:-}}" "${YOLIFE_CPANEL_USER:-ubuntu}" "${YOLIFE_CPANEL_KEY:-}"
+            ;;
+        gitlab)
+            cmd_yolife_ssh_probe_host "gitlab" "${YOLIFE_GITLAB_HOST:-}" "${YOLIFE_GITLAB_PORTS:-${YOLIFE_GITLAB_PORT:-}}" "${YOLIFE_GITLAB_USER:-ubuntu}" "${YOLIFE_GITLAB_KEY:-}"
+            ;;
+        *)
+            cmd_yolife_ssh_probe_host "custom" "$target" "${1:-22}" "${2:-ubuntu}" "${3:-}"
+            ;;
+    esac
+}
+
+cmd_yolife_ssm() {
+     local mode="start"
+     local wait_sec="0"
+     local poll_sec="5"
+     local profile_override=""
+     local region_override=""
+
+     while [ "$#" -gt 0 ]; do
+         case "${1:-}" in
+             --check|--probe)
+                 mode="check"
+                 shift || true
+                 ;;
+             --wait|--wait-sec)
+                 wait_sec="${2:-0}"
+                 shift 2 || true
+                 ;;
+             --poll|--poll-sec)
+                 poll_sec="${2:-5}"
+                 shift 2 || true
+                 ;;
+             --profile)
+                 profile_override="${2:-}"
+                 shift 2 || true
+                 ;;
+             --region)
+                 region_override="${2:-}"
+                 shift 2 || true
+                 ;;
+             --help|-h)
+                 echo "Usage: af yolife ssm [--check] [--wait-sec N] [--poll-sec N] [--profile P] [--region R] {gitlab|stx|cpanel|i-...}" >&2
+                 return 0
+                 ;;
+             --)
+                 shift || true
+                 break
+                 ;;
+             *)
+                 break
+                 ;;
+         esac
+     done
+
+     local target="${1:-gitlab}"
+     shift || true
+
+     local profile="${profile_override:-${YOLIFE_SSM_PROFILE:-${AWS_PROFILE:-}}}"
+     local region="${region_override:-${YOLIFE_SSM_REGION:-${AWS_REGION:-${AWS_DEFAULT_REGION:-}}}}"
+
+     local instance_id=""
+     local label_upper=""
+     case "$target" in
+         gitlab)
+             instance_id="${YOLIFE_GITLAB_INSTANCE_ID:-}"
+             label_upper="GITLAB"
+             ;;
+         stx)
+             instance_id="${YOLIFE_STX_INSTANCE_ID:-}"
+             label_upper="STX"
+             ;;
+         cpanel)
+             instance_id="${YOLIFE_CPANEL_INSTANCE_ID:-}"
+             label_upper="CPANEL"
+             ;;
+         i-*)
+             instance_id="$target"
+             label_upper=""
+             ;;
+         *)
+             instance_id="$target"
+             label_upper=""
+             ;;
+     esac
+
+     if [ -z "$instance_id" ]; then
+         if [ -n "$label_upper" ]; then
+             echo -e "${RED}[yolife ssm] missing instance id for $target. Set YOLIFE_${label_upper}_INSTANCE_ID or pass an instance id.${NC}" >&2
+         else
+             echo -e "${RED}[yolife ssm] missing instance id. Pass an instance id like i-...${NC}" >&2
+         fi
+         return 1
+     fi
+
+     if ! command -v aws >/dev/null 2>&1; then
+         echo -e "${RED}[yolife ssm] aws CLI not found in PATH${NC}" >&2
+         return 1
+     fi
+     if ! command -v session-manager-plugin >/dev/null 2>&1; then
+         echo -e "${YELLOW}[yolife ssm] session-manager-plugin not found on this machine. Install it to use start-session.${NC}" >&2
+     fi
+
+     if [ -z "$profile" ]; then
+         profile="admin-user"
+     fi
+     if [ -z "$region" ]; then
+         region="us-west-1"
+     fi
+
+     case "$wait_sec" in ''|*[!0-9]*) wait_sec="0" ;; esac
+     case "$poll_sec" in ''|*[!0-9]*) poll_sec="5" ;; esac
+     if [ "$poll_sec" -lt 1 ]; then
+         poll_sec="1"
+     fi
+
+     local start_epoch
+     start_epoch="$(date +%s)"
+     local deadline_epoch="0"
+     if [ "$wait_sec" -gt 0 ]; then
+         deadline_epoch=$((start_epoch + wait_sec))
+     fi
+
+     local info=""
+     local ping=""
+     local last_ping=""
+     local agent_version=""
+     local platform=""
+
+     while true; do
+         if ! info="$(aws ssm describe-instance-information --profile "$profile" --region "$region" --filters "Key=InstanceIds,Values=$instance_id" --output json 2>&1)"; then
+             local rc=$?
+             echo -e "${RED}[yolife ssm] preflight failed (profile=$profile region=$region instance_id=$instance_id)${NC}" >&2
+             printf "%s\n" "$info" >&2
+             return $rc
+         fi
+
+         ping="$(AF_SSM_INFO_JSON="$info" python3 - <<'PY'
+import json
+import os
+
+raw = os.environ.get("AF_SSM_INFO_JSON") or ""
+try:
+  data = json.loads(raw) if raw.strip() else {}
+except Exception:
+  data = {}
+
+lst = (data.get("InstanceInformationList") or [])
+rec = lst[0] if lst else {}
+print(rec.get("PingStatus") or "NOT_FOUND")
+PY
+)"
+         last_ping="$(AF_SSM_INFO_JSON="$info" python3 - <<'PY'
+import json
+import os
+
+raw = os.environ.get("AF_SSM_INFO_JSON") or ""
+try:
+  data = json.loads(raw) if raw.strip() else {}
+except Exception:
+  data = {}
+
+lst = (data.get("InstanceInformationList") or [])
+rec = lst[0] if lst else {}
+print(rec.get("LastPingDateTime") or "")
+PY
+)"
+         agent_version="$(AF_SSM_INFO_JSON="$info" python3 - <<'PY'
+import json
+import os
+
+raw = os.environ.get("AF_SSM_INFO_JSON") or ""
+try:
+  data = json.loads(raw) if raw.strip() else {}
+except Exception:
+  data = {}
+
+lst = (data.get("InstanceInformationList") or [])
+rec = lst[0] if lst else {}
+print(rec.get("AgentVersion") or "")
+PY
+)"
+         platform="$(AF_SSM_INFO_JSON="$info" python3 - <<'PY'
+import json
+import os
+
+raw = os.environ.get("AF_SSM_INFO_JSON") or ""
+try:
+  data = json.loads(raw) if raw.strip() else {}
+except Exception:
+  data = {}
+
+lst = (data.get("InstanceInformationList") or [])
+rec = lst[0] if lst else {}
+print(rec.get("PlatformName") or rec.get("PlatformType") or "")
+PY
+)"
+
+         echo -e "${BLUE}[yolife ssm] preflight ping_status=$ping last_ping=${last_ping:-?} agent_version=${agent_version:-?} platform=${platform:-?}${NC}" >&2
+
+         if [ "$mode" = "check" ]; then
+             return 0
+         fi
+
+         if [ "$ping" = "Online" ]; then
+             break
+         fi
+
+         if [ "$wait_sec" -le 0 ]; then
+             echo -e "${RED}[yolife ssm] not online (PingStatus=$ping). Start-session will fail.${NC}" >&2
+             case "$ping" in
+                 ConnectionLost)
+                     echo -e "${YELLOW}[yolife ssm] likely: instance lost outbound 443/DNS, amazon-ssm-agent stopped/crashed, or the instance was rebooted and agent did not come up.${NC}" >&2
+                     ;;
+                 NOT_FOUND)
+                     echo -e "${YELLOW}[yolife ssm] instance not present in SSM inventory. likely: missing/changed instance profile (AmazonSSMManagedInstanceCore) or SSM agent not installed.${NC}" >&2
+                     ;;
+             esac
+             echo -e "${YELLOW}[yolife ssm] re-run with --wait-sec N to retry until Online.${NC}" >&2
+             echo -e "${YELLOW}[yolife ssm] preflight: aws ssm describe-instance-information --profile $profile --region $region --filters Key=InstanceIds,Values=$instance_id${NC}" >&2
+             return 2
+         fi
+
+         local now_epoch
+         now_epoch="$(date +%s)"
+         if [ "$now_epoch" -ge "$deadline_epoch" ]; then
+             echo -e "${RED}[yolife ssm] timed out waiting for Online (wait_sec=$wait_sec last_ping=${last_ping:-?})${NC}" >&2
+             return 2
+         fi
+
+         sleep "$poll_sec"
+     done
+
+     local aws_args=(ssm start-session)
+     if [ -n "$profile" ]; then aws_args+=(--profile "$profile"); fi
+     if [ -n "$region" ]; then aws_args+=(--region "$region"); fi
+     aws_args+=(--target "$instance_id")
+
+     aws "${aws_args[@]}"
+ }
+
+ cmd_yolife() {
+    local sub="${1:-help}"
+    shift || true
+
+    case "$sub" in
+        help|--help|-h)
+            echo "Usage: af yolife {ts-refresh|inventory|ssh-probe|ssm|<passthrough>}" >&2
+            echo "  ts-refresh  - Refresh TypeScript dependencies" >&2
+            echo "  inventory   - Run infrastructure inventory (SSH probes)" >&2
+            echo "  ssh-probe   - Test SSH connectivity" >&2
+            echo "  ssm         - AWS Systems Manager session" >&2
+            echo "  *           - Passes through to local ay-yo.sh script" >&2
+            return 0
+            ;;
+        ts-refresh)
+            cmd_yolife_ts_refresh "$@"
+            ;;
+        inventory)
+            cmd_yolife_inventory "$@"
+            ;;
+        ssh-probe)
+            cmd_yolife_ssh_probe "$@"
+            ;;
+        ssm)
+            cmd_yolife_ssm "$@"
+            ;;
+        *)
+            # Passthrough to local project's ay-yo.sh for interactive cockpit, etc.
+            local workspace_root
+            workspace_root="$(cd "$PROJECT_ROOT/../.." && pwd)"
+            local target_dir="${YOLIFE_TS_ROOT:-$workspace_root/agentic-flow-core}"
+            local ay_yo_script="$target_dir/scripts/ay-yo.sh"
+            
+            if [ -f "$ay_yo_script" ]; then
+                exec "$ay_yo_script" "$sub" "$@"
+            else
+                echo -e "${RED}[yolife] ay-yo.sh not found at $ay_yo_script${NC}" >&2
+                echo "Usage: af yolife {ts-refresh|inventory|ssh-probe|ssm}" >&2
+                return 1
+            fi
+            ;;
+    esac
+ }
+
+cmd_aws_configure() {
+    local profile="${AWS_PROFILE:-}"
+    local regions="${AWS_REGION:-${AWS_DEFAULT_REGION:-}}"
+    local ips=""
+    local ports="22,2222"
+    local strict=0
+
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --profile)
+                profile="${2:-}"
+                shift 2
+                ;;
+            --regions)
+                regions="${2:-}"
+                shift 2
+                ;;
+            --ips)
+                ips="${2:-}"
+                shift 2
+                ;;
+            --ports)
+                ports="${2:-}"
+                shift 2
+                ;;
+            --strict)
+                strict=1
+                shift
+                ;;
+            --help|-h)
+                echo "Usage: af aws-configure [--profile P] [--regions us-west-1,us-west-2] [--ips ip1,ip2] [--ports 22,2222] [--strict]" >&2
+                return 0
+                ;;
+            *)
+                echo -e "${RED}[aws-configure] unknown arg: $1${NC}" >&2
+                return 1
+                ;;
+        esac
+    done
+
+    if [ -z "$regions" ]; then
+        regions="us-west-1,us-west-2"
+    fi
+
+    if [ -z "$ips" ]; then
+        local ip_list=()
+        if [ -n "${YOLIFE_GITLAB_HOST:-}" ]; then ip_list+=("$YOLIFE_GITLAB_HOST"); fi
+        if [ -n "${YOLIFE_CPANEL_HOST:-}" ]; then ip_list+=("$YOLIFE_CPANEL_HOST"); fi
+        if [ -n "${YOLIFE_STX_HOST:-}" ]; then ip_list+=("$YOLIFE_STX_HOST"); fi
+        if [ ${#ip_list[@]} -gt 0 ]; then
+            local IFS=,
+            ips="${ip_list[*]}"
+        fi
+    fi
+
+    if ! command -v aws >/dev/null 2>&1; then
+        echo -e "${RED}[aws-configure] aws CLI not found in PATH${NC}" >&2
+        return 1
+    fi
+
+    AWS_CONFIGURE_PROFILE="$profile" \
+    AWS_CONFIGURE_REGIONS="$regions" \
+    AWS_CONFIGURE_IPS="$ips" \
+    AWS_CONFIGURE_PORTS="$ports" \
+    AWS_CONFIGURE_STRICT="$strict" \
+    python3 - <<'PY'
+import json
+import os
+import subprocess
+import sys
+
+profile = (os.environ.get("AWS_CONFIGURE_PROFILE") or "").strip()
+regions_raw = (os.environ.get("AWS_CONFIGURE_REGIONS") or "").strip()
+ips_raw = (os.environ.get("AWS_CONFIGURE_IPS") or "").strip()
+ports_raw = (os.environ.get("AWS_CONFIGURE_PORTS") or "22,2222").strip()
+strict = (os.environ.get("AWS_CONFIGURE_STRICT") or "0").strip() == "1"
+
+def parse_csv(raw: str):
+  raw = raw.replace(",", " ").strip()
+  if not raw:
+    return []
+  return [x.strip() for x in raw.split() if x.strip()]
+
+regions = parse_csv(regions_raw)
+if not regions:
+  regions = ["us-west-1", "us-west-2"]
+
+ips = parse_csv(ips_raw)
+
+ports = []
+for p in parse_csv(ports_raw):
+  try:
+    ports.append(int(p))
+  except Exception:
+    continue
+if not ports:
+  ports = [22, 2222]
+
+def run(cmd):
+  proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+  return proc.returncode, proc.stdout, proc.stderr
+
+def aws(args, region=None):
+  cmd = ["aws"] + list(args)
+  if profile:
+    cmd += ["--profile", profile]
+  if region:
+    cmd += ["--region", region]
+  return run(cmd)
+
+sys.stdout.write("[aws-configure]\n")
+sys.stdout.write(f"profile={profile or '(default)'}\n")
+sys.stdout.write(f"regions={','.join(regions)}\n")
+sys.stdout.write(f"ports={','.join(str(p) for p in ports)}\n")
+sys.stdout.write(f"ips={','.join(ips) if ips else '(none)'}\n\n")
+
+rc, out, err = aws(["configure", "list"])
+sys.stdout.write("[aws-configure] aws configure list\n")
+if out:
+  sys.stdout.write(out.rstrip() + "\n")
+if err:
+  sys.stderr.write(err)
+if rc != 0:
+  sys.stderr.write("[aws-configure] aws configure list failed\n")
+
+rc, out, err = aws(["sts", "get-caller-identity", "--output", "json"])
+sys.stdout.write("\n[aws-configure] sts get-caller-identity\n")
+if rc == 0 and out.strip():
+  try:
+    ident = json.loads(out)
+    sys.stdout.write(json.dumps(ident, indent=2, sort_keys=True) + "\n")
+  except Exception:
+    sys.stdout.write(out)
+else:
+  if out:
+    sys.stdout.write(out)
+  if err:
+    sys.stderr.write(err)
+  sys.exit(2)
+
+issues = 0
+
+def extract_instances(data):
+  out = []
+  for res in data.get("Reservations", []) or []:
+    for inst in res.get("Instances", []) or []:
+      out.append(inst)
+  return out
+
+def port_sources_for_sg(sg, port: int):
+  sources = []
+  for perm in sg.get("IpPermissions", []) or []:
+    if str(perm.get("IpProtocol")) != "tcp":
+      continue
+    fp = perm.get("FromPort")
+    tp = perm.get("ToPort")
+    if fp is None or tp is None:
+      continue
+    try:
+      fp_i = int(fp)
+      tp_i = int(tp)
+    except Exception:
+      continue
+    if not (fp_i <= port <= tp_i):
+      continue
+    for r in perm.get("IpRanges", []) or []:
+      cidr = r.get("CidrIp")
+      if cidr:
+        sources.append(str(cidr))
+    for r in perm.get("Ipv6Ranges", []) or []:
+      cidr = r.get("CidrIpv6")
+      if cidr:
+        sources.append(str(cidr))
+    for r in perm.get("PrefixListIds", []) or []:
+      pl = r.get("PrefixListId")
+      if pl:
+        sources.append(f"prefix:{pl}")
+    for r in perm.get("UserIdGroupPairs", []) or []:
+      gid = r.get("GroupId")
+      if gid:
+        sources.append(f"sg:{gid}")
+  uniq = []
+  seen = set()
+  for s in sources:
+    if s in seen:
+      continue
+    seen.add(s)
+    uniq.append(s)
+  return uniq
+
+for ip in ips:
+  sys.stdout.write(f"\n[aws-configure] lookup ip={ip}\n")
+  found_region = ""
+  instance = None
+  for region in regions:
+    if not region:
+      continue
+    rc, out, err = aws([
+      "ec2", "describe-instances",
+      "--filters", f"Name=ip-address,Values={ip}",
+      "--output", "json",
+    ], region=region)
+    if rc != 0:
+      if err:
+        sys.stderr.write(f"[aws-configure] region={region} describe-instances failed: {err.strip()}\n")
+      continue
+    try:
+      data = json.loads(out) if out.strip() else {}
+    except Exception:
+      continue
+    insts = extract_instances(data)
+    if insts:
+      instance = insts[0]
+      found_region = region
+      break
+
+  if not instance:
+    sys.stdout.write("not found in provided regions\n")
+    issues += 1
+    continue
+
+  instance_id = instance.get("InstanceId")
+  state = (instance.get("State") or {}).get("Name")
+  az = (instance.get("Placement") or {}).get("AvailabilityZone")
+  vpc = instance.get("VpcId")
+  subnet = instance.get("SubnetId")
+  sgs = [sg.get("GroupId") for sg in (instance.get("SecurityGroups") or []) if sg.get("GroupId")]
+
+  sys.stdout.write(f"region={found_region} instance_id={instance_id} state={state} az={az} vpc={vpc} subnet={subnet}\n")
+  sys.stdout.write("security_groups=" + ",".join(sgs) + "\n")
+
+  if not sgs:
+    sys.stdout.write("no security groups found on instance\n")
+    issues += 1
+    continue
+
+  rc, out, err = aws([
+    "ec2", "describe-security-groups",
+    "--group-ids",
+    *sgs,
+    "--output", "json",
+  ], region=found_region)
+  if rc != 0:
+    sys.stderr.write(f"[aws-configure] describe-security-groups failed: {err.strip()}\n")
+    issues += 1
+    continue
+
+  try:
+    sg_data = json.loads(out) if out.strip() else {}
+  except Exception:
+    sg_data = {}
+
+  port_allowed = {p: False for p in ports}
+  port_sources = {p: [] for p in ports}
+  for sg in sg_data.get("SecurityGroups", []) or []:
+    for p in ports:
+      srcs = port_sources_for_sg(sg, p)
+      if srcs:
+        port_allowed[p] = True
+        for s in srcs:
+          if s not in port_sources[p]:
+            port_sources[p].append(s)
+
+  for p in ports:
+    if port_allowed[p]:
+      sys.stdout.write(f"port {p}: ALLOW sources={port_sources[p]}\n")
+    else:
+      sys.stdout.write(f"port {p}: MISSING\n")
+      issues += 1
+
+if strict and issues:
+  sys.exit(2)
+sys.exit(0)
+PY
+}
+
 # Main dispatch
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     case "${1:-help}" in
@@ -3332,7 +4675,9 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         suggest-team) shift; cmd_suggest_team "$@" ;;
         suggest-actions) shift; cmd_suggest_actions "$@" ;;
         quick-wins) cmd_quick_wins ;;
-        wsjf) cmd_wsjf ;;
+        wsjf) shift; cmd_wsjf "$@" ;;
+        yolife) shift; cmd_yolife "$@" ;;
+        stx) shift; cmd_stx "$@" ;;
         snapshot) shift; cmd_snapshot "$@" ;;
         restore) shift; cmd_restore "$@" ;;
         baseline) shift; cmd_baseline "$@" ;;
@@ -3351,6 +4696,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         board) cmd_board ;;
         blockers) cmd_blockers ;;
         cpu) cmd_cpu ;;
+        aws-configure) shift; cmd_aws_configure "$@" ;;
         goalie-gaps) shift; cmd_goalie_gaps "$@" ;;
         pattern-coverage) shift; cmd_pattern_coverage "$@" ;;
         multi-pattern-coverage) shift; cmd_multi_pattern_coverage "$@" ;;

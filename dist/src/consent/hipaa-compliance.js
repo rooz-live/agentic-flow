@@ -160,7 +160,6 @@ export class HIPAAComplianceService {
             recommendations.push('Review and address unauthorized access attempts');
         }
         // Update compliance status
-        compliance.compliant = issues.length === 0;
         compliance.lastAudit = new Date();
         compliance.complianceStatus = issues.length === 0 ? 'compliant' : 'non_compliant';
         console.log(`[HIPAA] Audit completed for patient ${patientId}: ${compliance.complianceStatus}`);

@@ -18,6 +18,7 @@ import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 import { ingestGovernorEvent } from './processGovernorBridge';
+import { getThresholdManager, DynamicThresholds } from './dynamicThresholdManager';
 
 // Configuration with safe defaults (optimized for high CPU load scenarios)
 export const AF_CPU_HEADROOM_TARGET = parseFloat(process.env.AF_CPU_HEADROOM_TARGET || '0.40'); 
@@ -117,14 +118,27 @@ interface GovernorState {
   adaptiveThrottlingLevel: number;
   predictiveLoadScore: number;
   lastDependencyAnalysis: number;
+  // Phase 2.0: Dynamic threshold integration
+  dynamicThresholds: DynamicThresholds | null;
+  lastThresholdUpdate: number;
+  // Phase 2.0: Degradation & Cascade tracking
+  recentPerformance: Array<{
+    timestamp: number;
+    reward: number;
+    success: boolean;
+  }>;
+  cascadeFailureWindow: Array<{
+    timestamp: number;
+    taskId: string;
+  }>;
   incidentBuffer: Array<{
     timestamp: string;
-    type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' | 'CIRCUIT_CLOSED' | 'ADAPTIVE_THROTTLING' | 'PREDICTIVE_THROTTLING' | 'DEPENDENCY_ANALYSIS';
+    type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' | 'CIRCUIT_CLOSED' | 'ADAPTIVE_THROTTLING' | 'PREDICTIVE_THROTTLING' | 'DEPENDENCY_ANALYSIS' | 'DEGRADATION_DETECTED' | 'CASCADE_FAILURE' | 'DIVERGENCE_HIGH';
     details: Record<string, unknown>;
   }>;
   incidents: Array<{
     timestamp: string;
-    type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' | 'CIRCUIT_CLOSED' | 'ADAPTIVE_THROTTLING' | 'PREDICTIVE_THROTTLING' | 'DEPENDENCY_ANALYSIS';
+    type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' | 'CIRCUIT_CLOSED' | 'ADAPTIVE_THROTTLING' | 'PREDICTIVE_THROTTLING' | 'DEPENDENCY_ANALYSIS' | 'DEGRADATION_DETECTED' | 'CASCADE_FAILURE' | 'DIVERGENCE_HIGH';
     details: Record<string, unknown>;
   }>;
   // Phase 1.1: Enhanced metrics
@@ -137,6 +151,10 @@ interface GovernorState {
     dropped_events: number;
     queue_depth: number;
     flush_latency_ms: number;
+    // Phase 2.0: Dynamic threshold metrics
+    degradation_score: number;
+    cascade_failure_count: number;
+    divergence_rate_current: number;
   };
 }
 
@@ -164,6 +182,11 @@ const state: GovernorState = {
   adaptiveThrottlingLevel: 1.0,
   predictiveLoadScore: 0.0,
   lastDependencyAnalysis: 0,
+  // Phase 2.0: Dynamic threshold state
+  dynamicThresholds: null,
+  lastThresholdUpdate: 0,
+  recentPerformance: [],
+  cascadeFailureWindow: [],
   incidentBuffer: [],
   incidents: [],
   metrics: {
@@ -175,6 +198,9 @@ const state: GovernorState = {
     dropped_events: 0,
     queue_depth: 0,
     flush_latency_ms: 0,
+    degradation_score: 0,
+    cascade_failure_count: 0,
+    divergence_rate_current: 0,
   },
 };
 

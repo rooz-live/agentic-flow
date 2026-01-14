@@ -1,0 +1,184 @@
+name: ROAM Staleness Check
+
+on:
+  pull_request:
+    branches: [main, develop, master]
+  push:
+    branches: [main, develop, master]
+  schedule:
+    # Run daily at 9 AM UTC
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+    inputs:
+      max_age_days:
+        description: 'Maximum ROAM age in days'
+        required: false
+        default: '3'
+
+jobs:
+  roam-check:
+    runs-on: ubuntu-latest
+    name: Check ROAM Freshness
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for accurate file dates
+      
+      - name: Set up environment
+        run: |
+          echo "MAX_ROAM_AGE_DAYS=${{ github.event.inputs.max_age_days || '3' }}" >> $GITHUB_ENV
+          echo "PROJECT_ROOT=${{ github.workspace }}" >> $GITHUB_ENV
+      
+      - name: Make script executable
+        run: chmod +x .github/workflows/roam-staleness-check.sh
+      
+      - name: Run ROAM staleness check
+        id: roam-check
+        continue-on-error: true
+        run: .github/workflows/roam-staleness-check.sh
+      
+      - name: Comment on PR (if failed)
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            
+            // Create detailed comment
+            const comment = `## ⚠️ ROAM Staleness Check Failed
+            
+            One or more ROAM files are older than ${{ env.MAX_ROAM_AGE_DAYS }} days.
+            
+            ### What are ROAM files?
+            
+            ROAM files track:
+            - **R**isks - Potential threats to project success
+            - **O**bstacles - Current blockers preventing progress
+            - **A**ssumptions - Unvalidated beliefs we're operating under
+            - **M**itigations - Actions to reduce risks/obstacles
+            
+            ### Why does freshness matter?
+            
+            Stale ROAM items indicate:
+            - Forgotten risks that may have materialized
+            - Unresolved obstacles blocking progress
+            - Outdated assumptions that need validation
+            - Missing mitigation updates
+            
+            ### How to fix:
+            
+            1. **Review** each stale ROAM file
+            2. **Update** if still relevant (this resets the timer)
+            3. **Resolve** if no longer applicable
+            4. **Archive** if historical
+            
+            ### Example ROAM entry:
+            
+            \`\`\`markdown
+            # ROAM - Authentication System
+            
+            ## Risks
+            - [HIGH] JWT token expiration not handled | Status: ACTIVE | Owner: @security-team
+            - [MEDIUM] Rate limiting bypassed via IP rotation | Status: MITIGATING | Owner: @backend
+            
+            ## Obstacles
+            - [CRITICAL] OAuth provider downtime | Status: ESCALATED | Owner: @devops
+            
+            ## Assumptions
+            - Users will accept 2FA requirement | Status: VALIDATING | Owner: @product
+            
+            ## Mitigations
+            - Implementing token refresh mechanism | Status: IN_PROGRESS | ETA: 2026-01-20
+            - Added distributed rate limiter | Status: COMPLETE | Verified: 2026-01-10
+            \`\`\`
+            
+            ---
+            
+            Run \`./github/workflows/roam-staleness-check.sh\` locally to see detailed output.
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+      
+      - name: Upload check results (if available)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: roam-check-results
+          path: |
+            .github/workflows/roam-staleness-check.sh
+          retention-days: 30
+      
+      - name: Fail job if ROAM check failed
+        if: steps.roam-check.outcome == 'failure'
+        run: |
+          echo "::error::ROAM staleness check failed. See logs above for details."
+          exit 1
+
+  # Optional: Create issue if daily check finds stale ROAMs
+  create-issue-on-schedule:
+    runs-on: ubuntu-latest
+    needs: roam-check
+    if: failure() && github.event_name == 'schedule'
+    name: Create Stale ROAM Issue
+    
+    steps:
+      - name: Create issue for stale ROAMs
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const title = `🚨 Stale ROAM files detected (automated check)`;
+            const body = `## Automated ROAM Staleness Alert
+            
+            The daily ROAM freshness check has detected one or more stale ROAM files.
+            
+            **Max age threshold**: ${{ github.event.inputs.max_age_days || '3' }} days
+            **Check date**: ${new Date().toISOString().split('T')[0]}
+            
+            ### Action Required
+            
+            1. Review the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details
+            2. Update or resolve stale ROAM items
+            3. Verify all risks are actively monitored
+            
+            ### Why this matters
+            
+            ROAM tracking ensures:
+            - ✅ Risks are actively managed, not forgotten
+            - ✅ Obstacles are escalated when needed
+            - ✅ Assumptions are regularly validated
+            - ✅ Mitigations are tracked to completion
+            
+            ---
+            
+            *This issue was automatically created by the ROAM staleness check workflow.*
+            *Close this issue after addressing all stale ROAM items.*
+            `;
+            
+            // Check if similar issue already exists
+            const issues = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'roam-staleness,automated'
+            });
+            
+            if (issues.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: title,
+                body: body,
+                labels: ['roam-staleness', 'automated', 'priority:high']
+              });
+            } else {
+              console.log('Stale ROAM issue already exists, skipping creation');
+            }

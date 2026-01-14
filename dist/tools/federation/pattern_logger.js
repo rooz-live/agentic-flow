@@ -85,17 +85,23 @@ export class PatternLogger {
         };
     }
     /**
-     * Enhanced base metric with alignment score
+     * Enhanced base metric with alignment score and semantic rationale
      * P1-B: Automatically compute spiritual dimension tracking
+     * P1-TIME: Include semantic context for decisions
      */
-    getAlignedBaseMetric(intent, policy, actionCompleted, consequence) {
+    getAlignedBaseMetric(intent, policy, actionCompleted, consequence, rationale) {
         const hasConsequence = consequence !== undefined && consequence.length > 0;
-        return {
+        const base = {
             ...this.getBaseMetric(),
             alignment_score: this.computeAlignmentScore(intent, policy, actionCompleted, hasConsequence),
             action_completed: actionCompleted ?? true,
             consequence: consequence
         };
+        // P1-TIME: Add rationale if provided
+        if (rationale) {
+            base.rationale = rationale;
+        }
+        return base;
     }
     async writeMetric(metric) {
         try {
@@ -244,6 +250,26 @@ export class PatternLogger {
             return true; // Skip validation if no run context
         const metrics = await this.queryPatterns('observability_first');
         return metrics.some(m => m.run === currentRun);
+    }
+    /**
+     * P1-TRUTH: Compute learned threshold based on P99 latency
+     * Auto-generates circuit breaker thresholds from historical performance
+     */
+    async computeLearnedThreshold(pattern) {
+        const metrics = await this.queryPatterns(pattern);
+        const latencyValues = metrics
+            .filter(m => m.latency_ms !== undefined)
+            .map(m => m.latency_ms)
+            .sort((a, b) => a - b);
+        if (latencyValues.length < 10)
+            return null;
+        // Calculate P99 latency
+        const p99Index = Math.floor(latencyValues.length * 0.99);
+        const p99Latency = latencyValues[p99Index];
+        // Learned threshold is 1.5x P99 latency
+        const learnedThreshold = p99Latency * 1.5;
+        console.log(`[PatternLogger] Learned threshold for ${pattern}: ${learnedThreshold.toFixed(2)}ms (P99: ${p99Latency}ms)`);
+        return learnedThreshold;
     }
 }
 /**

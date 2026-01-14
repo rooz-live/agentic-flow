@@ -598,14 +598,37 @@ case "$1" in
             python3 "$SCRIPT_DIR/agentic/wsjf_calculator.py" ${CIRCLE:+--circle "$CIRCLE"} 2>&1 || true
         fi
         
-        # Log pattern event for full cycle complete
-        python3 "$SCRIPT_DIR/log_pattern_event.py" \
-            --pattern "full_cycle_complete" \
-            --circle "${CIRCLE:-assessor}" \
-            --depth "$DEPTH" \
-            --enforced 1 \
-            --health-state healthy \
-            --metrics-written 1 2>&1 || true
+        helper="$SCRIPT_DIR/agentic/pattern_logging_helper.py"
+        if [ ! -f "$helper" ]; then
+            helper="$SCRIPT_DIR/../investing/agentic-flow/scripts/agentic/pattern_logging_helper.py"
+        fi
+
+        if [ -f "$helper" ]; then
+            pattern_state='{"full_cycle_complete":{"enforced":true,"health_state":"healthy","metrics_written":1}}'
+            cmd=(python3 "$helper" \
+                --pattern "full_cycle_complete" \
+                --circle "${CIRCLE:-assessor}" \
+                --depth "$DEPTH" \
+                --gate "completion" \
+                --mode "enforcement" \
+                --behavioral-type "enforcement" \
+                --pattern-state "$pattern_state" \
+                --tags "pattern:full_cycle_complete" "gate:completion" "Federation")
+
+            if [ "${AF_PATTERN_MIRROR_METRICS:-1}" = "1" ]; then
+                cmd+=(--mirror-metrics)
+            fi
+
+            "${cmd[@]}" 2>&1 || true
+        else
+            python3 "$SCRIPT_DIR/log_pattern_event.py" \
+                --pattern "full_cycle_complete" \
+                --circle "${CIRCLE:-assessor}" \
+                --depth "$DEPTH" \
+                --enforced 1 \
+                --health-state healthy \
+                --metrics-written 1 2>&1 || true
+        fi
         
         echo "✅ Full cycle complete: depth=$DEPTH circle=${CIRCLE:-assessor}"
         ;;

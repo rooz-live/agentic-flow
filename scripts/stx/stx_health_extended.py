@@ -19,9 +19,10 @@ from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 
 # Default SSH configuration for StarlingX
-DEFAULT_STX_HOST = "23.92.79.2"
+# Use SSH config alias from ~/.ssh/config
+DEFAULT_STX_HOST = "stx-ubuntu"  # SSH config alias
 DEFAULT_STX_PORT = "2222"
-DEFAULT_STX_USER = "root"
+DEFAULT_STX_USER = "ubuntu"
 
 
 @dataclass
@@ -41,12 +42,10 @@ class STXHealthResult:
     errors: List[str]
 
 
-def ssh_command(cmd: str, host: str = DEFAULT_STX_HOST, port: str = DEFAULT_STX_PORT) -> Tuple[str, int]:
+def ssh_command(cmd: str, host: str = "stx-ubuntu", port: str = DEFAULT_STX_PORT) -> Tuple[str, int]:
     """Execute SSH command on StarlingX (read-only)"""
-    ssh_cmd = [
-        "ssh", "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
-        "-p", port, f"{DEFAULT_STX_USER}@{host}", cmd
-    ]
+    # Use SSH config alias for simplified connection
+    ssh_cmd = ["ssh", host, cmd]
     try:
         result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=60)
         return result.stdout + result.stderr, result.returncode

@@ -103,7 +103,7 @@ export class CommandRegistry {
      * Add governance subcommands
      */
     addGovernanceSubcommands(builder) {
-        return builder
+        builder
             .addSubcommand(new SlashCommandSubcommandBuilder()
             .setName('policy')
             .setDescription('View or query governance policies')
@@ -133,7 +133,7 @@ export class CommandRegistry {
      * Add risk assessment subcommands
      */
     addRiskSubcommands(builder) {
-        return builder
+        builder
             .addSubcommand(new SlashCommandSubcommandBuilder()
             .setName('portfolio')
             .setDescription('Analyze portfolio risk')

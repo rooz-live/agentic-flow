@@ -14,6 +14,7 @@ const { spawnSync } = require('child_process');
 const PROJECT_ROOT = path.resolve(__dirname, '../../');
 const GOALIE_DIR = process.env.GOALIE_DIR || path.join(PROJECT_ROOT, '.goalie');
 const ROAM_TRACKER_PATH = path.join(GOALIE_DIR, 'ROAM_TRACKER.yaml');
+const CIRCUIT_BREAKER_STATE_PATH = path.join(GOALIE_DIR, '.circuit_breaker_state.json');
 
 function selectPatternMetricsPath() {
   const preferred = path.join(GOALIE_DIR, 'pattern_metrics.jsonl');
@@ -296,6 +297,87 @@ function checkPatternMetrics() {
 }
 
 /**
+ * Check learned circuit breaker state for violations
+ */
+function checkLearnedCircuitBreaker() {
+  const violations = [];
+
+  if (!fs.existsSync(CIRCUIT_BREAKER_STATE_PATH)) {
+    violations.push({
+      rule: 'CIRCUIT-001',
+      severity: 'MEDIUM',
+      details: 'Learned circuit breaker state file not found - circuit breaker learning not active'
+    });
+    return violations;
+  }
+
+  try {
+    const content = fs.readFileSync(CIRCUIT_BREAKER_STATE_PATH, 'utf-8');
+    const state = JSON.parse(content);
+
+    // Check if learning is enabled
+    if (!state.threshold || !state.threshold.learned) {
+      violations.push({
+        rule: 'CIRCUIT-002',
+        severity: 'HIGH',
+        details: 'Circuit breaker learning is not active - threshold not learned from historical data'
+      });
+    }
+
+    // Check if circuit breaker has been learning recently (within 7 days)
+    if (state.threshold && state.threshold.lastUpdate) {
+      const lastUpdate = new Date(state.threshold.lastUpdate);
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+      if (lastUpdate < sevenDaysAgo) {
+        const daysOld = Math.floor((Date.now() - lastUpdate.getTime()) / (1000 * 60 * 60 * 24));
+        violations.push({
+          rule: 'CIRCUIT-003',
+          severity: 'MEDIUM',
+          details: `Circuit breaker learning stale: last updated ${daysOld} days ago (>7 day threshold)`
+        });
+      }
+    }
+
+    // Check if circuit breaker has sufficient learning data
+    if (state.successCount + state.errorCount < 10) {
+      violations.push({
+        rule: 'CIRCUIT-004',
+        severity: 'LOW',
+        details: `Circuit breaker has insufficient learning data: only ${state.successCount + state.errorCount} total events (<10 minimum)`
+      });
+    }
+
+    // Check if error rate is reasonable (not too high or too low to indicate learning issues)
+    if (state.threshold && typeof state.threshold.errorRate === 'number') {
+      const errorRate = state.threshold.errorRate;
+      if (errorRate > 0.8) {
+        violations.push({
+          rule: 'CIRCUIT-005',
+          severity: 'HIGH',
+          details: `Circuit breaker error rate too high: ${(errorRate * 100).toFixed(1)}% (>80% threshold)`
+        });
+      } else if (errorRate < 0.001 && state.errorCount > 5) {
+        violations.push({
+          rule: 'CIRCUIT-006',
+          severity: 'MEDIUM',
+          details: `Circuit breaker error rate suspiciously low: ${(errorRate * 100).toFixed(3)}% with ${state.errorCount} errors - may indicate learning issues`
+        });
+      }
+    }
+
+  } catch (err) {
+    violations.push({
+      rule: 'CIRCUIT-001',
+      severity: 'WARN',
+      details: `Error reading circuit breaker state: ${err.message}`
+    });
+  }
+
+  return violations;
+}
+
+/**
  * Main compliance check function
  * Returns ComplianceResult with proper structure
  */
@@ -313,6 +395,10 @@ function checkCompliance() {
   // Check pattern metrics violations
   const patternViolations = checkPatternMetrics();
   violations.push(...patternViolations);
+
+  // Check learned circuit breaker violations
+  const circuitViolations = checkLearnedCircuitBreaker();
+  violations.push(...circuitViolations);
 
   // Determine overall compliance status
   const criticalViolations = violations.filter(v => String(v.severity || '').toUpperCase() === 'CRITICAL');
@@ -443,4 +529,4 @@ if (require.main === module) {
   process.exit(result.compliant ? 0 : 1);
 }
 
-module.exports = { checkCompliance, checkRoamTracker, checkPatternMetrics, THRESHOLDS };
+module.exports = { checkCompliance, checkRoamTracker, checkPatternMetrics, checkLearnedCircuitBreaker, THRESHOLDS };

@@ -6,14 +6,23 @@
  * and provides unified access to the comprehensive financial trading
  * analysis and portfolio optimization system.
  */
-export { TradingEngine, TradingSignal, MarketData, PortfolioAllocation, TradingEngineConfig } from './core/trading_engine';
-export { RiskManager, RiskMetrics, PositionRisk, RiskAlert, RiskLimits } from './core/risk_manager';
-export { PortfolioOptimizer, OptimizationResult, OptimizationConstraints, AssetReturns } from './core/portfolio_optimizer';
-export { MarketDataProcessor, TechnicalIndicators, NewsItem, EconomicIndicator, SectorData } from './core/market_data_processor';
-export { OptionsStrategyEngine, OptionContract, OptionsStrategy, OptionLeg, VolatilitySurface } from './core/options_strategy_engine';
-export { AlgorithmicTradingEngine, BacktestResult, TradingAlgorithm, SignalGenerator, ExecutionManager } from './core/algorithmic_trading_engine';
-export { PerformanceAnalytics, PerformanceMetrics, TradeRecord, BenchmarkData, PerformanceAttribution } from './core/performance_analytics';
-export { ComplianceManager, ComplianceRule, ComplianceContext, ComplianceCheckResult, ComplianceReport } from './core/compliance_manager';
+import { TradingEngine, type TradingEngineConfig } from './core/trading_engine';
+import { RiskManager } from './core/risk_manager';
+import { PortfolioOptimizer } from './core/portfolio_optimizer';
+import { MarketDataProcessor } from './core/market_data_processor';
+import { OptionsStrategyEngine } from './core/options_strategy_engine';
+import { AlgorithmicTradingEngine } from './core/algorithmic_trading_engine';
+import { PerformanceAnalytics } from './core/performance_analytics';
+import { ComplianceManager } from './core/compliance_manager';
+export { TradingEngine, RiskManager, PortfolioOptimizer, MarketDataProcessor, OptionsStrategyEngine, AlgorithmicTradingEngine, PerformanceAnalytics, ComplianceManager };
+export type { TradingSignal, MarketData, PortfolioAllocation, TradingEngineConfig } from './core/trading_engine';
+export type { RiskMetrics, PositionRisk, RiskAlert, RiskLimits } from './core/risk_manager';
+export type { OptimizationResult, OptimizationConstraints, AssetReturns } from './core/portfolio_optimizer';
+export type { TechnicalIndicators, NewsItem, EconomicIndicator, SectorData } from './core/market_data_processor';
+export type { OptionContract, OptionsStrategy, OptionLeg, VolatilitySurface } from './core/options_strategy_engine';
+export type { BacktestResult, TradingAlgorithm, SignalGenerator, ExecutionManager } from './core/algorithmic_trading_engine';
+export type { PerformanceMetrics, TradeRecord, BenchmarkData, PerformanceAttribution } from './core/performance_analytics';
+export type { ComplianceRule, ComplianceContext, ComplianceCheckResult, ComplianceReport } from './core/compliance_manager';
 export { default as TradingDashboard } from './ui/trading_dashboard';
 export { SOXLSOXSTrader } from './soxl_soxs_trader';
 /**
@@ -128,9 +137,5 @@ export declare const TRADING_CONSTANTS: {
 export type TradingSystemStatus = 'IDLE' | 'STARTING' | 'RUNNING' | 'STOPPING' | 'ERROR';
 export type TradingSystemMode = 'SIMULATION' | 'PAPER_TRADING' | 'LIVE_TRADING';
 export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
-/**
- * Export all components for easy access
- */
-export { TradingSystemFactory, TradingSystemUtils, TRADING_CONSTANTS, };
 export default TradingSystemFactory;
 //# sourceMappingURL=index.d.ts.map

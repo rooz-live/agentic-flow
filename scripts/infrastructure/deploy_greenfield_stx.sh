@@ -20,7 +20,7 @@ RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC
 STX_HOST="${STX_HOST:-23.92.79.2}"
 STX_HOSTNAME="${STX_HOSTNAME:-stx-aio-0.corp.interface.tag.ooo}"
 STX_SSH_PORT="${STX_SSH_PORT:-2222}"
-STX_SSH_USER="${STX_SSH_USER:-root}"
+STX_SSH_USER="${STX_SSH_USER:-ubuntu}"
 STX_SSH_KEY="${STX_SSH_KEY:-$HOME/.ssh/starlingx_key}"
 
 # Network Configuration

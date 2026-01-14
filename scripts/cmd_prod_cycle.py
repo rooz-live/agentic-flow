@@ -2702,6 +2702,8 @@ def main():
     # Generate Actionable Recommendations
     print("\n🎯 Generating Actionable Recommendations...")
     try:
+        # Initialize innovator logger for recommendations generation
+        innovator_logger = PatternLogger(mode=mode, circle="innovator", depth=args.depth, correlation_id=logger.correlation_id)
         scripts_dir = os.path.join(project_root, "scripts")
         with innovator_logger.timed("actionable_recommendations", gate="innovator", behavioral_type="observability", run_type="prod-cycle") as payload:
             recs_result = subprocess.run(

@@ -55,17 +55,30 @@ function extractConcepts(text: string): Set<string> {
   // Extract function/class names
   const functionMatches = text.match(/\b(function|class|interface|type|const|def)\s+(\w+)/gi) || [];
   functionMatches.forEach(match => {
-    const name = match.split(/\s+/)[1];
-    if (name && name.length > 2) concepts.add(name.toLowerCase());
+    if (typeof match === 'string') {
+      const parts = match.split(/\s+/);
+      const name = parts[1];
+      if (name && typeof name === 'string' && name.length > 2) {
+        concepts.add(name.toLowerCase());
+      }
+    }
   });
 
   // Extract action verbs
   const actionVerbs = text.match(/\b(add|remove|fix|implement|update|refactor|optimize|create|delete|modify)\w*/gi) || [];
-  actionVerbs.forEach(verb => concepts.add(verb.toLowerCase()));
+  actionVerbs.forEach(verb => {
+    if (typeof verb === 'string') {
+      concepts.add(verb.toLowerCase());
+    }
+  });
 
   // Extract technical terms
   const techTerms = text.match(/\b(api|database|authentication|authorization|validation|cache|queue|webhook|endpoint)\b/gi) || [];
-  techTerms.forEach(term => concepts.add(term.toLowerCase()));
+  techTerms.forEach(term => {
+    if (typeof term === 'string') {
+      concepts.add(term.toLowerCase());
+    }
+  });
 
   return concepts;
 }

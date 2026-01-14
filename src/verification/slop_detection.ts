@@ -57,6 +57,31 @@ const SLOP_PATTERNS = [
 ];
 
 /**
+ * Hedging language patterns - epistemic humility failures
+ * "confidence rising faster than corrective capacity"
+ */
+const HEDGING_PATTERNS = [
+  /\b(might|maybe|perhaps|possibly|potentially|arguably)\b/gi,
+  /\b(in some cases|under certain conditions|depending on)\b/gi,
+  /\b(generally|typically|usually|often|sometimes)\b/gi,
+];
+
+/**
+ * Collapse-resistance patterns - institutional decay signals
+ * "moral language detached from consequence"
+ */
+const COLLAPSE_PATTERNS = [
+  // Confidence outpacing capacity
+  /\b(guaranteed|always|never|100%|zero risk|completely safe)\b/gi,
+  // Dissent as threat
+  /\b(concerns? (are|were) (noted|acknowledged) but)\b/gi,
+  // Suffering narrativized
+  /\b(learning experience|growth opportunity)\b.*\b(failure|loss|harm)\b/gi,
+  // Authority replacing insight
+  /\b(policy requires|mandate|compliance)\b.*\b(regardless|despite)\b/gi,
+];
+
+/**
  * Patterns indicating substantive content
  */
 const SUBSTANTIVE_PATTERNS = [

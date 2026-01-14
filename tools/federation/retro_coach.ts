@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 
 function getGoalieDirFromArgs(): string {
   const argIndex = process.argv.indexOf('--goalie-dir');
@@ -11,6 +12,21 @@ function getGoalieDirFromArgs(): string {
 
 const GOALIE_DIR = getGoalieDirFromArgs();
 const METRICS_FILE = path.join(GOALIE_DIR, 'pattern_metrics.jsonl');
+const ROAM_TRACKER_FILE = path.join(GOALIE_DIR, 'ROAM_TRACKER.yaml');
+
+// P2-TIME: Runbook entry generated from RESOLVED ROAM items
+interface RunbookEntry {
+  id: string;
+  title: string;
+  category: string;
+  problem_description: string;
+  resolution_steps: string[];
+  evidence: string;
+  resolution_date: string;
+  owner: string;
+  tags: string[];
+  related_roam_id: string;
+}
 
 interface PatternEvent {
   timestamp: string;
@@ -64,6 +80,109 @@ function getEnvironmentContext(): EnvironmentContext {
   const env = detectEnvironment();
   return ENVIRONMENT_CONTEXTS[env] || ENVIRONMENT_CONTEXTS.local;
 }
+
+// ==================== P2-TIME: Runbook Generation from RESOLVED ROAM Items ====================
+
+/**
+ * P2-TIME: Parse RESOLVED entries from ROAM_TRACKER.yaml and convert to runbook format
+ * Captures institutional knowledge from resolved blockers, risks, and dependencies
+ */
+function generateRunbooksFromROAM(): RunbookEntry[] {
+  const runbooks: RunbookEntry[] = [];
+
+  if (!fs.existsSync(ROAM_TRACKER_FILE)) {
+    return runbooks;
+  }
+
+  try {
+    const roamContent = fs.readFileSync(ROAM_TRACKER_FILE, 'utf-8');
+    const roamData = yaml.load(roamContent) as any;
+
+    if (!roamData) return runbooks;
+
+    // Process blockers
+    const blockers = roamData.blockers || [];
+    for (const blocker of blockers) {
+      if (blocker.roam_status === 'RESOLVED' && blocker.resolution) {
+        runbooks.push(createRunbookFromROAMItem(blocker, 'blocker'));
+      }
+    }
+
+    // Process risks
+    const risks = roamData.risks || [];
+    for (const risk of risks) {
+      if (risk.roam_status === 'RESOLVED' && risk.resolution) {
+        runbooks.push(createRunbookFromROAMItem(risk, 'risk'));
+      }
+    }
+
+    // Process dependencies
+    const dependencies = roamData.dependencies || [];
+    for (const dep of dependencies) {
+      if (dep.roam_status === 'RESOLVED' && dep.resolution) {
+        runbooks.push(createRunbookFromROAMItem(dep, 'dependency'));
+      }
+    }
+
+  } catch (error) {
+    console.error('[RETRO_COACH] Error parsing ROAM_TRACKER.yaml:', error);
+  }
+
+  return runbooks;
+}
+
+/**
+ * Convert a single ROAM item to a runbook entry
+ */
+function createRunbookFromROAMItem(item: any, category: string): RunbookEntry {
+  // Extract resolution steps from mitigation_plan or resolution
+  const resolutionSteps: string[] = [];
+
+  if (item.mitigation_plan) {
+    // Parse mitigation plan (may be multi-line string or array)
+    if (typeof item.mitigation_plan === 'string') {
+      const lines = item.mitigation_plan.split('\n')
+        .map((l: string) => l.trim())
+        .filter((l: string) => l.length > 0 && !l.startsWith('#'));
+      resolutionSteps.push(...lines);
+    } else if (Array.isArray(item.mitigation_plan)) {
+      resolutionSteps.push(...item.mitigation_plan);
+    }
+  }
+
+  if (item.resolution && typeof item.resolution === 'string') {
+    resolutionSteps.push(`Resolution: ${item.resolution}`);
+  }
+
+  // Generate tags from category and severity
+  const tags: string[] = [category];
+  if (item.severity) tags.push(item.severity.toLowerCase());
+  if (item.category) tags.push(item.category.toLowerCase().replace(/\s+/g, '-'));
+
+  return {
+    id: `RUNBOOK-${item.id}`,
+    title: item.title || item.id,
+    category: category,
+    problem_description: item.impact || item.description || item.title || '',
+    resolution_steps: resolutionSteps,
+    evidence: item.evidence || item.resolution_criteria || '',
+    resolution_date: item.resolution_date || item.discovered || '',
+    owner: item.owner || 'unknown',
+    tags: tags,
+    related_roam_id: item.id
+  };
+}
+
+/**
+ * Save generated runbooks to file
+ */
+function saveRunbooks(runbooks: RunbookEntry[]): string {
+  const runbookFile = path.join(GOALIE_DIR, 'generated_runbooks.json');
+  fs.writeFileSync(runbookFile, JSON.stringify(runbooks, null, 2));
+  return runbookFile;
+}
+
+// ==================== End Runbook Generation ====================
 
 async function main() {
   const flags = process.argv.slice(2);
@@ -305,12 +424,51 @@ async function main() {
     generated_at: new Date().toISOString()
   };
 
+  // P2-TIME: Generate runbooks from RESOLVED ROAM items
+  const runbooks = generateRunbooksFromROAM();
+  let runbookFile: string | null = null;
+  if (runbooks.length > 0) {
+    runbookFile = saveRunbooks(runbooks);
+  }
+
+  // Add runbook summary to result
+  const resultWithRunbooks = {
+    ...result,
+    // P2-TIME: Runbook generation summary
+    runbook_summary: runbooks.length > 0 ? {
+      total_runbooks: runbooks.length,
+      by_category: {
+        blockers: runbooks.filter(r => r.category === 'blocker').length,
+        risks: runbooks.filter(r => r.category === 'risk').length,
+        dependencies: runbooks.filter(r => r.category === 'dependency').length,
+      },
+      output_file: runbookFile,
+      runbooks: runbooks.slice(0, 5), // Include first 5 in output
+    } : null,
+  };
+
   if (jsonOutput) {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(resultWithRunbooks, null, 2));
   } else {
     console.log("=== Retro Coach Insights ===");
     console.log(`Analyzed ${events.length} events (${eventsWithEconomic.length} with economic data, ${eventsWithDuration.length} with duration).`);
     insights.forEach(i => console.log(`[${i.type}] ${i.message} -> ${i.recommendation}`));
+
+    // P2-TIME: Display runbook generation summary
+    if (runbooks.length > 0) {
+      console.log("\n=== Generated Runbooks from RESOLVED ROAM Items ===");
+      console.log(`Total runbooks generated: ${runbooks.length}`);
+      console.log(`  - Blockers: ${runbooks.filter(r => r.category === 'blocker').length}`);
+      console.log(`  - Risks: ${runbooks.filter(r => r.category === 'risk').length}`);
+      console.log(`  - Dependencies: ${runbooks.filter(r => r.category === 'dependency').length}`);
+      console.log(`Output file: ${runbookFile}`);
+      console.log("\nTop runbooks:");
+      runbooks.slice(0, 3).forEach(r => {
+        console.log(`  [${r.id}] ${r.title}`);
+        console.log(`    Problem: ${r.problem_description.substring(0, 80)}...`);
+        console.log(`    Steps: ${r.resolution_steps.length} resolution steps`);
+      });
+    }
   }
 }
 

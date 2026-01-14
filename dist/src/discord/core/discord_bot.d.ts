@@ -12,8 +12,6 @@
  */
 import { CommandInteraction } from 'discord.js';
 import { EventEmitter } from 'events';
-import { GovernanceSystem } from '../../governance/core/governance_system';
-import { RiskAssessmentSystem } from '../../risk/core/risk_assessment';
 import { TradingEngine } from '../../trading/core/trading_engine';
 import { PaymentIntegrationSystem } from '../payment/payment_integration';
 import { DiscordBotConfig } from './discord_config';
@@ -55,7 +53,9 @@ export declare class DiscordBot extends EventEmitter {
     /**
      * Initialize the Discord bot with system integrations
      */
-    initialize(governanceSystem?: GovernanceSystem, riskAssessmentSystem?: RiskAssessmentSystem, tradingEngine?: TradingEngine, paymentSystem?: PaymentIntegrationSystem): Promise<void>;
+    initialize(governanceSystem?: any, // GovernanceSystem
+    riskAssessmentSystem?: any, // RiskAssessmentSystem
+    tradingEngine?: TradingEngine, paymentSystem?: PaymentIntegrationSystem): Promise<void>;
     /**
      * Register all slash commands with Discord
      */
@@ -115,6 +115,24 @@ export declare class DiscordBot extends EventEmitter {
     private handleHelpCommand;
     private handleStatusCommand;
     private handleSubscribeCommand;
+    private handleGovernancePolicy;
+    private handleGovernanceCompliance;
+    private handleGovernanceDecisions;
+    private handleRiskPortfolio;
+    private handleRiskAssessment;
+    private handleRiskAlerts;
+    private handleTradingPortfolio;
+    private handleTradingAnalyze;
+    private handleTradingSignals;
+    private handleTradingExecute;
+    private handlePaymentStatus;
+    private handlePaymentHistory;
+    private handlePaymentSubscribe;
+    private handlePaymentInvoice;
+    private handleAdminStats;
+    private handleAdminBroadcast;
+    private handleAdminConfig;
+    private handleAdminMaintenance;
     /**
      * Get current bot status
      */

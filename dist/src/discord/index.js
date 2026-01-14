@@ -39,7 +39,6 @@ export class DiscordBotFactory {
             }
             if (config.features.enableTrading && config.integrations.trading.enabled) {
                 tradingEngine = new TradingEngine(config.integrations.trading);
-                await tradingEngine.initialize();
                 console.log('✅ Trading system initialized');
             }
             if (config.features.enablePayments && config.integrations.risk.enabled) {
@@ -126,7 +125,6 @@ export class DiscordBotFactory {
             const bot = new DiscordBot(config);
             // Initialize trading system
             const tradingEngine = new TradingEngine(config.integrations.trading);
-            await tradingEngine.initialize();
             // Initialize bot with trading and payment systems
             await bot.initialize(undefined, undefined, tradingEngine, paymentSystem);
             const system = {
@@ -260,13 +258,13 @@ export async function main() {
         const shutdown = async (signal) => {
             console.log(`\n🔌 Received ${signal}, shutting down gracefully...`);
             try {
-                if (system.governanceSystem) {
+                if (system.governanceSystem && typeof system.governanceSystem.shutdown === 'function') {
                     await system.governanceSystem.shutdown();
                 }
-                if (system.riskAssessmentSystem) {
+                if (system.riskAssessmentSystem && typeof system.riskAssessmentSystem.shutdown === 'function') {
                     await system.riskAssessmentSystem.shutdown();
                 }
-                if (system.tradingEngine) {
+                if (system.tradingEngine && typeof system.tradingEngine.shutdown === 'function') {
                     await system.tradingEngine.shutdown();
                 }
                 if (system.paymentSystem) {

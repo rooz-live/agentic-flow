@@ -237,22 +237,24 @@ export class ProcessFlowMetricsProvider implements vscode.TreeDataProvider<Proce
         for (const line of lines) {
           try {
             const obj = JSON.parse(line);
-            const timestamp = obj.timestamp ? new Date(obj.timestamp) : new Date();
+            const event = obj?.data ?? obj;
+            const timestampRaw = event?.ts ?? event?.timestamp;
+            const timestamp = timestampRaw ? new Date(timestampRaw) : new Date();
             
             if (timestamp > lastDate) lastDate = timestamp;
             if (timestamp < firstDate) firstDate = timestamp;
             
-            if (obj.pattern === 'autocommit-shadow') {
-              totalInsightTime += obj.insight_to_commit_time || 0;
+            if (event?.pattern === 'autocommit-shadow') {
+              totalInsightTime += event?.insight_to_commit_time || 0;
               insightCount++;
             }
             
-            if (obj.action_completed) {
+            if (event?.action_completed || event?.metadata?.action_completed) {
               completedActions++;
             }
             totalActions++;
             
-            if (obj.context_switch) {
+            if (event?.context_switch || event?.metadata?.context_switch) {
               contextSwitches++;
             }
           } catch {

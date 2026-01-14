@@ -34,6 +34,11 @@ interface PatternMetric {
     mutation_status?: boolean;
     [key: string]: any;
   };
+  // P1-TIME: Semantic context for pattern metrics
+  rationale?: string;  // Human-readable explanation of why pattern was triggered
+  decision_context?: Record<string, any>;  // Input parameters, state, alternatives considered
+  roam_reference?: string;  // Link to parent ROAM entry ID
+  circle_role?: string;  // Which circle role triggered the pattern
   [key: string]: any;
 }
 
@@ -67,6 +72,8 @@ class PatternMetricsAnalyzer {
   private adjustments: GovernanceAdjustment[] = [];
   private retroQuestions: RetroQuestion[] = [];
   private jsonMode: boolean = false;
+  // P1-TIME: Semantic context summary
+  private semanticSummary: any = null;
 
   constructor(private goalieDir: string, jsonMode: boolean = false) {
     this.jsonMode = jsonMode;
@@ -77,6 +84,8 @@ class PatternMetricsAnalyzer {
     this.detectAnomalies();
     this.proposeGovernanceAdjustments();
     this.generateRetroQuestions();
+    // P1-TIME: Generate semantic context analysis
+    this.semanticSummary = this.generateSemanticSummary();
   }
 
   private async loadMetrics(): Promise<void> {
@@ -436,6 +445,114 @@ class PatternMetricsAnalyzer {
     }, {} as Record<string, PatternMetric[]>);
   }
 
+  /**
+   * P1-TIME: Aggregate rationale statistics by pattern type
+   * Provides semantic context coverage analysis
+   */
+  private aggregateRationaleStats(): Record<string, {
+    total: number;
+    with_rationale: number;
+    with_decision_context: number;
+    with_roam_reference: number;
+    with_circle_role: number;
+    common_rationales: Array<{ rationale: string; count: number }>;
+  }> {
+    const stats: Record<string, any> = {};
+    const patternGroups = this.groupByPattern();
+
+    for (const [pattern, metrics] of Object.entries(patternGroups)) {
+      const withRationale = metrics.filter(m => m.rationale && m.rationale.length > 0);
+      const withDecisionContext = metrics.filter(m => m.decision_context && Object.keys(m.decision_context).length > 0);
+      const withRoamReference = metrics.filter(m => m.roam_reference && m.roam_reference.length > 0);
+      const withCircleRole = metrics.filter(m => m.circle_role && m.circle_role.length > 0);
+
+      // Count common rationales
+      const rationaleCounts = new Map<string, number>();
+      for (const m of withRationale) {
+        const key = m.rationale!.substring(0, 100); // Truncate for grouping
+        rationaleCounts.set(key, (rationaleCounts.get(key) || 0) + 1);
+      }
+
+      const commonRationales = Array.from(rationaleCounts.entries())
+        .map(([rationale, count]) => ({ rationale, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5); // Top 5
+
+      stats[pattern] = {
+        total: metrics.length,
+        with_rationale: withRationale.length,
+        with_decision_context: withDecisionContext.length,
+        with_roam_reference: withRoamReference.length,
+        with_circle_role: withCircleRole.length,
+        common_rationales: commonRationales
+      };
+    }
+
+    return stats;
+  }
+
+  /**
+   * P1-TIME: Generate semantic summary reports
+   * Provides human-readable analysis of pattern semantic context
+   */
+  private generateSemanticSummary(): {
+    overall_coverage: {
+      total_metrics: number;
+      with_rationale: number;
+      with_decision_context: number;
+      with_roam_reference: number;
+      with_circle_role: number;
+      rationale_coverage_pct: number;
+      decision_context_coverage_pct: number;
+      roam_reference_coverage_pct: number;
+      circle_role_coverage_pct: number;
+    };
+    pattern_coverage: Record<string, any>;
+    roam_linked_patterns: string[];
+    circle_role_distribution: Record<string, number>;
+  } {
+    const rationaleStats = this.aggregateRationaleStats();
+    const totalMetrics = this.metrics.length;
+
+    const withRationale = this.metrics.filter(m => m.rationale && m.rationale.length > 0);
+    const withDecisionContext = this.metrics.filter(m => m.decision_context && Object.keys(m.decision_context).length > 0);
+    const withRoamReference = this.metrics.filter(m => m.roam_reference && m.roam_reference.length > 0);
+    const withCircleRole = this.metrics.filter(m => m.circle_role && m.circle_role.length > 0);
+
+    // Find patterns linked to ROAM entries
+    const roamLinkedPatterns = new Set<string>();
+    for (const m of this.metrics) {
+      if (m.roam_reference && m.roam_reference.length > 0) {
+        roamLinkedPatterns.add(m.pattern);
+      }
+    }
+
+    // Circle role distribution
+    const circleRoleDistribution: Record<string, number> = {};
+    for (const m of this.metrics) {
+      if (m.circle_role && m.circle_role.length > 0) {
+        circleRoleDistribution[m.circle_role] = (circleRoleDistribution[m.circle_role] || 0) + 1;
+      }
+    }
+
+    return {
+      overall_coverage: {
+        total_metrics: totalMetrics,
+        with_rationale: withRationale.length,
+        with_decision_context: withDecisionContext.length,
+        with_roam_reference: withRoamReference.length,
+        with_circle_role: withCircleRole.length,
+        rationale_coverage_pct: totalMetrics > 0 ? (withRationale.length / totalMetrics) * 100 : 0,
+        decision_context_coverage_pct: totalMetrics > 0 ? (withDecisionContext.length / totalMetrics) * 100 : 0,
+        roam_reference_coverage_pct: totalMetrics > 0 ? (withRoamReference.length / totalMetrics) * 100 : 0,
+        circle_role_coverage_pct: totalMetrics > 0 ? (withCircleRole.length / totalMetrics) * 100 : 0
+      },
+      pattern_coverage: rationaleStats,
+      roam_linked_patterns: Array.from(roamLinkedPatterns),
+      circle_role_distribution: circleRoleDistribution
+    };
+  }
+
   public getReport(): any {
     return {
       summary: {
@@ -446,6 +563,8 @@ class PatternMetricsAnalyzer {
         adjustments_proposed: this.adjustments.length,
         retro_questions_generated: this.retroQuestions.length
       },
+      // P1-TIME: Semantic context coverage analysis
+      semantic_summary: this.semanticSummary,
       anomalies: this.anomalies,
       governance_adjustments: this.adjustments,
       retro_questions: this.retroQuestions,
@@ -492,6 +611,27 @@ async function main() {
       console.log(`Runs Analyzed: ${report.summary.runs_analyzed}`);
       console.log(`\nAnomalies Detected: ${report.summary.anomalies_detected}`);
 
+      // P1-TIME: Display semantic context coverage
+      if (report.semantic_summary) {
+        const cov = report.semantic_summary.overall_coverage;
+        console.log(`\n=== Semantic Context Coverage ===`);
+        console.log(`Rationale Coverage: ${cov.rationale_coverage_pct.toFixed(1)}% (${cov.with_rationale}/${cov.total_metrics})`);
+        console.log(`Decision Context Coverage: ${cov.decision_context_coverage_pct.toFixed(1)}% (${cov.with_decision_context}/${cov.total_metrics})`);
+        console.log(`ROAM Reference Coverage: ${cov.roam_reference_coverage_pct.toFixed(1)}% (${cov.with_roam_reference}/${cov.total_metrics})`);
+        console.log(`Circle Role Coverage: ${cov.circle_role_coverage_pct.toFixed(1)}% (${cov.with_circle_role}/${cov.total_metrics})`);
+
+        if (report.semantic_summary.roam_linked_patterns.length > 0) {
+          console.log(`\nROAM-Linked Patterns: ${report.semantic_summary.roam_linked_patterns.join(', ')}`);
+        }
+
+        if (Object.keys(report.semantic_summary.circle_role_distribution).length > 0) {
+          console.log(`\nCircle Role Distribution:`);
+          for (const [role, count] of Object.entries(report.semantic_summary.circle_role_distribution)) {
+            console.log(`  ${role}: ${count}`);
+          }
+        }
+      }
+
       if (report.anomalies.length > 0) {
         console.log('\n--- Anomalies ---');
         for (const anomaly of report.anomalies) {
@@ -521,7 +661,12 @@ async function main() {
   }
 }
 
-if (require.main === module) {
+// ES Module main check - using import.meta.url for ESM compatibility
+const isMainModule = import.meta.url === `file://${process.argv[1]}` ||
+  process.argv[1]?.endsWith('pattern_metrics_analyzer.ts') ||
+  process.argv[1]?.endsWith('pattern_metrics_analyzer.js');
+
+if (isMainModule) {
   main().catch(console.error);
 }
 

@@ -32,3 +32,42 @@
 - `Source:retro`: From team retrospectives
 - `Source:audit`: From automated governance audits
 - `Source:obs`: From observational patterns
+
+---
+
+
+---
+
+## 🌐 Multi-Repo WSJF Rollup
+
+**Generated**: 2026-01-06T07:59:23Z
+**Single Source of Truth** - Aggregated across all repos
+
+### Repo Summary
+
+| Repo | Total | Done | % | HIGH |
+|------|-------|------|---|------|
+
+### Top WSJF Items Across Repos
+
+**Repos with HIGH priority items:**
+- ✅ No HIGH priority items across all repos!
+
+### Execution Priority
+
+1. **NOW**: Complete all HIGH priority items in repos above 0% completion
+2. **NEXT**: Target repos below 40% completion for quick wins
+3. **LATER**: Maintain repos above 80% completion
+
+**Next Review**: Run `./scripts/wsjf/aggregate_wsjf.sh` after each completed item
+
+## 🚀 StarlingX Production Track - Week 1 (Jan 8-14, 2026)
+
+- [ ] STX P1: SSH Probe & Health Check Source:stx-prod (UBV: 10, TC: 8, RROE: 5, Size: 2) [Trace: FLOW-STX-$(date +%s)-001]
+- [ ] STX P2: Inventory & Dependency Mapping Source:stx-prod (UBV: 8, TC: 5, RROE: 4, Size: 3) [Trace: FLOW-STX-$(date +%s)-002]
+- [ ] STX P3: ROAM Risk Assessment Source:stx-prod (UBV: 6, TC: 3, RROE: 3, Size: 2) [Trace: FLOW-STX-$(date +%s)-003]
+
+**Track Selected**: 2026-01-08 22:12 UTC
+**Target**: Device 24460 Production Deployment
+**Plan**: /tmp/stx-production-plan.md
+**Scripts**: scripts/stx-ssh-probe.sh (NEW)

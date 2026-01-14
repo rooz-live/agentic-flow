@@ -6,15 +6,17 @@
  * and provides unified access to the comprehensive financial trading
  * analysis and portfolio optimization system.
  */
-// Core trading components
-export { TradingEngine } from './core/trading_engine';
-export { RiskManager } from './core/risk_manager';
-export { PortfolioOptimizer } from './core/portfolio_optimizer';
-export { MarketDataProcessor } from './core/market_data_processor';
-export { OptionsStrategyEngine } from './core/options_strategy_engine';
-export { AlgorithmicTradingEngine } from './core/algorithmic_trading_engine';
-export { PerformanceAnalytics } from './core/performance_analytics';
-export { ComplianceManager } from './core/compliance_manager';
+// Core trading components - import classes for use, export both classes and types
+import { TradingEngine } from './core/trading_engine';
+import { RiskManager } from './core/risk_manager';
+import { PortfolioOptimizer } from './core/portfolio_optimizer';
+import { MarketDataProcessor } from './core/market_data_processor';
+import { OptionsStrategyEngine } from './core/options_strategy_engine';
+import { AlgorithmicTradingEngine } from './core/algorithmic_trading_engine';
+import { PerformanceAnalytics } from './core/performance_analytics';
+import { ComplianceManager } from './core/compliance_manager';
+// Re-export classes
+export { TradingEngine, RiskManager, PortfolioOptimizer, MarketDataProcessor, OptionsStrategyEngine, AlgorithmicTradingEngine, PerformanceAnalytics, ComplianceManager };
 // UI components
 export { default as TradingDashboard } from './ui/trading_dashboard';
 // Re-export existing SOXL/SOXS trader for compatibility
@@ -70,11 +72,11 @@ export class TradingSystemFactory {
         const performanceAnalytics = new PerformanceAnalytics(process.env.GOALIE_DIR || '.goalie');
         const complianceManager = new ComplianceManager({
             jurisdiction: 'US',
-            accountType: 'margin',
-            riskTolerance: 'moderate',
+            accountType: 'MARGIN',
+            riskTolerance: 'MODERATE',
             autoBlockViolations: true,
             requireApprovalFor: ['LARGE_ORDERS', 'MARGIN_TRADES'],
-            reportingFrequency: 'real_time',
+            reportingFrequency: 'REAL_TIME',
             auditRetention: 2555,
             dataEncryption: true,
             gdprCompliance: true,
@@ -357,6 +359,7 @@ export const TRADING_CONSTANTS = {
     PERFORMANCE_HISTORY_RETENTION_DAYS: 1095, // 3 years
     AUDIT_LOG_RETENTION_DAYS: 2555, // 7 years
 };
+// TradingSystemFactory and TradingSystemUtils already declared above
 // Default export for backward compatibility
 export default TradingSystemFactory;
 //# sourceMappingURL=index.js.map

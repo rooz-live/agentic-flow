@@ -2,6 +2,17 @@
  * Core pattern monitoring types and interfaces
  */
 
+/**
+ * Semantic Rationale - P1-TIME: Structured context for pattern decisions
+ * Provides human-readable and machine-parseable decision context
+ */
+export interface SemanticRationale {
+  why: string;                      // Why this pattern was triggered
+  context?: string;                 // Situational context (optional)
+  decision_logic?: string;          // Decision-making process (optional)
+  alternatives_considered?: string[]; // Other options evaluated (optional)
+}
+
 export interface PatternMetric {
   ts: string;
   run: string;
@@ -23,6 +34,7 @@ export interface PatternMetric {
   prod_mode: string;
   metrics: Record<string, any>;
   context?: Record<string, any>;
+  rationale?: SemanticRationale;    // P1-TIME: Semantic context for decisions
 }
 
 export interface EconomicMetrics {

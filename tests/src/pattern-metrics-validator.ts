@@ -483,6 +483,10 @@ export class PatternMetricsValidator {
       const klDiv = (event as any).kl_divergence;
       if (typeof klDiv !== 'number' || klDiv < 0) {
         errors.push('kl_divergence must be a non-negative number');
+      } else if (!Number.isFinite(klDiv)) {
+        errors.push('kl_divergence must be a finite number (not Infinity or NaN)');
+      } else if (klDiv > 1000) {
+        warnings.push('kl_divergence value is unusually high, which may indicate distribution mismatch');
       }
     }
   }

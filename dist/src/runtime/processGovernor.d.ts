@@ -12,6 +12,7 @@
  *   await runBatched(tasks, async (task) => processTask(task));
  *   await drain(); // Wait for all work to complete
  */
+import { DynamicThresholds } from './dynamicThresholdManager';
 export declare const AF_CPU_HEADROOM_TARGET: number;
 export declare const AF_BATCH_SIZE: number;
 export declare const AF_MAX_WIP: number;
@@ -88,14 +89,25 @@ interface GovernorState {
     adaptiveThrottlingLevel: number;
     predictiveLoadScore: number;
     lastDependencyAnalysis: number;
+    dynamicThresholds: DynamicThresholds | null;
+    lastThresholdUpdate: number;
+    recentPerformance: Array<{
+        timestamp: number;
+        reward: number;
+        success: boolean;
+    }>;
+    cascadeFailureWindow: Array<{
+        timestamp: number;
+        taskId: string;
+    }>;
     incidentBuffer: Array<{
         timestamp: string;
-        type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' | 'CIRCUIT_CLOSED' | 'ADAPTIVE_THROTTLING' | 'PREDICTIVE_THROTTLING' | 'DEPENDENCY_ANALYSIS';
+        type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' | 'CIRCUIT_CLOSED' | 'ADAPTIVE_THROTTLING' | 'PREDICTIVE_THROTTLING' | 'DEPENDENCY_ANALYSIS' | 'DEGRADATION_DETECTED' | 'CASCADE_FAILURE' | 'DIVERGENCE_HIGH';
         details: Record<string, unknown>;
     }>;
     incidents: Array<{
         timestamp: string;
-        type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' | 'CIRCUIT_CLOSED' | 'ADAPTIVE_THROTTLING' | 'PREDICTIVE_THROTTLING' | 'DEPENDENCY_ANALYSIS';
+        type: 'WIP_VIOLATION' | 'CPU_OVERLOAD' | 'BACKOFF' | 'BATCH_COMPLETE' | 'RATE_LIMITED' | 'CIRCUIT_OPEN' | 'CIRCUIT_HALF_OPEN' | 'CIRCUIT_CLOSED' | 'ADAPTIVE_THROTTLING' | 'PREDICTIVE_THROTTLING' | 'DEPENDENCY_ANALYSIS' | 'DEGRADATION_DETECTED' | 'CASCADE_FAILURE' | 'DIVERGENCE_HIGH';
         details: Record<string, unknown>;
     }>;
     metrics: {
@@ -107,6 +119,9 @@ interface GovernorState {
         dropped_events: number;
         queue_depth: number;
         flush_latency_ms: number;
+        degradation_score: number;
+        cascade_failure_count: number;
+        divergence_rate_current: number;
     };
 }
 export declare function isCircuitClosed(): boolean;

@@ -351,5 +351,6 @@ async function main() {
 if (require.main === module) {
     main();
 }
+// Class already exported at declaration (line 52), no need to re-export
 export default SOXLSOXSTrader;
 //# sourceMappingURL=soxl_soxs_trader.js.map

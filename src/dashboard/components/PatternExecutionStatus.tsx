@@ -183,6 +183,7 @@ export function PatternExecutionStatus({
 
                 <div className="flex items-center space-x-1">
                   <Layers className="w-3 h-3" />
+                  {/* @ts-expect-error - iteration may not be defined in all status types */}
                   <span>Iteration {status.iteration || 1}</span>
                 </div>
               </div>

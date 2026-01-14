@@ -248,8 +248,14 @@ class GoalieKanbanProvider implements vscode.TreeDataProvider<KanbanItem>, vscod
       for (const line of lines) {
         try {
           const obj = JSON.parse(line);
-          if (obj.id === patternId || obj.title === patternId) {
-            return obj.economic?.wsjf_score;
+          const event = obj?.data ?? obj;
+          const matches =
+            event?.id === patternId ||
+            event?.title === patternId ||
+            event?.pattern === patternId ||
+            event?.metadata?.actionId === patternId;
+          if (matches) {
+            return event?.economic?.wsjf_score;
           }
         } catch {
           // ignore malformed lines
@@ -277,9 +283,10 @@ class GoalieKanbanProvider implements vscode.TreeDataProvider<KanbanItem>, vscod
       for (const line of lines) {
         try {
           const obj = JSON.parse(line);
-          if (obj.id === itemId || obj.title === itemId) {
+          const event = obj?.data ?? obj;
+          if (event?.id === itemId || event?.title === itemId || event?.pattern === itemId || event?.metadata?.actionId === itemId) {
             totalActions++;
-            if (obj.action_completed) {
+            if (event?.action_completed || event?.metadata?.action_completed) {
               completedActions++;
             }
           }

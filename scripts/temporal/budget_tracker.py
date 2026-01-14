@@ -133,7 +133,7 @@ class BudgetTracker:
     ) -> Budget:
         """Allocate new budget with temporal validity"""
         now = datetime.now(timezone.utc)
-        budget_id = f"{tenant_id}-{budget_type.value}-{now.strftime('%Y%m%d%H%M%S')}"
+        budget_id = f"{tenant_id}-{budget_type.value}-{now.strftime('%Y%m%d%H%M%S%f')}"
         
         budget = Budget(
             budget_id=budget_id,
@@ -164,6 +164,24 @@ class BudgetTracker:
         conn.close()
         
         return budget
+
+    def get_latest_budget_id(self, tenant_id: str, budget_type: BudgetType) -> Optional[str]:
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT budget_id
+            FROM budgets
+            WHERE tenant_id = ? AND budget_type = ?
+            ORDER BY allocated_at DESC
+            LIMIT 1
+            """,
+            (tenant_id, budget_type.value)
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return row[0] if row else None
     
     def use_iteration(self, budget_id: str) -> Tuple[bool, str]:
         """

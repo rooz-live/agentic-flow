@@ -52,6 +52,7 @@ export class QuicTransport {
      */
     static async create(config = {}) {
         // Load WASM module dynamically
+        // @ts-expect-error - WASM module may not be compiled yet
         const wasmModule = await import('../../crates/agentic-flow-quic/pkg');
         // Default configuration
         const fullConfig = {
@@ -89,6 +90,7 @@ export class QuicTransport {
             throw new Error('Transport not initialized');
         }
         // Load WASM module for message creation
+        // @ts-expect-error - WASM module may not be compiled yet
         const wasmModule = await import('../../crates/agentic-flow-quic/pkg');
         // Serialize payload
         const payloadBytes = new TextEncoder().encode(JSON.stringify(message.payload));

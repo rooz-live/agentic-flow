@@ -45,7 +45,7 @@ DESCRIPTION:
 ENVIRONMENT VARIABLES:
     STX_HOST         StarlingX host (default: 23.92.79.2)
     STX_PORT         SSH port (default: 2222)
-    STX_USER         SSH user (default: root)
+    STX_USER         SSH user (default: ubuntu)
     STX_SSH_KEY      Path to SSH key (default: \$HOME/pem/stx-aio-0.pem)
 
 EXAMPLES:
@@ -66,7 +66,7 @@ done
 # StarlingX connection settings
 STX_HOST="${STX_HOST:-23.92.79.2}"
 STX_PORT="${STX_PORT:-2222}"
-STX_USER="${STX_USER:-root}"
+STX_USER="${STX_USER:-ubuntu}"
 STX_SSH_KEY_DEFAULT="$HOME/pem/stx-aio-0.pem"
 STX_SSH_KEY="${STX_SSH_KEY:-$STX_SSH_KEY_DEFAULT}"
 

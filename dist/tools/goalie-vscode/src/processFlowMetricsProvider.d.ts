@@ -19,15 +19,15 @@ export interface MetricAlert {
     message: string;
 }
 export declare class ProcessFlowMetricsItem extends vscode.TreeItem {
-    readonly metric?: ProcessMetrics | undefined;
-    readonly alert?: MetricAlert | undefined;
-    constructor(label: string, collapsibleState: vscode.TreeItemCollapsibleState, metric?: ProcessMetrics | undefined, alert?: MetricAlert | undefined);
+    readonly metric?: ProcessMetrics;
+    readonly alert?: MetricAlert;
+    constructor(label: string, collapsibleState: vscode.TreeItemCollapsibleState, metric?: ProcessMetrics, alert?: MetricAlert);
 }
 export declare class ProcessFlowMetricsProvider implements vscode.TreeDataProvider<ProcessFlowMetricsItem> {
     private readonly workspaceRoot?;
     private _onDidChangeTreeData;
-    readonly onDidChangeTreeData: vscode.Event<void | ProcessFlowMetricsItem | undefined>;
-    constructor(workspaceRoot?: string | undefined);
+    readonly onDidChangeTreeData: vscode.Event<void | ProcessFlowMetricsItem>;
+    constructor(workspaceRoot?: string);
     refresh(): void;
     getTreeItem(element: ProcessFlowMetricsItem): vscode.TreeItem;
     private getGoalieDir;

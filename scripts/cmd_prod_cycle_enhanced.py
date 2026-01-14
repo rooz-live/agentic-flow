@@ -10,9 +10,11 @@ import sys
 import os
 import argparse
 import subprocess
-import json
 import uuid
-from agentic.pattern_logger import PatternLogger
+import asyncio
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 # QUICK WIN #2: Import Guardrails for WIP limits and mode enforcement
 try:
@@ -47,10 +49,14 @@ def determine_optimal_circle(metrics_file):
             lines = f.readlines()[-50:]
         fail_count = sum(1 for line in lines if "cycle_fail" in line)
         return "assessor" if fail_count > 2 else "innovator"
-    except Exception:
+    except Exception as e:
+        print(f"[ERROR] Failed to determine optimal circle: {e}")
         return "orchestrator"
 
 def main():
+    from agentic.pattern_logger import PatternLogger
+    from agentic.evidence_manager import EvidenceManager
+
     parser = argparse.ArgumentParser(description="Agentic Flow Production Cycle")
     
     # Arguments
@@ -79,7 +85,7 @@ def main():
     elif args.circle:
         circle_arg = args.circle
         
-    project_root = os.environ.get("PROJECT_ROOT", ".")
+    project_root = os.environ.get("PROJECT_ROOT") or str(Path(__file__).resolve().parent.parent)
     mode = os.environ.get("AF_PROD_CYCLE_MODE", "mutate")
     safe_degrade_enabled = os.environ.get("AF_PROD_SAFE_DEGRADE", "1") == "1"
     guardrail_lock_enabled = os.environ.get("AF_PROD_GUARDRAIL_LOCK", "1") == "1"
@@ -98,6 +104,11 @@ def main():
     
     # Initialize Enhanced PatternLogger with correlation tracking
     correlation_id = str(uuid.uuid4())
+    run_id = os.environ.get("AF_RUN_ID") or correlation_id
+    os.environ["AF_RUN_ID"] = run_id
+    os.environ["AF_CIRCLE"] = circle
+    os.environ["AF_MODE"] = mode
+    os.environ["AF_DEPTH"] = str(current_depth)
     logger = PatternLogger(mode=mode, circle=circle, depth=current_depth, correlation_id=correlation_id)
     
     # QUICK WIN #2: Initialize Guardrails
@@ -123,21 +134,22 @@ def main():
     budget_id = None
     if BUDGET_TRACKER_AVAILABLE:
         try:
-            from datetime import datetime
             budget_tracker = BudgetTracker()
-            budget_id = f"{circle}-iteration-{datetime.now().strftime('%Y%m%d')}"
+            budget_id = None
             
             # Try to allocate budget (may already exist)
             try:
-                budget_tracker.allocate_budget(
+                allocated = budget_tracker.allocate_budget(
                     tenant_id='local',
                     budget_type=BudgetType.ITERATION,
                     amount=iterations * 100,
                     iterations_limit=iterations,
                     early_stop_threshold=0.8  # Stop at 80%
                 )
+                budget_id = allocated.budget_id
                 print(f"💰 Budget Allocated: {iterations} iterations (early stop at 80%)")
-            except:
+            except Exception:
+                budget_id = budget_tracker.get_latest_budget_id('local', BudgetType.ITERATION)
                 print(f"💰 Budget Already Exists: {budget_id}")
         except Exception as e:
             print(f"[WARN] Failed to initialize budget tracker: {e}")
@@ -174,18 +186,41 @@ def main():
     logger.log_circle_risk_focus(target_circle=circle, iteration=0)
     metrics_count += 3
 
+    try:
+        evidence_mgr = EvidenceManager()
+        evidence_context = {
+            'run_id': run_id,
+            'circle': circle,
+            'iteration': 1,
+            'mode': mode,
+            'depth': current_depth
+        }
+        pre_results = asyncio.run(evidence_mgr.collect_evidence(
+            phase='pre_iteration',
+            context=evidence_context,
+            mode='prod_cycle'
+        ))
+        if pre_results:
+            evidence_mgr.write_evidence()
+    except Exception as e:
+        print(f"[ERROR] Failed to collect evidence: {e}")
+
     for i in range(iterations):
         print(f"\n--- Iteration {i+1}/{iterations} ---")
         
         # QUICK WIN #2: Guardrail enforcement before each iteration
         if guardrails:
+            op = 'write'
+            if mode.lower() in ['advisory', 'enforcement']:
+                op = 'read'
             allowed, reason, metadata = guardrails.enforce(
                 circle=circle,
-                operation='write',
+                operation=op,
                 data={
                     'pattern': 'cycle_iteration',
                     'circle': circle,
-                    'economic': {'wsjf_score': 0, 'cost_of_delay': 0, 'job_duration': 1, 'user_business_value': 0}
+                    'economic': {'wsjf_score': 0, 'cost_of_delay': 0, 'job_duration': 1, 'user_business_value': 0},
+                    'data': {}
                 }
             )
             
@@ -265,27 +300,81 @@ def main():
             
             consecutive_successes += 1
             if consecutive_successes >= stability_threshold:
-                 saved = iterations - i - 1
-                 print(f"✨ Optimization: {stability_threshold} consecutive successes achieved. Stopping early (saved {saved} iterations).")
-                 logger.log_iteration_budget(requested=iterations, enforced=i+1, saved=saved, iteration=i)
-                 metrics_count += 1
-                 break
+                saved = iterations - i - 1
+                print(
+                    f"✨ Optimization: {stability_threshold} consecutive successes achieved. "
+                    f"Stopping early (saved {saved} iterations)."
+                )
+                logger.log_iteration_budget(
+                    requested=iterations,
+                    enforced=i + 1,
+                    saved=saved,
+                    iteration=i,
+                )
+                metrics_count += 1
+                break
 
             if no_deploy and i % 3 == 0:
-                 print("🩹 Probing recovery: Re-enabling deploy for next iteration.")
-                 no_deploy = False
+                print("🩹 Probing recovery: Re-enabling deploy for next iteration.")
+                no_deploy = False
 
     # Final observability check
     metrics_log_path = os.path.join(project_root, ".goalie/metrics_log.jsonl")
     if not os.path.exists(metrics_log_path):
-         logger.log_observability_first(metrics_written=metrics_count, missing_signals=["metrics_log.jsonl"], 
-                                         suggestion_made="Create metrics_log.jsonl for full observability", iteration=iterations)
+        logger.log_observability_first(
+            metrics_written=metrics_count,
+            missing_signals=["metrics_log.jsonl"],
+            suggestion_made="Create metrics_log.jsonl for full observability",
+            iteration=iterations,
+        )
     else:
-         logger.log_observability_first(metrics_written=metrics_count+1, missing_signals=[], 
-                                         suggestion_made="Prod-cycle completed successfully", iteration=iterations)
-    
+        logger.log_observability_first(
+            metrics_written=metrics_count + 1,
+            missing_signals=[],
+            suggestion_made="Prod-cycle completed successfully",
+            iteration=iterations,
+        )
+     
     print(f"\n📊 Pattern Telemetry: {metrics_count+1} events logged to .goalie/pattern_metrics.jsonl")
     print(f"🔗 Correlation ID: {correlation_id} (for forensic audit)")
+
+    try:
+        evidence_mgr = EvidenceManager()
+        teardown_context = {
+            'run_id': run_id,
+            'circle': circle,
+            'iteration': iterations,
+            'mode': mode,
+            'depth': current_depth
+        }
+        teardown_results = asyncio.run(evidence_mgr.collect_evidence(
+            phase='teardown',
+            context=teardown_context,
+            mode='prod_cycle'
+        ))
+        if teardown_results:
+            evidence_mgr.write_evidence()
+    except Exception:
+        pass
+
+    try:
+        evidence_mgr = EvidenceManager()
+        post_run_context = {
+            'run_id': run_id,
+            'circle': circle,
+            'iteration': iterations,
+            'mode': mode,
+            'depth': current_depth
+        }
+        post_run_results = asyncio.run(evidence_mgr.collect_evidence(
+            phase='post_run',
+            context=post_run_context,
+            mode='prod_cycle'
+        ))
+        if post_run_results:
+            evidence_mgr.write_evidence()
+    except Exception:
+        pass
 
 if __name__ == "__main__":
     main()

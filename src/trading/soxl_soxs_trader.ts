@@ -439,5 +439,5 @@ if (require.main === module) {
   main();
 }
 
-export { SOXLSOXSTrader };
+// Class already exported at declaration (line 52), no need to re-export
 export default SOXLSOXSTrader;

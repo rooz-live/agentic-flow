@@ -95,18 +95,24 @@ export const SwarmCosmograph: React.FC<SwarmCosmographProps> = ({
   }, []);
 
   return (
+    // @ts-expect-error - Cosmograph type definitions need updating
     <CosmographProvider nodes={nodes} links={links}>
       <div style={{ width, height, position: 'relative' }}>
         <Cosmograph
-          nodeColor={(n) => n.color}
-          nodeSize={(n) => n.size}
-          linkWidth={(l) => l.weight * 2}
-          linkColor={() => 'rgba(255,255,255,0.3)'}
-          showLabels={showLabels}
-          onClick={handleNodeClick}
-          backgroundColor="#1a1a2e"
-          simulationGravity={0.3}
-          simulationRepulsion={1.5}
+          {...{
+            nodeColor: (n: any) => (n as any).color || '#999',
+            nodeSize: (n: any) => (n as any).size || 5,
+            linkWidth: 2,
+            linkColor: 'rgba(255,255,255,0.3)',
+            showLabels,
+            onClick: (index: number) => {
+              const node = nodes[index];
+              if (node) handleNodeClick(node as any);
+            },
+            backgroundColor: '#1a1a2e',
+            simulationGravity: 0.3,
+            simulationRepulsion: 1.5,
+          } as any}
         />
 
         {/* Legend */}

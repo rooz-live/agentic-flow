@@ -149,7 +149,37 @@ export class NightlyLearner {
     minConfidence?: number;
     dryRun?: boolean;
   }): Promise<CausalEdge[]> {
-    return this.discoverCausalEdges();
+    // Store discovered edges for return
+    const edges: CausalEdge[] = [];
+    const count = await this.discoverCausalEdges();
+    
+    // Retrieve the last 'count' edges added
+    if (count > 0) {
+      const stmt = this.db.prepare(`
+        SELECT * FROM causal_edges 
+        ORDER BY id DESC 
+        LIMIT ?
+      `);
+      const rows = stmt.all(count) as any[];
+      
+      for (const row of rows) {
+        edges.push({
+          id: row.id,
+          fromMemoryId: row.from_memory_id,
+          fromMemoryType: row.from_memory_type,
+          toMemoryId: row.to_memory_id,
+          toMemoryType: row.to_memory_type,
+          similarity: row.similarity,
+          uplift: row.uplift,
+          confidence: row.confidence,
+          sampleSize: row.sample_size,
+          mechanism: row.mechanism,
+          metadata: row.metadata ? JSON.parse(row.metadata) : undefined
+        });
+      }
+    }
+    
+    return edges;
   }
 
   private async discoverCausalEdges(): Promise<number> {

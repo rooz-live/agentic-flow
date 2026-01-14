@@ -26,6 +26,43 @@ export interface AlignmentScore {
 }
 
 /**
+ * Semantic Rationale - P1-TIME: Structured context for pattern decisions
+ * Provides human-readable and machine-parseable decision context
+ */
+export interface SemanticRationale {
+  why: string;                      // Why this pattern was triggered
+  context?: string;                 // Situational context (optional)
+  decision_logic?: string;          // Decision-making process (optional)
+  alternatives_considered?: string[]; // Other options evaluated (optional)
+}
+
+/**
+ * Decision Context - P1-TIME: Extended context for governance decisions
+ * Links pattern execution to broader governance framework
+ */
+export interface DecisionContext {
+  trigger_source: string;           // What triggered this decision (e.g., 'health_check', 'user_request', 'scheduled')
+  governance_dimension?: 'TRUTH' | 'TIME' | 'LIVE';  // Which governance dimension applies
+  plan_id?: string;                 // Associated Plan ID from PDA framework
+  do_id?: string;                   // Associated Do ID from PDA framework
+  act_id?: string;                  // Associated Act ID from PDA framework
+  circle?: string;                  // Circle responsible for this decision
+  escalation_path?: string[];       // Escalation chain if applicable
+}
+
+/**
+ * ROAM Reference - P1-TIME: Link to ROAM tracker items
+ * Connects pattern execution to risk/blocker tracking
+ */
+export interface ROAMReference {
+  roam_id: string;                  // ID from ROAM_TRACKER.yaml (e.g., 'RISK-001')
+  roam_status: 'RESOLVED' | 'OWNED' | 'ACCEPTED' | 'MITIGATING';
+  roam_type: 'risk' | 'blocker' | 'dependency';
+  mitigation_applied?: string;      // What mitigation was applied
+  resolution_evidence?: string;     // Evidence of resolution if RESOLVED
+}
+
+/**
  * Base interface for all pattern metrics
  * All patterns must include these core fields
  */
@@ -40,6 +77,9 @@ export interface PatternMetric {
   alignment_score?: AlignmentScore; // P1-B: Spiritual dimension tracking
   action_completed?: boolean;       // Ethical dimension: visible outcome
   consequence?: string;             // Vigilance: what happened as a result
+  rationale?: SemanticRationale;    // P1-TIME: Semantic context for decisions
+  decision_context?: DecisionContext; // P1-TIME: Extended governance context
+  roam_reference?: ROAMReference;   // P1-TIME: Link to ROAM tracker items
   [key: string]: any;
 }
 
@@ -215,22 +255,31 @@ export class PatternLogger {
   }
 
   /**
-   * Enhanced base metric with alignment score
+   * Enhanced base metric with alignment score and semantic rationale
    * P1-B: Automatically compute spiritual dimension tracking
+   * P1-TIME: Include semantic context for decisions
    */
   private getAlignedBaseMetric(
     intent?: string,
     policy?: string,
     actionCompleted?: boolean,
-    consequence?: string
+    consequence?: string,
+    rationale?: SemanticRationale
   ): Partial<PatternMetric> {
     const hasConsequence = consequence !== undefined && consequence.length > 0;
-    return {
+    const base: Partial<PatternMetric> = {
       ...this.getBaseMetric(),
       alignment_score: this.computeAlignmentScore(intent, policy, actionCompleted, hasConsequence),
       action_completed: actionCompleted ?? true,
       consequence: consequence
     };
+
+    // P1-TIME: Add rationale if provided
+    if (rationale) {
+      base.rationale = rationale;
+    }
+
+    return base;
   }
 
   private async writeMetric(metric: PatternMetric): Promise<void> {
@@ -254,6 +303,8 @@ export class PatternLogger {
     options?: {
       load_metric?: number;
       degradation_level?: 'none' | 'partial' | 'full';
+      rationale?: SemanticRationale;
+      roam_reference?: ROAMReference;
     }
   ): Promise<void> {
     const metric: SafeDegradeMetric = {
@@ -279,6 +330,8 @@ export class PatternLogger {
     options?: {
       risk_count?: number;
       p0_risks?: number;
+      rationale?: SemanticRationale;
+      roam_reference?: ROAMReference;
     }
   ): Promise<void> {
     const metric: CircleRiskFocusMetric = {
@@ -446,6 +499,31 @@ export class PatternLogger {
 
     const metrics = await this.queryPatterns('observability_first');
     return metrics.some(m => m.run === currentRun);
+  }
+
+  /**
+   * P1-TRUTH: Compute learned threshold based on P99 latency
+   * Auto-generates circuit breaker thresholds from historical performance
+   */
+  async computeLearnedThreshold(pattern: string): Promise<number | null> {
+    const metrics = await this.queryPatterns(pattern);
+    const latencyValues = metrics
+      .filter(m => m.latency_ms !== undefined)
+      .map(m => m.latency_ms as number)
+      .sort((a, b) => a - b);
+
+    if (latencyValues.length < 10) return null;
+
+    // Calculate P99 latency
+    const p99Index = Math.floor(latencyValues.length * 0.99);
+    const p99Latency = latencyValues[p99Index];
+
+    // Learned threshold is 1.5x P99 latency
+    const learnedThreshold = p99Latency * 1.5;
+
+    console.log(`[PatternLogger] Learned threshold for ${pattern}: ${learnedThreshold.toFixed(2)}ms (P99: ${p99Latency}ms)`);
+
+    return learnedThreshold;
   }
 }
 

@@ -413,7 +413,11 @@ async function main() {
         process.exit(1);
     }
 }
-if (require.main === module) {
+// ES Module main check - using import.meta.url for ESM compatibility
+const isMainModule = import.meta.url === `file://${process.argv[1]}` ||
+    process.argv[1]?.endsWith('pattern_metrics_analyzer.ts') ||
+    process.argv[1]?.endsWith('pattern_metrics_analyzer.js');
+if (isMainModule) {
     main().catch(console.error);
 }
 export { PatternMetricsAnalyzer };

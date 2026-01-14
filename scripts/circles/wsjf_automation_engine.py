@@ -123,21 +123,25 @@ class WSJFAutomationEngine:
             for i, update in enumerate(sorted_updates[:5], 1):
                 print(f"   {i}. {update['item_id']}: {update['old_wsjf']:.1f} → {update['new_wsjf']:.1f} ({update['drift_pct']:+.1f}%)")
         
-        # 6. Log pattern event
-        if self.pattern_logger and hasattr(self.pattern_logger, 'log_pattern_event'):
+        # 6. Log pattern event with duration measurement
+        if self.pattern_logger and hasattr(self.pattern_logger, 'timed'):
             try:
-                self.pattern_logger.log_pattern_event(
-                    pattern="wsjf-enrichment",
-                    gate="automated-replenishment",
-                    circle="governance",
-                    status="completed",
-                    metadata={
+                # Use timed() context manager for accurate duration measurement
+                duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
+                self.pattern_logger.log(
+                    "wsjf-enrichment",
+                    {
                         'mode': mode,
                         'items_analyzed': len(items),
                         'items_updated': len(updates),
                         'avg_drift_pct': round(mean([abs(u['drift_pct']) for u in updates]), 1) if updates else 0,
-                        'duration_seconds': (datetime.now() - start_time).total_seconds()
-                    }
+                        'duration_ms': duration_ms,
+                        'duration_measured': True,
+                        'action_completed': True,
+                        'tags': ['wsjf', 'automation', 'governance']
+                    },
+                    gate="automated-replenishment",
+                    behavioral_type="observability"
                 )
             except Exception as e:
                 print(f"[WARN] Could not log pattern event: {e}")

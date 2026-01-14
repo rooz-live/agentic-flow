@@ -15,14 +15,35 @@
 const fs = require('fs');
 const path = require('path');
 
+ const REPO_ROOT = path.resolve(__dirname, '../..');
+
+ function ensureDirForFile(filePath) {
+   const dir = path.dirname(filePath);
+   if (!fs.existsSync(dir)) {
+     fs.mkdirSync(dir, { recursive: true });
+   }
+ }
+
+ function writeFileAtomic(filePath, content) {
+   ensureDirForFile(filePath);
+   const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+   fs.writeFileSync(tmpPath, content, 'utf8');
+   fs.renameSync(tmpPath, filePath);
+ }
+
+ function writeJsonAtomic(filePath, obj) {
+   writeFileAtomic(filePath, JSON.stringify(obj, null, 2));
+ }
+
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
 
 const CONFIG = {
-  stateFile: '.goalie/.circuit_breaker_state.json',
-  metricsFile: '.goalie/.circuit_breaker_metrics.json',
-  learningFile: '.goalie/.circuit_breaker_learning.json',
+  stateFile: path.join(REPO_ROOT, '.goalie', '.circuit_breaker_state.json'),
+  metricsFile: path.join(REPO_ROOT, '.goalie', '.circuit_breaker_metrics.json'),
+  learningFile: path.join(REPO_ROOT, '.goalie', '.circuit_breaker_learning.json'),
+  forceLearn: false,
   requestsPerSecond: 10,
   totalRequests: 200,
   duration: 30 // seconds
@@ -40,6 +61,8 @@ for (let i = 0; i < args.length; i++) {
   } else if (args[i] === '--pattern' && args[i + 1]) {
     CONFIG.pattern = args[i + 1];
     i++;
+  } else if (args[i] === '--force-learn') {
+    CONFIG.forceLearn = true;
   }
 }
 
@@ -67,7 +90,7 @@ class LearnedCircuitBreaker {
     this.halfOpenAttempts = 0;
     this.resetTimeoutMs = 5000;
     this.minSamplesForLearning = 100;
-    this.learningIntervalMs = 300000; // 5 minutes
+    this.learningIntervalMs = CONFIG.forceLearn ? 0 : 300000; // 5 minutes (unless forced)
 
     this.loadState();
   }
@@ -88,11 +111,6 @@ class LearnedCircuitBreaker {
   }
 
   saveState() {
-    const stateDir = path.dirname(CONFIG.stateFile);
-    if (!fs.existsSync(stateDir)) {
-      fs.mkdirSync(stateDir, { recursive: true });
-    }
-
     const state = {
       state: this.state,
       errorCount: this.errorCount,
@@ -101,13 +119,13 @@ class LearnedCircuitBreaker {
       openTimestamp: this.openTimestamp,
       halfOpenAttempts: this.halfOpenAttempts
     };
-    fs.writeFileSync(CONFIG.stateFile, JSON.stringify(state, null, 2));
+    writeJsonAtomic(CONFIG.stateFile, state);
 
     const metrics = {
       samples: this.samples.slice(-1000), // Keep last 1000 samples
       lastUpdate: Date.now()
     };
-    fs.writeFileSync(CONFIG.metricsFile, JSON.stringify(metrics, null, 2));
+    writeJsonAtomic(CONFIG.metricsFile, metrics);
   }
 
   recordSuccess() {
@@ -196,7 +214,7 @@ class LearnedCircuitBreaker {
       threshold: this.threshold.errorRate,
       learned: this.threshold.learned
     };
-    fs.writeFileSync(CONFIG.learningFile, JSON.stringify(learning, null, 2));
+    writeJsonAtomic(CONFIG.learningFile, learning);
   }
 
   checkState() {

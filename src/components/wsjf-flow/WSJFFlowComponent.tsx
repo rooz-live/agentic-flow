@@ -153,6 +153,9 @@ const TestingNode = ({ data }: { data: TestingNodeData }) => {
 // Flow type selector
 type FlowType = 'wsjf' | 'goap' | 'testing';
 
+// Union type for all node data types
+type FlowNodeData = WSJFNodeData | GOAPNodeData | TestingNodeData;
+
 interface WSJFFlowProps {
   flowType?: FlowType;
   onNodeClick?: (node: Node) => void;
@@ -165,7 +168,8 @@ export const WSJFFlowComponent: React.FC<WSJFFlowProps> = ({
   onEdgeClick,
 }) => {
   const config = flowConfigs[flowType];
-  const [nodes, setNodes, onNodesChange] = useNodesState(config.nodes);
+  // Use type assertion to handle the union type
+  const [nodes, setNodes, onNodesChange] = useNodesState<FlowNodeData>(config.nodes as Node<FlowNodeData>[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState(config.edges);
 
   const onConnect = useCallback(
@@ -235,7 +239,7 @@ export const WSJFFlowComponent: React.FC<WSJFFlowProps> = ({
                 key={type}
                 onClick={() => {
                   const newConfig = flowConfigs[type];
-                  setNodes(newConfig.nodes);
+                  setNodes(newConfig.nodes as Node<FlowNodeData>[]);
                   setEdges(newConfig.edges);
                 }}
                 style={{

@@ -20,9 +20,9 @@ export declare class GoalieGapsProvider implements vscode.TreeDataProvider<vscod
     private readonly logger;
     private readonly sessionStats?;
     private _onDidChangeTreeData;
-    readonly onDidChangeTreeData: vscode.Event<void | vscode.TreeItem | undefined>;
+    readonly onDidChangeTreeData: vscode.Event<void | vscode.TreeItem>;
     private currentLens;
-    constructor(workspaceRoot: string | undefined, logger: vscode.OutputChannel, sessionStats?: Map<string, GapSessionStats> | undefined);
+    constructor(workspaceRoot: string | undefined, logger: vscode.OutputChannel, sessionStats?: Map<string, GapSessionStats>);
     refresh(): void;
     setLens(lens: 'ALL' | 'ML' | 'HPC' | 'STATS_DEVICE'): void;
     getTreeItem(element: vscode.TreeItem): vscode.TreeItem;

@@ -1,8 +1,11 @@
 /**
  * Logging Middleware
  * Request/response logging and monitoring
+ *
+ * OBSERVABILITY: Emits pattern metrics to .goalie/pattern_metrics.jsonl
+ * for API gateway latency tracking (CONSOLIDATED_ACTIONS: full-stack observability)
  */
-import { Request, Response, NextFunction } from 'express';
+import { NextFunction, Request, Response } from 'express';
 /**
  * Logging middleware
  */

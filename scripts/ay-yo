@@ -1,0 +1,439 @@
+#!/usr/bin/env bash
+# ay-yo - Single muscle memory command for focused incremental relentless execution
+set -euo pipefail
+
+# Get the directory of this script (handles symlinks)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ROOT_DIR is the parent of scripts directory (i.e., the project root)
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+# If we're in scripts/, ROOT_DIR should be the parent
+# If SCRIPT_DIR is .../agentic-flow/scripts, ROOT_DIR should be .../agentic-flow
+if [[ "$(basename "$SCRIPT_DIR")" != "scripts" ]]; then
+  ROOT_DIR="$SCRIPT_DIR"
+fi
+
+# Export ROOT_DIR so hooks don't override it
+export ROOT_DIR
+
+# Load ceremony hooks
+if [[ -f "$SCRIPT_DIR/hooks/ceremony-hooks.sh" ]]; then
+  source "$SCRIPT_DIR/hooks/ceremony-hooks.sh"
+fi
+
+# Colors
+RED='\033[0;31m'
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+# Default: Run learning cycles with hooks
+DEFAULT_ITERATIONS=10
+
+show_status() {
+  echo -e "${BOLD}${BLUE}ay yo${NC} - Focused Incremental Relentless Execution"
+  echo ""
+  
+  # Hook status
+  if [[ "${ENABLE_CEREMONY_HOOKS:-1}" == "1" ]]; then
+    echo -e "${GREEN}✓${NC} Ceremony hooks enabled"
+    [[ "${ENABLE_OBSERVABILITY_CHECK:-1}" == "1" ]] && echo -e "  • Observability checks"
+    [[ "${ENABLE_CEREMONY_METRICS:-1}" == "1" ]] && echo -e "  • Metrics recording"
+    [[ "${ENABLE_WSJF_CHECK:-0}" == "1" ]] && echo -e "  • WSJF priority checks"
+  else
+    echo -e "${YELLOW}⚠${NC} Ceremony hooks disabled"
+  fi
+  echo ""
+}
+
+usage() {
+  cat <<EOF
+${BOLD}ay yo${NC} - Single command for ceremony execution
+
+Usage:
+  ay yo [iterations] [analyze]   # Run learning cycles (default: 10)
+  ay yo i                        # Launch interactive dashboard
+  ay yo auto                     # Auto-resolve (unified workflow)
+  ay yo orchestrate [mode]       # Auto-orchestrate modes to resolve issues
+  ay yo validate [cmd]           # Validate solutions
+  ay yo prod-cycle [options]     # Production ceremony execution
+  ay yo improve [options]        # Continuous improvement cycles
+  ay yo wsjf-iterate [options]   # WSJF iteration with multiplier tuning
+  ay yo backtest [options]       # Run 382K episode backtest
+  ay yo monitor [interval]       # Real-time monitoring dashboard
+  ay yo --help                   # Show this help
+
+Commands:
+  prod-cycle                     Execute production ceremonies
+    --circles <circle>           Specify circle (orchestrator, assessor, etc.)
+    --ceremony <ceremony>        Specify ceremony (standup, wsjf, retro, etc.)
+    --wsjf                       Run WSJF prioritization
+    --balance <n>                Balance circles with <n> ceremonies (default: 10)
+    --iterate <n>                Execute top <n> WSJF priorities (default: 3)
+    --help                       Show prod-cycle help
+  
+  improve [n] [mode]             Run continuous improvement cycles
+    n: iterations (default: 5)
+    mode: quick|full|deep (default: full)
+  
+  wsjf-iterate [options]         WSJF iteration with multiplier tuning
+    tune [validation_data]       Tune multipliers
+    iterate <n>                  Execute <n> iterations
+    validate                     Validate multipliers
+  
+  backtest [command]             Run 382K episode backtest
+    full                         Full 382K backtest
+    quick                        100K quick backtest
+    validate                     Validate results
+    export [file]                Export results
+  
+  monitor [interval]             Real-time monitoring (default: 60s)
+
+Examples:
+  ay yo                          # Run 10 cycles with hooks
+  ay yo 20                       # Run 20 cycles
+  ay yo 20 analyze               # Run 20 cycles with causal analysis
+  ay yo i                        # Interactive dashboard
+  ay yo auto                     # Unified auto-resolve (analyze → orchestrate → validate → verdict)
+  ay yo prod-cycle --wsjf        # Run WSJF prioritization
+  ay yo improve 5 full           # Run 5 full improvement cycles
+  ay yo wsjf-iterate tune        # Tune multipliers
+  ay yo wsjf-iterate iterate 3   # Run 3 iterations
+  ay yo backtest quick           # Run 100K quick backtest
+  ay yo orchestrate              # Auto-resolve issues
+  ay yo validate                 # Validate solutions
+  ay yo monitor 30               # Monitor every 30 seconds
+  ay yo --help                   # Show help
+
+Hook Control (environment variables):
+  ENABLE_CEREMONY_HOOKS=1        # Master switch (default: on)
+  ENABLE_OBSERVABILITY_CHECK=1   # Observability (default: on)
+  ENABLE_WSJF_CHECK=1            # WSJF priorities (default: off)
+  
+  See: ./scripts/ay-yo-enhanced.sh hooks
+
+EOF
+  exit 0
+}
+
+# Production cycle subcommand
+prod_cycle_usage() {
+  cat <<EOF
+${BOLD}ay yo prod-cycle${NC} - Production ceremony execution
+
+Usage:
+  ay yo prod-cycle [options]
+
+Options:
+  --circles <circle>           Specify circle (orchestrator, assessor, innovator, analyst, seeker, intuitive)
+  --ceremony <ceremony>        Specify ceremony (standup, wsjf, retro, refine, replenish, synthesis)
+  --wsjf                       Run WSJF prioritization analysis
+  --balance <n>                Balance circles with <n> ceremonies (default: 10)
+  --iterate <n>                Execute top <n> WSJF priorities (default: 3)
+  --help                       Show this help
+
+Examples:
+  ay yo prod-cycle --wsjf                    # Run WSJF prioritization
+  ay yo prod-cycle --circles orchestrator    # Execute orchestrator ceremony
+  ay yo prod-cycle --balance 10              # Balance all circles with 10 ceremonies
+  ay yo prod-cycle --iterate 3               # Execute top 3 WSJF priorities
+
+EOF
+  exit 0
+}
+
+prod_cycle_command() {
+  local circles=""
+  local ceremony=""
+  local mode=""
+  local iterations="3"
+  
+  if [[ $# -eq 0 ]]; then
+    prod_cycle_usage
+  fi
+  
+  # Parse prod-cycle arguments
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --help|-h)
+        prod_cycle_usage
+        ;;
+      --circles)
+        circles="$2"
+        shift 2
+        ;;
+      --ceremony)
+        ceremony="$2"
+        shift 2
+        ;;
+      --wsjf)
+        mode="wsjf"
+        shift
+        ;;
+      --balance)
+        mode="balance"
+        if [[ $# -ge 2 ]] && [[ "$2" =~ ^[0-9]+$ ]]; then
+          iterations="$2"
+          shift
+        fi
+        shift
+        ;;
+      --iterate)
+        mode="iterate"
+        if [[ $# -ge 2 ]] && [[ "$2" =~ ^[0-9]+$ ]]; then
+          iterations="$2"
+          shift
+        fi
+        shift
+        ;;
+      *)
+        echo -e "${RED}Error: Unknown option $1${NC}"
+        echo ""
+        echo "Run 'ay yo prod-cycle --help' for usage information."
+        exit 1
+        ;;
+    esac
+  done
+  
+  # Execute based on mode
+  if [[ -n "$circles" ]]; then
+    # Execute specific circle ceremony
+    if [[ -x "$ROOT_DIR/scripts/ay-prod-cycle.sh" ]]; then
+      local default_ceremony="standup"
+      [[ -n "$ceremony" ]] && default_ceremony="$ceremony"
+      "$ROOT_DIR/scripts/ay-prod-cycle.sh" "$circles" "$default_ceremony"
+    else
+      echo -e "${RED}Error: ay-prod-cycle.sh not found${NC}"
+      exit 1
+    fi
+  elif [[ "$mode" == "wsjf" ]]; then
+    # Run WSJF prioritization
+    if [[ -x "$ROOT_DIR/scripts/ay-wsjf-runner.sh" ]]; then
+      "$ROOT_DIR/scripts/ay-wsjf-runner.sh" wsjf
+    else
+      echo -e "${RED}Error: ay-wsjf-runner.sh not found${NC}"
+      exit 1
+    fi
+  elif [[ "$mode" == "balance" ]]; then
+    # Balance circles
+    if [[ -x "$ROOT_DIR/scripts/ay-wsjf-runner.sh" ]]; then
+      "$ROOT_DIR/scripts/ay-wsjf-runner.sh" balance "$iterations"
+    else
+      echo -e "${RED}Error: ay-wsjf-runner.sh not found${NC}"
+      exit 1
+    fi
+  elif [[ "$mode" == "iterate" ]]; then
+    # Execute top priorities
+    if [[ -x "$ROOT_DIR/scripts/ay-wsjf-runner.sh" ]]; then
+      "$ROOT_DIR/scripts/ay-wsjf-runner.sh" iterate "$iterations"
+    else
+      echo -e "${RED}Error: ay-wsjf-runner.sh not found${NC}"
+      exit 1
+    fi
+  else
+    echo -e "${RED}Error: No valid mode specified${NC}"
+    prod_cycle_usage
+  fi
+}
+
+# Handle improve subcommand
+improve_command() {
+  local iterations="${1:-5}"
+  local mode="${2:-full}"
+  
+  if [[ -x "$ROOT_DIR/scripts/ay-yo-continuous-improvement.sh" ]]; then
+    "$ROOT_DIR/scripts/ay-yo-continuous-improvement.sh" run "$iterations" "$mode"
+  else
+    echo -e "${RED}Error: ay-yo-continuous-improvement.sh not found${NC}"
+    exit 1
+  fi
+}
+
+# Handle wsjf-iterate subcommand
+wsjf_iterate_command() {
+  if [[ $# -eq 0 ]]; then
+    echo "Usage: ay yo wsjf-iterate <command> [options]"
+    echo "Commands: tune, iterate <n>, validate, export"
+    exit 1
+  fi
+  
+  if [[ -x "$ROOT_DIR/scripts/ay-wsjf-iterate.sh" ]]; then
+    "$ROOT_DIR/scripts/ay-wsjf-iterate.sh" "$@"
+  else
+    echo -e "${RED}Error: ay-wsjf-iterate.sh not found${NC}"
+    exit 1
+  fi
+}
+
+# Handle backtest subcommand
+backtest_command() {
+  if [[ $# -eq 0 ]]; then
+    echo "Usage: ay yo backtest <command> [options]"
+    echo "Commands: full, quick, validate, export"
+    exit 1
+  fi
+  
+  if [[ -x "$ROOT_DIR/scripts/ay-backtest.sh" ]]; then
+    "$ROOT_DIR/scripts/ay-backtest.sh" "$@"
+  else
+    echo -e "${RED}Error: ay-backtest.sh not found${NC}"
+    exit 1
+  fi
+}
+
+# Handle monitor subcommand
+monitor_command() {
+  local interval="${1:-60}"
+  
+  if [[ -x "$ROOT_DIR/scripts/ay-divergence-monitor.sh" ]]; then
+    # Modify monitor to respect interval
+    bash -c "while true; do clear; echo 'Monitoring (interval: ${interval}s)'; \"$ROOT_DIR/scripts/ay-divergence-monitor.sh\" 2>&1 | head -40; sleep $interval; done"
+  else
+    echo -e "${RED}Error: ay-divergence-monitor.sh not found${NC}"
+    exit 1
+  fi
+}
+
+# Handle orchestrate subcommand
+orchestrate_command() {
+  local mode="${1:-auto}"
+  
+  if [[ -x "$ROOT_DIR/scripts/ay-orchestrate.sh" ]]; then
+    "$ROOT_DIR/scripts/ay-orchestrate.sh" "$mode"
+  else
+    echo -e "${RED}Error: ay-orchestrate.sh not found${NC}"
+    exit 1
+  fi
+}
+
+# Handle validate subcommand
+validate_command() {
+  local command="${1:-auto}"
+  local solution="${2:-}"
+  
+  if [[ -x "$ROOT_DIR/scripts/ay-validate.sh" ]]; then
+    "$ROOT_DIR/scripts/ay-validate.sh" "$command" "$solution"
+  else
+    echo -e "${RED}Error: ay-validate.sh not found${NC}"
+    exit 1
+  fi
+}
+
+# Handle auto subcommand (unified workflow)
+auto_command() {
+  local mode="${1:-}"
+  
+  if [[ -x "$ROOT_DIR/scripts/ay-auto.sh" ]]; then
+    "$ROOT_DIR/scripts/ay-auto.sh" "$mode"
+  else
+    echo -e "${RED}Error: ay-auto.sh not found${NC}"
+    exit 1
+  fi
+}
+
+# Parse arguments
+if [[ $# -eq 0 ]]; then
+  # Default: run with default iterations
+  ITERATIONS=$DEFAULT_ITERATIONS
+  AUTO_ANALYZE=false
+elif [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
+  usage
+elif [[ "$1" == "improve" ]]; then
+  # Continuous improvement subcommand
+  shift
+  improve_command "$@"
+  exit 0
+elif [[ "$1" == "wsjf-iterate" ]]; then
+  # WSJF iteration subcommand
+  shift
+  wsjf_iterate_command "$@"
+  exit 0
+elif [[ "$1" == "backtest" ]]; then
+  # Backtest subcommand
+  shift
+  backtest_command "$@"
+  exit 0
+elif [[ "$1" == "monitor" ]]; then
+  # Monitor subcommand
+  shift
+  monitor_command "$@"
+  exit 0
+elif [[ "$1" == "orchestrate" ]]; then
+  # Orchestrate subcommand
+  shift
+  orchestrate_command "$@"
+  exit 0
+elif [[ "$1" == "validate" ]]; then
+  # Validate subcommand
+  shift
+  validate_command "$@"
+  exit 0
+elif [[ "$1" == "auto" ]]; then
+  # Auto subcommand (unified workflow)
+  shift
+  auto_command "$@"
+  exit 0
+elif [[ "$1" == "prod-cycle" ]]; then
+  # Production cycle subcommand
+  shift
+  prod_cycle_command "$@"
+  exit 0
+elif [[ "$1" == "i" ]] || [[ "$1" == "interactive" ]]; then
+  # Interactive dashboard mode
+  echo -e "${BOLD}${BLUE}ay yo${NC} - Launching Interactive Dashboard"
+  echo ""
+  if [[ -x "$ROOT_DIR/scripts/af_dashboard.py" ]]; then
+    python3 "$ROOT_DIR/scripts/af_dashboard.py" --watch
+  else
+    echo -e "${RED}Error: Dashboard not found at $ROOT_DIR/scripts/af_dashboard.py${NC}"
+    exit 1
+  fi
+  exit 0
+elif [[ "$1" =~ ^[0-9]+$ ]]; then
+  # First arg is iterations
+  ITERATIONS=$1
+  AUTO_ANALYZE=false
+  
+  # Check for analyze flag
+  if [[ $# -ge 2 ]] && [[ "$2" == "analyze" ]]; then
+    AUTO_ANALYZE=true
+  fi
+else
+  echo "Invalid argument: $1"
+  usage
+fi
+
+# Show status
+show_status
+
+# Show WSJF recommendations
+if [[ -x "$ROOT_DIR/scripts/af" ]]; then
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BOLD}📊 WSJF Priority Recommendations${NC}"
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  "$ROOT_DIR/scripts/af" governance-agent 2>&1 | head -50
+  echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo ""
+fi
+
+# Build command (use ROOT_DIR to avoid SCRIPT_DIR override from hooks)
+LEARN_LOOP="$ROOT_DIR/scripts/ay-prod-learn-loop.sh"
+CMD="$LEARN_LOOP"
+
+if [[ "$AUTO_ANALYZE" == "true" ]]; then
+  CMD="$CMD --analyze"
+fi
+
+CMD="$CMD $ITERATIONS"
+
+# Execute
+if [[ -x "$LEARN_LOOP" ]]; then
+  echo -e "${CYAN}Executing:${NC} $ITERATIONS cycles$([ "$AUTO_ANALYZE" == "true" ] && echo " with causal analysis")"
+  echo ""
+  $CMD
+else
+  echo "Error: ay-prod-learn-loop.sh not found at: $LEARN_LOOP"
+  exit 1
+fi

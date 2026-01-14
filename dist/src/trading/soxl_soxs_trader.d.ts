@@ -87,6 +87,5 @@ export declare class SOXLSOXSTrader {
      */
     backtest(startDate: string, endDate: string): Promise<void>;
 }
-export { SOXLSOXSTrader };
 export default SOXLSOXSTrader;
 //# sourceMappingURL=soxl_soxs_trader.d.ts.map

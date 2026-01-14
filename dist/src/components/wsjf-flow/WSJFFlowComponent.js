@@ -72,6 +72,7 @@ const TestingNode = ({ data }) => {
 };
 export const WSJFFlowComponent = ({ flowType = 'wsjf', onNodeClick, onEdgeClick, }) => {
     const config = flowConfigs[flowType];
+    // Use type assertion to handle the union type
     const [nodes, setNodes, onNodesChange] = useNodesState(config.nodes);
     const [edges, setEdges, onEdgesChange] = useEdgesState(config.edges);
     const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), [setEdges]);

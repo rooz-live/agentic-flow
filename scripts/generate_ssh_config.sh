@@ -4,7 +4,7 @@ set -euo pipefail
 HOST_ALIAS="${STX_AIO_ALIAS:-stx-aio-0}"
 CONFIG_OUT="${CONFIG_OUT:-config/ssh_config}"
 IDENTITY_FILE="${STX_AIO_IDENTITY_FILE:-$HOME/pem/stx-aio-0.pem}"
-USER_VAL="${STX_AIO_USER:-sysadmin}"
+USER_VAL="${STX_AIO_USER:-ubuntu}"
 PORT_VAL="${STX_AIO_PORT:-22}"
 DRY_RUN=0
 QUIET=0

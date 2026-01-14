@@ -13,6 +13,7 @@
  * @packageDocumentation
  */
 
+// @ts-expect-error - WASM module may not be compiled yet
 import type { WasmQuicClient, ConnectionConfig, QuicMessage } from '../../crates/agentic-flow-quic/pkg';
 
 /**
@@ -99,6 +100,7 @@ export class QuicTransport {
    */
   static async create(config: QuicTransportConfig = {}): Promise<QuicTransport> {
     // Load WASM module dynamically
+    // @ts-expect-error - WASM module may not be compiled yet
     const wasmModule = await import('../../crates/agentic-flow-quic/pkg');
 
     // Default configuration
@@ -145,6 +147,7 @@ export class QuicTransport {
     }
 
     // Load WASM module for message creation
+    // @ts-expect-error - WASM module may not be compiled yet
     const wasmModule = await import('../../crates/agentic-flow-quic/pkg');
 
     // Serialize payload

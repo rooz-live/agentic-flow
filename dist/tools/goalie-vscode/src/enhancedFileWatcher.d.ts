@@ -64,7 +64,7 @@ export declare class EnhancedFileWatcher {
     /**
      * Get file metadata from cache
      */
-    getFileMetadata(filePath: string): import("./fileWatcherService").FileMetadata | undefined;
+    getFileMetadata(filePath: string): import("./fileWatcherService").FileMetadata;
     /**
      * Dispose of the enhanced file watcher
      */

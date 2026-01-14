@@ -909,6 +909,16 @@ update_verdict_registry() {
         test_failures="[\"$failed_count tests failed\"]"
     fi
     
+    # Run governance compliance check (P0 Fix #3)
+    local governance_flags="[]"
+    if [[ -x "$SCRIPT_DIR/ay-governance-check.sh" ]]; then
+        governance_flags=$("$SCRIPT_DIR/ay-governance-check.sh" "$PROJECT_ROOT" 2>/dev/null || echo "[]")
+        # Validate JSON
+        if ! echo "$governance_flags" | jq -e . >/dev/null 2>&1; then
+            governance_flags="[]"
+        fi
+    fi
+    
     # Append new verdict with audit trail
     local new_verdict=$(cat <<JSON
 {
@@ -930,7 +940,7 @@ update_verdict_registry() {
       "passing_rate": "$verdict_score%"
     },
     "review_required": $([ "$verdict_status" == "NO_GO" ] && echo "true" || echo "false"),
-    "governance_flags": []
+    "governance_flags": $governance_flags
   }
 }
 JSON

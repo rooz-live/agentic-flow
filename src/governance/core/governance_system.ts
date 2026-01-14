@@ -333,7 +333,7 @@ export class GovernanceSystem {
     try {
       const events = this.loadPatternEvents();
       const recentEvents = events.filter(e =>
-        new Date(e.ts || e.timestamp) > new Date(Date.now() - 24 * 60 * 60 * 1000)
+        new Date(e.ts || (e as any).timestamp) > new Date(Date.now() - 24 * 60 * 60 * 1000)
       );
 
       // Look for evidence of adaptive behavior:

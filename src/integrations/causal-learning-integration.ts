@@ -97,6 +97,12 @@ export class CausalLearningIntegration {
     
     console.log(`✅ Recorded causal observation for ${episode.circle}::${episode.ceremony}`);
     console.log(`   Treatment: ${hadSkills ? 'WITH' : 'WITHOUT'} skills, Outcome: ${outcome}`);
+    
+    // Persist to disk if using sql.js
+    if (typeof this.db.save === 'function') {
+      this.db.save();
+      console.log(`   💾 Persisted to ${this.dbPath}`);
+    }
   }
   
   /**

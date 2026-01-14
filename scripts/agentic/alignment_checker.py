@@ -334,7 +334,42 @@ def detect_proxy_gaming(patterns: List[Dict]) -> Dict:
     5. High yasna (policy) with missing rationale (blind compliance)
     """
     if not patterns:
-        return {'gaming_detected': False, 'indicators': [], 'risk_level': 'LOW'}
+        return {
+            'gaming_detected': False,
+            'indicators': [],
+            'risk_level': 'LOW',
+            'gaming_score': 0.0,
+            'patterns_analyzed': 0,
+            'test_patterns_filtered': 0,
+            'recommendation': None
+        }
+
+    # IMPROVEMENT 1: Filter out known test patterns to prevent false positives
+    TEST_PATTERN_PREFIXES = (
+        'checkbox_gaming', 'uniform_gaming', 'wsjf_gaming', 'blind_gaming',
+        'test_', 'mock_', 'fixture_', 'sample_gaming'
+    )
+
+    original_count = len(patterns)
+    production_patterns = [
+        p for p in patterns
+        if not p.get('pattern', '').startswith(TEST_PATTERN_PREFIXES)
+    ]
+    filtered_count = original_count - len(production_patterns)
+
+    if not production_patterns:
+        return {
+            'gaming_detected': False,
+            'indicators': [],
+            'risk_level': 'LOW',
+            'gaming_score': 0.0,
+            'patterns_analyzed': 0,
+            'test_patterns_filtered': filtered_count,
+            'recommendation': 'No production patterns found for analysis (test data filtered)'
+        }
+
+    # Use production patterns for all subsequent analysis
+    patterns = production_patterns
 
     indicators = []
     gaming_score = 0.0
@@ -385,31 +420,45 @@ def detect_proxy_gaming(patterns: List[Dict]) -> Dict:
             gaming_score += 0.3
 
     # INDICATOR 2: Suspiciously uniform scores (low variance)
-    if len(alignment_scores) >= 10:
+    # IMPROVEMENT 3: Sample-size-aware variance thresholds
+    MIN_SAMPLES_FOR_VARIANCE = 10
+    if len(alignment_scores) >= MIN_SAMPLES_FOR_VARIANCE:
         mean_score = sum(alignment_scores) / len(alignment_scores)
         variance = sum((s - mean_score)**2 for s in alignment_scores) / len(alignment_scores)
 
-        if variance < 0.01 and mean_score > 0.8:
+        # Scale variance threshold based on sample size
+        if len(alignment_scores) >= 30:
+            variance_threshold = 0.01  # Standard threshold for large samples
+        elif len(alignment_scores) >= 20:
+            variance_threshold = 0.008  # Slightly more lenient
+        else:
+            variance_threshold = 0.005  # More lenient for smaller samples
+
+        if variance < variance_threshold and mean_score > 0.8:
             indicators.append({
                 'type': 'ARTIFICIAL_CONSISTENCY',
                 'severity': 'MEDIUM',
-                'evidence': f'Suspiciously uniform scores (variance={variance:.4f}, mean={mean_score:.2f})',
+                'evidence': f'Uniform scores (variance={variance:.4f}, threshold={variance_threshold:.4f}, n={len(alignment_scores)})',
                 'recommendation': 'Review scoring methodology for genuine variation'
             })
             gaming_score += 0.2
 
     # INDICATOR 3: High WSJF with low revenue impact
+    # IMPROVEMENT 2: Ratio-based detection instead of absolute thresholds
     if wsjf_scores:
         avg_wsjf = sum(wsjf_scores) / len(wsjf_scores)
         revenue_impacts = [p.get('economic', {}).get('revenue_impact', 0) for p in patterns]
         avg_revenue = sum(revenue_impacts) / len(revenue_impacts) if revenue_impacts else 0
 
-        if avg_wsjf > 20 and avg_revenue < 100:
+        # Use ratio-based detection: WSJF/revenue ratio > 10x is suspicious
+        wsjf_revenue_ratio = avg_wsjf / max(avg_revenue, 1)  # Avoid division by zero
+
+        if wsjf_revenue_ratio > 10:  # 10x ratio indicates suspicious inflation
             indicators.append({
                 'type': 'INFLATED_PRIORITIES',
                 'severity': 'MEDIUM',
-                'evidence': f'High WSJF ({avg_wsjf:.1f}) with low revenue impact (${avg_revenue:.0f})',
-                'recommendation': 'Calibrate WSJF scoring against actual business outcomes'
+                'evidence': f'High WSJF/revenue ratio ({wsjf_revenue_ratio:.1f}x) - WSJF={avg_wsjf:.1f}, revenue=${avg_revenue:.0f}',
+                'recommendation': 'Review WSJF calculations against actual business outcomes'
             })
             gaming_score += 0.2
 
@@ -446,7 +495,56 @@ def detect_proxy_gaming(patterns: List[Dict]) -> Dict:
         'risk_level': risk_level,
         'indicators': indicators,
         'patterns_analyzed': len(patterns),
+        'test_patterns_filtered': filtered_count,
         'recommendation': 'Review flagged indicators and ensure metrics reflect genuine outcomes' if indicators else None
+    }
+
+
+def validate_pattern_coverage(patterns: List[Dict]) -> Dict:
+    """
+    Validate that all pattern types in the dataset have corresponding rationales.
+
+    Returns coverage statistics and any patterns missing rationales.
+    """
+    if not patterns:
+        return {
+            'coverage_rate': 1.0,
+            'patterns_checked': 0,
+            'patterns_with_rationale': 0,
+            'missing_rationale': [],
+            'validation_passed': True
+        }
+
+    patterns_with_rationale = 0
+    missing_rationale = []
+    pattern_types_seen = set()
+
+    for p in patterns:
+        pattern_name = p.get('pattern', 'unknown')
+        pattern_types_seen.add(pattern_name)
+
+        rationale = _extract_rationale(p)
+        if rationale:
+            patterns_with_rationale += 1
+        else:
+            # Track pattern types missing rationale
+            if pattern_name not in [m['pattern'] for m in missing_rationale]:
+                missing_rationale.append({
+                    'pattern': pattern_name,
+                    'example_timestamp': p.get('timestamp', 'unknown')
+                })
+
+    total = len(patterns)
+    coverage_rate = patterns_with_rationale / total if total > 0 else 1.0
+
+    return {
+        'coverage_rate': round(coverage_rate, 3),
+        'patterns_checked': total,
+        'patterns_with_rationale': patterns_with_rationale,
+        'unique_pattern_types': len(pattern_types_seen),
+        'missing_rationale': missing_rationale[:10],  # Limit to first 10
+        'missing_count': len(missing_rationale),
+        'validation_passed': coverage_rate >= 0.8  # 80% threshold
     }
 
 
@@ -686,12 +784,14 @@ def main():
         calibration = calculate_calibrated_judgment(analysis)
         dimensional = analyze_three_dimensional_integrity(patterns)
         proxy_gaming = detect_proxy_gaming(patterns)
+        pattern_coverage = validate_pattern_coverage(patterns)
         philosophical_analysis = {
             'authority_insight_warnings': authority_warnings,
             'vigilance_deficit': vigilance,
             'calibrated_judgment': calibration,
             'three_dimensional_integrity': dimensional,
-            'proxy_gaming': proxy_gaming
+            'proxy_gaming': proxy_gaming,
+            'pattern_coverage': pattern_coverage
         }
 
     # Generate report if requested

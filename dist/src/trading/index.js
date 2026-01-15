@@ -158,7 +158,6 @@ export class TradingSystemFactory {
             enableOptions: false,
             enableAlgorithmic: false,
             complianceLevel: 'conservative',
-            autoBlockViolations: false,
         });
     }
 }

@@ -108,7 +108,21 @@ export class TradingEngine extends EventEmitter {
     this.optionsEngine = new OptionsStrategyEngine(config);
     this.performanceAnalytics = new PerformanceAnalytics(this.goalieDir);
     this.algorithmicEngine = new AlgorithmicTradingEngine(config);
-    this.complianceManager = new ComplianceManager(config);
+    // Map TradingEngineConfig to ComplianceConfig
+    this.complianceManager = new ComplianceManager({
+      accountType: 'MARGIN',
+      riskTolerance: config.complianceLevel === 'conservative' ? 'CONSERVATIVE' :
+                     config.complianceLevel === 'aggressive' ? 'AGGRESSIVE' : 'MODERATE',
+      jurisdiction: 'US',
+      autoBlockViolations: true,
+      requireApprovalFor: ['LARGE_ORDERS'],
+      reportingFrequency: 'REAL_TIME',
+      auditRetention: 2555,
+      dataEncryption: true,
+      gdprCompliance: true,
+      soxCompliance: true,
+      miFIDCompliance: false,
+    });
 
     if (!fs.existsSync(this.goalieDir)) {
       fs.mkdirSync(this.goalieDir, { recursive: true });
@@ -264,16 +278,26 @@ export class TradingEngine extends EventEmitter {
       console.log(`📈 Executing ${signal.action} signal for ${signal.symbol}`);
 
       // Check compliance before execution
-      const complianceResult = await this.complianceManager.validateExecution(signal);
+      const complianceResult = await this.complianceManager.validateExecution(
+        signal,
+        signal.price,
+        signal.quantity
+      );
       if (!complianceResult.approved) {
         throw new Error(`Execution rejected by compliance: ${complianceResult.reason}`);
       }
 
       // Calculate position size based on risk management
-      const positionSize = this.riskManager.calculatePositionSize(signal);
+      const marketData = this.marketDataCache.get(signal.symbol);
+      if (!marketData) {
+        throw new Error(`No market data available for ${signal.symbol}`);
+      }
+      const positionSize = this.riskManager.calculatePositionSize(signal, marketData);
 
-      // Update portfolio
-      this.updatePortfolio(signal.symbol, signal.action, positionSize);
+      // Update portfolio (only for BUY/SELL, not HOLD)
+      if (signal.action !== 'HOLD') {
+        this.updatePortfolio(signal.symbol, signal.action, positionSize);
+      }
 
       // Log execution
       this.logExecution(signal, positionSize);

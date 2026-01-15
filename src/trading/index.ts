@@ -107,7 +107,7 @@ export class TradingSystemFactory {
       dataEncryption: true,
       gdprCompliance: true,
       soxCompliance: true,
-      mifidCompliance: false,
+      miFIDCompliance: false,
     });
 
     return {
@@ -129,12 +129,12 @@ export class TradingSystemFactory {
     engine: TradingEngine;
     [key: string]: any;
   } {
-    const baseConfig = {
+    const baseConfig: Partial<TradingEngineConfig> = {
       apiKey: process.env.FMP_API_KEY,
       maxPositions: 10,
       maxLeverage: 2.0,
       riskTolerance: 0.15,
-      rebalanceFrequency: 'weekly',
+      rebalanceFrequency: 'weekly' as const,
     };
 
     switch (type) {
@@ -193,12 +193,11 @@ export class TradingSystemFactory {
       maxPositions: 5,
       maxLeverage: 1.0,
       riskTolerance: 0.05,
-      rebalanceFrequency: 'daily',
+      rebalanceFrequency: 'daily' as const,
       strategies: ['momentum'],
       enableOptions: false,
       enableAlgorithmic: false,
       complianceLevel: 'conservative',
-      autoBlockViolations: false,
     });
   }
 }

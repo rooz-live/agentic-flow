@@ -3,7 +3,7 @@
  * Manages registration, validation, and execution of Discord commands
  */
 
-import { SlashCommandBuilder, SlashCommandSubcommandBuilder } from 'discord.js';
+import { SlashCommandBuilder, SlashCommandSubcommandBuilder, SlashCommandSubcommandsOnlyBuilder } from 'discord.js';
 import { DiscordCommand } from './discord_bot';
 
 export interface CommandRegistration {
@@ -233,7 +233,7 @@ export class CommandRegistry {
   /**
    * Add trading subcommands
    */
-  private addTradingSubcommands(builder: SlashCommandBuilder): SlashCommandBuilder {
+  private addTradingSubcommands(builder: SlashCommandBuilder): SlashCommandBuilder | SlashCommandSubcommandsOnlyBuilder {
     return builder
       .addSubcommand(
         new SlashCommandSubcommandBuilder()
@@ -312,7 +312,7 @@ export class CommandRegistry {
   /**
    * Add payment subcommands
    */
-  private addPaymentSubcommands(builder: SlashCommandBuilder): SlashCommandBuilder {
+  private addPaymentSubcommands(builder: SlashCommandBuilder): SlashCommandBuilder | SlashCommandSubcommandsOnlyBuilder {
     return builder
       .addSubcommand(
         new SlashCommandSubcommandBuilder()

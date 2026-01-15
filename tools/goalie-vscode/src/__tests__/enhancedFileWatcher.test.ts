@@ -22,7 +22,7 @@ const mockVSCode = {
     }),
     getConfiguration: () => ({
       get: (key: string) => {
-        const defaults: {
+        const defaults = {
           'goalie.fileWatcher.enableNotifications': true,
           'goalie.fileWatcher.debounceDelay': 300,
           'goalie.fileWatcher.enableBatching': true,

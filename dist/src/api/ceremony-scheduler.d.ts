@@ -60,4 +60,14 @@ export declare function stopAllSchedules(): void;
  * Restart all enabled schedules
  */
 export declare function restartAllSchedules(): void;
+export declare const scheduler: {
+    executeManualCeremony: typeof executeManualCeremony;
+    createSchedule: typeof createSchedule;
+    getScheduleById: typeof getScheduleById;
+    getAllSchedules: typeof getAllSchedules;
+    updateSchedule: typeof updateSchedule;
+    deleteSchedule: typeof deleteSchedule;
+    stopAllSchedules: typeof stopAllSchedules;
+    restartAllSchedules: typeof restartAllSchedules;
+};
 //# sourceMappingURL=ceremony-scheduler.d.ts.map

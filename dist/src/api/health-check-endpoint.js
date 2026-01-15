@@ -11,7 +11,7 @@
  *   GET /api/health/divergence - Divergence rate status
  */
 import { Router } from 'express';
-import { performHealthCheck, refreshDynamicThresholds, checkDegradation, checkCascadeFailure, getDivergenceRateStatus, getAdaptiveCheckFrequency, getQuantileThreshold } from '../runtime/processGovernorEnhanced';
+import { performHealthCheck, refreshDynamicThresholds, checkDegradation, checkCascadeFailure, getDivergenceRateStatus, getAdaptiveCheckFrequency, getQuantileThreshold } from '../runtime/processGovernor Enhanced';
 import { getCircuitBreakerState } from '../runtime/processGovernor';
 const router = Router();
 // In-memory state (in production, this would be shared with process governor)

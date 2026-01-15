@@ -18,8 +18,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import * as roamService from './roam-service-json';
-// import * as scheduler from './ceremony-scheduler';
-// import type { CeremonySchedule } from './ceremony-scheduler';
+import { scheduler } from './ceremony-scheduler';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const execAsync = promisify(exec);
@@ -249,7 +248,7 @@ app.get('/api/ceremony/schedule', async (req, res) => {
  */
 app.get('/api/ceremony/schedule/:id', async (req, res) => {
     try {
-        const id = parseInt(req.params.id, 10);
+        const id = Array.isArray(req.params.id) ? parseInt(req.params.id[0], 10) : parseInt(req.params.id, 10);
         const schedule = scheduler.getScheduleById(id);
         if (!schedule) {
             return res.status(404).json({ error: 'Schedule not found' });
@@ -267,7 +266,7 @@ app.get('/api/ceremony/schedule/:id', async (req, res) => {
  */
 app.put('/api/ceremony/schedule/:id', async (req, res) => {
     try {
-        const id = parseInt(req.params.id, 10);
+        const id = Array.isArray(req.params.id) ? parseInt(req.params.id[0], 10) : parseInt(req.params.id, 10);
         const updates = req.body;
         const success = scheduler.updateSchedule(id, updates);
         if (!success) {
@@ -286,7 +285,7 @@ app.put('/api/ceremony/schedule/:id', async (req, res) => {
  */
 app.delete('/api/ceremony/schedule/:id', async (req, res) => {
     try {
-        const id = parseInt(req.params.id, 10);
+        const id = Array.isArray(req.params.id) ? parseInt(req.params.id[0], 10) : parseInt(req.params.id, 10);
         const success = scheduler.deleteSchedule(id);
         if (!success) {
             return res.status(404).json({ error: 'Schedule not found' });
@@ -347,7 +346,7 @@ app.get('/api/roam/all', async (req, res) => {
  */
 app.get('/api/roam/:id', async (req, res) => {
     try {
-        const id = parseInt(req.params.id, 10);
+        const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
         const entity = roamService.getROAMById(id);
         if (!entity) {
             return res.status(404).json({ error: 'ROAM entity not found' });
@@ -365,7 +364,7 @@ app.get('/api/roam/:id', async (req, res) => {
  */
 app.put('/api/roam/:id/status', async (req, res) => {
     try {
-        const id = parseInt(req.params.id, 10);
+        const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
         const { status, resolution } = req.body;
         if (!status) {
             return res.status(400).json({ error: 'Missing required field: status' });
@@ -387,7 +386,7 @@ app.put('/api/roam/:id/status', async (req, res) => {
  */
 app.delete('/api/roam/:id', async (req, res) => {
     try {
-        const id = parseInt(req.params.id, 10);
+        const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
         const success = roamService.deleteROAM(id);
         if (!success) {
             return res.status(404).json({ error: 'ROAM entity not found' });
@@ -405,7 +404,7 @@ app.delete('/api/roam/:id', async (req, res) => {
  */
 app.get('/api/roam/:id/traceability', async (req, res) => {
     try {
-        const id = parseInt(req.params.id, 10);
+        const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
         const trace = roamService.getROAMTraceability(id);
         res.json(trace);
     }
@@ -420,7 +419,7 @@ app.get('/api/roam/:id/traceability', async (req, res) => {
  */
 app.post('/api/roam/:id/link-episode', async (req, res) => {
     try {
-        const roam_id = parseInt(req.params.id, 10);
+        const roam_id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
         const { episode_id, impact } = req.body;
         if (!episode_id) {
             return res.status(400).json({ error: 'Missing required field: episode_id' });

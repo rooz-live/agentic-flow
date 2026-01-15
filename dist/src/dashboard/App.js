@@ -50,6 +50,6 @@ export function DashboardApp() {
                 return _jsx("div", { children: "Unknown view" });
         }
     };
-    return (_jsx(DashboardLayout, { activeView: activeView, onViewChange: setActiveView, isConnected: isConnected, onRefresh: refreshData, children: renderCurrentView() }));
+    return (_jsx(DashboardLayout, { activeView: activeView, onViewChange: (view) => setActiveView(view), isConnected: isConnected, onRefresh: refreshData, children: renderCurrentView() }));
 }
 //# sourceMappingURL=App.js.map

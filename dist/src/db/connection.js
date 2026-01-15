@@ -77,7 +77,11 @@ export async function queryOne(sql, params) {
  */
 export async function execute(sql, params) {
     const database = await getDatabase();
-    return database.run(sql, params);
+    const result = await database.run(sql, params);
+    return {
+        lastID: result.lastID ?? 0,
+        changes: result.changes ?? 0
+    };
 }
 /**
  * Transaction helper

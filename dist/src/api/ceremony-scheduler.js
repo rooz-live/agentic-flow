@@ -242,4 +242,15 @@ export function restartAllSchedules() {
     });
     console.log(`🔄 Restarted ${activeTasks.size} schedules`);
 }
+// Singleton wrapper for compatibility
+export const scheduler = {
+    executeManualCeremony,
+    createSchedule,
+    getScheduleById,
+    getAllSchedules,
+    updateSchedule,
+    deleteSchedule,
+    stopAllSchedules,
+    restartAllSchedules
+};
 //# sourceMappingURL=ceremony-scheduler.js.map

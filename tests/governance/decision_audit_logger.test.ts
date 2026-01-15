@@ -1,3 +1,9 @@
+jest.mock('fs-extra', () => ({
+  ensureDir: jest.fn().mockResolvedValue(undefined),
+  writeJson: jest.fn().mockResolvedValue(undefined),
+  readJson: jest.fn().mockResolvedValue({})
+}));
+
 /**
  * Tests for DecisionAuditLogger and Adaptive Health Checks
  */

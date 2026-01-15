@@ -1,5 +1,12 @@
 import React from 'react';
+interface Circle {
+    name: string;
+    episodes: number;
+    percentage: number;
+    color: string;
+}
 interface SpatialPivotProps {
+    circles?: Circle[];
     location?: {
         lat: number;
         lng: number;

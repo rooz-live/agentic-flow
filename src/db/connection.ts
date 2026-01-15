@@ -92,7 +92,11 @@ export async function queryOne<T = any>(sql: string, params?: any[]): Promise<T 
  */
 export async function execute(sql: string, params?: any[]): Promise<{ lastID: number; changes: number }> {
   const database = await getDatabase();
-  return database.run(sql, params);
+  const result = await database.run(sql, params);
+  return {
+    lastID: result.lastID ?? 0,
+    changes: result.changes ?? 0
+  };
 }
 
 /**

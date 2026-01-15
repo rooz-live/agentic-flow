@@ -179,7 +179,7 @@ export function DashboardApp() {
   return (
     <DashboardLayout
       activeView={activeView}
-      onViewChange={setActiveView}
+      onViewChange={(view: ViewType) => setActiveView(view)}
       isConnected={isConnected}
       onRefresh={refreshData}
     >

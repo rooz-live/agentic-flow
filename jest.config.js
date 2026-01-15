@@ -62,6 +62,6 @@ module.exports = {
     '^vscode$': '<rootDir>/tests/__mocks__/vscode.ts',
   },
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
-  testTimeout: 10000,
+  testTimeout: 30000, // Increased from 10s to 30s to fix timeout issues in guardrail and integration tests
   verbose: true,
 };

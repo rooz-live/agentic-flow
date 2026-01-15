@@ -288,3 +288,16 @@ export function restartAllSchedules(): void {
   });
   console.log(`🔄 Restarted ${activeTasks.size} schedules`);
 }
+
+// Singleton wrapper for compatibility
+export const scheduler = {
+  executeManualCeremony,
+  createSchedule,
+  getScheduleById,
+  getAllSchedules,
+  updateSchedule,
+  deleteSchedule,
+  stopAllSchedules,
+  restartAllSchedules
+};
+

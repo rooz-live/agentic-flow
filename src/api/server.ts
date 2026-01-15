@@ -259,9 +259,9 @@ app.get('/api/circles/equity', optionalAuthenticate, async (req: Request, res: R
  */
 app.get('/api/circles/:circleName/episodes', authenticate, requireCircleAccess, async (req: Request, res: Response) => {
   try {
-    const { circleName } = req.params;
-    const limit = parseInt(req.query.limit as string) || 50;
-    const offset = parseInt(req.query.offset as string) || 0;
+    const circleName = Array.isArray(req.params.circleName) ? req.params.circleName[0] : req.params.circleName;
+    const limit = parseInt((Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit) as string || '50');
+    const offset = parseInt((Array.isArray(req.query.offset) ? req.query.offset[0] : req.query.offset) as string || '0');
 
     const episodes = await EpisodeRepository.getEpisodesByCircle(circleName, limit, offset);
 

@@ -1,6 +1,14 @@
 import React from 'react';
 
+interface Circle {
+  name: string;
+  episodes: number;
+  percentage: number;
+  color: string;
+}
+
 interface SpatialPivotProps {
+  circles?: Circle[];
   location?: {
     lat: number;
     lng: number;
@@ -9,6 +17,7 @@ interface SpatialPivotProps {
 }
 
 export const SpatialPivot: React.FC<SpatialPivotProps> = ({
+  circles = [],
   location,
   onLocationChange
 }) => {

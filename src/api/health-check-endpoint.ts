@@ -20,7 +20,7 @@ import {
   getDivergenceRateStatus,
   getAdaptiveCheckFrequency,
   getQuantileThreshold
-} from '../runtime/processGovernorEnhanced';
+} from '../runtime/processGovernor Enhanced';
 import { getCircuitBreakerState } from '../runtime/processGovernor';
 
 const router = Router();

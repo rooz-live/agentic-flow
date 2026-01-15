@@ -265,7 +265,7 @@ export class DecisionAuditRules implements AISPRule<DecisionTypes, DecisionTypes
       valid: errors.length === 0,
       errors,
       warnings,
-      evidence: decision
+      evidence: decision as Record<string, unknown>
     };
   }
 

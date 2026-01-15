@@ -20,8 +20,8 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import * as roamService from './roam-service-json';
 import type { ROAMEntity, ROAMStatus, ROAMType } from './roam-service-json';
-// import * as scheduler from './ceremony-scheduler';
-// import type { CeremonySchedule } from './ceremony-scheduler';
+import { scheduler } from './ceremony-scheduler';
+import type { CeremonySchedule } from './ceremony-scheduler';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -233,7 +233,7 @@ app.post('/api/ceremony', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid circle' });
     }
 
-    const result = await scheduler.executeManualCeremony(circle, ceremony, adr);
+    const result = await scheduler.executeManualCeremony(circle as Circle, ceremony, adr);
 
     res.json({
       ...result,
@@ -288,7 +288,7 @@ app.get('/api/ceremony/schedule', async (req: Request, res: Response) => {
  */
 app.get('/api/ceremony/schedule/:id', async (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = Array.isArray(req.params.id) ? parseInt(req.params.id[0], 10) : parseInt(req.params.id, 10);
     const schedule = scheduler.getScheduleById(id);
 
     if (!schedule) {
@@ -308,7 +308,7 @@ app.get('/api/ceremony/schedule/:id', async (req: Request, res: Response) => {
  */
 app.put('/api/ceremony/schedule/:id', async (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = Array.isArray(req.params.id) ? parseInt(req.params.id[0], 10) : parseInt(req.params.id, 10);
     const updates = req.body;
 
     const success = scheduler.updateSchedule(id, updates);
@@ -330,7 +330,7 @@ app.put('/api/ceremony/schedule/:id', async (req: Request, res: Response) => {
  */
 app.delete('/api/ceremony/schedule/:id', async (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = Array.isArray(req.params.id) ? parseInt(req.params.id[0], 10) : parseInt(req.params.id, 10);
     const success = scheduler.deleteSchedule(id);
 
     if (!success) {
@@ -395,7 +395,7 @@ app.get('/api/roam/all', async (req: Request, res: Response) => {
  */
 app.get('/api/roam/:id', async (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
     const entity = roamService.getROAMById(id);
 
     if (!entity) {
@@ -415,7 +415,7 @@ app.get('/api/roam/:id', async (req: Request, res: Response) => {
  */
 app.put('/api/roam/:id/status', async (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
     const { status, resolution } = req.body;
 
     if (!status) {
@@ -441,7 +441,7 @@ app.put('/api/roam/:id/status', async (req: Request, res: Response) => {
  */
 app.delete('/api/roam/:id', async (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
     const success = roamService.deleteROAM(id);
 
     if (!success) {
@@ -461,7 +461,7 @@ app.delete('/api/roam/:id', async (req: Request, res: Response) => {
  */
 app.get('/api/roam/:id/traceability', async (req: Request, res: Response) => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
     const trace = roamService.getROAMTraceability(id);
     res.json(trace);
   } catch (error: any) {
@@ -476,7 +476,7 @@ app.get('/api/roam/:id/traceability', async (req: Request, res: Response) => {
  */
 app.post('/api/roam/:id/link-episode', async (req: Request, res: Response) => {
   try {
-    const roam_id = parseInt(req.params.id, 10);
+    const roam_id = parseInt(Array.isArray(req.params.id) ? req.params.id[0] : req.params.id, 10);
     const { episode_id, impact } = req.body;
 
     if (!episode_id) {

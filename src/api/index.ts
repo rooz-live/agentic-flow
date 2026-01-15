@@ -197,7 +197,7 @@ export class MedicalAnalysisAPI {
     // GET /analysis/:id - Get analysis results
     router.get('/analysis/:id', async (req: Request, res: Response) => {
       try {
-        const { id } = req.params;
+        const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
         const result = await this.analysisService.getAnalysis(id);
 
         if (!result) {

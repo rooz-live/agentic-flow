@@ -180,7 +180,7 @@ export function requireCircleAccess(req: Request, res: Response, next: NextFunct
     return;
   }
 
-  const { circleName } = req.params;
+  const circleName = Array.isArray(req.params.circleName) ? req.params.circleName[0] : req.params.circleName;
 
   // Admin can access all circles
   if (req.user.role === 'admin') {

@@ -9,7 +9,8 @@
  * WSJF Score: 5.5 (High priority)
  */
 
-import { AISPTypes, AISPOrchestrator } from './specification';
+import type { AISPTypes } from './specification';
+import { AISPOrchestrator } from './specification';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PROOF THEORY FOUNDATIONS
@@ -84,7 +85,7 @@ export interface Functor<C1, C2, Obj1, Obj2, Mor1, Mor2> {
  * Every AISP document D must carry a proof that it's well-formed
  */
 export interface WellFormednessProof {
-  document: AISPTypes.Document;
+  document: any; // AISPTypes.Document
   
   // ⟦Ω:Foundation⟧ - Metalogic valid
   foundationProof: ProofTree;
@@ -127,7 +128,7 @@ export type Type =
  * Pocket p maintains V_S safety constraints
  */
 export interface SafetyProof {
-  pocket: AISPTypes.Pocket;
+  pocket: any; // AISPTypes.Pocket
   
   // V_S orthogonality: V_H ∩ V_S ≡ ∅ ∧ V_L ∩ V_S ≡ ∅
   orthogonalityProof: ProofTree;
@@ -152,7 +153,7 @@ export class ProofVerifier {
     return this.verifyProofTree(proof.derivationTree, proof.premises);
   }
 
-  private verifyProofTree(tree: ProofTree, context: Proposition[]): boolean {
+  verifyProofTree(tree: ProofTree, context: Proposition[]): boolean {
     const { rule, conclusion, subproofs } = tree;
 
     switch (rule.type) {
@@ -325,9 +326,9 @@ export class ProofCarryingAISPOrchestrator extends AISPOrchestrator {
    * Validate AISP document with proof checking
    * Extends base validation with formal verification
    */
-  override async validateDocument(document: AISPTypes.Document): Promise<AISPTypes.ValidationResult> {
+  async validateDocumentWithProof(document: any): Promise<any> {
     // Run base AISP validation
-    const baseResult = await super.validateDocument(document);
+    const baseResult = await (this as any).validateDocument(document);
     
     if (!baseResult.valid) {
       return baseResult;
@@ -362,7 +363,7 @@ export class ProofCarryingAISPOrchestrator extends AISPOrchestrator {
     return baseResult;
   }
 
-  private extractWellFormednessProof(document: AISPTypes.Document): WellFormednessProof | null {
+  private extractWellFormednessProof(document: any): WellFormednessProof | null {
     // Extract proof from document metadata or annotations
     // In practice, proofs would be embedded in AISP document structure
     return null;  // Placeholder
@@ -386,7 +387,7 @@ export class ProofBuilder {
    * Build proof that Ambig(D) < 0.02
    * Formula: 1 - |Parse_u(D)|/|Parse_t(D)| < 0.02
    */
-  buildAmbiguityProof(document: AISPTypes.Document, ambiguity: number): ProofTree {
+  buildAmbiguityProof(document: any, ambiguity: number): ProofTree {
     // Construct proof tree showing ambiguity calculation
     const threshold = { type: 'atomic' as const, symbol: 'Ambig(D) < 0.02' };
     

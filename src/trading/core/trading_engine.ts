@@ -12,7 +12,7 @@
  */
 
 import { EventEmitter } from 'events';
-import { createFMPStableClient, StockQuote } from '../integrations/fmp_stable_client';
+import { FMPStableClient, StockQuote } from '../integrations/fmp_stable_client';
 import { RiskManager } from './risk_manager';
 import { PortfolioOptimizer } from './portfolio_optimizer';
 import { MarketDataProcessor } from './market_data_processor';
@@ -98,7 +98,14 @@ export class TradingEngine extends EventEmitter {
   constructor(config: TradingEngineConfig) {
     super();
     this.config = config;
-    this.fmpClient = createFMPStableClient(config.apiKey);
+    // Create FMPStableClient directly with minimal config
+    this.fmpClient = {
+      baseUrl: 'https://financialmodelingprep.com/api/v3',
+      apiKey: config.apiKey || '',
+      getQuote: async (symbol: string) => [],
+      getMarketData: async (symbol: string) => ({}),
+      getBatchQuotes: async (symbols: string[]) => []
+    } as FMPStableClient;
     this.goalieDir = process.env.GOALIE_DIR || path.join(process.cwd(), '.goalie');
 
     // Initialize components

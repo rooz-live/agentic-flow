@@ -27,6 +27,7 @@ import {
   TextInputStyle,
   Interaction,
   CommandInteraction,
+  ChatInputCommandInteraction,
   ButtonInteraction,
   ModalSubmitInteraction,
   Guild,
@@ -475,7 +476,7 @@ export class DiscordBot extends EventEmitter {
       return;
     }
 
-    const subcommand = (interaction.options as any).getSubcommand?.() || 'unknown';
+    const subcommand = (interaction as ChatInputCommandInteraction).options?.getSubcommand?.() || 'unknown';
     
     switch (subcommand) {
       case 'policy':
@@ -504,7 +505,7 @@ export class DiscordBot extends EventEmitter {
       return;
     }
 
-    const subcommand = (interaction.options as any).getSubcommand?.() || 'unknown';
+    const subcommand = (interaction as ChatInputCommandInteraction).options?.getSubcommand?.() || 'unknown';
     
     switch (subcommand) {
       case 'portfolio':
@@ -533,7 +534,7 @@ export class DiscordBot extends EventEmitter {
       return;
     }
 
-    const subcommand = (interaction.options as any).getSubcommand?.() || 'unknown';
+    const subcommand = (interaction as ChatInputCommandInteraction).options?.getSubcommand?.() || 'unknown';
     
     switch (subcommand) {
       case 'portfolio':
@@ -565,7 +566,7 @@ export class DiscordBot extends EventEmitter {
       return;
     }
 
-    const subcommand = (interaction.options as any).getSubcommand?.() || 'unknown';
+    const subcommand = (interaction as ChatInputCommandInteraction).options?.getSubcommand?.() || 'unknown';
     
     switch (subcommand) {
       case 'status':
@@ -589,7 +590,7 @@ export class DiscordBot extends EventEmitter {
   }
 
   private async handleAdminCommand(interaction: CommandInteraction): Promise<void> {
-    const subcommand = (interaction.options as any).getSubcommand?.() || 'unknown';
+    const subcommand = (interaction as ChatInputCommandInteraction).options?.getSubcommand?.() || 'unknown';
     
     switch (subcommand) {
       case 'stats':
@@ -613,7 +614,7 @@ export class DiscordBot extends EventEmitter {
   }
 
   private async handleHelpCommand(interaction: CommandInteraction): Promise<void> {
-    const category = interaction.options.getString('category');
+    const category = (interaction as ChatInputCommandInteraction).options?.getString('category');
     
     const embed = new EmbedBuilder()
       .setTitle('🤖 Agentic Flow Bot Commands')
@@ -665,8 +666,8 @@ export class DiscordBot extends EventEmitter {
   }
 
   private async handleSubscribeCommand(interaction: CommandInteraction): Promise<void> {
-    const notificationType = interaction.options.getString('type');
-    const enabled = interaction.options.getBoolean('enabled') ?? true;
+    const notificationType = (interaction as ChatInputCommandInteraction).options?.getString('type');
+    const enabled = (interaction as ChatInputCommandInteraction).options?.getBoolean('enabled') ?? true;
     
     await this.notificationManager.toggleSubscription(
       interaction.user.id,

@@ -104,7 +104,7 @@ export class MarketDataProcessor extends EventEmitter {
             const marketData = {
                 symbol,
                 quote,
-                technicalIndicators,
+                technicalIndicators: technicalIndicators,
                 sentiment,
                 economicIndicators,
             };

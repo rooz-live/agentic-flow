@@ -14,7 +14,7 @@ export class CommandHandlers {
      * Handle governance policy command
      */
     async handleGovernancePolicy(interaction) {
-        const query = interaction.options.getString?.('query');
+        const query = interaction.options.get('query')?.value;
         await interaction.deferReply();
         try {
             // Query governance system for policies
@@ -54,7 +54,7 @@ export class CommandHandlers {
      * Handle governance compliance command
      */
     async handleGovernanceCompliance(interaction) {
-        const area = interaction.options.getString?.('area');
+        const area = interaction.options.get('area')?.value;
         await interaction.deferReply();
         try {
             // Get compliance status
@@ -90,7 +90,7 @@ export class CommandHandlers {
      * Handle governance decisions command
      */
     async handleGovernanceDecisions(interaction) {
-        const limit = interaction.options.getInteger?.('limit') || 10;
+        const limit = interaction.options.get('limit')?.value || 10;
         await interaction.deferReply();
         try {
             // Get recent decisions
@@ -120,7 +120,7 @@ export class CommandHandlers {
      * Handle risk portfolio command
      */
     async handleRiskPortfolio(interaction) {
-        const portfolio = interaction.options.getString?.('portfolio');
+        const portfolio = interaction.options.get('portfolio')?.value;
         await interaction.deferReply();
         try {
             // Get portfolio risk analysis

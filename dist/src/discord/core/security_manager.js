@@ -2,11 +2,12 @@
  * Security Manager for Discord Bot
  * Handles security validation, fraud detection, and compliance
  */
+import { EventEmitter } from 'events';
 import { createHash, randomBytes } from 'crypto';
 import { promisify } from 'util';
 const scrypt = promisify(require('crypto').scrypt);
 const compare = promisify(require('crypto').compare);
-export class SecurityManager {
+export class SecurityManager extends EventEmitter {
     config;
     securityEvents = new Map();
     securityProfiles = new Map();
@@ -17,6 +18,7 @@ export class SecurityManager {
     blockedGuilds = new Set();
     suspiciousPatterns = new Map();
     constructor(config) {
+        super();
         this.config = config;
         this.initializeDefaultPolicies();
         this.loadSecurityData();
@@ -322,12 +324,11 @@ export class SecurityManager {
             if (guildRequests >= this.config.rateLimits.perGuild) {
                 return false;
             }
-        }
-        // Update counters
-        this.suspiciousPatterns.set(userKey, userRequests + 1);
-        if (guildKey) {
+            // Update guild counter immediately after getting value
             this.suspiciousPatterns.set(guildKey, guildRequests + 1);
         }
+        // Update user counter
+        this.suspiciousPatterns.set(userKey, userRequests + 1);
         return true;
     }
     /**

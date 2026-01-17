@@ -3,6 +3,7 @@
  * Handles security validation, fraud detection, and compliance
  */
 import { Interaction } from 'discord.js';
+import { EventEmitter } from 'events';
 import { DiscordBotConfig } from './discord_config';
 export interface SecurityEvent {
     id: string;
@@ -57,7 +58,7 @@ export interface SecurityAudit {
     automated: boolean;
     reviewedBy?: string;
 }
-export declare class SecurityManager {
+export declare class SecurityManager extends EventEmitter {
     private config;
     private securityEvents;
     private securityProfiles;

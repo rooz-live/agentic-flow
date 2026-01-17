@@ -11,18 +11,29 @@ import type {
   Diagnosis,
   Recommendation
 } from '../types/medical.types';
+import Database from 'better-sqlite3';
 
 export class AgentDBLearningService {
   private reflexionMemory: ReflexionMemory;
   private skillLibrary: SkillLibrary;
   private embeddingService: EmbeddingService;
+  private db: Database.Database;
   private dbPath: string;
 
   constructor(dbPath: string = './data/medical-learning.db') {
     this.dbPath = dbPath;
-    this.reflexionMemory = new ReflexionMemory({ dbPath });
-    this.skillLibrary = new SkillLibrary({ dbPath });
-    this.embeddingService = new EmbeddingService({ dbPath });
+    this.db = new Database(dbPath);
+    
+    // Initialize embedding service
+    this.embeddingService = new EmbeddingService({
+      model: 'sentence-transformers/all-MiniLM-L6-v2',
+      dimension: 384,
+      provider: 'transformers'
+    });
+    
+    // Initialize AgentDB components with Database instance
+    this.reflexionMemory = new ReflexionMemory(this.db, this.embeddingService);
+    this.skillLibrary = new SkillLibrary(this.db, this.embeddingService);
   }
 
   /**
@@ -53,7 +64,16 @@ export class AgentDBLearningService {
         reflection: providerFeedback || this.generateReflection(analysis, outcome)
       };
 
-      await this.reflexionMemory.addTrajectory(trajectory);
+      // Store trajectory using storeEpisode method
+      await this.reflexionMemory.storeEpisode({
+        sessionId: trajectory.taskId,
+        task: 'medical_analysis',
+        input: JSON.stringify(analysis),
+        output: JSON.stringify({ outcome, feedback: providerFeedback }),
+        critique: trajectory.reflection,
+        reward: trajectory.steps.reduce((sum, s) => sum + s.reward, 0) / trajectory.steps.length,
+        success: outcome === 'successful'
+      });
 
       // Extract and store successful patterns
       if (outcome === 'successful' || outcome === 'modified') {
@@ -77,16 +97,13 @@ export class AgentDBLearningService {
     try {
       // Generate embedding for symptom cluster
       const queryText = symptoms.join(' ');
-      const queryEmbedding = await this.embeddingService.generateEmbedding(queryText);
+      const queryEmbedding = await (this.embeddingService as any).embed(queryText);
 
       // Search for similar patterns
-      const similarPatterns = await this.embeddingService.search(
+      const similarPatterns = await (this.embeddingService as any).searchSimilar(
         queryEmbedding,
-        {
-          limit: 10,
-          threshold: 0.7,
-          filter: { patternType: 'symptom_cluster' }
-        }
+        10,
+        { patternType: 'symptom_cluster' }
       );
 
       // Analyze applicability
@@ -127,8 +144,12 @@ export class AgentDBLearningService {
    */
   public async getRelevantSkills(condition: string): Promise<any[]> {
     try {
-      const skills = await this.skillLibrary.searchSkills(condition, 5);
-      return skills.filter(skill => skill.successRate > 0.7);
+      const skills = await this.skillLibrary.searchSkills({
+        task: condition,
+        k: 5,
+        minSuccessRate: 0.7
+      });
+      return skills;
     } catch (error) {
       console.error('Error retrieving skills:', error);
       return [];
@@ -150,18 +171,18 @@ export class AgentDBLearningService {
       };
 
       const patternText = JSON.stringify(pattern);
-      const embedding = await this.embeddingService.generateEmbedding(patternText);
+      const embedding = await (this.embeddingService as any).embed(patternText);
 
-      await this.embeddingService.store({
-        id: `pattern_${Date.now()}_${Math.random()}`,
+      await (this.embeddingService as any).addVector(
+        `pattern_${Date.now()}_${Math.random()}`,
         embedding,
-        metadata: {
+        {
           ...pattern,
           patternType: 'diagnosis',
           frequency: 1,
           accuracy: diagnosis.confidence
         }
-      });
+      );
     }
 
     // Extract recommendation patterns
@@ -175,18 +196,18 @@ export class AgentDBLearningService {
       };
 
       const patternText = JSON.stringify(pattern);
-      const embedding = await this.embeddingService.generateEmbedding(patternText);
+      const embedding = await (this.embeddingService as any).embed(patternText);
 
-      await this.embeddingService.store({
-        id: `rec_pattern_${Date.now()}_${Math.random()}`,
+      await (this.embeddingService as any).addVector(
+        `rec_pattern_${Date.now()}_${Math.random()}`,
         embedding,
-        metadata: {
+        {
           ...pattern,
           patternType: 'recommendation',
           frequency: 1,
           accuracy: rec.confidence
         }
-      });
+      );
     }
   }
 
@@ -201,12 +222,18 @@ export class AgentDBLearningService {
       const skillName = `diagnose_${diagnosis.condition.replace(/\s+/g, '_')}`;
       const successRate = outcome === 'successful' ? 1.0 : outcome === 'modified' ? 0.7 : 0.0;
 
-      await this.skillLibrary.addSkill({
+      await this.skillLibrary.createSkill({
         name: skillName,
         description: `Diagnose ${diagnosis.condition}`,
-        implementation: diagnosis.reasoning,
+        signature: {
+          inputs: { symptoms: 'string[]', context: 'object' },
+          outputs: { diagnosis: 'object', confidence: 'number' }
+        },
+        code: diagnosis.reasoning,
         successRate,
-        usageCount: 1,
+        uses: 1,
+        avgReward: successRate,
+        avgLatencyMs: 0,
         metadata: {
           icd10Code: diagnosis.icd10Code,
           confidence: diagnosis.confidence
@@ -250,10 +277,14 @@ export class AgentDBLearningService {
    * Export learning metrics
    */
   public async getMetrics(): Promise<any> {
+    // Get counts from database queries
+    const trajectoryCount = this.db.prepare('SELECT COUNT(*) as count FROM episodes').get() as any;
+    const skillCount = this.db.prepare('SELECT COUNT(*) as count FROM skills').get() as any;
+    
     return {
-      totalTrajectories: await this.reflexionMemory.getTrajectoryCount?.() || 0,
-      totalSkills: await this.skillLibrary.getSkillCount?.() || 0,
-      totalPatterns: await this.embeddingService.getCount?.() || 0,
+      totalTrajectories: trajectoryCount?.count || 0,
+      totalSkills: skillCount?.count || 0,
+      totalPatterns: this.embeddingService['cache'].size || 0,
       averageAccuracy: 0.85 // Calculate from actual data
     };
   }
@@ -262,6 +293,7 @@ export class AgentDBLearningService {
    * Cleanup and close connections
    */
   public async close(): Promise<void> {
-    // Close database connections if needed
+    // Close database connection
+    this.db.close();
   }
 }

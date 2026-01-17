@@ -161,7 +161,7 @@ export class PaymentIntegrationSystem extends EventEmitter {
     
     // Initialize Stripe
     this.stripe = new Stripe(config.integrations.stripe.webhookSecret, {
-      apiVersion: '2024-11-20.acacia',
+      apiVersion: '2025-12-15.clover' as any,
       typescript: true
     });
 
@@ -312,8 +312,21 @@ export class PaymentIntegrationSystem extends EventEmitter {
         updatedAt: new Date()
       };
 
-      this.transactions.set(paymentIntent.id, paymentIntent as any);
-      await this.saveTransaction(paymentIntent as any);
+      const txn: Transaction = {
+        id: paymentIntent.id,
+        userId: paymentIntent.userId,
+        type: 'payment',
+        amount: paymentIntent.amount,
+        currency: paymentIntent.currency,
+        status: paymentIntent.status === 'succeeded' ? 'completed' : 'pending',
+        description: paymentIntent.description || '',
+        metadata: paymentIntent.metadata,
+        stripePaymentIntentId: paymentIntent.stripePaymentIntentId,
+        createdAt: paymentIntent.createdAt,
+        updatedAt: paymentIntent.updatedAt
+      };
+      this.transactions.set(paymentIntent.id, txn);
+      await this.saveTransaction(txn);
 
       this.emit('payment_intent_created', paymentIntent);
       return paymentIntent;
@@ -350,8 +363,21 @@ export class PaymentIntegrationSystem extends EventEmitter {
         };
       }
 
-      await this.saveTransaction(paymentIntent);
-      this.transactions.set(paymentIntentId, paymentIntent);
+      const txn: Transaction = {
+        id: paymentIntent.id,
+        userId: paymentIntent.userId,
+        type: 'payment',
+        amount: paymentIntent.amount,
+        currency: paymentIntent.currency,
+        status: paymentIntent.status === 'succeeded' ? 'completed' : 'pending',
+        description: paymentIntent.description || '',
+        metadata: paymentIntent.metadata,
+        stripePaymentIntentId: paymentIntent.stripePaymentIntentId,
+        createdAt: paymentIntent.createdAt,
+        updatedAt: paymentIntent.updatedAt
+      };
+      await this.saveTransaction(txn);
+      this.transactions.set(paymentIntentId, txn);
 
       this.emit('payment_intent_confirmed', paymentIntent);
       return paymentIntent;
@@ -409,8 +435,8 @@ export class PaymentIntegrationSystem extends EventEmitter {
         userId,
         planId,
         status: this.mapStripeSubscriptionStatus(stripeSubscription.status),
-        currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+        currentPeriodStart: new Date((stripeSubscription as any).current_period_start * 1000),
+        currentPeriodEnd: new Date((stripeSubscription as any).current_period_end * 1000),
         cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end,
         stripeSubscriptionId: stripeSubscription.id,
         customerId: stripeSubscription.customer as string,
@@ -591,7 +617,11 @@ export class PaymentIntegrationSystem extends EventEmitter {
   public async getInvoices(userId: string): Promise<Invoice[]> {
     return Array.from(this.invoices.values())
       .filter(invoice => invoice.userId === userId)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      .sort((a, b) => {
+        const aTime = (a as any).createdAt?.getTime?.() || 0;
+        const bTime = (b as any).createdAt?.getTime?.() || 0;
+        return bTime - aTime;
+      });
   }
 
   /**
@@ -626,7 +656,7 @@ export class PaymentIntegrationSystem extends EventEmitter {
       const stripeRefund = await this.stripe.refunds.create({
         payment_intent: transaction.stripePaymentIntentId,
         amount: Math.round(refundAmount * 100),
-        reason,
+        reason: reason as any,
         metadata: {
           transactionId,
           userId: transaction.userId,
@@ -751,7 +781,7 @@ export class PaymentIntegrationSystem extends EventEmitter {
       case 'canceled':
         return 'canceled';
       default:
-        return 'pending';
+        return 'requires_payment_method';
     }
   }
 
@@ -771,7 +801,7 @@ export class PaymentIntegrationSystem extends EventEmitter {
       case 'trialing':
         return 'trialing';
       default:
-        return 'inactive';
+        return 'canceled';
     }
   }
 

@@ -359,7 +359,7 @@ export class DiscordBot extends EventEmitter {
             });
             return;
         }
-        const subcommand = interaction.options.getSubcommand?.() || 'unknown';
+        const subcommand = interaction.options?.getSubcommand?.() || 'unknown';
         switch (subcommand) {
             case 'policy':
                 await this.handleGovernancePolicy(interaction);
@@ -385,7 +385,7 @@ export class DiscordBot extends EventEmitter {
             });
             return;
         }
-        const subcommand = interaction.options.getSubcommand?.() || 'unknown';
+        const subcommand = interaction.options?.getSubcommand?.() || 'unknown';
         switch (subcommand) {
             case 'portfolio':
                 await this.handleRiskPortfolio(interaction);
@@ -411,7 +411,7 @@ export class DiscordBot extends EventEmitter {
             });
             return;
         }
-        const subcommand = interaction.options.getSubcommand?.() || 'unknown';
+        const subcommand = interaction.options?.getSubcommand?.() || 'unknown';
         switch (subcommand) {
             case 'portfolio':
                 await this.handleTradingPortfolio(interaction);
@@ -440,7 +440,7 @@ export class DiscordBot extends EventEmitter {
             });
             return;
         }
-        const subcommand = interaction.options.getSubcommand?.() || 'unknown';
+        const subcommand = interaction.options?.getSubcommand?.() || 'unknown';
         switch (subcommand) {
             case 'status':
                 await this.handlePaymentStatus(interaction);
@@ -462,7 +462,7 @@ export class DiscordBot extends EventEmitter {
         }
     }
     async handleAdminCommand(interaction) {
-        const subcommand = interaction.options.getSubcommand?.() || 'unknown';
+        const subcommand = interaction.options?.getSubcommand?.() || 'unknown';
         switch (subcommand) {
             case 'stats':
                 await this.handleAdminStats(interaction);
@@ -484,7 +484,7 @@ export class DiscordBot extends EventEmitter {
         }
     }
     async handleHelpCommand(interaction) {
-        const category = interaction.options.getString('category');
+        const category = interaction.options?.getString('category');
         const embed = new EmbedBuilder()
             .setTitle('🤖 Agentic Flow Bot Commands')
             .setDescription('Available commands for the Agentic Flow ecosystem')
@@ -516,8 +516,8 @@ export class DiscordBot extends EventEmitter {
         await interaction.reply({ embeds: [embed] });
     }
     async handleSubscribeCommand(interaction) {
-        const notificationType = interaction.options.getString('type');
-        const enabled = interaction.options.getBoolean('enabled') ?? true;
+        const notificationType = interaction.options?.getString('type');
+        const enabled = interaction.options?.getBoolean('enabled') ?? true;
         await this.notificationManager.toggleSubscription(interaction.user.id, notificationType || 'all', enabled);
         const embed = new EmbedBuilder()
             .setTitle('🔔 Notification Settings')

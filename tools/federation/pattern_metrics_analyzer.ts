@@ -661,8 +661,8 @@ async function main() {
   }
 }
 
-// ES Module main check - using import.meta.url for ESM compatibility
-const isMainModule = import.meta.url === `file://${process.argv[1]}` ||
+// CommonJS main check - compatible with Jest
+const isMainModule = require.main === module ||
   process.argv[1]?.endsWith('pattern_metrics_analyzer.ts') ||
   process.argv[1]?.endsWith('pattern_metrics_analyzer.js');
 

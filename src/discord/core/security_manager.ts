@@ -4,6 +4,7 @@
  */
 
 import { Interaction, Message, User, GuildMember, Guild } from 'discord.js';
+import { EventEmitter } from 'events';
 import { DiscordBotConfig } from './discord_config';
 import { createHash, randomBytes } from 'crypto';
 import { promisify } from 'util';
@@ -70,7 +71,7 @@ export interface SecurityAudit {
   reviewedBy?: string;
 }
 
-export class SecurityManager {
+export class SecurityManager extends EventEmitter {
   private config: DiscordBotConfig;
   private securityEvents: Map<string, SecurityEvent> = new Map();
   private securityProfiles: Map<string, SecurityProfile> = new Map();
@@ -82,6 +83,7 @@ export class SecurityManager {
   private suspiciousPatterns: Map<string, number> = new Map();
 
   constructor(config: DiscordBotConfig) {
+    super();
     this.config = config;
     this.initializeDefaultPolicies();
     this.loadSecurityData();
@@ -410,13 +412,12 @@ export class SecurityManager {
       if (guildRequests >= this.config.rateLimits.perGuild) {
         return false;
       }
-    }
-
-    // Update counters
-    this.suspiciousPatterns.set(userKey, userRequests + 1);
-    if (guildKey) {
+      // Update guild counter immediately after getting value
       this.suspiciousPatterns.set(guildKey, guildRequests + 1);
     }
+
+    // Update user counter
+    this.suspiciousPatterns.set(userKey, userRequests + 1);
 
     return true;
   }

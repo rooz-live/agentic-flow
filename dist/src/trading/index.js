@@ -81,7 +81,7 @@ export class TradingSystemFactory {
             dataEncryption: true,
             gdprCompliance: true,
             soxCompliance: true,
-            mifidCompliance: false,
+            miFIDCompliance: false,
         });
         return {
             engine: tradingEngine,

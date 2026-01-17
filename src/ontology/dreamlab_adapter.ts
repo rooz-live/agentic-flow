@@ -103,9 +103,12 @@ export class DreamLabAdapter {
 
       const result = await this.synth.generateStructured(prompt, this.schema);
 
+      // Type assertion since we know the schema matches GroundingResult structure
+      const data = result as unknown as { entities: OntologyEntity[]; relationships: OntologyRelationship[] };
+
       return {
-        entities: result.entities,
-        relationships: result.relationships,
+        entities: data.entities || [],
+        relationships: data.relationships || [],
         unmappedConcepts: [] // In a full implementation, we'd ask the model to list these too
       };
 

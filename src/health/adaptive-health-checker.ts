@@ -18,7 +18,7 @@ import {
   checkDegradation,
   checkCascadeFailure,
   getDivergenceRateStatus
-} from '../runtime/processGovernorEnhanced';
+} from '../runtime/processGovernor Enhanced';
 
 export interface AdaptiveHealthCheckerConfig {
   baseIntervalMs?: number;

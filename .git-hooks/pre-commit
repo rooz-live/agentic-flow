@@ -37,10 +37,14 @@ SECRET_PATTERNS=(
 )
 
 for pattern in "${SECRET_PATTERNS[@]}"; do
-    if git diff --cached | grep -iE "$pattern" > /dev/null 2>&1; then
+    # Get matches, excluding safe placeholders and documentation examples
+    MATCHES=$(git diff --cached | grep -iE "$pattern" | \
+        grep -vE '(<REQUIRED>|"your_[a-z_]+_here"|your-[a-z-]+-here|sk-ant-\.\.\.|"\.\.\."|\.example|# Example|# Placeholder|\[REDACTED\])' || true)
+    
+    if [ -n "$MATCHES" ]; then
         echo -e "${RED}❌ Found potential secret in staged files${NC}"
         echo "   Pattern: $pattern"
-        git diff --cached | grep -iE "$pattern" --color=always
+        echo "$MATCHES" | grep -iE "$pattern" --color=always
         FAILED=1
     fi
 done

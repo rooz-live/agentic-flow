@@ -26,7 +26,7 @@ export class PaymentIntegrationSystem extends EventEmitter {
         this.config = config;
         // Initialize Stripe
         this.stripe = new Stripe(config.integrations.stripe.webhookSecret, {
-            apiVersion: '2024-11-20.acacia',
+            apiVersion: '2025-12-15.clover',
             typescript: true
         });
         this.initializePlans();
@@ -159,8 +159,21 @@ export class PaymentIntegrationSystem extends EventEmitter {
                 createdAt: new Date(),
                 updatedAt: new Date()
             };
-            this.transactions.set(paymentIntent.id, paymentIntent);
-            await this.saveTransaction(paymentIntent);
+            const txn = {
+                id: paymentIntent.id,
+                userId: paymentIntent.userId,
+                type: 'payment',
+                amount: paymentIntent.amount,
+                currency: paymentIntent.currency,
+                status: paymentIntent.status === 'succeeded' ? 'completed' : 'pending',
+                description: paymentIntent.description || '',
+                metadata: paymentIntent.metadata,
+                stripePaymentIntentId: paymentIntent.stripePaymentIntentId,
+                createdAt: paymentIntent.createdAt,
+                updatedAt: paymentIntent.updatedAt
+            };
+            this.transactions.set(paymentIntent.id, txn);
+            await this.saveTransaction(txn);
             this.emit('payment_intent_created', paymentIntent);
             return paymentIntent;
         }
@@ -189,8 +202,21 @@ export class PaymentIntegrationSystem extends EventEmitter {
                     sdkData: stripePaymentIntent.next_action.use_stripe_sdk?.type
                 };
             }
-            await this.saveTransaction(paymentIntent);
-            this.transactions.set(paymentIntentId, paymentIntent);
+            const txn = {
+                id: paymentIntent.id,
+                userId: paymentIntent.userId,
+                type: 'payment',
+                amount: paymentIntent.amount,
+                currency: paymentIntent.currency,
+                status: paymentIntent.status === 'succeeded' ? 'completed' : 'pending',
+                description: paymentIntent.description || '',
+                metadata: paymentIntent.metadata,
+                stripePaymentIntentId: paymentIntent.stripePaymentIntentId,
+                createdAt: paymentIntent.createdAt,
+                updatedAt: paymentIntent.updatedAt
+            };
+            await this.saveTransaction(txn);
+            this.transactions.set(paymentIntentId, txn);
             this.emit('payment_intent_confirmed', paymentIntent);
             return paymentIntent;
         }
@@ -379,7 +405,11 @@ export class PaymentIntegrationSystem extends EventEmitter {
     async getInvoices(userId) {
         return Array.from(this.invoices.values())
             .filter(invoice => invoice.userId === userId)
-            .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+            .sort((a, b) => {
+            const aTime = a.createdAt?.getTime?.() || 0;
+            const bTime = b.createdAt?.getTime?.() || 0;
+            return bTime - aTime;
+        });
     }
     /**
      * Get available plans
@@ -406,7 +436,7 @@ export class PaymentIntegrationSystem extends EventEmitter {
             const stripeRefund = await this.stripe.refunds.create({
                 payment_intent: transaction.stripePaymentIntentId,
                 amount: Math.round(refundAmount * 100),
-                reason,
+                reason: reason,
                 metadata: {
                     transactionId,
                     userId: transaction.userId,
@@ -520,7 +550,7 @@ export class PaymentIntegrationSystem extends EventEmitter {
             case 'canceled':
                 return 'canceled';
             default:
-                return 'pending';
+                return 'requires_payment_method';
         }
     }
     /**
@@ -539,7 +569,7 @@ export class PaymentIntegrationSystem extends EventEmitter {
             case 'trialing':
                 return 'trialing';
             default:
-                return 'inactive';
+                return 'canceled';
         }
     }
     /**

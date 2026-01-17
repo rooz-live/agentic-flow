@@ -33,9 +33,7 @@ module.exports = {
     ...(process.env.AF_SKIP_E2E === 'true' ? ['\\.e2e\\.test\\.ts$'] : []),
   ],
   transform: {
-    '^.+\\.ts$': ['ts-jest', {
-      isolatedModules: true, // Faster compilation by skipping type checking
-    }],
+    '^.+\\.ts$': ['ts-jest'],
   },
   // Performance optimizations
   cache: true,

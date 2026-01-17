@@ -53,10 +53,7 @@ export class PerformanceAnalytics extends EventEmitter {
      * Update portfolio value
      */
     updatePortfolioValue(value, timestamp) {
-        this.portfolioValue.push({
-            value,
-            timestamp: timestamp || new Date().toISOString(),
-        });
+        this.portfolioValue.push({ value, timestamp: timestamp || new Date().toISOString() });
         // Keep last 1000 data points
         if (this.portfolioValue.length > 1000) {
             this.portfolioValue.shift();
@@ -207,8 +204,8 @@ export class PerformanceAnalytics extends EventEmitter {
     calculateReturns() {
         const returns = [];
         for (let i = 1; i < this.portfolioValue.length; i++) {
-            const currentValue = this.portfolioValue[i].value;
-            const previousValue = this.portfolioValue[i - 1].value;
+            const currentValue = typeof this.portfolioValue[i] === 'number' ? this.portfolioValue[i] : this.portfolioValue[i].value;
+            const previousValue = typeof this.portfolioValue[i - 1] === 'number' ? this.portfolioValue[i - 1] : this.portfolioValue[i - 1].value;
             const return_ = (currentValue - previousValue) / previousValue;
             returns.push(return_);
         }
@@ -220,8 +217,10 @@ export class PerformanceAnalytics extends EventEmitter {
     calculateTotalReturn() {
         if (this.portfolioValue.length < 2)
             return 0;
-        const currentValue = this.portfolioValue[this.portfolioValue.length - 1].value;
-        const initialValue = this.portfolioValue[0].value;
+        const lastVal = this.portfolioValue[this.portfolioValue.length - 1];
+        const firstVal = this.portfolioValue[0];
+        const currentValue = typeof lastVal === 'number' ? lastVal : lastVal.value;
+        const initialValue = typeof firstVal === 'number' ? firstVal : firstVal.value;
         return (currentValue - initialValue) / initialValue;
     }
     /**
@@ -240,8 +239,10 @@ export class PerformanceAnalytics extends EventEmitter {
     calculateMonthlyReturn() {
         if (this.portfolioValue.length < 30)
             return 0;
-        const currentValue = this.portfolioValue[this.portfolioValue.length - 1].value;
-        const monthAgoValue = this.portfolioValue[this.portfolioValue.length - 30].value;
+        const lastVal = this.portfolioValue[this.portfolioValue.length - 1];
+        const monthVal = this.portfolioValue[this.portfolioValue.length - 30];
+        const currentValue = typeof lastVal === 'number' ? lastVal : lastVal.value;
+        const monthAgoValue = typeof monthVal === 'number' ? monthVal : monthVal.value;
         return (currentValue - monthAgoValue) / monthAgoValue;
     }
     /**
@@ -325,9 +326,11 @@ export class PerformanceAnalytics extends EventEmitter {
         if (this.portfolioValue.length < 2)
             return 0;
         let maxDrawdown = 0;
-        let peak = this.portfolioValue[0].value;
+        const firstVal = this.portfolioValue[0];
+        let peak = typeof firstVal === 'number' ? firstVal : firstVal.value;
         for (let i = 1; i < this.portfolioValue.length; i++) {
-            const currentValue = this.portfolioValue[i].value;
+            const val = this.portfolioValue[i];
+            const currentValue = typeof val === 'number' ? val : val.value;
             if (currentValue > peak) {
                 peak = currentValue;
             }
@@ -342,10 +345,12 @@ export class PerformanceAnalytics extends EventEmitter {
     calculateCurrentDrawdown() {
         if (this.portfolioValue.length < 2)
             return 0;
-        let peak = this.portfolioValue[0].value;
+        const firstVal = this.portfolioValue[0];
+        let peak = typeof firstVal === 'number' ? firstVal : firstVal.value;
         let currentDrawdown = 0;
         for (let i = 1; i < this.portfolioValue.length; i++) {
-            const currentValue = this.portfolioValue[i].value;
+            const val = this.portfolioValue[i];
+            const currentValue = typeof val === 'number' ? val : val.value;
             if (currentValue > peak) {
                 peak = currentValue;
             }
@@ -526,8 +531,10 @@ export class PerformanceAnalytics extends EventEmitter {
      * Get current portfolio value
      */
     getCurrentPortfolioValue() {
-        return this.portfolioValue.length > 0 ?
-            this.portfolioValue[this.portfolioValue.length - 1].value : 0;
+        if (this.portfolioValue.length === 0)
+            return 0;
+        const lastVal = this.portfolioValue[this.portfolioValue.length - 1];
+        return typeof lastVal === 'number' ? lastVal : lastVal.value;
     }
     /**
      * Get cash balance
@@ -647,9 +654,10 @@ export class PerformanceAnalytics extends EventEmitter {
     getPortfolioValueAtDate(date) {
         const targetDate = new Date(date);
         for (let i = this.portfolioValue.length - 1; i >= 0; i--) {
-            const valueDate = new Date(this.portfolioValue[i].timestamp);
+            const val = this.portfolioValue[i];
+            const valueDate = new Date(typeof val === 'number' ? Date.now() : val.timestamp);
             if (valueDate <= targetDate) {
-                return this.portfolioValue[i].value;
+                return typeof val === 'number' ? val : val.value;
             }
         }
         return 0;

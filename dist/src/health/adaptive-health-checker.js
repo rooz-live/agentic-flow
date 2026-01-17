@@ -11,7 +11,7 @@
  * - Configurable min/max interval bounds
  */
 import { execSync } from 'child_process';
-import { performHealthCheck } from '../runtime/processGovernorEnhanced';
+import { performHealthCheck } from '../runtime/processGovernor Enhanced';
 export class AdaptiveHealthChecker {
     checkInterval;
     minInterval;

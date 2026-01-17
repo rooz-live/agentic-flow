@@ -312,7 +312,7 @@ export class CommandRegistry {
             .setDescription('Command category')
             .setRequired(false)
             .addChoices({ name: 'Governance', value: 'governance' }, { name: 'Risk Assessment', value: 'risk' }, { name: 'Trading', value: 'trading' }, { name: 'Payment', value: 'payment' }, { name: 'Administration', value: 'admin' })))
-            .addSubcommandGroup(new SlashCommandSubcommandBuilder()
+            .addSubcommand(new SlashCommandSubcommandBuilder()
             .setName('status')
             .setDescription('Show system status'))
             .addSubcommand(new SlashCommandSubcommandBuilder()

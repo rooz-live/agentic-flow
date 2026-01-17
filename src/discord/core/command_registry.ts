@@ -393,7 +393,7 @@ export class CommandRegistry {
   /**
    * Add admin subcommands
    */
-  private addAdminSubcommands(builder: SlashCommandBuilder): SlashCommandBuilder {
+  private addAdminSubcommands(builder: SlashCommandBuilder): SlashCommandBuilder | SlashCommandSubcommandsOnlyBuilder {
     return builder
       .addSubcommand(
         new SlashCommandSubcommandBuilder()
@@ -477,7 +477,7 @@ export class CommandRegistry {
   /**
    * Add general subcommands
    */
-  private addGeneralSubcommands(builder: SlashCommandBuilder): SlashCommandBuilder {
+  private addGeneralSubcommands(builder: SlashCommandBuilder): SlashCommandBuilder | SlashCommandSubcommandsOnlyBuilder {
     return builder
       .addSubcommand(
         new SlashCommandSubcommandBuilder()
@@ -497,7 +497,7 @@ export class CommandRegistry {
               )
           )
       )
-      .addSubcommandGroup(
+      .addSubcommand(
         new SlashCommandSubcommandBuilder()
           .setName('status')
           .setDescription('Show system status')

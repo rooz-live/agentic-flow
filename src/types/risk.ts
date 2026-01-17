@@ -27,3 +27,14 @@ export interface RiskConfig {
 }
 
 export type RiskLevel = 'low' | 'medium' | 'high' | 'critical';
+
+export interface RiskProfile {
+  level: RiskLevel;
+  score: number;
+  factors: string[];
+  lastAssessed: Date;
+  recommendations: string[];
+  severity?: 'low' | 'medium' | 'high' | 'critical';
+  complexity?: number;
+  category?: string;
+}

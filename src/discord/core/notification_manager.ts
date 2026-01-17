@@ -12,7 +12,9 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
-  ColorResolvable
+  ColorResolvable,
+  Collection,
+  MessageActionRowComponentBuilder
 } from 'discord.js';
 import { EventEmitter } from 'events';
 import { DiscordBotConfig } from './discord_config';
@@ -354,12 +356,12 @@ export class NotificationManager extends EventEmitter {
   /**
    * Create action rows for buttons
    */
-  private createActionRows(actions: NotificationAction[]): ActionRowBuilder[] {
-    const rows: ActionRowBuilder[] = [];
+  private createActionRows(actions: NotificationAction[]): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+    const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [];
     const maxButtonsPerRow = 5;
 
     for (let i = 0; i < actions.length; i += maxButtonsPerRow) {
-      const row = new ActionRowBuilder();
+      const row = new ActionRowBuilder<MessageActionRowComponentBuilder>();
       const rowActions = actions.slice(i, i + maxButtonsPerRow);
       
       for (const action of rowActions) {

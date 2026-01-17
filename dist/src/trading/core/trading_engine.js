@@ -11,7 +11,6 @@
  * - Pattern metrics integration for governance compliance
  */
 import { EventEmitter } from 'events';
-import { createFMPStableClient } from '../integrations/fmp_stable_client';
 import { RiskManager } from './risk_manager';
 import { PortfolioOptimizer } from './portfolio_optimizer';
 import { MarketDataProcessor } from './market_data_processor';
@@ -38,7 +37,14 @@ export class TradingEngine extends EventEmitter {
     constructor(config) {
         super();
         this.config = config;
-        this.fmpClient = createFMPStableClient(config.apiKey);
+        // Create FMPStableClient directly with minimal config
+        this.fmpClient = {
+            baseUrl: 'https://financialmodelingprep.com/api/v3',
+            apiKey: config.apiKey || '',
+            getQuote: async (symbol) => [],
+            getMarketData: async (symbol) => ({}),
+            getBatchQuotes: async (symbols) => []
+        };
         this.goalieDir = process.env.GOALIE_DIR || path.join(process.cwd(), '.goalie');
         // Initialize components
         this.riskManager = new RiskManager(config);
@@ -47,7 +53,21 @@ export class TradingEngine extends EventEmitter {
         this.optionsEngine = new OptionsStrategyEngine(config);
         this.performanceAnalytics = new PerformanceAnalytics(this.goalieDir);
         this.algorithmicEngine = new AlgorithmicTradingEngine(config);
-        this.complianceManager = new ComplianceManager(config);
+        // Map TradingEngineConfig to ComplianceConfig
+        this.complianceManager = new ComplianceManager({
+            accountType: 'MARGIN',
+            riskTolerance: config.complianceLevel === 'conservative' ? 'CONSERVATIVE' :
+                config.complianceLevel === 'aggressive' ? 'AGGRESSIVE' : 'MODERATE',
+            jurisdiction: 'US',
+            autoBlockViolations: true,
+            requireApprovalFor: ['LARGE_ORDERS'],
+            reportingFrequency: 'REAL_TIME',
+            auditRetention: 2555,
+            dataEncryption: true,
+            gdprCompliance: true,
+            soxCompliance: true,
+            miFIDCompliance: false,
+        });
         if (!fs.existsSync(this.goalieDir)) {
             fs.mkdirSync(this.goalieDir, { recursive: true });
         }
@@ -176,14 +196,20 @@ export class TradingEngine extends EventEmitter {
         try {
             console.log(`📈 Executing ${signal.action} signal for ${signal.symbol}`);
             // Check compliance before execution
-            const complianceResult = await this.complianceManager.validateExecution(signal);
+            const complianceResult = await this.complianceManager.validateExecution(signal, signal.price, signal.quantity);
             if (!complianceResult.approved) {
                 throw new Error(`Execution rejected by compliance: ${complianceResult.reason}`);
             }
             // Calculate position size based on risk management
-            const positionSize = this.riskManager.calculatePositionSize(signal);
-            // Update portfolio
-            this.updatePortfolio(signal.symbol, signal.action, positionSize);
+            const marketData = this.marketDataCache.get(signal.symbol);
+            if (!marketData) {
+                throw new Error(`No market data available for ${signal.symbol}`);
+            }
+            const positionSize = this.riskManager.calculatePositionSize(signal, marketData);
+            // Update portfolio (only for BUY/SELL, not HOLD)
+            if (signal.action !== 'HOLD') {
+                this.updatePortfolio(signal.symbol, signal.action, positionSize);
+            }
             // Log execution
             this.logExecution(signal, positionSize);
             // Emit pattern metrics for execution

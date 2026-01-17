@@ -7,6 +7,7 @@ export declare class AgentDBLearningService {
     private reflexionMemory;
     private skillLibrary;
     private embeddingService;
+    private db;
     private dbPath;
     constructor(dbPath?: string);
     /**

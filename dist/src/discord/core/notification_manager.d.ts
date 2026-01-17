@@ -2,7 +2,7 @@
  * Notification Manager for Discord Bot
  * Handles real-time notifications, alerts, and user subscriptions
  */
-import { Client, Guild, ButtonStyle, ColorResolvable } from 'discord.js';
+import { Client, Guild, ButtonStyle, ColorResolvable, Collection } from 'discord.js';
 import { EventEmitter } from 'events';
 import { DiscordBotConfig } from './discord_config';
 export interface NotificationSubscription {

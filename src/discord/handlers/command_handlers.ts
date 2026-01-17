@@ -29,7 +29,7 @@ export class CommandHandlers {
    * Handle governance policy command
    */
   public async handleGovernancePolicy(interaction: CommandInteraction): Promise<void> {
-    const query = (interaction.options as any).getString?.('query');
+    const query = interaction.options.get('query')?.value as string | undefined;
 
     await interaction.deferReply();
 
@@ -77,7 +77,7 @@ export class CommandHandlers {
    * Handle governance compliance command
    */
   public async handleGovernanceCompliance(interaction: CommandInteraction): Promise<void> {
-    const area = (interaction.options as any).getString?.('area');
+    const area = interaction.options.get('area')?.value as string | undefined;
 
     await interaction.deferReply();
 
@@ -120,7 +120,7 @@ export class CommandHandlers {
    * Handle governance decisions command
    */
   public async handleGovernanceDecisions(interaction: CommandInteraction): Promise<void> {
-    const limit = (interaction.options as any).getInteger?.('limit') || 10;
+    const limit = (interaction.options.get('limit')?.value as number) || 10;
 
     await interaction.deferReply();
 
@@ -156,7 +156,7 @@ export class CommandHandlers {
    * Handle risk portfolio command
    */
   public async handleRiskPortfolio(interaction: CommandInteraction): Promise<void> {
-    const portfolio = (interaction.options as any).getString?.('portfolio');
+    const portfolio = interaction.options.get('portfolio')?.value as string | undefined;
 
     await interaction.deferReply();
 

@@ -173,17 +173,17 @@ export class AlgorithmicTradingEngine extends EventEmitter {
     createSignalGenerator(algorithm) {
         switch (algorithm.type) {
             case 'MOMENTUM':
-                return new MomentumSignalGenerator(algorithm.parameters);
+                return new MomentumSignalGenerator(algorithm.id, algorithm.parameters);
             case 'MEAN_REVERSION':
-                return new MeanReversionSignalGenerator(algorithm.parameters);
+                return new MeanReversionSignalGenerator(algorithm.id, algorithm.parameters);
             case 'ARBITRAGE':
-                return new ArbitrageSignalGenerator(algorithm.parameters);
+                return new ArbitrageSignalGenerator(algorithm.id, algorithm.parameters);
             case 'ML_PREDICTION':
-                return new MLPredictionSignalGenerator(algorithm.parameters);
+                return new MLPredictionSignalGenerator(algorithm.id, algorithm.parameters);
             case 'STATISTICAL':
-                return new StatisticalSignalGenerator(algorithm.parameters);
+                return new StatisticalSignalGenerator(algorithm.id, algorithm.parameters);
             case 'BREAKOUT':
-                return new BreakoutSignalGenerator(algorithm.parameters);
+                return new BreakoutSignalGenerator(algorithm.id, algorithm.parameters);
             default:
                 throw new Error(`Unknown algorithm type: ${algorithm.type}`);
         }
@@ -233,8 +233,8 @@ export class AlgorithmicTradingEngine extends EventEmitter {
                         id: `trade_${Date.now()}_${Math.random()}`,
                         symbol: position.symbol,
                         action: 'SELL',
-                        entryDate: historicalData[i - 1].quote.timestamp,
-                        exitDate: currentData.quote.timestamp,
+                        entryDate: String(historicalData[i - 1].quote.timestamp),
+                        exitDate: String(currentData.quote.timestamp),
                         entryPrice: position.entryPrice,
                         exitPrice,
                         quantity: position.quantity,
@@ -262,7 +262,7 @@ export class AlgorithmicTradingEngine extends EventEmitter {
             const drawdown = (peak - currentEquity) / peak;
             maxDrawdown = Math.max(maxDrawdown, drawdown);
             equityCurve.push({
-                date: currentData.quote.timestamp,
+                date: String(currentData.quote.timestamp),
                 equity: currentEquity,
                 drawdown,
             });
@@ -283,8 +283,8 @@ export class AlgorithmicTradingEngine extends EventEmitter {
         return {
             algorithmId: algorithm.id,
             symbol: historicalData[0].symbol,
-            startDate: historicalData[0].quote.timestamp,
-            endDate: historicalData[historicalData.length - 1].quote.timestamp,
+            startDate: String(historicalData[0].quote.timestamp),
+            endDate: String(historicalData[historicalData.length - 1].quote.timestamp),
             initialCapital,
             finalCapital,
             totalReturn,
@@ -469,7 +469,7 @@ export class AlgorithmicTradingEngine extends EventEmitter {
                 priceAvg200: price * 0.95,
                 volume: 1000000 + Math.random() * 500000,
                 avgVolume: 1000000,
-                timestamp: new Date(Date.now() - (days - i) * 24 * 60 * 60 * 1000).toISOString(),
+                timestamp: Date.now() - (days - i) * 24 * 60 * 60 * 1000,
             };
             const technicalIndicators = {
                 sma5: price * 0.998,
@@ -650,8 +650,10 @@ class DefaultExecutionManager {
  */
 class MomentumSignalGenerator {
     parameters;
-    constructor(parameters) {
+    algorithmId;
+    constructor(algorithmId, parameters) {
         this.parameters = parameters;
+        this.algorithmId = algorithmId;
     }
     async generateSignals(marketData) {
         const signals = [];
@@ -722,8 +724,10 @@ class MomentumSignalGenerator {
 }
 class MeanReversionSignalGenerator {
     parameters;
-    constructor(parameters) {
+    algorithmId;
+    constructor(algorithmId, parameters) {
         this.parameters = parameters;
+        this.algorithmId = algorithmId;
     }
     async generateSignals(marketData) {
         // Implementation similar to MomentumSignalGenerator but for mean reversion
@@ -742,8 +746,10 @@ class MeanReversionSignalGenerator {
 // Placeholder implementations for other signal generators
 class ArbitrageSignalGenerator {
     parameters;
-    constructor(parameters) {
+    algorithmId;
+    constructor(algorithmId, parameters) {
         this.parameters = parameters;
+        this.algorithmId = algorithmId;
     }
     async generateSignals(marketData) { return []; }
     validateSignal(signal, marketData) { return true; }
@@ -752,8 +758,10 @@ class ArbitrageSignalGenerator {
 }
 class MLPredictionSignalGenerator {
     parameters;
-    constructor(parameters) {
+    algorithmId;
+    constructor(algorithmId, parameters) {
         this.parameters = parameters;
+        this.algorithmId = algorithmId;
     }
     async generateSignals(marketData) { return []; }
     validateSignal(signal, marketData) { return true; }
@@ -762,8 +770,10 @@ class MLPredictionSignalGenerator {
 }
 class StatisticalSignalGenerator {
     parameters;
-    constructor(parameters) {
+    algorithmId;
+    constructor(algorithmId, parameters) {
         this.parameters = parameters;
+        this.algorithmId = algorithmId;
     }
     async generateSignals(marketData) { return []; }
     validateSignal(signal, marketData) { return true; }
@@ -772,8 +782,10 @@ class StatisticalSignalGenerator {
 }
 class BreakoutSignalGenerator {
     parameters;
-    constructor(parameters) {
+    algorithmId;
+    constructor(algorithmId, parameters) {
         this.parameters = parameters;
+        this.algorithmId = algorithmId;
     }
     async generateSignals(marketData) { return []; }
     validateSignal(signal, marketData) { return true; }

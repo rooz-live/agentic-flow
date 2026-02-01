@@ -9,7 +9,7 @@
  * - Sprawl detection
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 import { AdvocateCLI } from '../../src/cli/advocate';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -247,6 +247,271 @@ jq '.capabilities'`;
 
       expect(result.selected).toBe('consolidate');
       expect(result.reasoning).toBeDefined();
+    });
+  });
+
+  describe('edge cases - error handling', () => {
+    it('should handle missing directory paths gracefully', async () => {
+      const nonExistentPath = path.join(tmpDir, 'does-not-exist');
+      
+      const result = await advocate.audit('scripts', { path: nonExistentPath });
+      
+      expect(result.totalFiles).toBe(0);
+      expect(result.sprawlDetected).toBe(false);
+    });
+
+    it('should handle empty directories', async () => {
+      const emptyDir = path.join(tmpDir, 'empty');
+      fs.mkdirSync(emptyDir);
+      
+      const result = await advocate.audit('scripts', { path: emptyDir });
+      
+      expect(result.totalFiles).toBe(0);
+      expect(result.sprawlDetected).toBe(false);
+    });
+
+    it('should handle files with no extension', async () => {
+      fs.writeFileSync(path.join(tmpDir, 'README'), '# Documentation');
+      
+      const result = await advocate.audit('docs', { path: tmpDir });
+      
+      expect(result.totalFiles).toBe(0); // No .md files
+    });
+
+    it('should handle invalid file content during capability extraction', async () => {
+      const invalidScript = path.join(tmpDir, 'invalid.sh');
+      fs.writeFileSync(invalidScript, '\x00\x01\x02\x03'); // Binary garbage
+      
+      const result = await advocate.audit('scripts', {
+        path: tmpDir,
+        extractCapabilities: true
+      });
+      
+      expect(result.capabilities).toBeDefined();
+      expect(Array.isArray(result.capabilities)).toBe(true);
+    });
+
+    it('should handle missing target directory during consolidation', async () => {
+      const sourceDir = path.join(tmpDir, 'source');
+      fs.mkdirSync(sourceDir);
+      fs.writeFileSync(path.join(sourceDir, 'test.sh'), '#!/bin/bash\necho test');
+      
+      const targetDir = path.join(tmpDir, 'target'); // Does not exist yet
+      
+      const result = await advocate.consolidate('scripts', {
+        source: sourceDir,
+        target: targetDir,
+        preserveCapabilities: true
+      });
+      
+      expect(result.success).toBe(true);
+      expect(fs.existsSync(targetDir)).toBe(true); // Should be created
+    });
+
+    it('should handle broken symbolic links', async () => {
+      const targetFile = path.join(tmpDir, 'target.sh');
+      const linkFile = path.join(tmpDir, 'link.sh');
+      
+      // Create symlink before target exists
+      try {
+        fs.symlinkSync(targetFile, linkFile);
+        
+        const result = await advocate.audit('scripts', { path: tmpDir });
+        
+        // Should not crash, even with broken symlink
+        expect(result).toBeDefined();
+      } catch (err) {
+        // Symlinks may not be supported on all systems
+        expect(err).toBeDefined();
+      }
+    });
+  });
+
+  describe('edge cases - large scale', () => {
+    it('should handle 100+ files efficiently', async () => {
+      const largeDir = path.join(tmpDir, 'large');
+      fs.mkdirSync(largeDir);
+      
+      // Create 150 script files
+      for (let i = 0; i < 150; i++) {
+        fs.writeFileSync(
+          path.join(largeDir, `script${i}.sh`),
+          `#!/bin/bash\necho "Script ${i}"`
+        );
+      }
+      
+      const startTime = Date.now();
+      const result = await advocate.audit('scripts', { path: largeDir });
+      const duration = Date.now() - startTime;
+      
+      expect(result.totalFiles).toBe(150);
+      expect(result.sprawlDetected).toBe(true);
+      expect(duration).toBeLessThan(5000); // Should complete in < 5 seconds
+    });
+
+    it('should handle deeply nested directory structures', async () => {
+      const deepDir = path.join(tmpDir, 'level1/level2/level3/level4/level5');
+      fs.mkdirSync(deepDir, { recursive: true });
+      fs.writeFileSync(path.join(deepDir, 'deep.sh'), '#!/bin/bash\necho deep');
+      
+      const result = await advocate.audit('scripts', { path: tmpDir });
+      
+      expect(result.totalFiles).toBeGreaterThan(0);
+    });
+
+    it('should handle files with very long names', async () => {
+      const longName = 'a'.repeat(200) + '.sh';
+      fs.writeFileSync(path.join(tmpDir, longName), '#!/bin/bash\necho long');
+      
+      const result = await advocate.audit('scripts', { path: tmpDir });
+      
+      expect(result.totalFiles).toBe(1);
+    });
+  });
+
+  describe('edge cases - dependency analysis', () => {
+    it('should handle self-referencing scripts', async () => {
+      const selfRef = path.join(tmpDir, 'recursive.sh');
+      fs.writeFileSync(selfRef, '#!/bin/bash\n./recursive.sh');
+      
+      const result = await advocate.analyzeDependencies(tmpDir);
+      
+      expect(result.circularDependencies).toBe(true);
+      expect(result.cycles.length).toBeGreaterThan(0);
+    });
+
+    it('should handle missing dependency references', async () => {
+      const script = path.join(tmpDir, 'caller.sh');
+      fs.writeFileSync(script, '#!/bin/bash\n./nonexistent.sh');
+      
+      const result = await advocate.analyzeDependencies(tmpDir);
+      
+      expect(result.graph.nodes).toContain('caller.sh');
+      expect(result.graph.edges).toHaveLength(0); // No valid edges
+    });
+
+    it('should handle complex circular dependency chains', async () => {
+      fs.writeFileSync(path.join(tmpDir, 'a.sh'), '#!/bin/bash\n./b.sh');
+      fs.writeFileSync(path.join(tmpDir, 'b.sh'), '#!/bin/bash\n./c.sh');
+      fs.writeFileSync(path.join(tmpDir, 'c.sh'), '#!/bin/bash\n./a.sh');
+      
+      const result = await advocate.analyzeDependencies(tmpDir);
+      
+      expect(result.circularDependencies).toBe(true);
+      expect(result.cycles.length).toBeGreaterThan(0);
+      expect(result.cycles[0].length).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  describe('edge cases - WSJF validation', () => {
+    it('should handle directories with no files', async () => {
+      const emptyDir = path.join(tmpDir, 'empty');
+      fs.mkdirSync(emptyDir);
+      
+      const result = await advocate.validateWsjf(emptyDir);
+      
+      expect(result.sprawlScore).toBe(0);
+      expect(result.consolidationOpportunities).toHaveLength(0);
+    });
+
+    it('should handle single file (no sprawl)', async () => {
+      fs.writeFileSync(path.join(tmpDir, 'single.md'), '# Single doc');
+      
+      const result = await advocate.validateWsjf(tmpDir);
+      
+      expect(result.sprawlScore).toBeLessThanOrEqual(2);
+      expect(result.consolidationOpportunities).toHaveLength(0);
+    });
+
+    it('should calculate WSJF score correctly for high sprawl', async () => {
+      for (let i = 0; i < 20; i++) {
+        fs.writeFileSync(path.join(tmpDir, `doc${i}.md`), '# Doc');
+      }
+      
+      const result = await advocate.validateWsjf(tmpDir);
+      
+      expect(result.sprawlScore).toBe(10); // Capped at 10
+      expect(result.wsjfScore).toBeGreaterThan(0);
+      expect(result.recommendations).toBeDefined();
+      expect(result.recommendations!.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('edge cases - DDD architecture', () => {
+    it('should handle partial DDD structure', async () => {
+      const domainsDir = path.join(tmpDir, 'domains');
+      const authDir = path.join(domainsDir, 'authentication');
+      fs.mkdirSync(authDir, { recursive: true });
+      fs.mkdirSync(path.join(authDir, 'methods'));
+      // Missing 'protocols' and 'tests' dirs
+      
+      const result = await advocate.inspectArchitecture(tmpDir, { dddCompliance: true });
+      
+      expect(result.dddCompliant).toBe(false);
+      expect(result.violations).toBeDefined();
+      expect(result.violations!.length).toBeGreaterThan(0);
+    });
+
+    it('should handle empty domains directory', async () => {
+      const domainsDir = path.join(tmpDir, 'domains');
+      fs.mkdirSync(domainsDir);
+      
+      const result = await advocate.inspectArchitecture(tmpDir, { dddCompliance: true });
+      
+      expect(result.domains).toHaveLength(0);
+    });
+
+    it('should handle mixed files and directories in domains', async () => {
+      const domainsDir = path.join(tmpDir, 'domains');
+      fs.mkdirSync(domainsDir);
+      fs.writeFileSync(path.join(domainsDir, 'README.md'), '# Domains');
+      
+      const authDir = path.join(domainsDir, 'auth');
+      fs.mkdirSync(authDir);
+      fs.mkdirSync(path.join(authDir, 'methods'));
+      fs.mkdirSync(path.join(authDir, 'protocols'));
+      fs.mkdirSync(path.join(authDir, 'tests'));
+      
+      const result = await advocate.inspectArchitecture(tmpDir, { dddCompliance: true });
+      
+      expect(result.domains).toContain('auth');
+      expect(result.domains).not.toContain('README.md');
+    });
+  });
+
+  describe('edge cases - consolidation', () => {
+    it('should handle consolidation with no capabilities to preserve', async () => {
+      const sourceDir = path.join(tmpDir, 'source');
+      fs.mkdirSync(sourceDir);
+      fs.writeFileSync(path.join(sourceDir, 'simple.sh'), '#!/bin/bash\necho simple');
+      
+      const result = await advocate.consolidate('scripts', {
+        source: sourceDir,
+        target: path.join(tmpDir, 'target'),
+        preserveCapabilities: true
+      });
+      
+      expect(result.success).toBe(true);
+      expect(result.filesConsolidated).toBe(1);
+    });
+
+    it('should handle duplicate filenames in consolidation', async () => {
+      const sourceDir = path.join(tmpDir, 'source');
+      const subDir = path.join(sourceDir, 'subdir');
+      fs.mkdirSync(subDir, { recursive: true });
+      
+      // Create two files with same name in different dirs
+      fs.writeFileSync(path.join(sourceDir, 'deploy.sh'), '#!/bin/bash\necho v1');
+      fs.writeFileSync(path.join(subDir, 'deploy.sh'), '#!/bin/bash\necho v2');
+      
+      const result = await advocate.consolidate('scripts', {
+        source: sourceDir,
+        target: path.join(tmpDir, 'target'),
+        preserveCapabilities: true
+      });
+      
+      expect(result.success).toBe(true);
+      expect(result.filesConsolidated).toBe(2);
     });
   });
 });

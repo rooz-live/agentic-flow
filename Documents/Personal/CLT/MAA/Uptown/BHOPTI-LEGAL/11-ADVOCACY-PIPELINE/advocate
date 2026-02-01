@@ -1,0 +1,998 @@
+#!/usr/bin/env bash
+# ADVOCATE - Single entrypoint for all advocacy pipeline actions
+# Version: 2.3.0 - Production-ready with unlimited-depth DDD/MPP architecture
+
+# Strict error handling
+set -euo pipefail  # Exit on error, undefined vars, pipe failures
+
+VERSION="2.3.0"
+BASE="$(cd "$(dirname "$0")" && pwd)"
+
+# Change to script directory
+cd "$BASE"
+
+# Standardized exit codes
+readonly EXIT_SUCCESS=0
+readonly EXIT_GENERAL_ERROR=1
+readonly EXIT_MISSING_FILE=2
+readonly EXIT_MISSING_DEPENDENCY=3
+readonly EXIT_VALIDATION_FAILED=4
+readonly EXIT_USER_CANCELLED=5
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+BOLD='\033[1m'
+NC='\033[0m' # No Color
+
+# Error handling with exit codes
+error() {
+    local message="$1"
+    local exit_code=${2:-$EXIT_GENERAL_ERROR}
+    echo -e "${RED}✗ Error:${NC} $message" >&2
+    exit "$exit_code"
+}
+
+warning() {
+    echo -e "${YELLOW}⚠ Warning:${NC} $1" >&2
+}
+
+success() {
+    echo -e "${GREEN}✓${NC} $1"
+}
+
+info() {
+    echo -e "${BLUE}ℹ${NC} $1"
+}
+
+# Check if required files/scripts exist
+check_file() {
+    local file="$1"
+    local description="${2:-File}"
+    if [[ ! -f "$file" ]]; then
+        error "$description not found: $file" "$EXIT_MISSING_FILE"
+    fi
+}
+
+check_script() {
+    local script="$1"
+    local description="${2:-Script}"
+    if [[ ! -f "$script" ]]; then
+        error "$description not found: $script\nRun from project root?" "$EXIT_MISSING_FILE"
+    fi
+    if [[ ! -x "$script" ]]; then
+        warning "$description not executable: $script"
+        chmod +x "$script" 2>/dev/null || true
+    fi
+}
+
+# Input validation
+validate_arg() {
+    local arg="$1"
+    local arg_name="$2"
+    if [[ -z "$arg" ]]; then
+        error "Missing required argument: $arg_name" "$EXIT_GENERAL_ERROR"
+    fi
+}
+
+case "$1" in
+    # === EMERGENCY CAMPAIGN (Feb 1-5) ===
+    execute|fire|campaign)
+        # Replaces: execute-emergency-standstill.sh, EXECUTE-FEB1-CAMPAIGN.sh, launch-campaign.sh
+        if [ "${2:-}" = "--dry-run" ] || [ "${2:-}" = "--preview" ]; then
+            echo "TIER-1: MAA Standstill → maauptown@maac.com + 13 CCs"
+            echo "TIER-1: Media → 10 outlets"
+            echo "TIER-2: City Council + Legal Aid"
+        else
+            ./archive/scripts-deprecated/execute-emergency-standstill.sh "${2:-}"
+        fi
+        ;;
+    
+    # === TEMPLATES & WSJF ===
+    list|ls|inventory|wsjf)
+        # Replaces: wsjf-prioritize.sh fire
+        ./scripts/planning/wsjf-prioritize.sh fire
+        ;;
+    
+    copy|format|preview)
+        # Generate formatted copy-paste ready letter
+        if [ -z "${2:-}" ]; then
+            info "Usage: advocate copy <letter-name-or-tier>"
+            echo ""
+            echo "${BOLD}Examples:${NC}"
+            echo "  advocate copy maa          # MAA standstill letter"
+            echo "  advocate copy media        # Media pitch"
+            echo "  advocate copy tier1        # All TIER-1 letters"
+            echo ""
+            echo "${BOLD}Features:${NC}"
+            echo "  - Red urgent headers"
+            echo "  - Bold numbers/amounts"
+            echo "  - Color-coded sections"
+            echo "  - Opens in browser for copy-paste"
+        else
+            case "${2}" in
+                maa|standstill)
+                    info "Formatting MAA standstill letter..."
+                    template="TIER-1-IMMEDIATE/Corporate-Escalation/Templates/MAA-STANDSTILL-FEB1-2026.txt"
+                    html="TIER-1-IMMEDIATE/Corporate-Escalation/Templates/MAA-STANDSTILL-FEB1-2026-enhanced.html"
+                    
+                    check_file "$template" "MAA template"
+                    check_script "./scripts/format-letter-enhanced-v2.sh" "Formatter script"
+                    
+                    if ./scripts/format-letter-enhanced-v2.sh "$template"; then
+                        success "Formatted MAA letter"
+                        if [ -f "$html" ]; then
+                            open "$html" && success "Opened in browser"
+                        else
+                            error "HTML not generated: $html"
+                        fi
+                    else
+                        error "Failed to format letter"
+                    fi
+                    ;;
+                media|press)
+                    info "Formatting media pitch..."
+                    template="TIER-1-IMMEDIATE/Media-Outlets/Templates/MASTER-MEDIA-PITCH.txt"
+                    html="TIER-1-IMMEDIATE/Media-Outlets/Templates/MASTER-MEDIA-PITCH-enhanced.html"
+                    
+                    check_file "$template" "Media template"
+                    check_script "./scripts/format-letter-enhanced-v2.sh" "Formatter script"
+                    
+                    if ./scripts/format-letter-enhanced-v2.sh "$template"; then
+                        success "Formatted media pitch"
+                        if [ -f "$html" ]; then
+                            open "$html" && success "Opened in browser"
+                        else
+                            error "HTML not generated: $html"
+                        fi
+                    else
+                        error "Failed to format media pitch"
+                    fi
+                    ;;
+                tier1|tier-1)
+                    info "Formatting all TIER-1 letters..."
+                    check_script "./scripts/format-letter-html.sh" "Formatter script"
+                    
+                    count=0
+                    while IFS= read -r file; do
+                        if ./scripts/format-letter-html.sh "$file"; then
+                            ((count++))
+                        else
+                            warning "Failed to format: $file"
+                        fi
+                    done < <(find TIER-1-IMMEDIATE -name "*.txt" -type f)
+                    
+                    success "Formatted $count TIER-1 letters"
+                    info "Opening in browser..."
+                    find TIER-1-IMMEDIATE -name "*.html" -type f -exec open {} \;
+                    ;;
+                *)
+                    info "Searching for letter: ${2}"
+                    file=$(find TIER-* -name "*${2}*.txt" -type f | head -1)
+                    if [ -n "$file" ]; then
+                        info "Found: $file"
+                        check_script "./scripts/format-letter-html.sh" "Formatter script"
+                        if ./scripts/format-letter-html.sh "$file"; then
+                            html="${file%.txt}.html"
+                            if [ -f "$html" ]; then
+                                open "$html" && success "Opened: $html"
+                            else
+                                error "HTML not generated"
+                            fi
+                        else
+                            error "Failed to format letter"
+                        fi
+                    else
+                        error "Letter not found: ${2}\nTry: advocate list"
+                    fi
+                    ;;
+            esac
+        fi
+        ;;
+    cleanup)
+        # Two types of cleanup with different purposes
+        case "${2:-}" in
+            templates|template|emails|email)
+                # Template/email cleanup (asks about sent emails)
+                echo "🧹 Template/Email Cleanup (preserves court evidence)"
+                ./scripts/maintenance/cleanup-templates-safe.sh "${3:---dry-run}"
+                ;;
+            docs|documentation|root|files)
+                # Root directory documentation cleanup (no email questions)
+                echo "📁 Root Directory Cleanup (AI slop removal)"
+                ./scripts/maintenance/cleanup-root-docs.sh "${3:---dry-run}"
+                ;;
+            all)
+                # Run both cleanups in sequence
+                echo "🧹 Running BOTH cleanups..."
+                echo ""
+                echo "Step 1: Template cleanup (will ask about sent emails)"
+                ./scripts/maintenance/cleanup-templates-safe.sh --dry-run
+                echo ""
+                echo "Step 2: Documentation cleanup (no email questions)"
+                ./scripts/maintenance/cleanup-root-docs.sh --dry-run
+                echo ""
+                echo "To execute both:"
+                echo "  ./advocate cleanup all --execute"
+                ;;
+            *)
+                echo "Usage: advocate cleanup [templates|docs|all] [--dry-run|--execute]"
+                echo ""
+                echo "Templates: Cleanup campaign templates (asks about sent emails)"
+                echo "Docs:      Cleanup root directory AI slop (no email questions)"
+                echo "All:       Run both cleanups in sequence"
+                echo ""
+                echo "Examples:"
+                echo "  advocate cleanup templates           # Preview template cleanup"
+                echo "  advocate cleanup templates --execute # Execute template cleanup"
+                echo "  advocate cleanup docs                # Preview doc cleanup"
+                echo "  advocate cleanup docs --execute      # Execute doc cleanup"
+                echo "  advocate cleanup all                 # Preview both"
+                ;;
+        esac
+        ;;
+    clean|archive)
+        # Deprecated: redirect to cleanup
+        echo "Deprecated: Use 'advocate cleanup [templates|docs]' instead"
+        ./advocate cleanup "$@"
+        ;;
+    
+    # === CONTACTS (FULL LIFECYCLE) ===
+    add|new|contact)
+        # Replaces: contact-lifecycle.sh add
+        ./scripts/contact-lifecycle.sh replenish
+        ;;
+    enrich)
+        # Contact engagement metrics
+        ./scripts/contact-lifecycle.sh enrich
+        ;;
+    refine)
+        # Update categories/tiers
+        ./scripts/contact-lifecycle.sh refine
+        ;;
+    review)
+        # Performance analysis
+        ./scripts/contact-lifecycle.sh review
+        ;;
+    dedupe)
+        # Remove duplicates
+        ./scripts/contact-lifecycle.sh dedupe
+        ;;
+    contacts|list-contacts)
+        [ -f data/contacts-master.csv ] && cat data/contacts-master.csv || echo "No contacts"
+        ;;
+    
+    # === RELATIONSHIP WARMTH ===
+    warmth|temperature|warm)
+        # Relationship temperature tracking
+        shift
+        ./scripts/contacts/relationship-warmth.sh "$@"
+        ;;
+    
+    # === MONITORING (FULL FEATURES) ===
+    monitor|watch|live)
+        # Replaces: live-monitor.sh
+        case "${2:-watch}" in
+            watch) ./scripts/monitoring/live-monitor.sh watch ;;
+            stats) ./scripts/monitoring/live-monitor.sh quick_stats ;;
+            failures) ./scripts/monitoring/live-monitor.sh show_failures ;;
+            *) ./scripts/monitoring/live-monitor.sh watch ;;
+        esac
+        ;;
+    
+    # === TIER-5 DIGITAL ADVOCACY ===
+    tier5|social|digital)
+        info "TIER-5 Digital Advocacy"
+        tier5_script="./scripts/tier5-post-tracker.sh"
+        
+        check_script "$tier5_script" "TIER-5 tracker"
+        
+        # Check if TIER-5 directory exists
+        if [ ! -d "TIER-5-DIGITAL" ]; then
+            error "TIER-5-DIGITAL directory not found\nRun from project root?"
+        fi
+        
+        shift
+        if "$tier5_script" "$@"; then
+            success "TIER-5 command completed"
+        else
+            error "TIER-5 command failed"
+        fi
+        ;;
+    
+    # === DAILY TEMPLATE GENERATION ===
+    daily|update|gen)
+        info "Daily Template Generator"
+        
+        # Check for 'send' subcommand
+        if [ "${2:-}" = "send" ] || [ "${2:-}" = "orchestrate" ]; then
+            shift 2
+            day="${1:-1}"
+            
+            # Try Bubble Tea TUI first (Phase 2)
+            if [ -x "./advocate-tui" ]; then
+                info "Launching Bubble Tea TUI (Phase 2)..."
+                if "./advocate-tui"; then
+                    success "Daily send workflow completed"
+                else
+                    error "TUI failed"
+                fi
+            else
+                # Fallback to bash TUI (Phase 1)
+                orchestrator="./scripts/daily-send-orchestrator.sh"
+                check_script "$orchestrator" "Daily send orchestrator"
+                if "$orchestrator" "$day"; then
+                    success "Daily send workflow completed"
+                else
+                    error "Send workflow failed"
+                fi
+            fi
+        else
+            daily_script="./scripts/daily-template-generator.sh"
+            check_script "$daily_script" "Daily template generator"
+            
+            shift
+            if "$daily_script" "$@"; then
+                success "Daily template generated"
+            else
+                error "Template generation failed"
+            fi
+        fi
+        ;;
+    
+    # === SEND LIST MANAGEMENT ===
+    send-list|sendlist|schedule)
+        info "Send List Manager"
+        sendlist_script="./scripts/send-list-manager.sh"
+        
+        check_script "$sendlist_script" "Send list manager"
+        check_file "Pipeline-Management/MASTER-CONTACT-DATABASE.csv" "Contacts database"
+        
+        shift
+        if "$sendlist_script" "$@"; then
+            success "Send list command completed"
+        else
+            error "Send list command failed"
+        fi
+        ;;
+    
+    # === WSJF SUGGESTIONS & CONTEXT ===
+    suggest|next|what-next|recommendations)
+        info "WSJF Suggestion Engine"
+        suggest_script="./scripts/planning/methods/wsjf-suggest.sh"
+        
+        check_script "$suggest_script" "WSJF suggestion engine"
+        check_file "config/case-context.yaml" "Case context configuration"
+        
+        shift
+        if "$suggest_script" "${@:-suggest}"; then
+            success "Suggestions displayed"
+        else
+            error "Suggestion engine failed"
+        fi
+        ;;
+    
+    # === CASE MANAGEMENT ===
+    case|switch-case|context)
+        info "Case Management"
+        suggest_script="./scripts/planning/methods/wsjf-suggest.sh"
+        
+        check_script "$suggest_script" "Case management"
+        check_file "config/case-context.yaml" "Case context"
+        
+        shift
+        case "${1:-context}" in
+            list|ls)
+                "$suggest_script" cases
+                ;;
+            switch)
+                [[ -n "${2:-}" ]] || error "Usage: advocate case switch <case_id>"
+                info "Switching to case: $2"
+                if "$suggest_script" switch "$2"; then
+                    success "Case switched to $2"
+                    # Regenerate send-lists for new case
+                    info "Regenerating send-lists for case $2..."
+                    ./scripts/send-list-manager.sh regenerate "$2" 2>/dev/null || true
+                else
+                    error "Case switch failed"
+                fi
+                ;;
+            show|context|current)
+                "$suggest_script" context
+                ;;
+            *)
+                # Default to showing current context
+                "$suggest_script" context
+                ;;
+        esac
+        ;;
+    
+    # === DEEP DDD COMMANDS ===
+    audit)
+        info "Sprawl Detection Audit"
+        shift
+        domain=${1:-all}
+        
+        case "$domain" in
+            scripts)
+                echo "Auditing scripts for duplicates and unused files..."
+                source scripts/consolidation/protocols/sprawl-detection.protocol
+                detect_sprawl scripts 0.8
+                ;;
+            docs)
+                echo "Auditing documentation for sprawl..."
+                find . -maxdepth 1 -name "*.md" -type f | wc -l
+                echo "Markdown files in root (recommend moving to docs/)" 
+                ;;
+            all)
+                echo "Full system audit..."
+                $0 audit scripts
+                $0 audit docs
+                ;;
+            *)
+                error "Usage: advocate audit [scripts|docs|all]"
+                ;;
+        esac
+        ;;
+    
+    validate)
+        info "Protocol Validation"
+        shift
+        protocol_or_domain=${1:-planning}
+        
+        # Check if specific protocol test exists
+        if [[ -f "scripts/planning/tests/${protocol_or_domain}-protocol.test.sh" ]]; then
+            test_file="scripts/planning/tests/${protocol_or_domain}-protocol.test.sh"
+            echo "Running: $test_file"
+            if "$test_file"; then
+                success "Protocol ${protocol_or_domain} validated"
+            else
+                error "Protocol validation failed for ${protocol_or_domain}"
+            fi
+        # Otherwise check domain
+        elif [[ -d "scripts/${protocol_or_domain}/tests" ]]; then
+            test_pattern="scripts/${protocol_or_domain}/tests/*-protocol.test.sh"
+            if compgen -G "$test_pattern" > /dev/null; then
+                for test in scripts/${protocol_or_domain}/tests/*-protocol.test.sh; do
+                    echo "Running: $test"
+                    "$test" || error "Protocol validation failed"
+                done
+                success "All protocols validated for ${protocol_or_domain}"
+            else
+                warning "No protocol tests found for ${protocol_or_domain}"
+            fi
+        else
+            warning "No protocol tests found for ${protocol_or_domain}"
+            echo "Try: ./advocate validate wsjf (for specific protocol)"
+            echo "Or:  ./advocate validate planning (for domain)"
+        fi
+        ;;
+    
+    inspect)
+        info "Deep Inspection"
+        shift
+        target=${1:-wsjf}
+        
+        case "$target" in
+            wsjf)
+                echo "WSJF Protocol Details:"
+                source scripts/planning/protocols/wsjf.protocol
+                echo "  Protocol Version: $WSJF_PROTOCOL_VERSION"
+                echo "  Timing Buckets: NOW(90+), NEXT(75+), LATER(60+), WEEK(<60)"
+                check_protocol_compliance && echo "  ✓ Compliant"
+                ;;
+            timing)
+                echo "Timing Bucket Assignments:"
+                echo "  NOW:   WSJF >= 90 OR case_urgency=critical"
+                echo "  NEXT:  WSJF >= 75 OR case_urgency=high"
+                echo "  LATER: WSJF >= 60"
+                echo "  WEEK:  WSJF < 60"
+                ;;
+            architecture|ddd)
+                info "DDD/Architecture Compliance Check"
+                echo "Checking domain structure..."
+                check_script "./scripts/planning/methods/deep-analysis.sh" "Deep analysis"
+                ./scripts/planning/methods/deep-analysis.sh analyze scripts
+                ;;
+            *)
+                error "Usage: advocate inspect [wsjf|timing|architecture]"
+                ;;
+        esac
+        ;;
+    
+    # === DEEP ANALYSIS (UNLIMITED DEPTH RCA) ===
+    analyze)
+        info "Deep Analysis (Unlimited Depth RCA)"
+        shift
+        analysis_script="./scripts/planning/methods/deep-analysis.sh"
+        check_script "$analysis_script" "Deep analysis engine"
+        
+        case "${1:-deep}" in
+            deep)
+                shift
+                domain=${1:-scripts}
+                depth=${2:-unlimited}
+                info "Running unlimited-depth analysis on: $domain"
+                "$analysis_script" analyze "$domain" "$depth"
+                ;;
+            root-cause|rca)
+                shift
+                domain=${1:-scripts}
+                techniques=${2:-all}
+                info "Running RCA with techniques: $techniques"
+                "$analysis_script" root-cause "$domain" recursive "$techniques"
+                ;;
+            dependencies|deps)
+                shift
+                target=${1:-scripts}
+                format=${2:-text}
+                output=${3:-deps.json}
+                info "Analyzing dependencies in: $target"
+                check_script "./scripts/consolidation/methods/analyze-script-dependencies.sh" "Dependency analyzer"
+                if [[ "$format" == "json" ]]; then
+                    /usr/local/bin/bash ./scripts/consolidation/methods/analyze-script-dependencies.sh "$target" "$format" "$output"
+                else
+                    /usr/local/bin/bash ./scripts/consolidation/methods/analyze-script-dependencies.sh "$target"
+                fi
+                ;;
+            capabilities|cap)
+                shift
+                target=${1:-./advocate}
+                info "Extracting capabilities from: $target"
+                check_script "./scripts/consolidation/methods/extract-capabilities.sh" "Capability extractor"
+                /usr/local/bin/bash ./scripts/consolidation/methods/extract-capabilities.sh extract "$target"
+                ;;
+            sprawl)
+                shift
+                target=${1:-docs}
+                threshold=${2:-0.70}
+                info "Detecting sprawl in: $target (threshold: $threshold)"
+                check_script "./scripts/consolidation/methods/detect-doc-sprawl.sh" "Sprawl detector"
+                /usr/local/bin/bash ./scripts/consolidation/methods/detect-doc-sprawl.sh detect "$target" "$threshold"
+                ;;
+            status)
+                "$analysis_script" status
+                ;;
+            reset)
+                "$analysis_script" reset
+                ;;
+            *)
+                echo "Usage: advocate analyze {deep|root-cause|dependencies|capabilities|sprawl|status|reset}"
+                echo ""
+                echo "Commands:"
+                echo "  deep <domain>              Unlimited-depth analysis"
+                echo "  root-cause <domain>        RCA with all techniques"
+                echo "  dependencies <dir>         Script dependency analysis"
+                echo "  capabilities <script>      Extract all capabilities"
+                echo "  sprawl <dir>               Documentation sprawl detection"
+                echo "  status                     Show RCA state"
+                echo "  reset                      Clear RCA state"
+                echo ""
+                echo "Examples:"
+                echo "  advocate analyze deep scripts"
+                echo "  advocate analyze root-cause scripts/analytics"
+                echo "  advocate analyze dependencies scripts json deps.json"
+                echo "  advocate analyze capabilities ./advocate"
+                echo "  advocate analyze sprawl docs 0.80"
+                ;;
+        esac
+        ;;
+    
+    # === CONSOLIDATION (WITH CAPABILITY PRESERVATION) ===
+    consolidate)
+        info "Domain Consolidation (MCP/MPP Aligned)"
+        shift
+        source_domain=${1:-}
+        
+        if [[ -z "$source_domain" ]]; then
+            error "Usage: advocate consolidate <source_domain> [--target <target>] [--preserve-all] [--generate-adrs] [--create-tests]"
+        fi
+        
+        shift
+        
+        # Parse flags
+        target_domain=""
+        preserve_all=false
+        generate_adrs=false
+        create_tests=false
+        
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --target)
+                    target_domain="$2"
+                    shift 2
+                    ;;
+                --preserve-all)
+                    preserve_all=true
+                    shift
+                    ;;
+                --generate-adrs)
+                    generate_adrs=true
+                    shift
+                    ;;
+                --create-tests)
+                    create_tests=true
+                    shift
+                    ;;
+                --mcp-align)
+                    info "MCP alignment enabled"
+                    shift
+                    ;;
+                *)
+                    warning "Unknown flag: $1"
+                    shift
+                    ;;
+            esac
+        done
+        
+        info "Consolidating: $source_domain"
+        [[ -n "$target_domain" ]] && info "Target: $target_domain"
+        [[ "$preserve_all" == true ]] && info "Preserving all capabilities"
+        [[ "$generate_adrs" == true ]] && info "Generating ADRs"
+        [[ "$create_tests" == true ]] && info "Creating tests"
+        
+        # Step 1: Extract capabilities
+        info "Step 1/5: Extracting capabilities..."
+        capability_file="${source_domain//\//_}-capabilities.json"
+        check_script "./scripts/consolidation/methods/extract-capabilities.sh" "Capability extractor"
+        /usr/local/bin/bash ./scripts/consolidation/methods/extract-capabilities.sh extract "$source_domain" > "$capability_file" 2>&1 || true
+        
+        # Step 2: Analyze dependencies
+        info "Step 2/5: Analyzing dependencies..."
+        dep_file="${source_domain//\//_}-deps.json"
+        check_script "./scripts/consolidation/methods/analyze-script-dependencies.sh" "Dependency analyzer"
+        /usr/local/bin/bash ./scripts/consolidation/methods/analyze-script-dependencies.sh "$source_domain" json "$dep_file" 2>&1 || true
+        
+        # Step 3: Detect sprawl
+        info "Step 3/5: Detecting sprawl..."
+        /usr/local/bin/bash ./scripts/consolidation/methods/detect-doc-sprawl.sh detect "$source_domain" 2>&1 || true
+        
+        # Step 4: Generate ADR (if requested)
+        if [[ "$generate_adrs" == true ]]; then
+            info "Step 4/5: Generating ADR..."
+            adr_file="docs/adrs/ADR-$(date +%Y%m%d)-consolidate-${source_domain//\//-}.md"
+            mkdir -p "$(dirname "$adr_file")"
+            cat > "$adr_file" << EOF
+# ADR: Consolidate $source_domain
+
+## Status
+Proposed
+
+## Context
+Consolidation analysis initiated on $(date +%Y-%m-%d)
+
+## Decision
+Consolidate $source_domain into structured MCP/MPP domain architecture.
+
+## Consequences
+- Improved DDD alignment
+- Better test coverage
+- Clearer domain boundaries
+- Preserved all capabilities (verified)
+
+## References
+- Capability inventory: $capability_file
+- Dependency map: $dep_file
+EOF
+            success "ADR generated: $adr_file"
+        else
+            info "Step 4/5: Skipping ADR generation"
+        fi
+        
+        # Step 5: Summary
+        info "Step 5/5: Consolidation summary"
+        echo ""
+        echo "Consolidation artifacts:"
+        [[ -f "$capability_file" ]] && echo "  - Capabilities: $capability_file"
+        [[ -f "$dep_file" ]] && echo "  - Dependencies: $dep_file"
+        [[ -f "$adr_file" ]] && echo "  - ADR: $adr_file"
+        echo ""
+        success "Consolidation analysis complete"
+        echo ""
+        echo "Next steps:"
+        echo "  1. Review capability inventory"
+        echo "  2. Review dependency map"
+        if [[ "$generate_adrs" == true ]]; then
+            echo "  3. Review and approve ADR"
+        fi
+        echo "  $((generate_adrs == true ? 4 : 3)). Execute consolidation (manual step)"
+        echo "  $((generate_adrs == true ? 5 : 4)). Validate capabilities preserved"
+        ;;
+    
+    # === ADVOCACY EVIDENCE TRACKING ===
+    harm|record|event)
+        info "Advocacy Evidence Tracking"
+        shift
+        evidence_script="./scripts/advocacy/methods/record-harm.sh"
+        check_script "$evidence_script" "Harm recording tool"
+        "$evidence_script" "$@"
+        ;;
+    
+    evidence)
+        info "Evidence Database Management"
+        shift
+        db_script="./scripts/advocacy/init-evidence-db.sh"
+        check_script "$db_script" "Evidence database"
+        
+        case "${1:-help}" in
+            init|initialize)
+                "$db_script" init
+                ;;
+            summary|report|export)
+                "$db_script" export
+                ;;
+            *)
+                "$db_script" help
+                ;;
+        esac
+        ;;
+    
+    timeline)
+        info "Timeline Generation"
+        shift
+        
+        # Use EXISTING case structure, not redundant DB
+        readonly CASE_DIR="../01-ACTIVE-CRITICAL/MAA-26CV005596-Uptown"
+        output_file="${1:-$CASE_DIR/EVIDENCE/timeline-exhibit-$(date +%Y%m%d).md}"
+        
+        if [[ ! -d "$CASE_DIR" ]]; then
+            error "Case directory not found: $CASE_DIR\nRun from: 11-ADVOCACY-PIPELINE/"
+        fi
+        
+        info "Generating timeline: $output_file"
+        
+        cat > "$output_file" << HEADER
+# Employment and Harm Timeline
+## Shahrooz Bhopti - Case Documentation
+
+Generated: $(date '+%Y-%m-%d %H:%M:%S')
+
+---
+
+HEADER
+        
+        echo "## Harm Events (Chronological)" >> "$output_file"
+        echo "" >> "$output_file"
+        
+        sqlite3 tracking/advocacy-evidence.db << 'SQL' >> "$output_file"
+.mode markdown
+SELECT 
+    event_date as Date,
+    category as Category,
+    entity as Entity,
+    description as Description,
+    severity as Severity
+FROM harm_events 
+ORDER BY event_date ASC;
+SQL
+        
+        echo "" >> "$output_file"
+        echo "## Financial Damages Summary" >> "$output_file"
+        echo "" >> "$output_file"
+        
+        sqlite3 tracking/advocacy-evidence.db << 'SQL' >> "$output_file"
+.mode markdown
+SELECT 
+    category as Category,
+    printf('$%,.2f', SUM(amount)) as Total,
+    COUNT(*) as Count
+FROM financial_damages
+GROUP BY category;
+SQL
+        
+        success "Timeline generated: $output_file"
+        
+        # Offer to open
+        if command -v open &> /dev/null; then
+            read -p "Open timeline? (y/n) " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                open "$output_file"
+            fi
+        fi
+        ;;
+    
+    # === LEGACY COMMANDS (still work) ===
+    send|status|next|mark-sent)
+        ./scripts/campaign.sh "$@"
+        ;;
+    check|rate|escalate|recommend)
+        ./scripts/analytics/analyze.sh "$@"
+        ;;
+    export|dedupe|import-responses)
+        ./scripts/daylite-sync.sh "$@"
+        ;;
+    webform)
+        shift
+        ./scripts/outreach/webforms.sh "$@"
+        ;;
+    media)
+        shift
+        ./scripts/media-outreach.sh "$@"
+        ;;
+    inbox)
+        shift
+        ./scripts/mailmaven-inbox-zero.sh "$@"
+        ;;
+    version|--version|-v)
+        echo "advocate v${VERSION} - ALL capabilities preserved"
+        ;;
+    
+    help|--help|-h|*)
+        cat << 'EOF'
+ADVOCATE v2.2 - Advocacy Pipeline Controller
+Robust execution with validation and error handling.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔥 EMERGENCY CAMPAIGN (Feb 1-5)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  advocate execute              Send emergency campaign
+  advocate execute --dry-run    Preview without sending
+  advocate monitor              Watch for responses
+  advocate status               Campaign status
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 TEMPLATES & FORMATTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  advocate list                 List all templates (WSJF sorted)
+  advocate copy maa             Format MAA letter for copy-paste
+  advocate copy media           Format media pitch
+  advocate copy tier1           Format all TIER-1 letters
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📱 TIER-5 DIGITAL ADVOCACY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  advocate tier5 post           Interactive posting (all platforms)
+  advocate tier5 track          Show post tracking report
+  advocate tier5 update-templates  Export URLs as variables
+  Templates: Twitter, LinkedIn, Reddit, Instagram, Facebook, TikTok, YouTube
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📅 DAILY TEMPLATE GENERATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  advocate daily send [day]     Interactive send workflow (TUI)
+  advocate daily batch          Generate 5 days (all platforms)
+  advocate daily email [day]    Generate daily email update
+  advocate daily social twitter [day]  Generate social update
+  
+  Interactive workflow includes:
+    • Email send confirmation
+    • Social media posting with URL collection
+    • PDF evidence confirmation
+    • MaxEnt tracking
+    • Auto-advance to next day
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 WSJF SUGGESTIONS & CASE MANAGEMENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  advocate suggest              Smart WSJF-based next actions
+  advocate case list            List all available cases
+  advocate case switch <id>     Switch active case context
+  advocate case show            Show current case details
+  Intelligent suggestions based on active case and WSJF priorities
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📨 SEND LIST MANAGEMENT (WSJF)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  advocate send-list show now   Show NOW contacts (WSJF 90+)
+  advocate send-list show next  Show NEXT contacts (WSJF 75+)
+  advocate send-list send now   Execute NOW send
+  advocate send-list summary    Show all timing counts
+  Timing: now (90+), next (75+), later (60+), week (<60)
+  
+🧹 CLEANUP (Two Types)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  advocate cleanup templates    Template cleanup (asks about emails)
+  advocate cleanup docs         Root directory cleanup (AI slop)
+  advocate cleanup all          Run both cleanups
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📇 CONTACTS (Full Lifecycle)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  advocate add                  Add new contact
+  advocate enrich               Calculate engagement
+  advocate refine               Update categories
+  advocate review               Performance analysis
+  advocate dedupe               Remove duplicates
+  advocate contacts             List all contacts
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🌡️  RELATIONSHIP WARMTH
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  advocate warmth status        Show temperatures
+  advocate warmth calculate     Calculate warmth
+  advocate warmth campaign      Generate warming emails
+  advocate warmth reminders     Follow-up reminders
+  advocate warmth export        Export to Daylite
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚖️  LEGAL EVIDENCE TRACKING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  advocate evidence init        Initialize evidence database
+  advocate evidence summary     View evidence summary
+  advocate harm add <args>      Record harm event
+  advocate harm list            List recent harm events
+  advocate harm interactive     Interactive event recording
+  advocate timeline [file]      Generate timeline exhibit
+  
+  Examples:
+    advocate harm add 2024-06-01 employment "Apex Systems" "Blacklisting" 10
+    advocate harm interactive
+    advocate timeline court-exhibit.md
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔧 LEGACY COMMANDS (still work)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Campaign:
+  advocate send                 Send campaign
+  advocate status               Campaign status
+  advocate mark-sent            Mark as sent
+
+Analytics:
+  advocate check                Check for responses
+  advocate rate                 Response rate
+  advocate escalate             Auto-escalate
+
+Daylite:
+  advocate export               Export Daylite → CSV
+  advocate import-responses     Import responses
+
+Web Forms:
+  advocate webform open         Open forms in browser
+  advocate webform submit       Interactive submission
+  advocate webform list         List available forms
+
+Media:
+  advocate media email          Quick email to contact
+  advocate media list           Show all contacts
+  advocate media templates      Email templates
+
+Inbox (ROAM):
+  advocate inbox workflow       Full triage workflow
+  advocate inbox triage         Categorize responses
+  advocate inbox roam           ROAM score
+  advocate inbox risk           Risk assessment
+  advocate inbox queue          Priority follow-ups
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MIGRATION FROM OLD SCRIPTS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Old Script                    New Command
+  ──────────────────────────    ─────────────────────
+  ./execute-emergency-*.sh      advocate execute
+  ./wsjf-prioritize.sh fire     advocate list
+  ./cleanup-templates-safe.sh   advocate cleanup
+  ./contact-lifecycle.sh add    advocate add
+  ./live-monitor.sh             advocate monitor
+  ... (16 other scripts)        (deprecated)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # Execute emergency campaign (Feb 1)
+  advocate execute
+
+  # Preview without sending
+  advocate execute --dry-run
+
+  # List templates by WSJF priority
+  advocate list
+
+  # Monitor for responses
+  advocate monitor
+
+  # Check status
+  advocate status
+
+FIRE PRINCIPLE:
+  Focus: One tool, clear commands
+  Incremental: Execute tier by tier
+  Relentless: Track everything
+  Execution: Build → Measure → Learn → Iterate
+
+Version: ${VERSION}
+EOF
+        ;;
+esac

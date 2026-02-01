@@ -268,12 +268,16 @@ describe('Adaptive Health Check Frequency', () => {
       const cascadeCount = state.metrics.cascade_failure_count || 0;
       const failureRate = state.failedWork / Math.max(1, state.completedWork + state.failedWork);
       
+      // Calculate combined anomaly rate (0 = healthy, 1 = critical)
       const anomalyRate = Math.min(1, 
-        degradationScore * 0.4 + 
-        (cascadeCount > 0 ? 0.3 : 0) + 
-        failureRate * 0.3
+        degradationScore * 0.5 + 
+        (cascadeCount > 0 ? 0.4 : 0) + 
+        failureRate * 0.4
       );
 
+      // Higher stress = lower frequency multiplier = more frequent checks
+      // When anomalyRate = 1 (max stress), stressMultiplier = 0, frequency = minFrequency (1)
+      // When anomalyRate = 0 (no stress), stressMultiplier = 1, frequency = maxFrequency (20)
       const stressMultiplier = 1 - anomalyRate;
       const adaptiveFrequency = Math.round(
         minFrequency + (maxFrequency - minFrequency) * stressMultiplier

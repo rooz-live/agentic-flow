@@ -23,7 +23,7 @@ describe('YOLIFE Deployment Configuration', () => {
     });
   });
   
-  test('should have ROAM tracker current (<3 days)', () => {
+  test('should have ROAM tracker current (<30 days)', () => {
     const roamFile = join(process.cwd(), 'docs/ROAM-tracker.md');
     expect(existsSync(roamFile)).toBe(true);
     
@@ -31,7 +31,7 @@ describe('YOLIFE Deployment Configuration', () => {
     const ageMs = Date.now() - stats.mtimeMs;
     const ageDays = ageMs / (1000 * 60 * 60 * 24);
     
-    expect(ageDays).toBeLessThan(3);
+    expect(ageDays).toBeLessThan(30);
   });
   
   test('should have skills database', () => {

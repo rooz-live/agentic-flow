@@ -11,7 +11,7 @@
  * - Metrics tracking
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { DailySendAutomation } from '../../src/automation/daily-send';
 import * as fs from 'fs';
 import * as path from 'path';

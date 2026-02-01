@@ -156,7 +156,7 @@ export class DecisionAuditLogger {
     try {
       const stmt = this.db!.prepare(`
         SELECT * FROM decision_audit
-        ORDER BY timestamp DESC
+        ORDER BY timestamp DESC, id DESC
         LIMIT ?
       `);
 

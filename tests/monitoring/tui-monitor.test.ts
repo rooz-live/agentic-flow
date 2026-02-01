@@ -9,46 +9,46 @@
  * - Keyboard controls
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { TUIMonitor } from '../../src/monitoring/tui-monitor';
 
 // Mock blessed to avoid terminal rendering in tests
-vi.mock('blessed', () => ({
+jest.mock('blessed', () => ({
   default: {
-    screen: vi.fn(() => ({
-      key: vi.fn(),
-      render: vi.fn(),
-      destroy: vi.fn(),
+    screen: jest.fn(() => ({
+      key: jest.fn(),
+      render: jest.fn(),
+      destroy: jest.fn(),
     })),
-    box: vi.fn(() => ({
-      setContent: vi.fn(),
+    box: jest.fn(() => ({
+      setContent: jest.fn(),
     })),
-    listtable: vi.fn(() => ({
-      setData: vi.fn(),
+    listtable: jest.fn(() => ({
+      setData: jest.fn(),
     })),
-    list: vi.fn(() => ({
-      clearItems: vi.fn(),
-      addItem: vi.fn(),
+    list: jest.fn(() => ({
+      clearItems: jest.fn(),
+      addItem: jest.fn(),
     })),
-    log: vi.fn(() => ({
-      log: vi.fn(),
+    log: jest.fn(() => ({
+      log: jest.fn(),
     })),
   },
 }));
 
 // Mock blessed-contrib
-vi.mock('blessed-contrib', () => ({
+jest.mock('blessed-contrib', () => ({
   default: {
-    bar: vi.fn(() => ({
-      setData: vi.fn(),
+    bar: jest.fn(() => ({
+      setData: jest.fn(),
     })),
   },
 }));
 
 // Mock SwarmBindingCoordinator
-vi.mock('../../src/swarm/binding-coordinator', () => ({
-  SwarmBindingCoordinator: vi.fn().mockImplementation(() => ({
-    getStatus: vi.fn(() => ({
+jest.mock('../../src/swarm/binding-coordinator', () => ({
+  SwarmBindingCoordinator: jest.fn().mockImplementation(() => ({
+    getStatus: jest.fn(() => ({
       swarm: {
         id: 'test-swarm-123',
         topology: 'hierarchical',
@@ -98,7 +98,7 @@ vi.mock('../../src/swarm/binding-coordinator', () => ({
         avgResponseTime: 1.2,
       },
     })),
-    healthCheck: vi.fn(() => ({
+    healthCheck: jest.fn(() => ({
       healthy: true,
       issues: [],
     })),

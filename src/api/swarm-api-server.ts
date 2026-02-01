@@ -304,7 +304,7 @@ async function fetchWsjfItems(): Promise<any[]> {
 }
 
 // Start server
-server.listen(PORT, HOST, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Swarm API Server running on http://${HOST}:${PORT}`);
   console.log(`📡 WebSocket endpoint: ws://${HOST}:${PORT}/ws/execution`);
   console.log(`\nAvailable endpoints:`);

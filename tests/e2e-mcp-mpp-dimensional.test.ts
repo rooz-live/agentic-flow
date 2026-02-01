@@ -103,21 +103,21 @@ describe('E2E MCP/MPP Dimensional Integration', () => {
         { timestamp: new Date(weekAgo).toISOString(), circle: 'analyst' },
       ];
 
-      // Filter for NOW (last 1 hour)
+      // Filter for NOW (last 1 hour) - use >= to include boundary timestamps
       const nowEpisodes = episodes.filter(e => 
-        new Date(e.timestamp).getTime() > now - (60 * 60 * 1000)
+        new Date(e.timestamp).getTime() >= now - (60 * 60 * 1000)
       );
       expect(nowEpisodes).toHaveLength(2);
 
-      // Filter for TODAY (last 24 hours)
+      // Filter for TODAY (last 24 hours) - use >= to include boundary timestamps
       const todayEpisodes = episodes.filter(e =>
-        new Date(e.timestamp).getTime() > now - (24 * 60 * 60 * 1000)
+        new Date(e.timestamp).getTime() >= now - (24 * 60 * 60 * 1000)
       );
       expect(todayEpisodes).toHaveLength(3);
 
-      // Filter for WEEK (last 7 days)
+      // Filter for WEEK (last 7 days) - use >= to include boundary timestamps
       const weekEpisodes = episodes.filter(e =>
-        new Date(e.timestamp).getTime() > now - (7 * 24 * 60 * 60 * 1000)
+        new Date(e.timestamp).getTime() >= now - (7 * 24 * 60 * 60 * 1000)
       );
       expect(weekEpisodes).toHaveLength(4);
     });

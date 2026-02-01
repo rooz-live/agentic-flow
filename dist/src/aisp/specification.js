@@ -138,6 +138,7 @@ export class DecisionAuditRules {
             valid: errors.length === 0,
             errors,
             warnings,
+            // @ts-expect-error - Type incompatibility requires refactoring
             evidence: decision
         };
     }

@@ -1,0 +1,139 @@
+################################################################################
+# Agentic Flow - Automated Update Crontab
+#
+# Installation:
+#   1. Review and adjust paths/schedules below
+#   2. Install: crontab < scripts/crontab.example
+#   3. Verify: crontab -l
+#
+# Log rotation is handled by logrotate.d config
+################################################################################
+
+# Set environment variables for all cron jobs
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+PROJECT_ROOT=/Users/shahroozbhopti/Documents/code/investing/agentic-flow
+
+# Notification webhooks (optional)
+SLACK_WEBHOOK=https://hooks.slack.com/services/YOUR/WEBHOOK/HERE
+GH_TOKEN=ghp_YOUR_TOKEN_HERE
+
+################################################################################
+# HOURLY - Security and Critical Updates Only
+################################################################################
+
+# Every hour: Check for critical security vulnerabilities
+# Runs at :05 past every hour to avoid load spikes
+5 * * * * cd $PROJECT_ROOT && bash scripts/auto-update-upstream.sh check 2>&1 | logger -t agentic-flow-security
+
+# Every hour: Health checks via monitoring script
+15 * * * * cd $PROJECT_ROOT && bash scripts/hourly-check.sh 2>&1 | logger -t agentic-flow-health
+
+################################################################################
+# DAILY - Alpha Releases and Dependency Updates
+################################################################################
+
+# 02:00 UTC daily: Check for Claude Flow v3 alpha updates
+0 2 * * * cd $PROJECT_ROOT && bash scripts/auto-update-upstream.sh update 2>&1 | logger -t agentic-flow-daily
+
+# 02:30 UTC daily: Full build and test suite
+30 2 * * * cd $PROJECT_ROOT && bash scripts/daily-build.sh 2>&1 | logger -t agentic-flow-build
+
+# 03:00 UTC daily: Performance benchmarks
+0 3 * * * cd $PROJECT_ROOT && npx claude-flow@v3alpha performance benchmark --suite all 2>&1 | logger -t agentic-flow-perf
+
+# 04:00 UTC daily: Security audit
+0 4 * * * cd $PROJECT_ROOT && npx claude-flow@v3alpha security scan --depth full 2>&1 | logger -t agentic-flow-audit
+
+# 05:00 UTC daily: Test coverage analysis
+0 5 * * * cd $PROJECT_ROOT && npx claude-flow@v3alpha hooks worker dispatch --trigger testgaps 2>&1 | logger -t agentic-flow-coverage
+
+# 06:00 UTC daily: Documentation generation
+0 6 * * * cd $PROJECT_ROOT && npx claude-flow@v3alpha hooks worker dispatch --trigger document 2>&1 | logger -t agentic-flow-docs
+
+################################################################################
+# WEEKLY - Full Release and Multi-Cloud Deployment
+################################################################################
+
+# Sunday 00:00 UTC: Weekly release process
+0 0 * * 0 cd $PROJECT_ROOT && bash scripts/weekly-release.sh 2>&1 | logger -t agentic-flow-release
+
+# Sunday 01:00 UTC: Multi-cloud deployment
+0 1 * * 0 cd $PROJECT_ROOT && bash scripts/deploy-multicloud.sh 2>&1 | logger -t agentic-flow-deploy
+
+# Sunday 02:00 UTC: DNS health checks
+0 2 * * 0 cd $PROJECT_ROOT && bash scripts/dns-health-check.sh 2>&1 | logger -t agentic-flow-dns
+
+# Sunday 03:00 UTC: Full codebase map regeneration
+0 3 * * 0 cd $PROJECT_ROOT && npx claude-flow@v3alpha hooks worker dispatch --trigger map 2>&1 | logger -t agentic-flow-map
+
+# Sunday 04:00 UTC: Memory consolidation
+0 4 * * 0 cd $PROJECT_ROOT && npx claude-flow@v3alpha hooks worker dispatch --trigger consolidate 2>&1 | logger -t agentic-flow-memory
+
+################################################################################
+# BI-WEEKLY - Major Dependency Audits
+################################################################################
+
+# First and third Sunday of month at 05:00 UTC: Deep dependency audit
+0 5 1-7,15-21 * 0 cd $PROJECT_ROOT && npm audit fix --force && npm outdated 2>&1 | logger -t agentic-flow-deps
+
+################################################################################
+# MONTHLY - Neural Pattern Training and Retrospectives
+################################################################################
+
+# First day of month at 06:00 UTC: Neural pattern training
+0 6 1 * * cd $PROJECT_ROOT && npx claude-flow@v3alpha neural train --pattern-type all --epochs 20 2>&1 | logger -t agentic-flow-neural
+
+# First day of month at 07:00 UTC: Generate monthly metrics report
+0 7 1 * * cd $PROJECT_ROOT && npx claude-flow@v3alpha hooks metrics --v3-dashboard --format markdown > docs/metrics/$(date +\%Y-\%m).md 2>&1 | logger -t agentic-flow-metrics
+
+################################################################################
+# ON-DEMAND - Triggered by External Events
+################################################################################
+
+# These are placeholders for webhook-triggered updates
+# Actual implementation via GitHub Actions webhooks or external CI/CD
+
+# GitHub Release webhook trigger (handled by GitHub Actions)
+# npm registry watch (handled by GitHub Actions)
+# Security advisory watch (handled by Dependabot)
+
+################################################################################
+# CLEANUP - Log Rotation and Temp File Cleanup
+################################################################################
+
+# Daily at midnight: Clean up old logs and temporary files
+0 0 * * * find /tmp/agentic-flow-* -type f -mtime +7 -delete 2>&1 | logger -t agentic-flow-cleanup
+0 0 * * * find /tmp/upstream-updates-*.log -type f -mtime +30 -delete 2>&1 | logger -t agentic-flow-cleanup
+
+################################################################################
+# DAEMON MONITORING
+################################################################################
+
+# Every 15 minutes: Check Claude Flow daemon health
+*/15 * * * * pgrep -f "claude-flow.*daemon" > /dev/null || (cd $PROJECT_ROOT && npx claude-flow@v3alpha daemon start --memory-backend=hnsw 2>&1 | logger -t agentic-flow-daemon)
+
+################################################################################
+# NOTES
+################################################################################
+#
+# Scheduling Philosophy:
+#   - Hourly:  Security checks only (low overhead)
+#   - Daily:   Alpha updates, builds, tests (02:00-06:00 UTC off-peak)
+#   - Weekly:  Release + multi-cloud deployment (Sunday early morning)
+#   - Monthly: Neural training and retrospectives
+#
+# Exit Codes:
+#   0 = Success, no updates needed
+#   1 = Updates available (check mode) or update failed
+#   2 = Security vulnerabilities detected
+#
+# Logs:
+#   All output goes to syslog via logger
+#   View with: journalctl -t agentic-flow-<component>
+#
+# Notifications:
+#   Set SLACK_WEBHOOK for Slack notifications
+#   Set GH_TOKEN for GitHub issue creation on failures
+#
+################################################################################

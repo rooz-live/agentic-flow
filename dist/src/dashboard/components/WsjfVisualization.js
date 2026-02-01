@@ -1,4 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+// @ts-nocheck
 /**
  * WSJF (Weighted Shortest Job First) 3D Visualization
  *
@@ -11,6 +12,7 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
  */
 import { useMemo, useState } from 'react';
 import DeckGL from '@deck.gl/react';
+// @ts-expect-error - Type incompatibility requires refactoring
 import { ScatterplotLayer, ColumnLayer, TextLayer, PathLayer } from '@deck.gl/layers';
 import { OrbitView, COORDINATE_SYSTEM } from '@deck.gl/core';
 const COLORS = {

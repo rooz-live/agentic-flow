@@ -127,7 +127,7 @@ export class CpanelClient {
           'Authorization': this.getAuthHeader(),
           ...formData.getHeaders()
         },
-        body: formData
+        body: formData as any
       });
 
       if (!response.ok) {

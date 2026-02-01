@@ -4,10 +4,11 @@
  */
 
 // Core class
-export { AffiliateStateTracker, AffiliateStateTrackerConfig } from './AffiliateStateTracker';
+export { AffiliateStateTracker } from './AffiliateStateTracker';
+export type { AffiliateStateTrackerConfig } from './AffiliateStateTracker';
 
 // Types
-export {
+export type {
   // State types
   AffiliateStatus,
   AffiliateTier,
@@ -40,6 +41,6 @@ export {
   
   // State machine
   StateTransition,
-  STATE_TRANSITIONS,
 } from './types';
 
+export { STATE_TRANSITIONS } from './types';

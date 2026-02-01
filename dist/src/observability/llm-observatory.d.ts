@@ -54,6 +54,10 @@ export declare class LLMObservability {
         errorSpans: number;
         avgLatency: number;
     };
+    /**
+     * Trace local LLM operations
+     */
+    traceLocalLLM<T>(operation: string, fn: () => Promise<T>): Promise<T>;
 }
 export declare function initializeLLMObservability(config?: Partial<LLMObservabilityConfig>): LLMObservability;
 export declare function getLLMObservability(): LLMObservability;

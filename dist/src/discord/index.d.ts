@@ -42,5 +42,4 @@ export declare class DiscordBotFactory {
  * Main function for standalone execution
  */
 export declare function main(): Promise<void>;
-export type { DiscordBotSystem };
 //# sourceMappingURL=index.d.ts.map

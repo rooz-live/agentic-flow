@@ -38,8 +38,9 @@ describe('YOLIFE Deployment Configuration', () => {
     const skillsFile = join(process.cwd(), 'reports/skills-store.json');
     expect(existsSync(skillsFile)).toBe(true);
     
-    const skills = JSON.parse(readFileSync(skillsFile, 'utf-8'));
-    expect(Array.isArray(skills)).toBe(true);
-    expect(skills.length).toBeGreaterThan(0);
+    const skillsData = JSON.parse(readFileSync(skillsFile, 'utf-8'));
+    expect(skillsData.skills).toBeDefined();
+    expect(Array.isArray(skillsData.skills)).toBe(true);
+    expect(skillsData.skills.length).toBeGreaterThan(0);
   });
 });

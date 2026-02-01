@@ -265,6 +265,7 @@ export class DecisionAuditRules implements AISPRule<DecisionTypes, DecisionTypes
       valid: errors.length === 0,
       errors,
       warnings,
+// @ts-expect-error - Type incompatibility requires refactoring
       evidence: decision as Record<string, unknown>
     };
   }

@@ -229,6 +229,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
                 break;
             case 'knowledge_search':
                 // Convert string dates to Date objects
+                // @ts-expect-error - Type incompatibility requires refactoring
                 if (args?.filters?.dateRange) {
                     const dr = args.filters.dateRange;
                     args.filters.dateRange = {

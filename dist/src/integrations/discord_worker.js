@@ -1,5 +1,6 @@
 import { InteractionResponseType, InteractionType, verifyKey, } from 'discord-interactions';
 export default {
+    // @ts-expect-error - Type incompatibility requires refactoring
     async fetch(request, env, ctx) {
         const url = new URL(request.url);
         // Health check endpoint

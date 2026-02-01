@@ -26,6 +26,7 @@ module.exports = {
     'quic-workflow\\.test\\.ts$',
     // Skip goalie-vscode tests (require separate vscode extension test runner)
     'tools/goalie-vscode/tests/',
+    'tools/goalie-vscode/src/',
     // Skip process-governor test (hangs due to mock issues)
     'tests/unit/process-governor\\.test\\.ts$',
     // Environment-based filtering (set via AF_SKIP_INTEGRATION=true)

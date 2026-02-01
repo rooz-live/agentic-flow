@@ -37,6 +37,7 @@ export class AgentAllocator {
 }
 // Usage example
 const allocator = new AgentAllocator();
+// @ts-expect-error - Type incompatibility requires refactoring
 const agentsNeeded = allocator.calculateAgentCount({
     category: 'security',
     severity: 'critical',

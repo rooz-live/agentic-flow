@@ -81,7 +81,6 @@ export class AutomationSelfHealing {
         try {
             const response = await fetch(healthCheck.endpoint, {
                 method: healthCheck.method,
-                timeout: healthCheck.timeout * 1000,
                 headers: {
                     'User-Agent': 'Agentic-Flow-Health-Check/1.0'
                 }
@@ -383,7 +382,7 @@ export class AutomationSelfHealing {
             trigger: 'automation'
         });
     }
-    async runScript(scriptPath, arguments) {
+    async runScript(scriptPath, args) {
         this.logger.info(`Running script: ${scriptPath}`, {
             component: 'automation',
             action: 'run_script',
@@ -445,7 +444,7 @@ export class AutomationSelfHealing {
             this.executeAutomationRule(rule, { metricAlert: alert });
         }
     }
-    handleServiceFailure(failure) {
+    async handleServiceFailure(failure) {
         if (!this.config.enableSelfHealing) {
             return;
         }
@@ -458,7 +457,7 @@ export class AutomationSelfHealing {
         // Try to restart the service
         await this.restartService(failure.serviceName);
     }
-    handleSystemEvent(event) {
+    async handleSystemEvent(event) {
         if (!this.config.enableSelfHealing) {
             return;
         }

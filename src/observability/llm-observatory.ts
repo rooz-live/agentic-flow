@@ -152,6 +152,13 @@ export class LLMObservability {
         .reduce((sum, s) => sum + (s.endTime! - s.startTime), 0) / spans.length || 0,
     };
   }
+
+  /**
+   * Trace local LLM operations
+   */
+  traceLocalLLM<T>(operation: string, fn: () => Promise<T>): Promise<T> {
+    return this.trackInference(operation, fn);
+  }
 }
 
 // Singleton instance

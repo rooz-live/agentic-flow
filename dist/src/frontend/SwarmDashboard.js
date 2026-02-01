@@ -1,0 +1,323 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+// @ts-nocheck
+import { useState, useEffect, useCallback } from 'react';
+import DeckGL from '@deck.gl/react';
+// @ts-expect-error - Type incompatibility requires refactoring
+import { ScatterplotLayer, ArcLayer, PointCloudLayer } from '@deck.gl/layers';
+import { Map } from 'react-map-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const WS_URL = API_BASE_URL.replace('http', 'ws');
+export const SwarmDashboard = () => {
+    const [queenState, setQueenState] = useState(null);
+    const [agents, setAgents] = useState([]);
+    const [memoryConnections, setMemoryConnections] = useState([]);
+    const [executionEvents, setExecutionEvents] = useState([]);
+    const [wsjfItems, setWsjfItems] = useState([]);
+    const [viewState, setViewState] = useState({
+        longitude: 0,
+        latitude: 0,
+        zoom: 0.5,
+        pitch: 45,
+        bearing: 0,
+        minZoom: 0,
+        maxZoom: 20
+    });
+    // Fetch initial data
+    useEffect(() => {
+        const fetchData = async () => {
+            try {
+                const [queenRes, agentsRes, memoryRes, wsjfRes] = await Promise.all([
+                    fetch(`${API_BASE_URL}/api/swarm/queen`),
+                    fetch(`${API_BASE_URL}/api/swarm/agents`),
+                    fetch(`${API_BASE_URL}/api/swarm/memory`),
+                    fetch(`${API_BASE_URL}/api/wsjf/items`)
+                ]);
+                const [queen, agentList, memory, wsjf] = await Promise.all([
+                    queenRes.json(),
+                    agentsRes.json(),
+                    memoryRes.json(),
+                    wsjfRes.json()
+                ]);
+                setQueenState(queen);
+                setAgents(agentList);
+                setMemoryConnections(memory);
+                setWsjfItems(wsjf);
+            }
+            catch (error) {
+                console.error('Error fetching data:', error);
+            }
+        };
+        fetchData();
+        const interval = setInterval(fetchData, 5000); // Refresh every 5s
+        return () => clearInterval(interval);
+    }, []);
+    // WebSocket for real-time execution events
+    useEffect(() => {
+        const ws = new WebSocket(`${WS_URL}/ws/execution`);
+        ws.onopen = () => {
+            console.log('WebSocket connected');
+        };
+        ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type !== 'connected') {
+                    setExecutionEvents(prev => [...prev.slice(-100), data]);
+                }
+            }
+            catch (error) {
+                console.error('WebSocket message error:', error);
+            }
+        };
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+        };
+        ws.onclose = () => {
+            console.log('WebSocket disconnected');
+        };
+        return () => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
+        };
+    }, []);
+    // Layer 1: Queen State Visualization
+    const queenLayer = queenState ? new ScatterplotLayer({
+        id: 'queen-layer',
+        data: [queenState],
+        getPosition: (d) => d.position,
+        getRadius: 8000,
+        getFillColor: d => {
+            const health = d.health;
+            if (health >= 80)
+                return [0, 255, 0, 220]; // Green
+            if (health >= 60)
+                return [255, 215, 0, 220]; // Gold
+            if (health >= 40)
+                return [255, 165, 0, 220]; // Orange
+            return [255, 0, 0, 220]; // Red
+        },
+        radiusScale: 1,
+        radiusMinPixels: 30,
+        radiusMaxPixels: 80,
+        pickable: true,
+        stroked: true,
+        lineWidthMinPixels: 2,
+        getLineColor: [255, 255, 255, 200]
+    }) : null;
+    // Layer 2: Agent ROAM Metrics (3D Scatterplot)
+    const agentsLayer = new ScatterplotLayer({
+        id: 'agents-layer',
+        data: agents,
+        getPosition: (d) => {
+            // Calculate position based on agent type and metrics
+            const index = agents.indexOf(d);
+            const angle = (index / agents.length) * Math.PI * 2;
+            const radius = 40;
+            // Height based on MYM score
+            const mymHeight = d.mymScore
+                ? (d.mymScore.manthra + d.mymScore.yasna + d.mymScore.mithra) * 10
+                : 5;
+            return [
+                Math.cos(angle) * radius,
+                Math.sin(angle) * radius,
+                mymHeight
+            ];
+        },
+        getRadius: (d) => {
+            // Size based on task load
+            return Math.max(1000, d.taskLoad * 2000 + 1000);
+        },
+        getFillColor: (d) => {
+            // Color based on status
+            const statusColors = {
+                'active': [0, 255, 0, 220],
+                'busy': [255, 165, 0, 220],
+                'idle': [128, 128, 128, 180],
+                'error': [255, 0, 0, 220]
+            };
+            return statusColors[d.status] || [128, 128, 128, 180];
+        },
+        pickable: true,
+        radiusMinPixels: 8,
+        radiusMaxPixels: 40,
+        stroked: true,
+        lineWidthMinPixels: 1,
+        getLineColor: [255, 255, 255, 150]
+    });
+    // Layer 3: Memory Connections (ArcLayer)
+    const memoryLayer = new ArcLayer({
+        id: 'memory-layer',
+        data: memoryConnections,
+        getSourcePosition: (d) => d.source,
+        getTargetPosition: (d) => d.target,
+        getSourceColor: (d) => {
+            // Color by connection type
+            const typeColors = {
+                'hnsw': [0, 128, 255, 150],
+                'semantic': [128, 0, 255, 150],
+                'pattern': [255, 128, 0, 150]
+            };
+            return typeColors[d.type] || [128, 128, 128, 150];
+        },
+        getTargetColor: [255, 255, 255, 100],
+        getWidth: (d) => d.strength * 8,
+        pickable: true,
+        getTilt: 0,
+        getHeight: 0.3
+    });
+    // Layer 4: Execution Events (PointCloudLayer for real-time streaming)
+    const executionLayer = new PointCloudLayer({
+        id: 'execution-layer',
+        data: executionEvents,
+        getPosition: (d) => d.position,
+        getNormal: [0, 0, 1],
+        getColor: (d) => {
+            const eventColors = {
+                'task_start': [0, 255, 0, 255],
+                'task_complete': [0, 128, 255, 255],
+                'decision': [255, 255, 0, 255],
+                'coordination': [255, 128, 255, 255]
+            };
+            return eventColors[d.eventType] || [255, 255, 255, 255];
+        },
+        pointSize: 4,
+        pickable: true,
+        opacity: 0.8
+    });
+    const layers = [queenLayer, agentsLayer, memoryLayer, executionLayer].filter(Boolean);
+    // Tooltip
+    const getTooltip = useCallback(({ object }) => {
+        if (!object)
+            return null;
+        if (object.health !== undefined) {
+            // Queen state
+            return {
+                html: `
+                    <div class="deck-tooltip">
+                        <strong>Swarm Queen</strong><br/>
+                        Health: ${object.health}%<br/>
+                        Tasks Completed: ${object.tasksCompleted}<br/>
+                        Total Agents: ${object.totalAgents}<br/>
+                        Coherence: ${(object.swarmCoherence * 100).toFixed(1)}%<br/>
+                        HNSW: ${object.hnswEnabled ? '✅' : '❌'}<br/>
+                        WSJF Score: ${object.wsjfScore.toFixed(2)}
+                    </div>
+                `,
+                style: {
+                    backgroundColor: '#1a1a1a',
+                    color: '#fff',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '2px solid #00ff00',
+                    fontSize: '14px',
+                    maxWidth: '300px'
+                }
+            };
+        }
+        else if (object.roam) {
+            // Agent
+            return {
+                html: `
+                    <div class="deck-tooltip">
+                        <strong>${object.name}</strong> (${object.type})<br/>
+                        Status: ${object.status}<br/>
+                        Task Load: ${(object.taskLoad * 100).toFixed(0)}%<br/>
+                        <br/>
+                        <strong>ROAM Metrics:</strong><br/>
+                        Resolved: ${object.roam.resolved}<br/>
+                        Owned: ${object.roam.owned}<br/>
+                        Accepted: ${object.roam.accepted}<br/>
+                        Mitigated: ${object.roam.mitigated}<br/>
+                        <br/>
+                        <strong>MYM Scores:</strong><br/>
+                        Manthra: ${(object.mymScore.manthra * 100).toFixed(0)}%<br/>
+                        Yasna: ${(object.mymScore.yasna * 100).toFixed(0)}%<br/>
+                        Mithra: ${(object.mymScore.mithra * 100).toFixed(0)}%
+                    </div>
+                `,
+                style: {
+                    backgroundColor: '#1a1a1a',
+                    color: '#fff',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '2px solid #ffaa00',
+                    fontSize: '14px',
+                    maxWidth: '300px'
+                }
+            };
+        }
+        else if (object.eventType) {
+            // Execution event
+            return {
+                html: `
+                    <div class="deck-tooltip">
+                        <strong>Event: ${object.eventType}</strong><br/>
+                        Agent: ${object.agentId}<br/>
+                        Time: ${new Date(object.timestamp).toLocaleTimeString()}<br/>
+                        Intensity: ${(object.intensity * 100).toFixed(0)}%
+                    </div>
+                `,
+                style: {
+                    backgroundColor: '#1a1a1a',
+                    color: '#fff',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '2px solid #00aaff',
+                    fontSize: '14px',
+                    maxWidth: '300px'
+                }
+            };
+        }
+        else if (object.strength !== undefined) {
+            // Memory connection
+            return {
+                html: `
+                    <div class="deck-tooltip">
+                        <strong>Memory Connection</strong><br/>
+                        Type: ${object.type}<br/>
+                        Strength: ${(object.strength * 100).toFixed(0)}%<br/>
+                        Latency: ${object.latency.toFixed(2)}ms
+                    </div>
+                `,
+                style: {
+                    backgroundColor: '#1a1a1a',
+                    color: '#fff',
+                    padding: '12px',
+                    borderRadius: '8px',
+                    border: '2px solid #aa00ff',
+                    fontSize: '14px',
+                    maxWidth: '300px'
+                }
+            };
+        }
+        return null;
+    }, []);
+    return (_jsxs("div", { style: { width: '100vw', height: '100vh', position: 'relative' }, children: [_jsx(DeckGL, { viewState: viewState, onViewStateChange: ({ viewState: newViewState }) => setViewState(newViewState), controller: true, layers: layers, getTooltip: getTooltip, children: _jsx(Map, { mapStyle: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json", attributionControl: false }) }), _jsxs("div", { style: {
+                    position: 'absolute',
+                    top: 20,
+                    left: 20,
+                    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                    padding: '20px',
+                    borderRadius: '12px',
+                    border: '2px solid #00ff00',
+                    color: '#fff',
+                    fontFamily: 'monospace',
+                    fontSize: '14px',
+                    maxWidth: '350px',
+                    backdropFilter: 'blur(10px)'
+                }, children: [_jsx("h2", { style: { margin: '0 0 15px 0', color: '#00ff00' }, children: "\uD83C\uDFAF YOLIFE Swarm Monitor" }), queenState && (_jsxs("div", { style: { marginBottom: '15px' }, children: [_jsx("div", { style: { fontSize: '12px', opacity: 0.8 }, children: "Queen Health" }), _jsxs("div", { style: { fontSize: '32px', fontWeight: 'bold', color: queenState.health >= 80 ? '#00ff00' : '#ffaa00' }, children: [queenState.health, "%"] }), _jsxs("div", { style: { fontSize: '11px', opacity: 0.6 }, children: [queenState.totalAgents, " agents \u2022 ", queenState.tasksCompleted, " tasks completed"] })] })), _jsxs("div", { style: { marginTop: '20px', fontSize: '12px' }, children: [_jsxs("div", { style: { marginBottom: '8px' }, children: [_jsx("strong", { children: "\uD83D\uDD35 Layer 1:" }), " Queen State"] }), _jsxs("div", { style: { marginBottom: '8px' }, children: [_jsx("strong", { children: "\uD83D\uDFE2 Layer 2:" }), " ", agents.length, " Agents (ROAM)"] }), _jsxs("div", { style: { marginBottom: '8px' }, children: [_jsx("strong", { children: "\uD83D\uDFE3 Layer 3:" }), " ", memoryConnections.length, " Connections"] }), _jsxs("div", { style: { marginBottom: '8px' }, children: [_jsx("strong", { children: "\uD83D\uDD34 Layer 4:" }), " ", executionEvents.length, " Events"] })] }), wsjfItems.length > 0 && (_jsxs("div", { style: { marginTop: '20px', paddingTop: '15px', borderTop: '1px solid rgba(255,255,255,0.2)' }, children: [_jsx("div", { style: { fontSize: '12px', marginBottom: '10px', opacity: 0.8 }, children: _jsx("strong", { children: "WSJF Auto-Selection" }) }), wsjfItems.filter(item => item.selected).map(item => (_jsxs("div", { style: { fontSize: '11px', marginBottom: '6px' }, children: [_jsx("div", { children: item.title }), _jsxs("div", { style: { opacity: 0.6 }, children: ["Score: ", item.wsjfScore.toFixed(1), " \u2022 MCP: ", item.mcpFactor.toFixed(2), " \u2022 MPP: ", item.mppFactor.toFixed(2)] })] }, item.id)))] }))] }), _jsxs("div", { style: {
+                    position: 'absolute',
+                    bottom: 20,
+                    right: 20,
+                    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                    padding: '15px',
+                    borderRadius: '8px',
+                    color: '#fff',
+                    fontFamily: 'monospace',
+                    fontSize: '11px',
+                    backdropFilter: 'blur(10px)'
+                }, children: [_jsx("div", { style: { marginBottom: '8px', fontWeight: 'bold' }, children: "Status Colors" }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', marginBottom: '4px' }, children: [_jsx("div", { style: { width: '12px', height: '12px', backgroundColor: '#00ff00', marginRight: '8px', borderRadius: '2px' } }), "Active / Healthy"] }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', marginBottom: '4px' }, children: [_jsx("div", { style: { width: '12px', height: '12px', backgroundColor: '#ffaa00', marginRight: '8px', borderRadius: '2px' } }), "Busy / Warning"] }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', marginBottom: '4px' }, children: [_jsx("div", { style: { width: '12px', height: '12px', backgroundColor: '#808080', marginRight: '8px', borderRadius: '2px' } }), "Idle"] }), _jsxs("div", { style: { display: 'flex', alignItems: 'center' }, children: [_jsx("div", { style: { width: '12px', height: '12px', backgroundColor: '#ff0000', marginRight: '8px', borderRadius: '2px' } }), "Error"] })] })] }));
+};
+export default SwarmDashboard;
+//# sourceMappingURL=SwarmDashboard.js.map

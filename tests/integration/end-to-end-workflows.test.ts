@@ -88,6 +88,14 @@ describe('End-to-End Workflow Integration Tests', () => {
 
     mockFederationAgents.governanceAgent.start.mockResolvedValue(true);
     mockFederationAgents.retroCoach.start.mockResolvedValue(true);
+    mockFederationAgents.governanceAgent.coordinateAgents.mockResolvedValue({
+      coordinationId: 'coord-cleanup',
+      status: 'completed',
+      agentStatuses: {
+        governance: 'completed',
+        'retro-coach': 'completed'
+      }
+    });
     mockVSCodeExtension.activate.mockResolvedValue({ status: 'activated' });
   });
 
@@ -631,12 +639,12 @@ describe('End-to-End Workflow Integration Tests', () => {
 
       // Pattern processing
       mockProcessGovernor.runBatched.mockImplementation(async (items, processor) => {
-        dataIntegrityChecks.transformations.push('pattern-processing');
+        dataIntegrityChecks.transformations.push('pattern-metrics-logging');
         return await Promise.all(items.map(processor));
       });
 
       const patternProcessor = async (pattern: any) => {
-        dataIntegrityChecks.transformations.push('pattern-processor');
+        // Don't push per-pattern, only once per batch above
         return {
           ...pattern,
           processed: true,
@@ -650,9 +658,13 @@ describe('End-to-End Workflow Integration Tests', () => {
         patternProcessor
       );
 
-      // Policy validation
+      // Policy validation  
+      let policyValidationTracked = false;
       mockFederationAgents.governanceAgent.validatePolicy.mockImplementation(async (policy) => {
-        dataIntegrityChecks.transformations.push('policy-validation');
+        if (!policyValidationTracked) {
+          dataIntegrityChecks.transformations.push('policy-validation');
+          policyValidationTracked = true;
+        }
         return {
           isValid: policy.rules.length > 0,
           validatedBy: 'governance-agent',

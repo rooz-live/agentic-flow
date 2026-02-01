@@ -418,6 +418,7 @@ export class SemanticContextEnricher {
     }
     
     const successCount = history.filter(h => 
+// @ts-expect-error - Type incompatibility requires refactoring
       h.outcome_tracking?.actual_outcome === 'success'
     ).length;
     

@@ -297,4 +297,5 @@ export async function main() {
 if (require.main === module) {
     main();
 }
+// Export types and classes (already exported above, avoid duplication)
 //# sourceMappingURL=index.js.map

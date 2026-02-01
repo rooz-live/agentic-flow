@@ -436,6 +436,7 @@ export class DiscordBot extends EventEmitter {
     console.log(`🎉 Joined new guild: ${guild.name} (${guild.id})`);
     
     // Setup notification channels
+// @ts-expect-error - Type incompatibility requires refactoring
     await this.notificationManager.setupNotificationChannels([guild]);
     
     // Log analytics

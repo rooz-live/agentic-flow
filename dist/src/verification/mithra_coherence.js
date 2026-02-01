@@ -28,10 +28,41 @@ function extractConcepts(text) {
     actionVerbs.forEach((verb) => {
         concepts.add(verb.toLowerCase());
     });
-    // Extract technical terms
-    const techTerms = text.match(/\b(api|database|authentication|authorization|validation|cache|queue|webhook|endpoint)\b/gi) || [];
+    // Extract technical terms (expanded list)
+    const techTerms = text.match(/\b(api|database|authentication|authorization|validation|cache|queue|webhook|endpoint|jwt|middleware|token|auth|redis|rate|limit|pooling)\b/gi) || [];
     techTerms.forEach((term) => {
         concepts.add(term.toLowerCase());
+    });
+    // Extract camelCase/PascalCase identifiers (e.g., authMiddleware, validateJWT)
+    const identifiers = text.match(/\b[a-z]+[A-Z][a-zA-Z]*\b/g) || [];
+    identifiers.forEach((id) => {
+        concepts.add(id.toLowerCase());
+        // Also extract the parts (e.g., "auth" from "authMiddleware")
+        const parts = id.split(/(?=[A-Z])/);
+        parts.forEach(part => {
+            if (part.length > 2) {
+                concepts.add(part.toLowerCase());
+            }
+        });
+    });
+    // Extract hyphenated and underscored terms
+    const compoundTerms = text.match(/\b[a-z]+[-_][a-z]+\b/gi) || [];
+    compoundTerms.forEach((term) => {
+        concepts.add(term.toLowerCase());
+        // Extract individual parts
+        const parts = term.split(/[-_]/);
+        parts.forEach(part => {
+            if (part.length > 2) {
+                concepts.add(part.toLowerCase());
+            }
+        });
+    });
+    // Extract all capitalized words (likely important nouns)
+    const capitalizedWords = text.match(/\b[A-Z][a-z]{2,}\b/g) || [];
+    capitalizedWords.forEach((word) => {
+        if (word.length > 2) {
+            concepts.add(word.toLowerCase());
+        }
     });
     return concepts;
 }

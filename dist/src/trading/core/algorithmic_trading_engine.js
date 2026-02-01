@@ -470,6 +470,13 @@ export class AlgorithmicTradingEngine extends EventEmitter {
                 volume: 1000000 + Math.random() * 500000,
                 avgVolume: 1000000,
                 timestamp: Date.now() - (days - i) * 24 * 60 * 60 * 1000,
+                exchange: 'NYSE',
+                open: price,
+                previousClose: price * 0.99,
+                eps: 2.5,
+                pe: 15,
+                sharesOutstanding: 1000000000,
+                earningsAnnouncement: '',
             };
             const technicalIndicators = {
                 sma5: price * 0.998,
@@ -487,7 +494,7 @@ export class AlgorithmicTradingEngine extends EventEmitter {
                 sentiment: {
                     score: 0.5 + (Math.random() - 0.5) * 0.2,
                     sources: ['news'],
-                    timestamp: quote.timestamp,
+                    timestamp: new Date(quote.timestamp).toISOString(),
                 },
                 economicIndicators: {},
             });
@@ -669,7 +676,7 @@ class MomentumSignalGenerator {
                 confidence: (this.parameters.rsiOversold - rsi) / this.parameters.rsiOversold,
                 price: current.quote.price,
                 quantity: 100,
-                timestamp: current.quote.timestamp,
+                timestamp: new Date(current.quote.timestamp).toISOString(),
                 indicators: current.technicalIndicators,
                 reason: 'RSI oversold with high volume',
                 riskMetrics: {
@@ -694,7 +701,7 @@ class MomentumSignalGenerator {
                 confidence: (rsi - this.parameters.rsiOverbought) / (100 - this.parameters.rsiOverbought),
                 price: current.quote.price,
                 quantity: 100,
-                timestamp: current.quote.timestamp,
+                timestamp: new Date(current.quote.timestamp).toISOString(),
                 indicators: current.technicalIndicators,
                 reason: 'RSI overbought with high volume',
                 riskMetrics: {

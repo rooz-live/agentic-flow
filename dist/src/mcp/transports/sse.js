@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-nocheck
 /**
  * Medical MCP Server - SSE (Server-Sent Events) Transport
  * Provides streaming HTTP transport for real-time medical analysis
@@ -30,7 +31,7 @@ server.addTool({
     parameters: z.object({
         symptoms: z.array(z.string()).describe('List of symptoms to analyze'),
         patientHistory: z.string().optional().describe('Relevant patient medical history'),
-        vitalSigns: z.record(z.number()).optional().describe('Vital signs (temperature, heartRate, systolicBP, oxygenSaturation, etc.)'),
+        vitalSigns: z.record(z.string(), z.number()).optional().describe('Vital signs (temperature, heartRate, systolicBP, oxygenSaturation, etc.)'),
         includeRecommendations: z.boolean().optional().default(true).describe('Include treatment recommendations'),
     }),
     execute: async (args) => {

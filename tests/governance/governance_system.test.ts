@@ -71,7 +71,7 @@ describe('GovernanceSystem', () => {
       }
 
       const metricsPath = join(testGoalieDir, 'pattern_metrics.jsonl');
-      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\\n'));
+      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\n'));
 
       const checks = await governance.checkCompliance();
       const patternCheck = checks.find(c => c.area === 'pattern-compliance');
@@ -101,7 +101,7 @@ describe('GovernanceSystem', () => {
       ];
 
       const metricsPath = join(testGoalieDir, 'pattern_metrics.jsonl');
-      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\\n'));
+      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\n'));
 
       const checks = await governance.checkCompliance();
       const patternCheck = checks.find(c => c.area === 'pattern-compliance');
@@ -128,7 +128,7 @@ describe('GovernanceSystem', () => {
       ];
 
       const metricsPath = join(testGoalieDir, 'pattern_metrics.jsonl');
-      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\\n'));
+      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\n'));
 
       const checks = await governance.checkCompliance();
       const patternCheck = checks.find(c => c.area === 'pattern-compliance');
@@ -153,7 +153,7 @@ describe('GovernanceSystem', () => {
       ];
 
       const metricsPath = join(testGoalieDir, 'pattern_metrics.jsonl');
-      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\\n'));
+      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\n'));
 
       const checks = await governance.checkCompliance();
       const patternCheck = checks.find(c => c.area === 'pattern-compliance');
@@ -183,7 +183,7 @@ describe('GovernanceSystem', () => {
       ];
 
       const metricsPath = join(testGoalieDir, 'pattern_metrics.jsonl');
-      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\\n'));
+      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\n'));
 
       const approved = await governance.validateAction('test-action', {
         circle: 'orchestrator',
@@ -207,7 +207,7 @@ describe('GovernanceSystem', () => {
       ];
 
       const metricsPath = join(testGoalieDir, 'pattern_metrics.jsonl');
-      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\\n'));
+      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\n'));
 
       const approved = await governance.validateAction('test-action');
 
@@ -233,7 +233,7 @@ describe('GovernanceSystem', () => {
       ];
 
       const metricsPath = join(testGoalieDir, 'pattern_metrics.jsonl');
-      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\\n'));
+      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\n'));
 
       const approved = await strictGovernance.validateAction('test-action');
 
@@ -256,7 +256,7 @@ describe('GovernanceSystem', () => {
       ];
 
       const metricsPath = join(testGoalieDir, 'pattern_metrics.jsonl');
-      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\\n'));
+      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\n'));
 
       await governance.checkCompliance();
 
@@ -301,16 +301,24 @@ describe('GovernanceSystem', () => {
       ];
 
       const metricsPath = join(testGoalieDir, 'pattern_metrics.jsonl');
-      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\\n'));
+      writeFileSync(metricsPath, events.map(e => JSON.stringify(e)).join('\n'));
 
       await governance.checkCompliance();
 
       const auditLogger = new DecisionAuditLogger(testGoalieDir);
-      const decisions = auditLogger.getRecentDecisions(10);
+      const allDecisions = auditLogger.getRecentDecisions(100);
       
-      expect(decisions[0].violations).toBeDefined();
-      expect(decisions[0].violations!.length).toBeGreaterThan(0);
-      expect(decisions[0].result).toBe('denied');
+      // Find the compliance_check decision (not other auto-logged decisions)
+      const complianceDecision = allDecisions.find(d => 
+        d.decisionType === 'compliance_check' && 
+        d.result === 'denied' &&
+        d.violations && d.violations.length > 0
+      );
+      
+      expect(complianceDecision).toBeDefined();
+      expect(complianceDecision!.violations).toBeDefined();
+      expect(complianceDecision!.violations!.length).toBeGreaterThan(0);
+      expect(complianceDecision!.result).toBe('denied');
       
       auditLogger.close();
     });

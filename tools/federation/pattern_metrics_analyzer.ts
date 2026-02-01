@@ -124,6 +124,17 @@ class PatternMetricsAnalyzer {
   }
 
   private detectAnomalies(): void {
+    try {
+      this.detectAnomaliesImpl();
+    } catch (error) {
+      if (!this.jsonMode) {
+        console.warn('Error during anomaly detection:', error instanceof Error ? error.message : String(error));
+      }
+      // Continue with empty anomalies rather than failing
+    }
+  }
+
+  private detectAnomaliesImpl(): void {
     // Detect safe-degrade overuse
     const safeDegradeMetrics = this.metrics.filter(m => m.pattern === 'safe-degrade');
     const recentSafeDegrade = safeDegradeMetrics.slice(-20); // Last 20 events
@@ -241,8 +252,8 @@ class PatternMetricsAnalyzer {
     }
 
     // Detect Security Audit Gaps (SEC-AUDIT-* / CVE-*)
-    const securityEvents = this.metrics.filter(m => m.pattern.startsWith('SEC-AUDIT-') || m.pattern.includes('CVE-'));
-    const cveEvents = this.metrics.filter(m => m.pattern.includes('CVE-'));
+    const securityEvents = this.metrics.filter(m => m.pattern && (m.pattern.startsWith('SEC-AUDIT-') || m.pattern.includes('CVE-')));
+    const cveEvents = this.metrics.filter(m => m.pattern && m.pattern.includes('CVE-'));
 
     if (securityEvents.length === 0 && this.metrics.length > 20) {
        this.anomalies.push({
@@ -280,6 +291,7 @@ class PatternMetricsAnalyzer {
 
     // Naively classify patterns into perspectives
     for (const m of this.metrics) {
+        if (!m.pattern) continue;
         for (const [perspective, keywords] of Object.entries(circleKeywords)) {
             if (keywords.some(k => m.pattern.toLowerCase().includes(k))) {
                 activePerspectiveTypes.add(perspective);
@@ -300,7 +312,7 @@ class PatternMetricsAnalyzer {
     }
 
     // Detect Depth Ladder Phase Tracking (PHASE-*)
-    const phaseEvents = this.metrics.filter(m => m.pattern.startsWith('PHASE-'));
+    const phaseEvents = this.metrics.filter(m => m.pattern && m.pattern.startsWith('PHASE-'));
     if (phaseEvents.length > 0) {
         // Just track them for now, maybe warn if out of order in future
         const phases = Array.from(new Set(phaseEvents.map(m => m.pattern)));

@@ -52,7 +52,7 @@ export class DiscordBotFactory {
       let tradingEngine: TradingEngine | undefined;
       
       if (config.features.enableGovernance && config.integrations.governance.enabled) {
-        governanceSystem = new GovernanceSystem(config.integrations.governance);
+        governanceSystem = new GovernanceSystem(config.integrations.governance as any);
         await governanceSystem.initialize();
         console.log('✅ Governance system initialized');
       }
@@ -236,7 +236,7 @@ export class DiscordBotFactory {
       const bot = new DiscordBot(config);
       
       // Initialize governance system
-      const governanceSystem = new GovernanceSystem(config.integrations.governance);
+      const governanceSystem = new GovernanceSystem(config.integrations.governance as any);
       await governanceSystem.initialize();
       
       // Initialize bot with governance and payment systems
@@ -402,4 +402,3 @@ if (require.main === module) {
 }
 
 // Export types and classes (already exported above, avoid duplication)
-export type { DiscordBotSystem };

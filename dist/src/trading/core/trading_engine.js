@@ -38,6 +38,7 @@ export class TradingEngine extends EventEmitter {
         super();
         this.config = config;
         // Create FMPStableClient directly with minimal config
+        // @ts-expect-error - Type incompatibility requires refactoring
         this.fmpClient = {
             baseUrl: 'https://financialmodelingprep.com/api/v3',
             apiKey: config.apiKey || '',

@@ -439,7 +439,8 @@ export class GovernanceSystem {
     const checks: ComplianceCheck[] = [];
     const events = this.loadPatternEvents();
 
-    if (events.length === 0) {
+    // If no events and no specific area requested, return warning
+    if (events.length === 0 && !area) {
       return [{
         area: 'pattern-telemetry',
         status: 'warning',
@@ -456,16 +457,22 @@ export class GovernanceSystem {
       ? Array.from(this.policies.values()).filter(p => p.id === area && p.status === 'active')
       : Array.from(this.policies.values()).filter(p => p.status === 'active');
 
-    // Check dimensional compliance (TRUTH/TIME/LIVE)
-    const dimensionalViolations = await this.checkDimensionalCompliance();
+    // Check dimensional compliance (TRUTH/TIME/LIVE) only if no specific area requested
+    // This keeps dimensional checks separate from pattern-specific compliance
+    const dimensionalViolations = area ? [] : await this.checkDimensionalCompliance();
 
     for (const policy of activePolicies) {
       const violations: ComplianceViolation[] = [];
 
       for (const rule of policy.rules) {
-        const matchingEvents = rule.pattern
+        let matchingEvents = rule.pattern
           ? recentEvents.filter(e => e.pattern === rule.pattern)
           : recentEvents;
+        
+        // Special handling for mutation-governance rule: only check mutations
+        if (rule.id === 'mutation-governance') {
+          matchingEvents = matchingEvents.filter(e => e.mutation === true);
+        }
 
         // Check frequency violations
         if (rule.maxFrequency && matchingEvents.length > rule.maxFrequency) {
@@ -530,8 +537,9 @@ export class GovernanceSystem {
       }
 
       const complianceScore = this.calculateComplianceScore(violations);
+      // Status is based ONLY on pattern violations, not dimensional
       const status = violations.length === 0 ? 'compliant'
-        : violations.some(v => v.severity === 'critical') ? 'non-compliant'
+        : violations.some(v => v.severity === 'critical' || v.severity === 'high') ? 'non-compliant'
         : 'warning';
 
       checks.push({
@@ -540,7 +548,7 @@ export class GovernanceSystem {
         details: violations.length === 0
           ? [`All ${policy.rules.length} rules compliant`]
           : violations.map(v => v.message),
-        violations,
+        violations: violations.length > 0 ? violations : undefined,
         dimensionalViolations: dimensionalViolations.length > 0 ? dimensionalViolations : undefined,
         score: complianceScore,
         timestamp: new Date().toISOString()
@@ -591,9 +599,9 @@ export class GovernanceSystem {
   async validateAction(action: string, context?: any): Promise<boolean> {
     const checks = await this.checkCompliance();
 
-    // In strict mode, any non-compliant check fails validation
+    // In strict mode, any violation (medium or above) fails validation
     const approved = this.config.strictMode
-      ? checks.every(check => check.status !== 'non-compliant')
+      ? checks.every(check => check.status === 'compliant')
       : !checks.some(check => check.violations?.some(v => v.severity === 'critical'));
 
     // Log action validation decision

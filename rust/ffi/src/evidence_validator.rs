@@ -16,7 +16,7 @@ use std::path::Path;
 pub struct EvidenceFile {
     pub path: String,
     pub file_type: String,
-    pub size_bytes: u64,
+    pub size_bytes: i64,
     pub is_valid: bool,
     pub validation_errors: Vec<String>,
     pub metadata: HashMap<String, String>,
@@ -47,7 +47,7 @@ pub struct EvidenceValidationResult {
     pub valid_files: u32,
     pub invalid_files: u32,
     pub missing_exif: u32,
-    pub processing_time_ms: u64,
+    pub processing_time_ms: i64,
     pub files: Vec<EvidenceFile>,
     pub timeline: Vec<TimelineEntry>,
 }
@@ -81,9 +81,9 @@ impl EvidenceValidator {
     #[napi]
     pub async fn validate_directory(&self, directory: String) -> napi::Result<EvidenceValidationResult> {
         let start = std::time::Instant::now();
-        
+
         let dir_path = Path::new(&self.base_path).join(&directory);
-        
+
         if !dir_path.exists() {
             return Err(napi::Error::from_reason(format!(
                 "Directory not found: {}",
@@ -101,12 +101,13 @@ impl EvidenceValidator {
                 if let Ok(metadata) = entry.metadata() {
                     if metadata.is_file() {
                         let file_path = entry.path();
-                        let evidence_file = self.validate_file(&file_path).await?;
-                        
+                        let file_path_str = file_path.to_string_lossy().to_string();
+                        let evidence_file = self.validate_file(file_path_str).await?;
+
                         if evidence_file.is_valid {
                             valid_count += 1;
                         }
-                        
+
                         // Check for missing EXIF on photos
                         if self.is_photo(&file_path) {
                             let has_exif = evidence_file.metadata.contains_key("exif_timestamp");
@@ -114,14 +115,14 @@ impl EvidenceValidator {
                                 missing_exif += 1;
                             }
                         }
-                        
+
                         files.push(evidence_file);
                     }
                 }
             }
         }
 
-        let processing_time = start.elapsed().as_millis() as u64;
+        let processing_time = start.elapsed().as_millis() as i64;
         let total = files.len() as u32;
         let invalid = total - valid_count;
 
@@ -144,14 +145,15 @@ impl EvidenceValidator {
     /// @param filePath - Path to file
     /// @returns EvidenceFile with validation results
     #[napi]
-    pub async fn validate_file(&self, file_path: &Path) -> napi::Result<EvidenceFile> {
+    pub async fn validate_file(&self, file_path_str: String) -> napi::Result<EvidenceFile> {
+        let file_path = Path::new(&file_path_str);
         let mut errors: Vec<String> = Vec::new();
         let mut metadata: HashMap<String, String> = HashMap::new();
         let mut is_valid = true;
 
         // Get file size
         let size_bytes = std::fs::metadata(file_path)
-            .map(|m| m.len())
+            .map(|m| m.len() as i64)
             .unwrap_or(0);
 
         // Determine file type
@@ -175,7 +177,7 @@ impl EvidenceValidator {
             }
             "jpg" | "jpeg" | "png" | "heic" => {
                 // Photo validation: EXIF timestamps
-                match self.extract_exif(file_path).await {
+                match self.extract_exif(file_path_str.clone()).await {
                     Ok(exif) => {
                         if exif.has_timestamp {
                             metadata.insert("exif_timestamp".into(), exif.date_taken.unwrap_or_default());
@@ -220,16 +222,17 @@ impl EvidenceValidator {
     /// @param filePath - Path to image file
     /// @returns EXIF data with timestamp validation
     #[napi]
-    pub async fn extract_exif(&self, file_path: &Path) -> napi::Result<ExifData> {
+    pub async fn extract_exif(&self, file_path_str: String) -> napi::Result<ExifData> {
+        let file_path = Path::new(&file_path_str);
         // Stub implementation - requires exif crate integration
         // TODO: Add actual EXIF extraction via rexif or kamadak-exif
-        
+
         // For now, check if file exists and is non-zero
         let metadata = std::fs::metadata(file_path)
             .map_err(|e| napi::Error::from_reason(e.to_string()))?;
-        
+
         let has_metadata = metadata.len() > 0;
-        
+
         Ok(ExifData {
             date_taken: None, // TODO: Extract from EXIF
             camera_model: None,
@@ -247,9 +250,9 @@ impl EvidenceValidator {
     async fn validate_pdf(&self, file_path: &Path) -> Result<HashMap<String, String>, String> {
         // Stub implementation - requires pdf-extract or lopdf
         // TODO: Add actual PDF parsing
-        
+
         let mut metadata = HashMap::new();
-        
+
         // Check file is readable
         if std::fs::read(file_path).is_ok() {
             metadata.insert("pdf_readable".into(), "true".into());
@@ -258,7 +261,7 @@ impl EvidenceValidator {
         } else {
             return Err("Cannot read PDF".into());
         }
-        
+
         Ok(metadata)
     }
 
@@ -268,10 +271,10 @@ impl EvidenceValidator {
     /// Creates chronological view for judge presentation
     fn generate_timeline(&self, files: &[EvidenceFile]) -> Vec<TimelineEntry> {
         let mut timeline: Vec<TimelineEntry> = Vec::new();
-        
+
         // Group files by date extracted from metadata or filename
         let mut events: HashMap<String, Vec<String>> = HashMap::new();
-        
+
         for file in files {
             // Try to extract date from EXIF first
             let date = if let Some(exif_date) = file.metadata.get("exif_timestamp") {
@@ -281,12 +284,12 @@ impl EvidenceValidator {
                 self.extract_date_from_filename(&file.path)
                     .unwrap_or_else(|| "Unknown Date".into())
             };
-            
+
             events.entry(date.clone())
                 .or_insert_with(Vec::new)
                 .push(file.path.clone());
         }
-        
+
         // Convert to timeline entries
         for (date, file_paths) in events {
             timeline.push(TimelineEntry {
@@ -297,10 +300,10 @@ impl EvidenceValidator {
                 severity: "Medium".into(),
             });
         }
-        
+
         // Sort by date
         timeline.sort_by(|a, b| a.date.cmp(&b.date));
-        
+
         timeline
     }
 
@@ -309,7 +312,7 @@ impl EvidenceValidator {
         let name = Path::new(filename)
             .file_name()?
             .to_str()?;
-        
+
         // Look for YYYYMMDD pattern
         if name.len() >= 8 && name.chars().take(8).all(|c| c.is_numeric()) {
             let date_str = &name[0..8];
@@ -320,7 +323,7 @@ impl EvidenceValidator {
                 &date_str[6..8]
             ));
         }
-        
+
         None
     }
 
@@ -345,7 +348,7 @@ impl EvidenceValidator {
         let habitability = self.validate_directory("05_HABITABILITY_EVIDENCE".into()).await?;
         let financial = self.validate_directory("06_FINANCIAL_RECORDS".into()).await?;
         let lease = self.validate_directory("03_LEASE_AGREEMENTS".into()).await?;
-        
+
         let health = serde_json::json!({
             "habitability_evidence": {
                 "total": habitability.total_files,
@@ -363,13 +366,13 @@ impl EvidenceValidator {
                 "valid": lease.valid_files,
                 "status": if lease.total_files >= 5 { "COMPLETE" } else { "INCOMPLETE" }
             },
-            "overall_health": if 
-                habitability.total_files >= 40 && 
+            "overall_health": if
+                habitability.total_files >= 40 &&
                 financial.total_files > 0 &&
                 lease.total_files >= 5
             { "TRIAL_READY" } else { "INCOMPLETE" }
         });
-        
+
         Ok(serde_json::to_string_pretty(&health).unwrap())
     }
 }

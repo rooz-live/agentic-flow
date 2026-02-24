@@ -1142,13 +1142,13 @@ impl EvidenceProcessor {
         };
 
         let mut bufreader = BufReader::new(file);
-        let reader = kamadak_exif::Reader::new();
+        let reader = exif::Reader::new();
         match reader.read_from_container(&mut bufreader) {
-            Ok(exif) => {
-                for f in exif.fields() {
+            Ok(exif_data) => {
+                for f in exif_data.fields() {
                     match f.tag {
-                        kamadak_exif::Tag::DateTimeOriginal | kamadak_exif::Tag::DateTime => {
-                            result.date_time = Some(f.display_value().with_unit(&exif).to_string());
+                        exif::Tag::DateTimeOriginal | exif::Tag::DateTime => {
+                            result.date_time = Some(f.display_value().with_unit(&exif_data).to_string());
                         }
                         _ => {}
                     }
@@ -1173,13 +1173,17 @@ impl EvidenceProcessor {
 
         match lopdf::Document::load(path) {
             Ok(doc) => {
-                if let Some(info_id) = doc.trailer.get(b"Info").and_then(|obj| obj.as_reference().ok()) {
+                if let Some(info_id) = doc.trailer.get(b"Info").ok().and_then(|obj| obj.as_reference().ok()) {
                     if let Ok(info_dict) = doc.get_dictionary(info_id) {
-                        if let Ok(author) = info_dict.get(b"Author").and_then(|obj| obj.as_str()) {
-                            result.author = Some(String::from_utf8_lossy(author).into_owned());
+                        if let Ok(author_obj) = info_dict.get(b"Author") {
+                            if let Ok(author) = author_obj.as_str() {
+                                result.author = Some(String::from_utf8_lossy(author).into_owned());
+                            }
                         }
-                        if let Ok(date) = info_dict.get(b"CreationDate").and_then(|obj| obj.as_str()) {
-                            result.date_time = Some(String::from_utf8_lossy(date).into_owned());
+                        if let Ok(date_obj) = info_dict.get(b"CreationDate") {
+                            if let Ok(date) = date_obj.as_str() {
+                                result.date_time = Some(String::from_utf8_lossy(date).into_owned());
+                            }
                         }
                     }
                 }

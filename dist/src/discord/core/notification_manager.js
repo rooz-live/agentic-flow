@@ -2,7 +2,7 @@
  * Notification Manager for Discord Bot
  * Handles real-time notifications, alerts, and user subscriptions
  */
-import { EmbedBuilder, ActionRowBuilder, ButtonBuilder } from 'discord.js';
+import { MessageEmbed, MessageActionRow, MessageButton } from 'discord.js';
 import { EventEmitter } from 'events';
 export class NotificationManager extends EventEmitter {
     client;
@@ -45,7 +45,7 @@ export class NotificationManager extends EventEmitter {
             for (const [channelType, channelId] of Object.entries(serverConfig.notificationChannels)) {
                 if (channelId) {
                     const channel = guild.channels.cache.get(channelId);
-                    if (channel && channel.isTextBased()) {
+                    if (channel) {
                         this.channels.set(channelId, {
                             id: channelId,
                             guildId: guild.id,
@@ -166,7 +166,7 @@ export class NotificationManager extends EventEmitter {
             return;
         }
         const discordChannel = this.client.channels.cache.get(channel.id);
-        if (!discordChannel || !discordChannel.isTextBased()) {
+        if (!discordChannel) {
             console.log(`❌ Channel ${channel.id} not found or not text-based`);
             return;
         }
@@ -187,7 +187,7 @@ export class NotificationManager extends EventEmitter {
      * Create Discord embed from notification message
      */
     createEmbed(message) {
-        const embed = new EmbedBuilder()
+        const embed = new MessageEmbed()
             .setTitle(message.title)
             .setDescription(message.description)
             .setTimestamp(message.timestamp || new Date());
@@ -238,10 +238,10 @@ export class NotificationManager extends EventEmitter {
         const rows = [];
         const maxButtonsPerRow = 5;
         for (let i = 0; i < actions.length; i += maxButtonsPerRow) {
-            const row = new ActionRowBuilder();
+            const row = new MessageActionRow();
             const rowActions = actions.slice(i, i + maxButtonsPerRow);
             for (const action of rowActions) {
-                const button = new ButtonBuilder()
+                const button = new MessageButton()
                     .setCustomId(action.id)
                     .setLabel(action.label)
                     .setStyle(action.style);

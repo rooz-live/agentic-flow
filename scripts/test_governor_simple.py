@@ -72,6 +72,7 @@ def test_cpu_idle_calculation():
     
     # Test normal load
     simulator = MockCpuLoadSimulator()
+    assert simulator.base_load == 0.3, "Default base load should be 0.3"
     original_loadavg = os.getloadavg
     os.getloadavg = lambda: simulator.get_loadavg()
     
@@ -146,6 +147,7 @@ def test_adaptive_throttling():
         ('high', 'Should have moderate throttling'),
         ('critical', 'Should have severe throttling')
     ]
+    assert len(scenarios) == 3, "Should test 3 throttling scenarios"
     
     for scenario, description in scenarios:
         print(f"\n--- Testing {scenario} scenario: {description} ---")
@@ -199,6 +201,7 @@ def test_exponential_backoff():
     # Set up critical scenario to trigger backoff
     simulator = MockCpuLoadSimulator()
     simulator.set_scenario('critical')
+    assert simulator.base_load == 0.95, "Critical scenario should set base load to 0.95"
     original_loadavg = os.getloadavg
     os.getloadavg = lambda: simulator.get_loadavg()
     
@@ -239,6 +242,7 @@ def test_exponential_backoff():
 def test_integration_with_prod_cycle():
     """Test integration with af prod-cycle workflow."""
     print("\n=== Testing Integration with AF Prod-Cycle ===")
+    assert script_dir.exists(), "Script directory should exist"
     
     try:
         # Test that enhanced governance.py can be imported by cmd_prod_cycle.py

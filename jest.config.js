@@ -1,79 +1,71 @@
-/**
- * Jest Configuration with Environment-Aware Test Filtering
- *
- * Environment markers (use in test file names or describe blocks):
- * - *.integration.test.ts - Integration tests requiring external services
- * - *.e2e.test.ts - End-to-end tests
- * - *.unit.test.ts - Unit tests (safe for all environments)
- *
- * Run environment-specific tests:
- *   AF_ENV=local npm test -- --testPathPattern="unit|local"
- *   AF_ENV=dev npm test -- --testPathPattern="integration"
- *   AF_ENV=ci npm test -- --testPathIgnorePatterns="integration|e2e"
- */
+// Jest Configuration for 80% Coverage
+// Contract: Goal/Constraints/Output/Failure/Verification
+
 module.exports = {
-  preset: 'ts-jest',
-  testEnvironment: 'node',
-  roots: ['<rootDir>/tests', '<rootDir>/src', '<rootDir>/tools', '<rootDir>/__tests__'],
-  testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
-  testPathIgnorePatterns: [
-    '/node_modules/',
-    // Skip tests that use vitest-specific features
-    'iris_bridge\\.test\\.ts$',
-    'prod-cycle-governance\\.test\\.ts$',
-    'quic\\.test\\.ts$',
-    'quic-proxy\\.test\\.ts$',
-    'quic-workflow\\.test\\.ts$',
-    // Skip goalie-vscode tests (require separate vscode extension test runner)
-    'tools/goalie-vscode/tests/',
-    'tools/goalie-vscode/src/',
-    // Skip process-governor test (hangs due to mock issues)
-    'tests/unit/process-governor\\.test\\.ts$',
-    // Skip TUI monitor test (complex blessed/contrib mocking issues)
-    'tui-monitor\\.test\\.ts$',
-    // Skip Playwright tests (require separate @playwright/test runner)
-    'dashboard\\.spec\\.ts$',
-    // Environment-based filtering (set via AF_SKIP_INTEGRATION=true)
-    ...(process.env.AF_SKIP_INTEGRATION === 'true' ? ['\\.integration\\.test\\.ts$'] : []),
-    ...(process.env.AF_SKIP_E2E === 'true' ? ['\\.e2e\\.test\\.ts$'] : []),
+  // GOAL: Achieve 80% test coverage across all metrics
+  
+  collectCoverage: true,
+  coverageDirectory: "coverage",
+  coverageReporters: [
+    "text",
+    "text-summary",
+    "lcov",
+    "html",
+    "json"
   ],
-  transform: {
-    '^.+\.ts$': ['ts-jest', {
-      tsconfig: {
-        module: 'commonjs',
-        esModuleInterop: true,
-        allowSyntheticDefaultImports: true,
-        isolatedModules: true,
-      },
-    }],
-  },
-  // Performance optimizations
-  cache: true,
-  cacheDirectory: '<rootDir>/.jest-cache',
-  maxWorkers: '50%', // Use half of available CPUs for optimal parallelism
-  // Disable coverage to avoid test-exclude/babel-plugin-istanbul errors
-  collectCoverage: false,
-  collectCoverageFrom: [
-    'src/**/*.{ts,js}',
-    '!src/**/*.d.ts',
-    '!src/**/__tests__/**',
-    '!src/**/index.ts',
-  ],
+  
+  // CONSTRAINTS: Hard boundaries for coverage thresholds
   coverageThreshold: {
     global: {
       branches: 80,
       functions: 80,
       lines: 80,
-      statements: 80,
-    },
+      statements: 80
+    }
   },
-  coverageDirectory: 'coverage',
-  coverageReporters: ['text', 'lcov', 'html'],
-  moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/src/$1',
-    '^vscode$': '<rootDir>/tests/__mocks__/vscode.ts',
+  
+  // Test environment configuration
+  testEnvironment: "node",
+  roots: [
+    "<rootDir>/tests",
+    "<rootDir>/src"
+  ],
+  testMatch: [
+    "**/*.test.js",
+    "**/*.test.ts",
+    "**/__tests__/**/*.js"
+  ],
+  
+  // Transform configuration
+  transform: {
+    "^.+\\.tsx?$": "ts-jest",
+    "^.+\\.jsx?$": "babel-jest"
   },
-  setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
-  testTimeout: 30000, // Increased from 10s to 30s to fix timeout issues in guardrail and integration tests
+  
+  // Module resolution
+  moduleFileExtensions: ["js", "ts", "json", "node"],
+  
+  // Setup files
+  setupFilesAfterEnv: ["<rootDir>/tests/setup.js"],
+  
+  // Coverage exclusions (not part of testable code)
+  coveragePathIgnorePatterns: [
+    "/node_modules/",
+    "/tests/fixtures/",
+    "/scripts/",
+    "/docs/"
+  ],
+  
+  // Verbose output for debugging
   verbose: true,
+  
+  // Fail on coverage threshold violations
+  coverageThreshold: {
+    global: {
+      branches: 80,
+      functions: 80,
+      lines: 80,
+      statements: 80
+    }
+  }
 };

@@ -3,18 +3,16 @@
  * Handles real-time notifications, alerts, and user subscriptions
  */
 
-import { 
-  Client, 
-  Guild, 
-  TextChannel, 
-  User, 
-  EmbedBuilder, 
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
+import {
+  Client,
+  Guild,
+  TextChannel,
+  User,
+  MessageEmbed,
+  MessageActionRow,
+  MessageButton,
   ColorResolvable,
-  Collection,
-  MessageActionRowComponentBuilder
+  Collection
 } from 'discord.js';
 import { EventEmitter } from 'events';
 import { DiscordBotConfig } from './discord_config';
@@ -54,7 +52,7 @@ export interface NotificationMessage {
 export interface NotificationAction {
   id: string;
   label: string;
-  style: ButtonStyle;
+  style: 'PRIMARY' | 'SECONDARY' | 'SUCCESS' | 'DANGER' | 'LINK';
   url?: string;
   handler?: (interaction: any) => Promise<void>;
 }
@@ -131,7 +129,7 @@ export class NotificationManager extends EventEmitter {
       for (const [channelType, channelId] of Object.entries(serverConfig.notificationChannels)) {
         if (channelId) {
           const channel = guild.channels.cache.get(channelId) as TextChannel;
-          if (channel && channel.isTextBased()) {
+          if (channel) {
             this.channels.set(channelId, {
               id: channelId,
               guildId: guild.id,
@@ -275,7 +273,7 @@ export class NotificationManager extends EventEmitter {
     }
 
     const discordChannel = this.client.channels.cache.get(channel.id) as TextChannel;
-    if (!discordChannel || !discordChannel.isTextBased()) {
+    if (!discordChannel) {
       console.log(`❌ Channel ${channel.id} not found or not text-based`);
       return;
     }
@@ -300,8 +298,8 @@ export class NotificationManager extends EventEmitter {
   /**
    * Create Discord embed from notification message
    */
-  private createEmbed(message: NotificationMessage): EmbedBuilder {
-    const embed = new EmbedBuilder()
+  private createEmbed(message: NotificationMessage): MessageEmbed {
+    const embed = new MessageEmbed()
       .setTitle(message.title)
       .setDescription(message.description)
       .setTimestamp(message.timestamp || new Date());
@@ -356,16 +354,16 @@ export class NotificationManager extends EventEmitter {
   /**
    * Create action rows for buttons
    */
-  private createActionRows(actions: NotificationAction[]): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
-    const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [];
+  private createActionRows(actions: NotificationAction[]): MessageActionRow[] {
+    const rows: MessageActionRow[] = [];
     const maxButtonsPerRow = 5;
 
     for (let i = 0; i < actions.length; i += maxButtonsPerRow) {
-      const row = new ActionRowBuilder<MessageActionRowComponentBuilder>();
+      const row = new MessageActionRow();
       const rowActions = actions.slice(i, i + maxButtonsPerRow);
       
       for (const action of rowActions) {
-        const button = new ButtonBuilder()
+        const button = new MessageButton()
           .setCustomId(action.id)
           .setLabel(action.label)
           .setStyle(action.style);

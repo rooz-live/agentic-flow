@@ -2,7 +2,7 @@
  * Discord Bot Command Handlers
  * Implements all command handlers for governance, risk, trading, payment, and admin functions
  */
-import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from 'discord.js';
+import { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder, ModalBuilder, TextInputBuilder } from 'discord.js';
 export class CommandHandlers {
     bot;
     paymentSystem;

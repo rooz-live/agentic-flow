@@ -15,7 +15,10 @@
  * - DISCORD_APPLICATION_ID (required)
  * - DISCORD_GUILD_ID (optional, for guild-specific commands)
  */
-import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, Colors, } from 'discord.js';
+import { Client, Intents, MessageEmbed, } from 'discord.js';
+import { REST } from '@discordjs/rest';
+import { Routes } from 'discord-api-types/v9';
+import { SlashCommandBuilder } from '@discordjs/builders';
 import * as fs from 'fs';
 import * as path from 'path';
 class AgenticFlowBot {
@@ -27,8 +30,8 @@ class AgenticFlowBot {
         this.goalieDir = process.env.GOALIE_DIR || path.join(process.cwd(), '.goalie');
         this.client = new Client({
             intents: [
-                GatewayIntentBits.Guilds,
-                GatewayIntentBits.GuildMessages,
+                Intents.FLAGS.GUILDS,
+                Intents.FLAGS.GUILD_MESSAGES,
             ],
         });
         this.setupEventHandlers();
@@ -39,17 +42,19 @@ class AgenticFlowBot {
             this.emitMetric('bot_ready', { user: this.client.user?.tag });
         });
         this.client.on('interactionCreate', async (interaction) => {
-            if (!interaction.isChatInputCommand())
+            if (!interaction.isCommand())
                 return;
             try {
                 await this.handleCommand(interaction);
             }
             catch (error) {
                 console.error('Error handling command:', error);
-                await interaction.reply({
-                    content: '❌ An error occurred while processing your command.',
-                    ephemeral: true,
-                });
+                if (interaction.isCommand()) {
+                    await interaction.reply({
+                        content: '❌ An error occurred while processing your command.',
+                        ephemeral: true,
+                    });
+                }
             }
         });
         this.client.on('error', (error) => {
@@ -91,9 +96,9 @@ class AgenticFlowBot {
         await interaction.deferReply();
         try {
             const metrics = this.readPatternMetrics();
-            const embed = new EmbedBuilder()
+            const embed = new MessageEmbed()
                 .setTitle('📊 Pattern Metrics - Last 24 Hours')
-                .setColor(Colors.Blue)
+                .setColor('#0099FF')
                 .setTimestamp();
             // Group by pattern type
             const patternCounts = {};
@@ -140,9 +145,9 @@ class AgenticFlowBot {
         await interaction.deferReply();
         try {
             const insights = this.readRetroInsights();
-            const embed = new EmbedBuilder()
+            const embed = new MessageEmbed()
                 .setTitle('🔄 Retrospective Insights')
-                .setColor(Colors.Purple)
+                .setColor('#9900FF')
                 .setTimestamp();
             if (insights.length === 0) {
                 embed.setDescription('No retrospective insights available.');
@@ -170,9 +175,9 @@ class AgenticFlowBot {
         try {
             const metrics = this.readPatternMetrics();
             const governanceEvents = metrics.filter(m => m.gate === 'governance' || m.pattern.includes('governance') || m.pattern.includes('guardrail'));
-            const embed = new EmbedBuilder()
+            const embed = new MessageEmbed()
                 .setTitle('🛡️ Governance Status')
-                .setColor(Colors.Green)
+                .setColor('#00FF00')
                 .setTimestamp();
             // Governance health
             const recentGov = governanceEvents.slice(-10);
@@ -212,9 +217,9 @@ class AgenticFlowBot {
         await interaction.deferReply();
         try {
             const kanban = this.readKanbanBoard();
-            const embed = new EmbedBuilder()
+            const embed = new MessageEmbed()
                 .setTitle('📋 Kanban Board Status')
-                .setColor(Colors.Orange)
+                .setColor('#FF9900')
                 .setTimestamp();
             const categories = ['now', 'next', 'later'];
             for (const category of categories) {
@@ -240,9 +245,9 @@ class AgenticFlowBot {
     async handleTradingCommand(interaction) {
         await interaction.deferReply();
         try {
-            const embed = new EmbedBuilder()
+            const embed = new MessageEmbed()
                 .setTitle('📈 SOXL/SOXS Trading Signals')
-                .setColor(Colors.Gold)
+                .setColor('#FFD700')
                 .setTimestamp()
                 .setDescription('Neural trading system for semiconductor ETF portfolio');
             // Read trading signals from logs

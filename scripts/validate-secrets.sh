@@ -110,7 +110,7 @@ echo "--- Infrastructure & CDN ---"
 check_secret CLOUDFLARE_API_TOKEN optional
 check_secret CLOUDFLARE_API_KEY optional
 check_secret CLOUDFLARE_EMAIL optional
-check_secret CPANEL_API_KEY optional
+check_secret CPANEL_API_TOKEN optional
 check_secret HOSTBILL_API_KEY optional
 check_secret HOSTBILL_API_ID optional
 check_secret HOSTBILL_URL optional

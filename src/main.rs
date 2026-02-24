@@ -1,3 +1,19 @@
+//! Agentic Flow - Rust Performance Demo
+//!
+//! Analyzes pattern metrics from .goalie/pattern_metrics.jsonl
+//! and reports WSJF score statistics with throughput benchmarks.
+//!
+//! Definition of Ready (DoR):
+//! - Pattern metrics file exists at .goalie/pattern_metrics.jsonl or simulated data available
+//! - serde_json dependency available for JSONL parsing
+//!
+//! Definition of Done (DoD):
+//! - All JSONL lines parsed into PatternMetric structs
+//! - Average WSJF score calculated across patterns with economic data
+//! - Processing time measured in microseconds with throughput ops/sec
+//! - Pattern distribution breakdown displayed
+//! - Graceful fallback to simulated data when file missing
+
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::BufReader;

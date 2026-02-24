@@ -3,6 +3,18 @@
 
 Maps legacy emitter names to unified conventions and provides
 configuration for default/optional emitters.
+
+Definition of Ready (DoR):
+- Legacy emitter names documented in EMITTER_MAPPING dictionary
+- Default and optional emitter sets defined
+- Field mappings for JSON output configured per emitter
+
+Definition of Done (DoD):
+- map_emitter_name resolves all legacy names to unified names
+- Unmapped names pass through unchanged
+- AF_DEFAULT_EMITTERS env var overrides default set when present
+- map_output_fields preserves unmapped fields in output
+- load_emitter_config reads from .goalie/evidence_config.yaml
 """
 
 from typing import Dict, List, Optional, Set

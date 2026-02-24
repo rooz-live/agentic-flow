@@ -1,0 +1,74 @@
+# MOTION TO CONSOLATE CASES
+## Related Actions: 26CV007491-590 & [Related Repair Case]
+
+---
+
+## GOAL
+Consolidate related litigation for judicial economy and consistent rulings on identical facts.
+
+---
+
+## LEGAL STANDARD
+
+Under NC Rules of Civil Procedure Rule 42(a):
+> "When actions involving a common question of law or fact are pending before the court, it may order a joint hearing or trial of any or all the matters in issue... or may consolidate the actions."
+
+---
+
+## REQUISITE ELEMENTS
+
+| Element | Evidence | Status |
+|---------|----------|--------|
+| Common questions of law | UDTPA claims, landlord-tenant law | ✓ Met |
+| Common questions of fact | Same property, same landlord, overlapping timeline | ✓ Met |
+| Same parties | Defendant is Plaintiff in repair action | ✓ Met |
+| Judicial economy | Avoid duplicative discovery, inconsistent rulings | ✓ Met |
+
+---
+
+## MEMORANDUM OF LAW
+
+### I. Common Questions Predominate
+
+Both cases involve:
+1. Same residential property at [ADDRESS]
+2. Same landlord-tenant relationship
+3. Identical repair issues (HVAC failure, dates Jan 10-15, 2025)
+4. Overlapping UDTPA claims
+5. Same documentary evidence (inspection reports, correspondence)
+
+### II. Judicial Economy Demands Consolidation
+
+Separate trials would require:
+- Duplicative witness testimony (same property manager)
+- Redundant document authentication
+- Risk of inconsistent fact findings
+- Waste of court resources
+
+### III. Prejudice Analysis
+
+**No Prejudice to Plaintiff**: Consolidation preserves all claims, defenses, and remedies.
+
+**Prejudice if Denied**: Risk of inconsistent judgments; undue burden on pro se defendant.
+
+---
+
+## RELIEF REQUESTED
+
+1. Consolidate Case 26CV007491-590 with [Related Repair Case]
+2. Stay summary ejectment pending resolution of habitability claims
+3. Set consolidated discovery schedule
+4. Schedule unified trial within 90 days
+
+---
+
+## CERTIFICATE OF SERVICE
+
+I certify that a copy was served on opposing counsel/pro se plaintiff via [method] on [date].
+
+---
+
+**Respectfully submitted**,
+
+[Signature]
+[Date]

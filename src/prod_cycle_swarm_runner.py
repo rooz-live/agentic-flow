@@ -1,4 +1,21 @@
 #!/usr/bin/env python3
+"""Production Cycle Swarm Runner.
+
+Orchestrates af CLI swarm runs with evidence collection,
+winner-grade qualification, and stability scoring.
+
+Definition of Ready (DoR):
+- AF_ENV set (local/dev/stg/prod) or defaults to local
+- .goalie/evidence_config.yaml present with threshold overrides
+- af CLI script available at scripts/af
+
+Definition of Done (DoD):
+- All swarm phases execute with RunResult captured per run
+- Winner-grade thresholds enforced (rev_per_h, ok_rate, abort_max)
+- Stability score computed from 4 factors (no_abort, no_sys_err, duration_ok, low_contention)
+- Real-time streaming of health checkpoints and retro insights
+- Environment policy applied (no_deploy, break_glass, ci_green)
+"""
 
 import os
 import sys

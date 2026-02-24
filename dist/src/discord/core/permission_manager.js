@@ -2,7 +2,7 @@
  * Permission Manager for Discord Bot
  * Handles role-based permissions, cooldowns, and access control
  */
-import { PermissionsBitField } from 'discord.js';
+import { Permissions } from 'discord.js';
 export class PermissionManager {
     config;
     cooldowns = new Map();
@@ -133,7 +133,7 @@ export class PermissionManager {
     async isAdmin(member) {
         const serverConfig = this.config.servers[member.guild.id];
         // Check Discord admin permissions
-        if (member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        if (member.permissions.has(Permissions.FLAGS.ADMINISTRATOR)) {
             return true;
         }
         // Check server-specific admin roles
@@ -343,7 +343,7 @@ export class PermissionManager {
         }
         else {
             // Check Discord permissions
-            const discordPerms = member.permissions.has(PermissionsBitField.Flags.Administrator);
+            const discordPerms = member.permissions.has(Permissions.FLAGS.ADMINISTRATOR);
             if (discordPerms) {
                 hasPermission = true;
                 reason = 'Discord administrator';

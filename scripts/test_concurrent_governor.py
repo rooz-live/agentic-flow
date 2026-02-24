@@ -59,6 +59,8 @@ def test_concurrent_governor():
             )
             threads.append(thread)
         
+        assert len(threads) == num_tasks, f"Expected {num_tasks} threads, got {len(threads)}"
+        
         # Start all threads
         start_time = time.time()
         for thread in threads:
@@ -69,6 +71,7 @@ def test_concurrent_governor():
             thread.join()
         
         total_time = time.time() - start_time
+        assert total_time > 0, "Concurrent tasks should take measurable time"
         print(f"✅ {num_tasks} concurrent tasks completed in {total_time:.2f}s")
         
         # Small delay between test cases

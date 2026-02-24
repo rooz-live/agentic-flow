@@ -3,6 +3,9 @@
 ## Status
 Accepted
 
+## Date
+2026-01-15
+
 ## Context
 The system requires async I/O for:
 - HTTP requests to data sources

@@ -10,7 +10,9 @@
  * - Payment system integration
  * - Governance and compliance validation
  */
-import { Client, GatewayIntentBits, REST, Routes, EmbedBuilder } from 'discord.js';
+import { Client, Intents, MessageEmbed } from 'discord.js';
+import { REST } from '@discordjs/rest';
+import { Routes } from 'discord-api-types/v9';
 import { EventEmitter } from 'events';
 import { CommandRegistry } from './command_registry';
 import { PermissionManager } from './permission_manager';
@@ -40,11 +42,11 @@ export class DiscordBot extends EventEmitter {
         this.config = config;
         this.client = new Client({
             intents: [
-                GatewayIntentBits.Guilds,
-                GatewayIntentBits.GuildMessages,
-                GatewayIntentBits.MessageContent,
-                GatewayIntentBits.GuildMembers,
-                GatewayIntentBits.GuildMessageReactions
+                Intents.FLAGS.GUILDS,
+                Intents.FLAGS.GUILD_MESSAGES,
+                Intents.FLAGS.MESSAGE_CONTENT,
+                Intents.FLAGS.GUILD_MEMBERS,
+                Intents.FLAGS.GUILD_MESSAGE_REACTIONS
             ]
         });
         this.commandRegistry = new CommandRegistry();
@@ -183,7 +185,7 @@ export class DiscordBot extends EventEmitter {
         this.isReady = true;
         this.startTime = Date.now();
         // Set bot activity
-        this.client.user?.setActivity('Agentic Flow Ecosystem', { type: 3 }); // 3 = WATCHING
+        this.client.user?.setActivity('Agentic Flow Ecosystem', { type: 'WATCHING' });
         // Initialize notification channels
         await this.notificationManager.setupNotificationChannels(this.client.guilds.cache);
         this.emit('ready');
@@ -284,15 +286,9 @@ export class DiscordBot extends EventEmitter {
      * Handle modal submit interactions
      */
     async handleModalSubmit(interaction) {
-        const customId = interaction.customId;
-        // Handle different modal types
-        if (customId.startsWith('payment_')) {
-            await interaction.reply({ content: 'Payment submitted!', ephemeral: true });
-        }
-        else if (customId.startsWith('trading_')) {
-            await interaction.reply({ content: 'Trading order submitted!', ephemeral: true });
-        }
-        else {
+        // In v13, modal submissions don't exist as a separate type
+        // This is a placeholder for future v14 migration
+        if (interaction.isCommand()) {
             await interaction.reply({ content: 'Form submitted!', ephemeral: true });
         }
     }
@@ -312,7 +308,7 @@ export class DiscordBot extends EventEmitter {
      * Handle bot mentions
      */
     async handleMention(message) {
-        const helpEmbed = new EmbedBuilder()
+        const helpEmbed = new MessageEmbed()
             .setTitle('🤖 Agentic Flow Bot')
             .setDescription('Hello! I\'m your assistant for the Agentic Flow ecosystem.')
             .addFields({ name: '📋 Available Commands', value: 'Use `/help` to see all commands' }, { name: '🔔 Notifications', value: 'Use `/subscribe` to set up notifications' }, { name: '❓ Support', value: 'Contact an admin for assistance' })
@@ -486,7 +482,7 @@ export class DiscordBot extends EventEmitter {
     }
     async handleHelpCommand(interaction) {
         const category = interaction.options?.getString('category');
-        const embed = new EmbedBuilder()
+        const embed = new MessageEmbed()
             .setTitle('🤖 Agentic Flow Bot Commands')
             .setDescription('Available commands for the Agentic Flow ecosystem')
             .setColor('#0099FF')
@@ -508,7 +504,7 @@ export class DiscordBot extends EventEmitter {
     }
     async handleStatusCommand(interaction) {
         const status = this.getBotStatus();
-        const embed = new EmbedBuilder()
+        const embed = new MessageEmbed()
             .setTitle('📊 Bot Status')
             .setDescription('Current status of the Agentic Flow Discord bot')
             .addFields({ name: '⏱️ Uptime', value: `${Math.floor(status.uptime / 1000 / 60)} minutes`, inline: true }, { name: '🌐 Guilds', value: status.guildCount.toString(), inline: true }, { name: '👥 Users', value: status.userCount.toString(), inline: true }, { name: '⚡ Commands', value: status.commandCount.toString(), inline: true }, { name: '❌ Errors', value: status.errorCount.toString(), inline: true }, { name: '💾 Memory', value: `${Math.round(status.memoryUsage.heapUsed / 1024 / 1024)}MB`, inline: true })
@@ -520,7 +516,7 @@ export class DiscordBot extends EventEmitter {
         const notificationType = interaction.options?.getString('type');
         const enabled = interaction.options?.getBoolean('enabled') ?? true;
         await this.notificationManager.toggleSubscription(interaction.user.id, notificationType || 'all', enabled);
-        const embed = new EmbedBuilder()
+        const embed = new MessageEmbed()
             .setTitle('🔔 Notification Settings')
             .setDescription(enabled
             ? `✅ You have been subscribed to ${notificationType || 'all'} notifications.`

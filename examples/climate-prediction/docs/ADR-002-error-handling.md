@@ -3,6 +3,9 @@
 ## Status
 Accepted
 
+## Date
+2026-01-15
+
 ## Context
 Need a consistent error handling strategy across all crates that provides:
 1. Type safety

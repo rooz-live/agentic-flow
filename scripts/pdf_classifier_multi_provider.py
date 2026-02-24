@@ -131,7 +131,7 @@ class MultiProviderClassifier:
                 image_data = base64.standard_b64encode(f.read()).decode("utf-8")
             
             message = client.messages.create(
-                model="claude-3-5-sonnet-20241022",
+                model="claude-3-5-sonnet-latest",  # Always uses the latest Claude 3.5 Sonnet
                 max_tokens=512,
                 messages=[{
                     "role": "user",
@@ -350,21 +350,52 @@ class MultiProviderClassifier:
             raise RuntimeError("No PDF→image converter found (tried sips, convert)")
 
 def auto_rename(pdf_path: Path, classification: Dict[str, Any]) -> Optional[Path]:
-    """Auto-rename PDF based on classification"""
+    """Auto-rename and organize PDF based on classification"""
     
     doc_type = classification["type"]
     case_num = classification.get("case_number")
     
-    if doc_type == "unknown" or not case_num:
+    if doc_type == "unknown":
         return None
     
-    # Generate new filename
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    new_name = f"{date_str}-{doc_type.upper()}-{case_num}.pdf"
-    new_path = pdf_path.parent / new_name
+    # Determine target directory based on document type
+    target_dirs = {
+        "answer": Path.home() / "Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/01-ACTIVE-CRITICAL/MAA-26CV007491-590/COURT-FILINGS/FILED",
+        "motion": Path.home() / "Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/01-ACTIVE-CRITICAL/MAA-26CV007491-590/COURT-FILINGS/FILED",
+        "complaint": Path.home() / "Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/01-ACTIVE-CRITICAL/MAA-26CV007491-590/COURT-FILINGS/FILED",
+        "order": Path.home() / "Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/01-ACTIVE-CRITICAL/MAA-26CV007491-590/COURT-FILINGS/FILED",
+        "photo": Path.home() / "Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/01-ACTIVE-CRITICAL/MAA-26CV005596-590/EVIDENCE_BUNDLE/05_HABITABILITY_EVIDENCE/MOLD-PHOTOS",
+        "email": Path.home() / "Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/01-ACTIVE-CRITICAL/MAA-26CV007491-590/CORRESPONDENCE/INBOUND/01-OPPOSING-COUNSEL",
+    }
     
-    # Rename
-    pdf_path.rename(new_path)
+    # Get target directory (default to Downloads if type not recognized)
+    target_dir = target_dirs.get(doc_type, pdf_path.parent)
+    
+    # Create directory if it doesn't exist
+    target_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Generate new filename with date + type + case number
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    if case_num:
+        new_name = f"{date_str}-{doc_type.upper()}-{case_num}.pdf"
+    else:
+        # If no case number, use original filename with type prefix
+        new_name = f"{date_str}-{doc_type.upper()}-{pdf_path.name}"
+    
+    new_path = target_dir / new_name
+    
+    # Avoid overwriting existing files
+    counter = 1
+    while new_path.exists():
+        stem = new_path.stem
+        new_name_with_counter = f"{stem}-{counter}.pdf"
+        new_path = target_dir / new_name_with_counter
+        counter += 1
+    
+    # Move file
+    import shutil
+    shutil.move(str(pdf_path), str(new_path))
+    
     return new_path
 
 def main():
@@ -414,9 +445,13 @@ def main():
     print(f"\n📊 Session Stats:")
     print(f"   Total classifications: {session['api_usage']['classify_calls']}")
     print(f"   This month cost: ${session['api_usage']['last_month_cost']:.2f}")
-    print(f"   Provider usage:")
-    for provider, count in session['api_usage']['provider_stats'].items():
-        print(f"      {provider}: {count}")
+    
+    # Handle both provider_stats and provider_usage keys
+    provider_data = session['api_usage'].get('provider_stats') or session['api_usage'].get('provider_usage', {})
+    if provider_data:
+        print(f"   Provider usage:")
+        for provider, count in provider_data.items():
+            print(f"      {provider}: {count}")
 
 if __name__ == "__main__":
     main()

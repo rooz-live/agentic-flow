@@ -3,6 +3,9 @@
 ## Status
 Accepted
 
+## Date
+2026-01-15
+
 ## Context
 The climate prediction system needs to be maintainable, testable, and extensible. We need to decide on the code organization strategy.
 

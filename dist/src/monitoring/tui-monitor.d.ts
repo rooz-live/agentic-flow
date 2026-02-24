@@ -36,7 +36,7 @@ export declare class TUIMonitor {
     constructor(config?: Partial<MonitorConfig>);
     private setupUI;
     private setupKeybindings;
-    private refresh;
+    refresh(): void;
     private renderNoSwarm;
     private renderAgentGrid;
     private renderTaskList;
@@ -48,7 +48,7 @@ export declare class TUIMonitor {
     private getHealthBar;
     private getTimeAgo;
     private getTaskDuration;
-    private log;
+    log(message: string): void;
     private startRefresh;
     start(): void;
     stop(): void;

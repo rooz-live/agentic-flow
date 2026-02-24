@@ -11,31 +11,28 @@
  * - Governance and compliance validation
  */
 
-import { 
-  Client, 
-  GatewayIntentBits, 
-  REST, 
-  Routes, 
-  SlashCommandBuilder,
-  PermissionFlagsBits,
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  ModalBuilder,
-  TextInputBuilder,
-  TextInputStyle,
+import {
+  Client,
+  Intents,
   Interaction,
   CommandInteraction,
-  ChatInputCommandInteraction,
   ButtonInteraction,
-  ModalSubmitInteraction,
   Guild,
   User,
   GuildMember,
   TextChannel,
-  Message
+  Message,
+  MessageEmbed,
+  MessageActionRow,
+  MessageButton,
+  Permissions,
+  PermissionResolvable,
+  Collection,
+  InteractionType
 } from 'discord.js';
+import { REST } from '@discordjs/rest';
+import { Routes } from 'discord-api-types/v9';
+import { SlashCommandBuilder } from '@discordjs/builders';
 import { EventEmitter } from 'events';
 // Optional imports - these modules may not exist in all configurations
 // import { GovernanceSystem } from '../../governance/core/governance_system';
@@ -96,11 +93,11 @@ export class DiscordBot extends EventEmitter {
     this.config = config;
     this.client = new Client({
       intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent,
-        GatewayIntentBits.GuildMembers,
-        GatewayIntentBits.GuildMessageReactions
+        Intents.FLAGS.GUILDS,
+        Intents.FLAGS.GUILD_MESSAGES,
+        Intents.FLAGS.MESSAGE_CONTENT,
+        Intents.FLAGS.GUILD_MEMBERS,
+        Intents.FLAGS.GUILD_MESSAGE_REACTIONS
       ]
     });
 
@@ -267,7 +264,7 @@ export class DiscordBot extends EventEmitter {
     this.startTime = Date.now();
     
     // Set bot activity
-    this.client.user?.setActivity('Agentic Flow Ecosystem', { type: 3 }); // 3 = WATCHING
+    this.client.user?.setActivity('Agentic Flow Ecosystem', { type: 'WATCHING' });
     
     // Initialize notification channels
     await this.notificationManager.setupNotificationChannels(this.client.guilds.cache);
@@ -385,15 +382,10 @@ export class DiscordBot extends EventEmitter {
   /**
    * Handle modal submit interactions
    */
-  private async handleModalSubmit(interaction: ModalSubmitInteraction): Promise<void> {
-    const customId = interaction.customId;
-    
-    // Handle different modal types
-    if (customId.startsWith('payment_')) {
-      await interaction.reply({ content: 'Payment submitted!', ephemeral: true });
-    } else if (customId.startsWith('trading_')) {
-      await interaction.reply({ content: 'Trading order submitted!', ephemeral: true });
-    } else {
+  private async handleModalSubmit(interaction: Interaction): Promise<void> {
+    // In v13, modal submissions don't exist as a separate type
+    // This is a placeholder for future v14 migration
+    if (interaction.isCommand()) {
       await interaction.reply({ content: 'Form submitted!', ephemeral: true });
     }
   }
@@ -415,7 +407,7 @@ export class DiscordBot extends EventEmitter {
    * Handle bot mentions
    */
   private async handleMention(message: Message): Promise<void> {
-    const helpEmbed = new EmbedBuilder()
+    const helpEmbed = new MessageEmbed()
       .setTitle('🤖 Agentic Flow Bot')
       .setDescription('Hello! I\'m your assistant for the Agentic Flow ecosystem.')
       .addFields(
@@ -477,7 +469,7 @@ export class DiscordBot extends EventEmitter {
       return;
     }
 
-    const subcommand = (interaction as ChatInputCommandInteraction).options?.getSubcommand?.() || 'unknown';
+    const subcommand = interaction.options?.getSubcommand?.() || 'unknown';
     
     switch (subcommand) {
       case 'policy':
@@ -506,7 +498,7 @@ export class DiscordBot extends EventEmitter {
       return;
     }
 
-    const subcommand = (interaction as ChatInputCommandInteraction).options?.getSubcommand?.() || 'unknown';
+    const subcommand = interaction.options?.getSubcommand?.() || 'unknown';
     
     switch (subcommand) {
       case 'portfolio':
@@ -535,7 +527,7 @@ export class DiscordBot extends EventEmitter {
       return;
     }
 
-    const subcommand = (interaction as ChatInputCommandInteraction).options?.getSubcommand?.() || 'unknown';
+    const subcommand = interaction.options?.getSubcommand?.() || 'unknown';
     
     switch (subcommand) {
       case 'portfolio':
@@ -567,7 +559,7 @@ export class DiscordBot extends EventEmitter {
       return;
     }
 
-    const subcommand = (interaction as ChatInputCommandInteraction).options?.getSubcommand?.() || 'unknown';
+    const subcommand = interaction.options?.getSubcommand?.() || 'unknown';
     
     switch (subcommand) {
       case 'status':
@@ -591,7 +583,7 @@ export class DiscordBot extends EventEmitter {
   }
 
   private async handleAdminCommand(interaction: CommandInteraction): Promise<void> {
-    const subcommand = (interaction as ChatInputCommandInteraction).options?.getSubcommand?.() || 'unknown';
+    const subcommand = interaction.options?.getSubcommand?.() || 'unknown';
     
     switch (subcommand) {
       case 'stats':
@@ -615,9 +607,9 @@ export class DiscordBot extends EventEmitter {
   }
 
   private async handleHelpCommand(interaction: CommandInteraction): Promise<void> {
-    const category = (interaction as ChatInputCommandInteraction).options?.getString('category');
-    
-    const embed = new EmbedBuilder()
+    const category = interaction.options?.getString('category');
+
+    const embed = new MessageEmbed()
       .setTitle('🤖 Agentic Flow Bot Commands')
       .setDescription('Available commands for the Agentic Flow ecosystem')
       .setColor('#0099FF')
@@ -649,7 +641,7 @@ export class DiscordBot extends EventEmitter {
   private async handleStatusCommand(interaction: CommandInteraction): Promise<void> {
     const status = this.getBotStatus();
     
-    const embed = new EmbedBuilder()
+    const embed = new MessageEmbed()
       .setTitle('📊 Bot Status')
       .setDescription('Current status of the Agentic Flow Discord bot')
       .addFields(
@@ -667,8 +659,8 @@ export class DiscordBot extends EventEmitter {
   }
 
   private async handleSubscribeCommand(interaction: CommandInteraction): Promise<void> {
-    const notificationType = (interaction as ChatInputCommandInteraction).options?.getString('type');
-    const enabled = (interaction as ChatInputCommandInteraction).options?.getBoolean('enabled') ?? true;
+    const notificationType = interaction.options?.getString('type');
+    const enabled = interaction.options?.getBoolean('enabled') ?? true;
     
     await this.notificationManager.toggleSubscription(
       interaction.user.id,
@@ -676,7 +668,7 @@ export class DiscordBot extends EventEmitter {
       enabled
     );
 
-    const embed = new EmbedBuilder()
+    const embed = new MessageEmbed()
       .setTitle('🔔 Notification Settings')
       .setDescription(
         enabled 

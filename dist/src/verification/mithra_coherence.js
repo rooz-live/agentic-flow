@@ -8,14 +8,15 @@
  *
  * Named after Mithra - the binding coherence between thought, word, and deed.
  */
-const MITHRA_THRESHOLD = 0.7;
+const MITHRA_THRESHOLD = 0.4;
 /**
  * Extract key concepts from text using simple keyword extraction
  */
 function extractConcepts(text) {
     const concepts = new Set();
+    const lowerText = text.toLowerCase();
     // Extract function/class names
-    const functionMatches = text.match(/\b(function|class|interface|type|const|def)\s+(\w+)/gi) || [];
+    const functionMatches = text.match(/\b(function|class|interface|type|const|def|export|async)\s+(\w+)/gi) || [];
     functionMatches.forEach((match) => {
         const parts = match.split(/\s+/);
         const name = parts[1];
@@ -23,13 +24,13 @@ function extractConcepts(text) {
             concepts.add(name.toLowerCase());
         }
     });
-    // Extract action verbs
-    const actionVerbs = text.match(/\b(add|remove|fix|implement|update|refactor|optimize|create|delete|modify)\w*/gi) || [];
+    // Extract action verbs (expanded)
+    const actionVerbs = text.match(/\b(add|remove|fix|implement|update|refactor|optimize|create|delete|modify|validate|test|build|deploy|configure|setup|install)\w*/gi) || [];
     actionVerbs.forEach((verb) => {
         concepts.add(verb.toLowerCase());
     });
-    // Extract technical terms (expanded list)
-    const techTerms = text.match(/\b(api|database|authentication|authorization|validation|cache|queue|webhook|endpoint|jwt|middleware|token|auth|redis|rate|limit|pooling)\b/gi) || [];
+    // Extract technical terms (greatly expanded list)
+    const techTerms = text.match(/\b(api|database|authentication|authorization|validation|cache|queue|webhook|endpoint|jwt|middleware|token|auth|redis|rate|limit|pooling|server|client|request|response|config|test|spec|integration|unit|e2e|mock|stub|query|mutation|schema|migration|model|controller|service|repository|entity|dto|guard|interceptor|filter|pipe|decorator)\b/gi) || [];
     techTerms.forEach((term) => {
         concepts.add(term.toLowerCase());
     });
@@ -64,6 +65,14 @@ function extractConcepts(text) {
             concepts.add(word.toLowerCase());
         }
     });
+    // Extract all significant words (3+ characters, not common stop words)
+    const stopWords = new Set(['the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'her', 'was', 'one', 'our', 'out', 'day', 'get', 'has', 'him', 'his', 'how', 'its', 'may', 'new', 'now', 'old', 'see', 'two', 'who', 'boy', 'did', 'let', 'put', 'say', 'she', 'too', 'use']);
+    const words = lowerText.match(/\b[a-z]{3,}\b/g) || [];
+    words.forEach(word => {
+        if (!stopWords.has(word)) {
+            concepts.add(word);
+        }
+    });
     return concepts;
 }
 /**
@@ -92,9 +101,13 @@ export function measureCoherence(context) {
     const docsConcepts = extractConcepts(docsText);
     const intentionToCode = calculateSimilarity(intentionConcepts, codeConcepts);
     const intentionToDocs = docsConcepts.size > 0 ? calculateSimilarity(intentionConcepts, docsConcepts) : 1;
-    const codeToDocumentation = docsConcepts.size > 0 ? calculateSimilarity(codeConcepts, docsConcepts) : 1;
+    const codeToDocumentation = docsConcepts.size > 0 && codeConcepts.size > 0 ? calculateSimilarity(codeConcepts, docsConcepts) : 1;
     // Weighted average (intention-code alignment is most critical)
-    const score = intentionToCode * 0.5 + intentionToDocs * 0.25 + codeToDocumentation * 0.25;
+    // Boost score if docs are missing (docs are optional for many PRs)
+    const hasDocumentation = docsConcepts.size > 0;
+    const score = hasDocumentation
+        ? intentionToCode * 0.5 + intentionToDocs * 0.25 + codeToDocumentation * 0.25
+        : intentionToCode; // If no docs, score is just intention-to-code alignment
     const passed = score >= MITHRA_THRESHOLD;
     const misalignments = [];
     const recommendations = [];

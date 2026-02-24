@@ -3,7 +3,7 @@
  * Manages registration, validation, and execution of Discord commands
  */
 
-import { SlashCommandBuilder, SlashCommandSubcommandBuilder, SlashCommandSubcommandsOnlyBuilder } from 'discord.js';
+import { SlashCommandBuilder, SlashCommandSubcommandBuilder, SlashCommandSubcommandsOnlyBuilder } from '@discordjs/builders';
 import { DiscordCommand } from './discord_bot';
 
 export interface CommandRegistration {

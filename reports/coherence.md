@@ -1,0 +1,488 @@
+# DDD/TDD/ADR Coherence Validation Report
+**Generated:** 2026-02-21 15:49:22
+**Project:** `/Users/shahroozbhopti/Documents/code/investing/agentic-flow`
+**Files Scanned:** 200
+**Automation Level:** Level 4 (Fully Auto)
+
+## ✅ Overall: PASS
+`██████████████████████████████` **100.0%** (440/440 checks)
+
+## Layer Health
+
+| Layer | Health | Files | Gaps | Strengths |
+|:------|:------:|:-----:|:----:|:----------|
+| **PRD** | 🟢 100% | 8 | 0 | 8 PRD document(s) found |
+| **ADR** | 🟢 100% | 12 | 0 | 12 ADR document(s) found |
+| **DDD** | 🟢 100% | 28 | 0 | 28 domain file(s) found |
+| **TDD** | 🟢 100% | 152 | 0 | 152 test file(s) found |
+
+## Cross-Layer Coherence
+
+- ✅ **COH-001** (ddd→tdd): 50/50 domain classes have test coverage (100%)
+- ✅ **COH-003** (prd→tdd): PRD criteria: ✓, Tests exist: ✓
+- ✅ **COH-004** (tdd→ddd): 63/63 domain terms found in test names (100%)
+- ✅ **COH-002** (adr→ddd): 12 ADR(s), 50 domain classes
+- ✅ **COH-005** (prd→adr): PRD: 8 doc(s), ADR: 12 doc(s), 12/12 with valid status
+- ✅ **COH-010** (ddd→prd): 29/29 domain modules have DoR/DoD docstrings (100%)
+- ✅ **COH-006** (ddd→ddd): 11/11 Python packages have __init__.py (100%)
+- ✅ **COH-009** (ddd→ddd): 38/38 Rust domain structs derive Serialize (100%)
+- ✅ **COH-007** (tdd→tdd): 41/41 test files follow naming convention (100%)
+- ✅ **COH-008** (prd→prd): 8/8 PRD documents have measurable success metrics (100%) [2 stray PRD-like file(s) outside docs/prd/]
+
+### PRD Checks
+
+- ✅ [WARNING] PRD has required sections: 4/4 sections present `docs/prd/PRD-COHERENCE-VALIDATION-PIPELINE.md`
+- ✅ [WARNING] PRD has measurable success metrics: Quantifiable metrics: 1 pattern(s) found `docs/prd/PRD-COHERENCE-VALIDATION-PIPELINE.md`
+- ✅ [INFO] PRD defines DoR and DoD: DoR: ✓, DoD: ✓ `docs/prd/PRD-COHERENCE-VALIDATION-PIPELINE.md`
+- ✅ [WARNING] PRD has required sections: 4/4 sections present `docs/prd/PRD-DISCORD-BOT-MVP.md`
+- ✅ [WARNING] PRD has measurable success metrics: Quantifiable metrics: 4 pattern(s) found `docs/prd/PRD-DISCORD-BOT-MVP.md`
+- ✅ [INFO] PRD defines DoR and DoD: DoR: ✓, DoD: ✓ `docs/prd/PRD-DISCORD-BOT-MVP.md`
+- ✅ [WARNING] PRD has required sections: 4/4 sections present `docs/prd/PRD-ECONOMIC-METRICS.md`
+- ✅ [WARNING] PRD has measurable success metrics: Quantifiable metrics: 4 pattern(s) found `docs/prd/PRD-ECONOMIC-METRICS.md`
+- ✅ [INFO] PRD defines DoR and DoD: DoR: ✓, DoD: ✓ `docs/prd/PRD-ECONOMIC-METRICS.md`
+- ✅ [WARNING] PRD has required sections: 4/4 sections present `docs/prd/PRD-LEAN-BUDGET-GUARDRAILS.md`
+- ✅ [WARNING] PRD has measurable success metrics: Quantifiable metrics: 3 pattern(s) found `docs/prd/PRD-LEAN-BUDGET-GUARDRAILS.md`
+- ✅ [INFO] PRD defines DoR and DoD: DoR: ✓, DoD: ✓ `docs/prd/PRD-LEAN-BUDGET-GUARDRAILS.md`
+- ✅ [WARNING] PRD has required sections: 4/4 sections present `docs/prd/PRD-SEMI-AUTO-PATENT-SYSTEM.md`
+- ✅ [WARNING] PRD has measurable success metrics: Quantifiable metrics: 4 pattern(s) found `docs/prd/PRD-SEMI-AUTO-PATENT-SYSTEM.md`
+- ✅ [INFO] PRD defines DoR and DoD: DoR: ✓, DoD: ✓ `docs/prd/PRD-SEMI-AUTO-PATENT-SYSTEM.md`
+- ✅ [WARNING] PRD has required sections: 4/4 sections present `docs/prd/PRD-STRATEGIC-ROADMAP.md`
+- ✅ [WARNING] PRD has measurable success metrics: Quantifiable metrics: 2 pattern(s) found `docs/prd/PRD-STRATEGIC-ROADMAP.md`
+- ✅ [INFO] PRD defines DoR and DoD: DoR: ✓, DoD: ✓ `docs/prd/PRD-STRATEGIC-ROADMAP.md`
+- ✅ [WARNING] PRD has required sections: 4/4 sections present `docs/prd/PRD-TESTING-PIPELINE.md`
+- ✅ [WARNING] PRD has measurable success metrics: Quantifiable metrics: 3 pattern(s) found `docs/prd/PRD-TESTING-PIPELINE.md`
+- ✅ [INFO] PRD defines DoR and DoD: DoR: ✓, DoD: ✓ `docs/prd/PRD-TESTING-PIPELINE.md`
+- ✅ [WARNING] PRD has required sections: 4/4 sections present `docs/prd/TEMPLATE.md`
+- ✅ [WARNING] PRD has measurable success metrics: Quantifiable metrics: 4 pattern(s) found `docs/prd/TEMPLATE.md`
+- ✅ [INFO] PRD defines DoR and DoD: DoR: ✓, DoD: ✓ `docs/prd/TEMPLATE.md`
+
+### ADR Checks
+
+- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/ADR-017-Portfolio-Hierarchy-Architecture.md`
+- ✅ [INFO] ADR has explicit status: Status: Accepted `docs/ADR-017-Portfolio-Hierarchy-Architecture.md`
+- ✅ [INFO] ADR has date: Date present `docs/ADR-017-Portfolio-Hierarchy-Architecture.md`
+- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/SEMI_AUTO_PATENT_SYSTEM_ADR.md`
+- ✅ [INFO] ADR has explicit status: Status: Proposed `docs/SEMI_AUTO_PATENT_SYSTEM_ADR.md`
+- ✅ [INFO] ADR has date: Date present `docs/SEMI_AUTO_PATENT_SYSTEM_ADR.md`
+- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/ADR-001-yolife-dimensional-ui.md`
+- ✅ [INFO] ADR has explicit status: Status: Proposed `docs/adr/ADR-001-yolife-dimensional-ui.md`
+- ✅ [INFO] ADR has date: Date present `docs/adr/ADR-001-yolife-dimensional-ui.md`
+- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/ADR-018-WSJF-Anti-Pattern-Framework.md`
+- ✅ [INFO] ADR has explicit status: Status: Accepted `docs/adr/ADR-018-WSJF-Anti-Pattern-Framework.md`
+- ✅ [INFO] ADR has date: Date present `docs/adr/ADR-018-WSJF-Anti-Pattern-Framework.md`
+- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/ADR-TEMPLATE.md`
+- ✅ [INFO] ADR has explicit status: Status: Proposed `docs/adr/ADR-TEMPLATE.md`
+- ✅ [INFO] ADR has date: Date present `docs/adr/ADR-TEMPLATE.md`
+- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/architecture/decisions/ADR-001-ddd-layer-responsibilities.md`
+- ✅ [INFO] ADR has explicit status: Status: Accepted `docs/architecture/decisions/ADR-001-ddd-layer-responsibilities.md`
+- ✅ [INFO] ADR has date: Date present `docs/architecture/decisions/ADR-001-ddd-layer-responsibilities.md`
+- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/architecture/decisions/ADR-002-bounded-context-boundaries.md`
+- ✅ [INFO] ADR has explicit status: Status: Accepted `docs/architecture/decisions/ADR-002-bounded-context-boundaries.md`
+- ✅ [INFO] ADR has date: Date present `docs/architecture/decisions/ADR-002-bounded-context-boundaries.md`
+- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/architecture/decisions/ADR-003-aggregate-design.md`
+- ✅ [INFO] ADR has explicit status: Status: Accepted `docs/architecture/decisions/ADR-003-aggregate-design.md`
+- ✅ [INFO] ADR has date: Date present `docs/architecture/decisions/ADR-003-aggregate-design.md`
+- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/designs/ADR-0001-multi-format-document-extraction.md`
+- ✅ [INFO] ADR has explicit status: Status: Accepted `docs/designs/ADR-0001-multi-format-document-extraction.md`
+- ✅ [INFO] ADR has date: Date present `docs/designs/ADR-0001-multi-format-document-extraction.md`
+- ✅ [WARNING] ADR has required sections: 4/4 sections `examples/climate-prediction/docs/ADR-001-crate-structure.md`
+- ✅ [INFO] ADR has explicit status: Status: Accepted `examples/climate-prediction/docs/ADR-001-crate-structure.md`
+- ✅ [INFO] ADR has date: Date present `examples/climate-prediction/docs/ADR-001-crate-structure.md`
+- ✅ [WARNING] ADR has required sections: 4/4 sections `examples/climate-prediction/docs/ADR-002-error-handling.md`
+- ✅ [INFO] ADR has explicit status: Status: Accepted `examples/climate-prediction/docs/ADR-002-error-handling.md`
+- ✅ [INFO] ADR has date: Date present `examples/climate-prediction/docs/ADR-002-error-handling.md`
+- ✅ [WARNING] ADR has required sections: 4/4 sections `examples/climate-prediction/docs/ADR-003-async-runtime.md`
+- ✅ [INFO] ADR has explicit status: Status: Accepted `examples/climate-prediction/docs/ADR-003-async-runtime.md`
+- ✅ [INFO] ADR has date: Date present `examples/climate-prediction/docs/ADR-003-async-runtime.md`
+
+### DDD Checks
+
+- ✅ [INFO] Rust struct 'CacheStatistics' derives Serialize: Serialize derived `rust/core/src/cache/lru_manager.rs`
+- ✅ [INFO] Rust struct 'LRUCacheManager' derives Serialize: Infrastructure struct (runtime handles) — Serialize exempt `rust/core/src/cache/lru_manager.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/cache/lru_manager.rs`
+- ✅ [INFO] Rust struct 'SqliteCacheStore' derives Serialize: Infrastructure struct (runtime handles) — Serialize exempt `rust/core/src/cache/persistence.rs`
+- ✅ [INFO] Rust struct 'CacheStats' derives Serialize: Serialize derived `rust/core/src/cache/persistence.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/cache/persistence.rs`
+- ✅ [INFO] Rust struct 'EvidenceItem' derives Serialize: Serialize derived `rust/core/src/domain/dispute.rs`
+- ✅ [INFO] Rust struct 'EvidenceBundleRequirements' derives Serialize: Serialize derived `rust/core/src/domain/dispute.rs`
+- ✅ [INFO] Rust struct 'EvidenceBundleReport' derives Serialize: Serialize derived `rust/core/src/domain/dispute.rs`
+- ✅ [INFO] Rust struct 'Dispute' derives Serialize: Serialize derived `rust/core/src/domain/dispute.rs`
+- ✅ [INFO] Rust struct 'StatusTransition' derives Serialize: Serialize derived `rust/core/src/domain/dispute.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/domain/dispute.rs`
+- ✅ [INFO] Rust struct 'Holding' derives Serialize: Serialize derived `rust/core/src/domain/holding.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/domain/holding.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/domain/mod.rs`
+- ✅ [INFO] Rust struct 'Organization' derives Serialize: Serialize derived `rust/core/src/domain/organization.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/domain/organization.rs`
+- ✅ [INFO] Rust struct 'Portfolio' derives Serialize: Serialize derived `rust/core/src/domain/portfolio.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/domain/portfolio.rs`
+- ✅ [INFO] Rust struct 'SystemicScore' derives Serialize: Serialize derived `rust/core/src/domain/validation.rs`
+- ✅ [INFO] Rust struct 'WholenessMetric' derives Serialize: Serialize derived `rust/core/src/domain/validation.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/domain/validation.rs`
+- ✅ [INFO] Rust struct 'HealthStatus' derives Serialize: Serialize derived `rust/core/src/health.rs`
+- ✅ [INFO] Rust struct 'HealthCheck' derives Serialize: Serialize derived `rust/core/src/health.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/health.rs`
+- ✅ [INFO] Rust struct 'RiskProfile' derives Serialize: Serialize derived `rust/core/src/orchestration.rs`
+- ✅ [INFO] Rust struct 'SwarmConfig' derives Serialize: Serialize derived `rust/core/src/orchestration.rs`
+- ✅ [INFO] Rust struct 'CircuitBreaker' derives Serialize: Serialize derived `rust/core/src/orchestration.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/orchestration.rs`
+- ✅ [INFO] Rust struct 'Portfolio' derives Serialize: Serialize derived `rust/core/src/portfolio/aggregates.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/portfolio/aggregates.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/portfolio/budget_guardrail_snippet.rs`
+- ✅ [INFO] Rust struct 'Equity' derives Serialize: Serialize derived `rust/core/src/portfolio/entities.rs`
+- ✅ [INFO] Rust struct 'Crypto' derives Serialize: Serialize derived `rust/core/src/portfolio/entities.rs`
+- ✅ [INFO] Rust struct 'FixedIncome' derives Serialize: Serialize derived `rust/core/src/portfolio/entities.rs`
+- ✅ [INFO] Rust struct 'Commodity' derives Serialize: Serialize derived `rust/core/src/portfolio/entities.rs`
+- ✅ [INFO] Rust struct 'Holding' derives Serialize: Serialize derived `rust/core/src/portfolio/entities.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/portfolio/entities.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/portfolio/mod.rs`
+- ✅ [INFO] Rust struct 'PortfolioRebalancer' derives Serialize: Serialize derived `rust/core/src/portfolio/services.rs`
+- ✅ [INFO] Rust struct 'RebalanceTrade' derives Serialize: Serialize derived `rust/core/src/portfolio/services.rs`
+- ✅ [INFO] Rust struct 'PerformanceCalculator' derives Serialize: Serialize derived `rust/core/src/portfolio/services.rs`
+- ✅ [INFO] Rust struct 'RiskAnalyzer' derives Serialize: Serialize derived `rust/core/src/portfolio/services.rs`
+- ✅ [INFO] Rust struct 'WsjfItem' derives Serialize: Serialize derived `rust/core/src/portfolio/services.rs`
+- ✅ [INFO] Rust struct 'WsjfCalculator' derives Serialize: Serialize derived `rust/core/src/portfolio/services.rs`
+- ✅ [INFO] Rust struct 'WsjfOverride' derives Serialize: Serialize derived `rust/core/src/portfolio/services.rs`
+- ✅ [INFO] Rust struct 'BudgetGuardrail' derives Serialize: Serialize derived `rust/core/src/portfolio/services.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/portfolio/services.rs`
+- ✅ [INFO] Rust struct 'PortfolioId' derives Serialize: Serialize derived `rust/core/src/portfolio/value_objects.rs`
+- ✅ [INFO] Rust struct 'HoldingId' derives Serialize: Serialize derived `rust/core/src/portfolio/value_objects.rs`
+- ✅ [INFO] Rust struct 'Money' derives Serialize: Serialize derived `rust/core/src/portfolio/value_objects.rs`
+- ✅ [INFO] Rust struct 'Allocation' derives Serialize: Serialize derived `rust/core/src/portfolio/value_objects.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/portfolio/value_objects.rs`
+- ✅ [INFO] Rust struct 'ZScoreTable' derives Serialize: Serialize derived `rust/core/src/portfolio/var_calculator.rs`
+- ✅ [INFO] Rust struct 'VarCalculator' derives Serialize: Serialize derived `rust/core/src/portfolio/var_calculator.rs`
+- ✅ [INFO] Rust struct 'HistoricalVar' derives Serialize: Serialize derived `rust/core/src/portfolio/var_calculator.rs`
+- ✅ [INFO] Rust struct 'MonteCarloVar' derives Serialize: Serialize derived `rust/core/src/portfolio/var_calculator.rs`
+- ✅ [INFO] Rust struct 'StressScenario' derives Serialize: Serialize derived `rust/core/src/portfolio/var_calculator.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/portfolio/var_calculator.rs`
+- ✅ [INFO] Rust struct 'WsjfScore' derives Serialize: Serialize derived `rust/core/src/wsjf/mod.rs`
+- ✅ [INFO] Rust struct 'WsjfOverride' derives Serialize: Serialize derived `rust/core/src/wsjf/mod.rs`
+- ✅ [INFO] Rust struct 'ClusteringResult' derives Serialize: Serialize derived `rust/core/src/wsjf/mod.rs`
+- ✅ [INFO] Rust struct 'WsjfValidator' derives Serialize: Serialize derived `rust/core/src/wsjf/mod.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `rust/core/src/wsjf/mod.rs`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `src/domain_models.py`
+- ✅ [WARNING] Module 'wsjf' has public API exports: __all__ or imports defined `src/wsjf/__init__.py`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `src/wsjf/calculator.py`
+- ✅ [WARNING] Module 'vibesthinker' has public API exports: __all__ or imports defined `vibesthinker/__init__.py`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `vibesthinker/advocate_cli.py`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `vibesthinker/document_extractor.py`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `vibesthinker/governance_council.py`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `vibesthinker/governance_council_33_roles.py`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `vibesthinker/legal_argument_reviewer.py`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `vibesthinker/vibesthinker_ai.py`
+- ✅ [CRITICAL] DDD aggregate root present: 49 aggregate root(s) detected
+- ✅ [WARNING] DDD value object present: 92 value object(s) detected
+- ✅ [WARNING] DDD service present: 57 service(s) detected
+
+### TDD Checks
+
+- ✅ [INFO] Test file follows naming convention: Correct: api-health.test.ts `__tests__/api-health.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.6 assertions/test (34 assertions, 13 tests) `__tests__/api-health.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: enhanced_governance_system.test.ts `__tests__/enhanced_governance_system.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 6.2 assertions/test (191 assertions, 31 tests) `__tests__/enhanced_governance_system.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test_all_platforms.py `scripts/test_all_platforms.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_auto_cod.py `scripts/test_auto_cod.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_concurrent_governor.py `scripts/test_concurrent_governor.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.0 assertions/test (2 assertions, 2 tests) `scripts/test_concurrent_governor.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_enhanced_pattern_stats.py `scripts/test_enhanced_pattern_stats.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_governor_optimization.ts `scripts/test_governor_optimization.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test_governor_simple.py `scripts/test_governor_simple.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.0 assertions/test (4 assertions, 4 tests) `scripts/test_governor_simple.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_proxy_gaming.py `scripts/test_proxy_gaming.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.1 assertions/test (19 assertions, 17 tests) `scripts/test_proxy_gaming.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_stability.ts `scripts/test_stability.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test_workload_distribution.py `scripts/test_workload_distribution.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_wsjf_calculation.py `scripts/test_wsjf_calculation.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.0 assertions/test (1 assertions, 1 tests) `scripts/test_wsjf_calculation.py`
+- ✅ [INFO] Test file follows naming convention: Correct: Dashboard.test.tsx `src/dashboard/tests/Dashboard.test.tsx`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.3 assertions/test (35 assertions, 15 tests) `src/dashboard/tests/Dashboard.test.tsx`
+- ✅ [INFO] Test file follows naming convention: Correct: test_dspy.py `src/integrations/test_dspy.py`
+- ✅ [INFO] Test file follows naming convention: Correct: tokenBudgetEnforcer.test.ts `src/runtime/__tests__/tokenBudgetEnforcer.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.2 assertions/test (57 assertions, 18 tests) `src/runtime/__tests__/tokenBudgetEnforcer.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: dor-time-constraints.test.ts `src/tests/dor-time-constraints.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.5 assertions/test (38 assertions, 15 tests) `src/tests/dor-time-constraints.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test-roam.ts `test-roam.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test-scheduler.ts `test-scheduler.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: AffiliateActivities.test.ts `tests/affiliate/AffiliateActivities.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.6 assertions/test (13 assertions, 5 tests) `tests/affiliate/AffiliateActivities.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: AffiliateAffinities.test.ts `tests/affiliate/AffiliateAffinities.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.3 assertions/test (26 assertions, 6 tests) `tests/affiliate/AffiliateAffinities.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: AffiliateRisks.test.ts `tests/affiliate/AffiliateRisks.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (21 assertions, 6 tests) `tests/affiliate/AffiliateRisks.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: AffiliateSecurityIntegration.test.ts `tests/affiliate/AffiliateSecurityIntegration.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.5 assertions/test (25 assertions, 10 tests) `tests/affiliate/AffiliateSecurityIntegration.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: AffiliateStateTracker.test.ts `tests/affiliate/AffiliateStateTracker.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (63 assertions, 18 tests) `tests/affiliate/AffiliateStateTracker.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: AgentDBLearning.test.ts `tests/affiliate/AgentDBLearning.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.8 assertions/test (50 assertions, 13 tests) `tests/affiliate/AgentDBLearning.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: AnalyticsPlatform.test.ts `tests/affiliate/AnalyticsPlatform.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.7 assertions/test (48 assertions, 13 tests) `tests/affiliate/AnalyticsPlatform.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: BudgetTracking.test.ts `tests/affiliate/BudgetTracking.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.8 assertions/test (37 assertions, 13 tests) `tests/affiliate/BudgetTracking.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: ConceptNetIntegration.test.ts `tests/affiliate/ConceptNetIntegration.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.6 assertions/test (36 assertions, 14 tests) `tests/affiliate/ConceptNetIntegration.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: MLTraining.test.ts `tests/affiliate/MLTraining.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (102 assertions, 29 tests) `tests/affiliate/MLTraining.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: MidstreamerIntegration.test.ts `tests/affiliate/MidstreamerIntegration.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.7 assertions/test (16 assertions, 6 tests) `tests/affiliate/MidstreamerIntegration.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: MidstreamerRealTime.test.ts `tests/affiliate/MidstreamerRealTime.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (59 assertions, 20 tests) `tests/affiliate/MidstreamerRealTime.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: Neo4jIntegration.test.ts `tests/affiliate/Neo4jIntegration.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.6 assertions/test (34 assertions, 13 tests) `tests/affiliate/Neo4jIntegration.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: RealTimePlatform.test.ts `tests/affiliate/RealTimePlatform.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.2 assertions/test (78 assertions, 24 tests) `tests/affiliate/RealTimePlatform.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: StripeIntegration.test.ts `tests/affiliate/StripeIntegration.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.4 assertions/test (55 assertions, 16 tests) `tests/affiliate/StripeIntegration.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: TemporalWorkflows.test.ts `tests/affiliate/TemporalWorkflows.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (68 assertions, 17 tests) `tests/affiliate/TemporalWorkflows.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: index.test.ts `tests/affiliate/index.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (2 assertions, 1 tests) `tests/affiliate/index.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test_dt_e2e_check.py `tests/analysis/test_dt_e2e_check.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.1 assertions/test (10 assertions, 9 tests) `tests/analysis/test_dt_e2e_check.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_dt_evaluation_dashboard.py `tests/analysis/test_dt_evaluation_dashboard.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 9.4 assertions/test (66 assertions, 7 tests) `tests/analysis/test_dt_evaluation_dashboard.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_enforce_dt_quality_gates.py `tests/analysis/test_enforce_dt_quality_gates.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.4 assertions/test (17 assertions, 12 tests) `tests/analysis/test_enforce_dt_quality_gates.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_evaluate_dt_model.py `tests/analysis/test_evaluate_dt_model.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.5 assertions/test (22 assertions, 4 tests) `tests/analysis/test_evaluate_dt_model.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_governance_evaluation_dashboard.py `tests/analysis/test_governance_evaluation_dashboard.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.5 assertions/test (11 assertions, 2 tests) `tests/analysis/test_governance_evaluation_dashboard.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_iris_prod_cycle_integration.py `tests/analysis/test_iris_prod_cycle_integration.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 9.8 assertions/test (59 assertions, 6 tests) `tests/analysis/test_iris_prod_cycle_integration.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_prepare_dt_dataset.py `tests/analysis/test_prepare_dt_dataset.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.7 assertions/test (34 assertions, 6 tests) `tests/analysis/test_prepare_dt_dataset.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_publish_dt_gates_summary.py `tests/analysis/test_publish_dt_gates_summary.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.4 assertions/test (76 assertions, 14 tests) `tests/analysis/test_publish_dt_gates_summary.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_suggest_dt_thresholds.py `tests/analysis/test_suggest_dt_thresholds.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.4 assertions/test (31 assertions, 7 tests) `tests/analysis/test_suggest_dt_thresholds.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_train_dt_model.py `tests/analysis/test_train_dt_model.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.8 assertions/test (7 assertions, 4 tests) `tests/analysis/test_train_dt_model.py`
+- ✅ [INFO] Test file follows naming convention: Correct: ddd-boundaries.test.ts `tests/architecture/ddd-boundaries.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.5 assertions/test (12 assertions, 8 tests) `tests/architecture/ddd-boundaries.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: daily-send.test.ts `tests/automation/daily-send.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (89 assertions, 22 tests) `tests/automation/daily-send.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: advocate.test.ts `tests/cli/advocate.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.6 assertions/test (123 assertions, 34 tests) `tests/cli/advocate.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test_pipeline.py `tests/coherence/test_pipeline.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.6 assertions/test (25 assertions, 7 tests) `tests/coherence/test_pipeline.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_wsjf_anti_patterns.py `tests/coherence/test_wsjf_anti_patterns.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.1 assertions/test (21 assertions, 10 tests) `tests/coherence/test_wsjf_anti_patterns.py`
+- ✅ [INFO] Test file follows naming convention: Correct: wsjf-flow.test.tsx `tests/components/wsjf-flow.test.tsx`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.6 assertions/test (28 assertions, 18 tests) `tests/components/wsjf-flow.test.tsx`
+- ✅ [INFO] Test file follows naming convention: Correct: dashboard.spec.ts `tests/e2e/dashboard.spec.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.7 assertions/test (30 assertions, 11 tests) `tests/e2e/dashboard.spec.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: quic-workflow.test.ts `tests/e2e/quic-workflow.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.7 assertions/test (67 assertions, 18 tests) `tests/e2e/quic-workflow.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: e2e-mcp-mpp-dimensional.test.ts `tests/e2e-mcp-mpp-dimensional.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.3 assertions/test (47 assertions, 11 tests) `tests/e2e-mcp-mpp-dimensional.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: agentic-flow-federation.test.ts `tests/federation/agentic-flow-federation.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.2 assertions/test (114 assertions, 22 tests) `tests/federation/agentic-flow-federation.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: iris_bridge.test.ts `tests/federation/iris_bridge.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 7.1 assertions/test (135 assertions, 19 tests) `tests/federation/iris_bridge.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: decision_audit_logger.test.ts `tests/governance/decision_audit_logger.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (67 assertions, 19 tests) `tests/governance/decision_audit_logger.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: governance_system.test.ts `tests/governance/governance_system.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.2 assertions/test (55 assertions, 17 tests) `tests/governance/governance_system.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: semantic_context_enricher.test.ts `tests/governance/semantic_context_enricher.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.8 assertions/test (128 assertions, 22 tests) `tests/governance/semantic_context_enricher.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: guardrail.test.ts `tests/guardrail.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.3 assertions/test (65 assertions, 28 tests) `tests/guardrail.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: AffiliateWorkflows.test.ts `tests/integration/AffiliateWorkflows.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.7 assertions/test (30 assertions, 11 tests) `tests/integration/AffiliateWorkflows.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: CICDPipeline.test.ts `tests/integration/CICDPipeline.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.4 assertions/test (41 assertions, 12 tests) `tests/integration/CICDPipeline.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: LearningCapture.test.ts `tests/integration/LearningCapture.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.2 assertions/test (38 assertions, 12 tests) `tests/integration/LearningCapture.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: SwarmCoordination.test.ts `tests/integration/SwarmCoordination.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.2 assertions/test (29 assertions, 9 tests) `tests/integration/SwarmCoordination.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: aisp-validation.test.ts `tests/integration/aisp-validation.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (6 assertions, 3 tests) `tests/integration/aisp-validation.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: end-to-end-workflows.test.ts `tests/integration/end-to-end-workflows.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 13.1 assertions/test (105 assertions, 8 tests) `tests/integration/end-to-end-workflows.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: end-to-end.test.ts `tests/integration/end-to-end.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.3 assertions/test (30 assertions, 7 tests) `tests/integration/end-to-end.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: napi_ffi_test.js `tests/integration/napi_ffi_test.js`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.9 assertions/test (81 assertions, 43 tests) `tests/integration/napi_ffi_test.js`
+- ✅ [INFO] Test file follows naming convention: Correct: post_restoration_test.ts `tests/integration/post_restoration_test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: provider-notification-flow.test.ts `tests/integration/provider-notification-flow.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.6 assertions/test (36 assertions, 10 tests) `tests/integration/provider-notification-flow.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: quic-proxy.test.ts `tests/integration/quic-proxy.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.6 assertions/test (50 assertions, 19 tests) `tests/integration/quic-proxy.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: starlingx-connectivity.test.ts `tests/integration/starlingx-connectivity.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (2 assertions, 1 tests) `tests/integration/starlingx-connectivity.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: yolife-connectivity.test.ts `tests/integration/yolife-connectivity.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.9 assertions/test (31 assertions, 8 tests) `tests/integration/yolife-connectivity.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: yolife-deployment.test.ts `tests/integration/yolife-deployment.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.3 assertions/test (13 assertions, 3 tests) `tests/integration/yolife-deployment.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: manthra-validation.test.ts `tests/manthra-validation.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.9 assertions/test (32 assertions, 11 tests) `tests/manthra-validation.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: ay-maturity.test.ts `tests/maturity/ay-maturity.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.2 assertions/test (21 assertions, 5 tests) `tests/maturity/ay-maturity.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: tui-monitor.test.ts `tests/monitoring/tui-monitor.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.0 assertions/test (56 assertions, 54 tests) `tests/monitoring/tui-monitor.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: inapp-notifier.events.test.ts `tests/notifications/inapp-notifier.events.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 11.0 assertions/test (11 assertions, 1 tests) `tests/notifications/inapp-notifier.events.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: notification-manager.test.ts `tests/notifications/notification-manager.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (9 assertions, 3 tests) `tests/notifications/notification-manager.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: otel_metrics.test.ts `tests/notifications/otel_metrics.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 6.0 assertions/test (6 assertions, 1 tests) `tests/notifications/otel_metrics.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: telemetry_sinks.test.ts `tests/notifications/telemetry_sinks.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (4 assertions, 1 tests) `tests/notifications/telemetry_sinks.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: hierarchical-swarm-test.js `tests/parallel/hierarchical-swarm-test.js`
+- ✅ [INFO] Test file follows naming convention: Correct: mesh-swarm-test.js `tests/parallel/mesh-swarm-test.js`
+- ✅ [INFO] Test file follows naming convention: Correct: ring-swarm-test.js `tests/parallel/ring-swarm-test.js`
+- ✅ [INFO] Test file follows naming convention: Correct: anomaly-detection.test.ts `tests/pattern-metrics/anomaly-detection.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.9 assertions/test (107 assertions, 18 tests) `tests/pattern-metrics/anomaly-detection.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: economic-scoring.test.ts `tests/pattern-metrics/economic-scoring.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.2 assertions/test (60 assertions, 19 tests) `tests/pattern-metrics/economic-scoring.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: pattern-analyzer.test.ts `tests/pattern-metrics/integration/pattern-analyzer.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (52 assertions, 13 tests) `tests/pattern-metrics/integration/pattern-analyzer.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: pattern-metrics-logging.test.ts `tests/pattern-metrics/pattern-metrics-logging.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (66 assertions, 19 tests) `tests/pattern-metrics/pattern-metrics-logging.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: performance-benchmarks.test.ts `tests/pattern-metrics/performance-benchmarks.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.8 assertions/test (34 assertions, 9 tests) `tests/pattern-metrics/performance-benchmarks.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: regression-suite.test.ts `tests/pattern-metrics/regression/regression-suite.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.8 assertions/test (99 assertions, 17 tests) `tests/pattern-metrics/regression/regression-suite.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: schema-compliance.test.ts `tests/pattern-metrics/schema-compliance.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.6 assertions/test (114 assertions, 32 tests) `tests/pattern-metrics/schema-compliance.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: schema-validation.test.ts `tests/pattern-metrics/schema-validation.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.4 assertions/test (135 assertions, 25 tests) `tests/pattern-metrics/schema-validation.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: timeline-verification.test.ts `tests/pattern-metrics/timeline-verification.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (111 assertions, 28 tests) `tests/pattern-metrics/timeline-verification.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test_baseline_performance.py `tests/perf/test_baseline_performance.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.9 assertions/test (41 assertions, 14 tests) `tests/perf/test_baseline_performance.py`
+- ✅ [INFO] Test file follows naming convention: Correct: high-load-benchmarks.test.ts `tests/performance/high-load-benchmarks.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.5 assertions/test (58 assertions, 13 tests) `tests/performance/high-load-benchmarks.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test_governance_iris_integration.py `tests/policy/test_governance_iris_integration.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 6.5 assertions/test (13 assertions, 2 tests) `tests/policy/test_governance_iris_integration.py`
+- ✅ [INFO] Test file follows naming convention: Correct: patient-queue.test.ts `tests/providers/patient-queue.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.8 assertions/test (15 assertions, 4 tests) `tests/providers/patient-queue.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: emergency-detector.test.ts `tests/routing/emergency-detector.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (8 assertions, 4 tests) `tests/routing/emergency-detector.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: multi_tenant_navigation.test.ts `tests/routing/multi_tenant_navigation.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.1 assertions/test (25 assertions, 12 tests) `tests/routing/multi_tenant_navigation.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: edge-cases.test.ts `tests/safety/edge-cases.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.8 assertions/test (35 assertions, 19 tests) `tests/safety/edge-cases.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: error-recovery.test.ts `tests/safety/error-recovery.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.5 assertions/test (40 assertions, 16 tests) `tests/safety/error-recovery.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: hallucination-detection.test.ts `tests/safety/hallucination-detection.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.9 assertions/test (43 assertions, 15 tests) `tests/safety/hallucination-detection.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: security-validation.test.ts `tests/safety/security-validation.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.7 assertions/test (32 assertions, 19 tests) `tests/safety/security-validation.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: offhost_syslog_drift_monitor.test.ts `tests/telemetry/offhost_syslog_drift_monitor.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 6.7 assertions/test (20 assertions, 3 tests) `tests/telemetry/offhost_syslog_drift_monitor.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: offhost_syslog_provider_selection.test.ts `tests/telemetry/offhost_syslog_provider_selection.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.8 assertions/test (17 assertions, 6 tests) `tests/telemetry/offhost_syslog_provider_selection.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: otel_bootstrap.test.ts `tests/telemetry/otel_bootstrap.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (4 assertions, 1 tests) `tests/telemetry/otel_bootstrap.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test-helper.ts `tests/test-helper.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test_code_search_doc_query.py `tests/test_code_search_doc_query.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.4 assertions/test (34 assertions, 14 tests) `tests/test_code_search_doc_query.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_coherence_smoke.py `tests/test_coherence_smoke.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.0 assertions/test (2 assertions, 2 tests) `tests/test_coherence_smoke.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_compare_presets.py `tests/test_compare_presets.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 7.4 assertions/test (37 assertions, 5 tests) `tests/test_compare_presets.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_domain_classes_coherence.py `tests/test_domain_classes_coherence.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.1 assertions/test (117 assertions, 110 tests) `tests/test_domain_classes_coherence.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_dt_schema.py `tests/test_dt_schema.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.3 assertions/test (33 assertions, 10 tests) `tests/test_dt_schema.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_hivelocity_device_manager.py `tests/test_hivelocity_device_manager.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.5 assertions/test (10 assertions, 4 tests) `tests/test_hivelocity_device_manager.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_pattern_schema.py `tests/test_pattern_schema.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.6 assertions/test (19 assertions, 12 tests) `tests/test_pattern_schema.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_platform_strategies.py `tests/test_platform_strategies.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.6 assertions/test (32 assertions, 7 tests) `tests/test_platform_strategies.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_portfolio_domain_models.py `tests/test_portfolio_domain_models.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.5 assertions/test (94 assertions, 64 tests) `tests/test_portfolio_domain_models.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_prepare_dt_dataset_schema_alignment.py `tests/test_prepare_dt_dataset_schema_alignment.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 6.2 assertions/test (25 assertions, 4 tests) `tests/test_prepare_dt_dataset_schema_alignment.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_preview_rewards.py `tests/test_preview_rewards.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.9 assertions/test (53 assertions, 9 tests) `tests/test_preview_rewards.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_provider_selection.py `tests/test_provider_selection.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.8 assertions/test (15 assertions, 4 tests) `tests/test_provider_selection.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_resilience.py `tests/test_resilience.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.9 assertions/test (63 assertions, 33 tests) `tests/test_resilience.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_reward_presets.py `tests/test_reward_presets.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 7.8 assertions/test (39 assertions, 5 tests) `tests/test_reward_presets.py`
+- ✅ [INFO] Test file follows naming convention: Correct: prod-cycle-governance.test.ts `tests/tests/e2e/prod-cycle-governance.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 7.0 assertions/test (7 assertions, 1 tests) `tests/tests/e2e/prod-cycle-governance.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: quic.test.ts `tests/transport/quic.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.8 assertions/test (82 assertions, 29 tests) `tests/transport/quic.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: api.test.ts `tests/unit/api.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.8 assertions/test (45 assertions, 12 tests) `tests/unit/api.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: cli.test.ts `tests/unit/cli.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.3 assertions/test (30 assertions, 9 tests) `tests/unit/cli.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: e2b.test.ts `tests/unit/e2b.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.3 assertions/test (10 assertions, 3 tests) `tests/unit/e2b.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: kl-divergence-validation.test.ts `tests/unit/kl-divergence-validation.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.6 assertions/test (62 assertions, 17 tests) `tests/unit/kl-divergence-validation.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: lionrsAdapter.test.ts `tests/unit/lionrsAdapter.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (2 assertions, 1 tests) `tests/unit/lionrsAdapter.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: mcp-tools.test.ts `tests/unit/mcp-tools.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (36 assertions, 9 tests) `tests/unit/mcp-tools.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: notification.test.ts `tests/unit/notification.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.8 assertions/test (65 assertions, 17 tests) `tests/unit/notification.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: process-governor.test.ts `tests/unit/process-governor.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.7 assertions/test (88 assertions, 24 tests) `tests/unit/process-governor.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: rbac.test.ts `tests/unit/rbac.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (6 assertions, 3 tests) `tests/unit/rbac.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: riskAgentAllocation.test.ts `tests/unit/riskAgentAllocation.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (8 assertions, 4 tests) `tests/unit/riskAgentAllocation.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: skillsSnapshot.test.ts `tests/unit/skillsSnapshot.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 12.0 assertions/test (12 assertions, 1 tests) `tests/unit/skillsSnapshot.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: swarmPlanning.test.ts `tests/unit/swarmPlanning.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (8 assertions, 2 tests) `tests/unit/swarmPlanning.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test_convergence_calculator.py `tests/unit/test_convergence_calculator.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.9 assertions/test (13 assertions, 7 tests) `tests/unit/test_convergence_calculator.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_verify_beam_tags.py `tests/unit/test_verify_beam_tags.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (2 assertions, 1 tests) `tests/unit/test_verify_beam_tags.py`
+- ✅ [INFO] Test file follows naming convention: Correct: verification.test.ts `tests/unit/verification.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.2 assertions/test (41 assertions, 13 tests) `tests/unit/verification.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: wsjfSsot.test.ts `tests/unit/wsjfSsot.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (4 assertions, 2 tests) `tests/unit/wsjfSsot.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: citation-verification.test.ts `tests/validation/citation-verification.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.4 assertions/test (26 assertions, 11 tests) `tests/validation/citation-verification.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: confidence-scoring.test.ts `tests/validation/confidence-scoring.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (30 assertions, 10 tests) `tests/validation/confidence-scoring.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: medical-accuracy.test.ts `tests/validation/medical-accuracy.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (29 assertions, 13 tests) `tests/validation/medical-accuracy.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test_document_extraction.py `tests/validation/test_document_extraction.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (14 assertions, 7 tests) `tests/validation/test_document_extraction.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_governance_council.py `tests/validation/test_governance_council.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.7 assertions/test (30 assertions, 11 tests) `tests/validation/test_governance_council.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_validation_dashboard.py `tests/validation/test_validation_dashboard.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.5 assertions/test (20 assertions, 8 tests) `tests/validation/test_validation_dashboard.py`
+- ✅ [INFO] Test file follows naming convention: Correct: agentdb-integration.test.ts `tests/verification/agentdb-integration.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (27 assertions, 12 tests) `tests/verification/agentdb-integration.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: confidence-scorer.test.ts `tests/verification/confidence-scorer.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.4 assertions/test (26 assertions, 11 tests) `tests/verification/confidence-scorer.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: integration.test.ts `tests/verification/integration.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.9 assertions/test (27 assertions, 7 tests) `tests/verification/integration.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: mithra_coherence.test.ts `tests/verification/mithra_coherence.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.2 assertions/test (48 assertions, 15 tests) `tests/verification/mithra_coherence.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: strange-loops-detector.test.ts `tests/verification/strange-loops-detector.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (33 assertions, 15 tests) `tests/verification/strange-loops-detector.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: verification-pipeline.test.ts `tests/verification/verification-pipeline.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (28 assertions, 13 tests) `tests/verification/verification-pipeline.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: vscode-extension-mocks.test.ts `tests/vscode-extension/vscode-extension-mocks.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (109 assertions, 31 tests) `tests/vscode-extension/vscode-extension-mocks.test.ts`
+- ✅ [CRITICAL] Unit tests present: 1809 test functions found
+- ✅ [WARNING] Integration tests present: 51 integration test file(s)
+- ✅ [INFO] Total assertion count reasonable: 5754 total assertions across 152 files
+
+## Recommendations
+
+- ✅ All coherence checks pass — pipeline is healthy
+
+## OODA Integration
+
+| Phase | Coherence Action |
+|:------|:-----------------|
+| **Observe** | Scanned 200 files across 4 layers |
+| **Orient** | Health: PRD=100%, ADR=100%, DDD=100%, TDD=100% |
+| **Decide** | Verdict: PASS at 100% |
+| **Act** | 1 recommendations to implement |
+
+---
+*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-02-21 15:49:22*

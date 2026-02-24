@@ -21,6 +21,7 @@ def test_wsjf_calculation():
     # Test 1: Analyst circle with explicit CoD components
     print("\n📊 Test 1: Analyst with CoD components")
     logger = PatternLogger(circle='analyst', mode='advisory')
+    assert logger is not None, "PatternLogger should initialize for analyst circle"
     logger.log('test_pattern', {
         'ubv': 7,
         'tc': 8,

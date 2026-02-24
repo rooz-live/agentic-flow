@@ -11,11 +11,7 @@
 ### 1. Copy Template to Active .env
 
 ```bash
-# Option A: Use comprehensive template (recommended)
 cp .env.example .env
-
-# Option B: Use simplified template
-cp .env.template .env
 ```
 
 ### 2. Set Critical Missing Variables
@@ -30,8 +26,8 @@ nano .env  # or vim, code, etc.
 
 # cPanel (for cPanel API deployments)
 CPANEL_HOST="cpanel.rooz.live"              # Your cPanel hostname
-CPANEL_API_KEY="your_cpanel_api_key"        # cPanel API token
-CPANEL_USERNAME="your_cpanel_username"      # cPanel username
+CPANEL_API_TOKEN="your_cpanel_api_token"    # cPanel API token
+CPANEL_USER="your_cpanel_username"          # cPanel username (or CPANEL_USERNAME)
 
 # GitLab (for CI/CD and code management)
 GITLAB_HOST="dev.interface.tag.ooo"         # Your GitLab instance
@@ -66,7 +62,7 @@ echo "Hivelocity: ${HIVELOCITY_API_KEY:0:10}... (${#HIVELOCITY_API_KEY} chars)"
 2. Navigate to **Security** → **Manage API Tokens**
 3. Create new token named "agentic-flow-deploy"
 4. Set expiration (recommend 90 days)
-5. Copy token → Add to .env as `CPANEL_API_KEY`
+5. Copy token → Add to .env as `CPANEL_API_TOKEN`
 
 **Hostname Sources**:
 - From existing rule: `YOLIFE_CPANEL_HOST=**************`
@@ -155,7 +151,7 @@ For production, consider:
 
 ```bash
 # Test API connectivity
-curl -H "Authorization: cpanel username:$CPANEL_API_KEY" \
+curl -H "Authorization: cpanel username:$CPANEL_API_TOKEN" \
      "https://$CPANEL_HOST:2083/execute/CpanelApi/version"
 
 # Should return JSON with version info
@@ -199,7 +195,7 @@ npm test -- --testPathPattern="connectivity"
 | Variable | Purpose | Where Used | Example |
 |----------|---------|------------|---------|
 | `CPANEL_HOST` | cPanel hostname | Deploy scripts | `cpanel.rooz.live` |
-| `CPANEL_API_KEY` | cPanel authentication | API calls | `ABC123...` |
+| `CPANEL_API_TOKEN` | cPanel authentication | API calls | `ABC123...` |
 | `GITLAB_HOST` | GitLab instance | CI/CD integration | `dev.interface.tag.ooo` |
 | `GITLAB_TOKEN` | GitLab authentication | Git operations | `glpat-...` |
 | `HIVELOCITY_API_KEY` | Device management | Bare metal deploy | `hive_...` |
@@ -227,7 +223,7 @@ npm test -- --testPathPattern="connectivity"
 
 - [ ] Copy .env template: `cp .env.example .env`
 - [ ] Set CPANEL_HOST
-- [ ] Set CPANEL_API_KEY  
+- [ ] Set CPANEL_API_TOKEN
 - [ ] Set GITLAB_HOST
 - [ ] Set GITLAB_TOKEN
 - [ ] Set HIVELOCITY_API_KEY

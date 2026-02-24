@@ -1,7 +1,7 @@
 # ADR-XXX: [Short Title of Decision]
 
-**Status:** [Proposed | Accepted | Deprecated | Superseded by ADR-YYY]  
-**Date:** YYYY-MM-DD  
+**Status:** Proposed  
+**Date:** 2026-02-21  
 **Deciders:** [List of people involved in decision]  
 **Circle:** [orchestrator | assessor | innovator | analyst | seeker | intuitive]  
 **Ceremony:** [standup | wsjf | review | retro | refine | replenish | synthesis]

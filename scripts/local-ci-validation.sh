@@ -8,19 +8,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# Source validation core WITHOUT inheriting strict mode
-(source "$SCRIPT_DIR/validation-core.sh" 2>/dev/null) || {
-    # Fallback: define minimal color codes
-    GREEN='\033[0;32m'
-    RED='\033[0;31m'
-    YELLOW='\033[1;33m'
-    CYAN='\033[0;36m'
-    BOLD='\033[1m'
-    NC='\033[0m'
-    CHECK_MARK='✓'
-    CROSS_MARK='✗'
-    WARNING_MARK='⚠'
-}
+# Define color codes inline (avoid sourcing complexity)
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+CHECK_MARK='✓'
+CROSS_MARK='✗'
+WARNING_MARK='⚠'
 
 # =============================================================================
 # CONFIGURATION

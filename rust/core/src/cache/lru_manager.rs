@@ -254,11 +254,21 @@ impl LRUCacheManager {
     }
     
     /// Deserialize cache from JSON (for NAPI-RS)
-    pub fn from_json(_json: &str) -> Result<Self, serde_json::Error> {
-        // Placeholder: Create new cache and populate from JSON
-        let cache = Self::new(100); // Default 100 MB
-        // TODO: Deserialize and populate cache
-        Ok(cache)
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        use std::collections::HashMap as StdHashMap;
+        
+        // Parse JSON into intermediate HashMap
+        let entries: StdHashMap<String, Vec<f32>> = serde_json::from_str(json)?;
+        
+        // Create new cache with default 100 MB capacity
+        let cache_manager = Self::new(100);
+        
+        // Populate cache from deserialized entries
+        for (key, value) in entries {
+            cache_manager.insert(key, value);
+        }
+        
+        Ok(cache_manager)
     }
 }
 

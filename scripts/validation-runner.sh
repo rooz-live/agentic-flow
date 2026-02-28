@@ -105,13 +105,34 @@ elif [[ "$FAIL_COUNT" -gt 0 ]]; then
     EXIT_CODE=1
 fi
 
+# DPC_R(t) metric: coverage × robustness
+TOTAL_CHECKS=$((PASS_COUNT + FAIL_COUNT))
+DECLARED_CHECKS=4  # placeholders, legal, prose, attachments
+if [[ "$TOTAL_CHECKS" -gt 0 ]]; then
+    # Use awk for floating point
+    COVERAGE=$(awk "BEGIN {printf \"%.2f\", $PASS_COUNT / $TOTAL_CHECKS}")
+    ROBUSTNESS=$(awk "BEGIN {printf \"%.2f\", $TOTAL_CHECKS / $DECLARED_CHECKS}")
+    DPC_R=$(awk "BEGIN {printf \"%.2f\", ($PASS_COUNT / $TOTAL_CHECKS) * ($TOTAL_CHECKS / $DECLARED_CHECKS)}")
+else
+    COVERAGE="0.00"
+    ROBUSTNESS="0.00"
+    DPC_R="0.00"
+fi
+
 if [[ "$JSON_OUTPUT" == "true" ]]; then
     cat <<EOF
 {
   "file": "$(basename "$email_file")",
   "total_pass": $PASS_COUNT,
   "total_fail": $FAIL_COUNT,
-  "verdict": "$VERDICT"
+  "verdict": "$VERDICT",
+  "dpc": {
+    "coverage": $COVERAGE,
+    "robustness": $ROBUSTNESS,
+    "dpc_r": $DPC_R,
+    "declared_checks": $DECLARED_CHECKS,
+    "executed_checks": $TOTAL_CHECKS
+  }
 }
 EOF
 else

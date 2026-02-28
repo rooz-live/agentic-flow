@@ -657,6 +657,12 @@ core_check_placeholders() {
         'shahrooz@example\.com'
         'gary@example\.com'
         'MAA@example\.com'
+        '\[INSERT_[A-Z_]*\]'
+        '\[.*will provide.*\]'
+        '\[PLACEHOLDER\]'
+        '\[TBD\]'
+        '\[TODO\]'
+        '\[FILL_IN\]'
     )
 
     local found=false

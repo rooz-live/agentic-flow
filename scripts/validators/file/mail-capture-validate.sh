@@ -76,8 +76,15 @@ while [[ $# -gt 0 ]]; do
             exit 0
             ;;
         *)
-            echo -e "${RED}Unknown option: $1${RESET}" >&2
-            exit 2
+            # Allow bare positional arg as file path (normalize with validation-runner.sh)
+            if [[ -f "$1" ]]; then
+                MODE="file"
+                TARGET_FILE="$1"
+                shift
+            else
+                echo -e "${RED}Unknown option: $1${RESET}" >&2
+                exit 2
+            fi
             ;;
     esac
 done

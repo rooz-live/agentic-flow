@@ -114,20 +114,23 @@ RUN_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 RUN_CMD="compare-all-validators.sh $*"
 
 # File-level validators: name, command_template (use FILE for path)
+VALIDATOR_FILE_DIR="$SCRIPT_DIR/validators/file"
+VALIDATOR_PROJ_DIR="$SCRIPT_DIR/validators/project"
+
 FILE_VALIDATORS=(
-    "pre-send-email-gate.sh|SKIP_MESH=true $SCRIPT_DIR/pre-send-email-gate.sh FILE"
-    "validation-runner.sh|$SCRIPT_DIR/validation-runner.sh FILE"
-    "pre-send-email-workflow.sh|COMPARE_MODE=true AUTO_REPLACE_PLACEHOLDERS=false $SCRIPT_DIR/pre-send-email-workflow.sh FILE"
-    "comprehensive-wholeness-validator.sh|$SCRIPT_DIR/comprehensive-wholeness-validator.sh --target-file FILE"
-    "mail-capture-validate.sh|$SCRIPT_DIR/mail-capture-validate.sh --file FILE"
+    "pre-send-email-gate.sh|SKIP_MESH=true $VALIDATOR_FILE_DIR/pre-send-email-gate.sh FILE"
+    "validation-runner.sh|$VALIDATOR_FILE_DIR/validation-runner.sh FILE"
+    "pre-send-email-workflow.sh|COMPARE_MODE=true AUTO_REPLACE_PLACEHOLDERS=false $VALIDATOR_FILE_DIR/pre-send-email-workflow.sh FILE"
+    "comprehensive-wholeness-validator.sh|$VALIDATOR_FILE_DIR/comprehensive-wholeness-validator.sh --target-file FILE"
+    "mail-capture-validate.sh|$VALIDATOR_FILE_DIR/mail-capture-validate.sh --file FILE"
 )
 
 # Project-level validators: name, command (no file)
 PROJECT_VALIDATORS=(
-    "unified-validation-mesh.sh|cd $PROJECT_ROOT && $SCRIPT_DIR/unified-validation-mesh.sh validate personal-only"
-    "validate_coherence.py|cd $PROJECT_ROOT && python3 $SCRIPT_DIR/validate_coherence.py --quiet --json 2>&1"
-    "check_roam_staleness.py|cd $PROJECT_ROOT && python3 $SCRIPT_DIR/governance/check_roam_staleness.py --roam-path $PROJECT_ROOT/ROAM_TRACKER.yaml 2>&1"
-    "contract-enforcement-gate.sh|cd $PROJECT_ROOT && $SCRIPT_DIR/contract-enforcement-gate.sh roam"
+    "unified-validation-mesh.sh|cd $PROJECT_ROOT && $VALIDATOR_PROJ_DIR/unified-validation-mesh.sh validate personal-only"
+    "validate_coherence.py|cd $PROJECT_ROOT && python3 $VALIDATOR_PROJ_DIR/validate_coherence.py --quiet --json 2>&1"
+    "check_roam_staleness.py|cd $PROJECT_ROOT && python3 $VALIDATOR_PROJ_DIR/check_roam_staleness.py --roam-path $PROJECT_ROOT/ROAM_TRACKER.yaml 2>&1"
+    "contract-enforcement-gate.sh|cd $PROJECT_ROOT && $VALIDATOR_PROJ_DIR/contract-enforcement-gate.sh roam"
 )
 
 # Run file-level validators per file (quote file path so spaces don't break bash -c → fixes exit 126)
@@ -341,6 +344,25 @@ dpc=$(( coverage_pct * robustness / 100 ))
 # This decays toward 0 as deadline approaches (pressure signal)
 dpc_r_score=$(( coverage_pct * time_ratio_pct * robustness / 10000 ))
 
+# DPC_U(t) = DPC(t) × urgency_factor/100 — urgency-adjusted score (unbounded upward)
+# Rises when DPC is high AND deadline is near ("pressure gauge").
+# Low DPC + high urgency → moderate DPC_U (still behind).
+# High DPC + high urgency → high DPC_U (on track under pressure).
+# Capped at 999 for display sanity.
+dpc_u_raw=$(( dpc * urgency_factor / 100 ))
+[[ $dpc_u_raw -gt 999 ]] && dpc_u_raw=999
+
+# Urgency zone classification (for dashboard / alerting)
+if [[ $time_ratio_pct -ge 75 ]]; then
+    urgency_zone="GREEN"
+elif [[ $time_ratio_pct -ge 50 ]]; then
+    urgency_zone="YELLOW"
+elif [[ $time_ratio_pct -ge 25 ]]; then
+    urgency_zone="ORANGE"
+else
+    urgency_zone="RED"
+fi
+
 velocity_line=""
 velocity_ema=""
 if [[ -f "$BASELINE_FILE" ]]; then
@@ -370,14 +392,16 @@ fi
     echo "- **DPC(t) = %/# × R(t):** ${dpc}"
     echo "- **T_remain/T_total:** ${time_ratio_pct}% (${time_remaining_days}d / ${total_sprint_days}d) [${T_START} → ${T_TARGET}]"
     echo "- **DPC_R(t) = C × (T/T₀) × R:** ${dpc_r_score} (normalized, decays → 0 at deadline)"
+    echo "- **DPC_U(t) = DPC × urgency:** ${dpc_u_raw} (pressure gauge — rises near deadline if DPC maintained)"
     echo "- **Urgency factor:** ${urgency_factor}/100 (rises as deadline approaches)"
+    echo "- **Urgency zone:** ${urgency_zone}"
     [[ -n "$velocity_line" ]] && echo "$velocity_line"
     echo ""
 } >> "$REPORT_FILE"
 
 # Save baseline (include velocity_ema, time_ratio for next EMA computation)
 cat > "$BASELINE_FILE" <<BASELINE_EOF
-{"timestamp":"$RUN_TS","file_pass":$file_pass,"file_total":$file_total,"proj_pass":$proj_pass,"proj_total":$proj_total,"coverage_pct":$coverage_pct,"robustness":$robustness,"dpc":$dpc,"dpc_r":$dpc_r_score,"time_ratio_pct":$time_ratio_pct,"time_remaining_days":$time_remaining_days,"total_sprint_days":$total_sprint_days,"urgency_factor":$urgency_factor,"implemented":$implemented,"declared":$declared,"velocity_ema":${velocity_ema:-0}}
+{"timestamp":"$RUN_TS","file_pass":$file_pass,"file_total":$file_total,"proj_pass":$proj_pass,"proj_total":$proj_total,"coverage_pct":$coverage_pct,"robustness":$robustness,"dpc":$dpc,"dpc_r":$dpc_r_score,"dpc_u":$dpc_u_raw,"time_ratio_pct":$time_ratio_pct,"time_remaining_days":$time_remaining_days,"total_sprint_days":$total_sprint_days,"urgency_factor":$urgency_factor,"urgency_zone":"$urgency_zone","implemented":$implemented,"declared":$declared,"velocity_ema":${velocity_ema:-0}}
 BASELINE_EOF
 
 if [[ "$JSON_OUTPUT" == "true" ]]; then
@@ -399,7 +423,9 @@ if [[ "$JSON_OUTPUT" == "true" ]]; then
       "urgency_factor": $urgency_factor,
       "robustness_factor": $robustness,
       "dpc": $dpc,
-      "dpc_r_score": $dpc_r_score
+      "dpc_r_score": $dpc_r_score,
+      "dpc_u_score": $dpc_u_raw,
+      "urgency_zone": "$urgency_zone"
     }
   },
   "green_validators": {
@@ -411,7 +437,7 @@ EOF
     echo "$JSON_FILE"
 else
     echo "Report written to $REPORT_FILE"
-    echo "DPC(t)=$dpc  DPC_R(t)=$dpc_r_score  C=${coverage_pct}%  R=${robustness}%  T=${time_ratio_pct}%  [${implemented}/${declared} green, ${time_remaining_days}d left]"
+    echo "DPC(t)=$dpc  DPC_R(t)=$dpc_r_score  DPC_U(t)=$dpc_u_raw  C=${coverage_pct}%  R=${robustness}%  T=${time_ratio_pct}%  zone=$urgency_zone  [${implemented}/${declared} green, ${time_remaining_days}d left]"
 fi
 
 # --- Self-test mode: verify DPC is sane
@@ -466,6 +492,6 @@ if [[ "$SELF_TEST" == "true" ]]; then
         echo "SELF-TEST: $errors error(s) detected"
         exit 1
     else
-        echo "SELF-TEST: ALL CHECKS PASSED (DPC=$dpc, DPC_R=$dpc_r_score, R=$robustness%, C=$coverage_pct%, T=$time_ratio_pct%)"
+        echo "SELF-TEST: ALL CHECKS PASSED (DPC=$dpc, DPC_R=$dpc_r_score, DPC_U=$dpc_u_raw, R=$robustness%, C=$coverage_pct%, T=$time_ratio_pct%, zone=$urgency_zone)"
     fi
 fi

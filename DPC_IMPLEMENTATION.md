@@ -18,10 +18,18 @@
 - **Implementation**: `validation-runner.sh` tracks implemented vs declared checks
 - **Formula**: `robustness = implemented_checks / declared_checks`
 
-### DPC_R(t) (Unified Metric)
+### DPC_R(t) (Time-Decay Metric)
 - **Current**: 84.9 (99.9% × 85%)
-- **Implementation**: All major scripts emit DPC_R(t) in JSON output
-- **Formula**: `DPC_R(t) = coverage × robustness`
+- **Implementation**: `compare-all-validators.sh` emits DPC_R(t) in JSON output
+- **Formula**: `DPC_R(t) = (coverage/100) × (T_remain/T_total) × R(t)`
+- **Behavior**: Decays toward 0 as deadline approaches (pressure barometer)
+
+### DPC_U(t) (Urgency-Adjusted Metric)
+- **Implementation**: `compare-all-validators.sh` emits DPC_U(t) in JSON output
+- **Formula**: `DPC_U(t) = DPC(t) × urgency_factor` (capped at 999)
+- **Urgency factor**: `100 / time_ratio_pct` (rises as deadline approaches)
+- **Behavior**: Rises when DPC is high AND deadline is near ("on track under pressure")
+- **Urgency zones**: GREEN (≥75% time left), YELLOW (≥50%), ORANGE (≥25%), RED (<25%)
 
 ## 📊 Physics-Based Interpretation
 
@@ -31,13 +39,14 @@
 - **R(t)** = Anti-fragility factor (penalizes stubs)
 - **DPC_R(t)** = Unified progress constant
 
-### 4D Progress Vector
+### 5D Progress Vector
 ```
 Progress[t] = [
   coverage(t),      // %/# discrete state
   velocity(t),      // %.# rate of change  
   time(t),          // T_remaining until deadline
-  robustness(t)     // R(t) implementation integrity
+  robustness(t),    // R(t) implementation integrity
+  urgency(t)        // U(t) pressure gauge (DPC × 1/time_ratio)
 ]
 ```
 
@@ -123,11 +132,17 @@ updateGauge('robustness', robustness);
 updateGauge('dpc', dpc_score);
 ```
 
-### Alert Thresholds
+### Alert Thresholds (DPC)
 - **DPC < 50**: Critical alert (system fragile)
 - **DPC 50-70**: Warning (needs attention)
 - **DPC 70-85**: Good (acceptable)
 - **DPC > 85**: Excellent (target met)
+
+### Urgency Zone Thresholds
+- **GREEN** (≥75% time remaining): Normal pace
+- **YELLOW** (≥50%): Mild pressure — review velocity
+- **ORANGE** (≥25%): Moderate pressure — accelerate or cut scope
+- **RED** (<25%): Critical — focus on trial-blocking items only
 
 ## 🔄 Continuous Improvement
 
@@ -162,12 +177,16 @@ fi
 - **DPC Score**: ≥72 (90% × 80%)
 - **Velocity**: ≥100 %/min improvement rate
 
-### Current Status (2026-02-28)
+### Current Status (2026-02-28 21:37 UTC)
 - ✅ **Coherence**: 99.2% (469/473 checks — target exceeded)
 - ✅ **Validator coverage**: 79% (11/14 — target ≥90% NOT yet met)
 - ✅ **Robustness**: 100% (1614/1614 — target exceeded)
 - ✅ **DPC Score**: 79.0 (target ≥72 — exceeded)
+- ⏱️ **Time to Trial #1**: ~64.5h (March 3, 2026 14:00 UTC)
+- 📉 **DPC_R(t) enhanced**: 0.79 × (64.5/120) × 0.90 ≈ 0.382 (decaying)
 - ⚠️ **Note**: Previous 99.9% was overstated; 79% is audited ground truth
+- ✅ **Workspace builds**: Unblocked (ruvector-domain-expansion + duckdb 1.4 + arrow 54)
+- ✅ **ROAM tracker**: Refreshed from 45-day stale to v2.0
 
 ## 📚 Mathematical Foundation
 

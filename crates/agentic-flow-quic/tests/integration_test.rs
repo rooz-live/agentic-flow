@@ -65,7 +65,8 @@ async fn test_echo_basic() -> Result<(), Box<dyn std::error::Error>> {
 /// Test concurrent stream handling
 #[tokio::test]
 async fn test_concurrent_streams() -> Result<(), Box<dyn std::error::Error>> {
-    let server_addr: SocketAddr = "127.0.0.1:14434".parse()?;
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let server_addr: SocketAddr = "*********:14434".parse()?;
     let config = ConnectionConfig::default();
 
     let (server, mut rx) = QuicServer::new(server_addr, config.clone()).await?;
@@ -125,7 +126,8 @@ async fn test_concurrent_streams() -> Result<(), Box<dyn std::error::Error>> {
 /// Test connection pool reuse
 #[tokio::test]
 async fn test_connection_pooling() -> Result<(), Box<dyn std::error::Error>> {
-    let server_addr: SocketAddr = "127.0.0.1:14435".parse()?;
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let server_addr: SocketAddr = "*********:14435".parse()?;
     let config = ConnectionConfig::default();
 
     let (server, _rx) = QuicServer::new(server_addr, config.clone()).await?;
@@ -181,6 +183,7 @@ async fn test_connection_pooling() -> Result<(), Box<dyn std::error::Error>> {
 /// Test error handling for invalid address
 #[tokio::test]
 async fn test_invalid_address() -> Result<(), Box<dyn std::error::Error>> {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let config = ConnectionConfig::default();
     let client = QuicClient::new(config).await?;
 

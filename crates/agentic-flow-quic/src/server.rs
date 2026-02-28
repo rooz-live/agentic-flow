@@ -180,7 +180,8 @@ fn configure_server() -> Result<ServerConfig> {
         .with_single_cert(vec![cert_der], key_der)
         .map_err(|e| QuicError::Tls(e.to_string()))?;
 
-    server_crypto.max_early_data_size = 1024 * 1024; // 1MB for 0-RTT
+    // QUIC requires max_early_data to be 0 (disabled) or u32::MAX
+    server_crypto.max_early_data_size = u32::MAX;
 
     let mut server_config = ServerConfig::with_crypto(Arc::new(
         quinn::crypto::rustls::QuicServerConfig::try_from(server_crypto)

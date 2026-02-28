@@ -1,36 +1,42 @@
 # Consolidation Truth Report
 
 ## What works NOW
-- **File-level:** 5/5 passed (100%). Green: pre-send-email-gate.sh,validation-runner.sh,pre-send-email-workflow.sh,comprehensive-wholeness-validator.sh,mail-capture-validate.sh
-- **Project-level:** 4/4 passed (100%). Green: unified-validation-mesh.sh,validate_coherence.py,check_roam_staleness.py,contract-enforcement-gate.sh
+- **File-level:** 8/10 passed (80%). Green: pre-send-email-gate.sh,validation-runner.sh,pre-send-email-workflow.sh,comprehensive-wholeness-validator.sh
+- **Project-level:** 3/4 passed (75%). Green: unified-validation-mesh.sh,validate_coherence.py,contract-enforcement-gate.sh
 - **Conflicting verdicts:** See Discrepancies below.
 
 ## Run metadata
-- **Date:** 2026-02-28T00:58:06Z
+- **Date:** 2026-02-28T19:27:11Z
 - **Command:** `compare-all-validators.sh `
-- **Files validated:** 1
-  - clean-email-test.eml
+- **Files validated:** 2
+  - EMAIL-TO-LANDLORD-110-FRAZIER.md
+  - EMAIL-TO-AMANDA-REQUEST-APPROVAL.md
 
 ## Coverage metrics (%/#)
 *(Standard: %/# = state; %.# = velocity. See docs/VALIDATION_METRICS_AND_PROGRESS.md for 4D Progress and one-constant relation.)*
 
 | Scope | Passed | Failed | Skipped | Total | % |
 |-------|--------|--------|---------|-------|---|
-| File-level | 5 | 0 | 0 | 5 | 100% |
-| Project-level | 4 | 0 | 0 | 4 | 100% |
+| File-level | 8 | 2 | 0 | 10 | 80% |
+| Project-level | 3 | 1 | 0 | 4 | 75% |
 
 ## Per-run results
 | Validator | File(s) | Exit | Result | Notes |
 |-----------|---------|------|--------|-------|
-| pre-send-email-gate.sh | clean-email-test.eml | 2 | PASS | ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ |
-| validation-runner.sh | clean-email-test.eml | 0 | PASS | Running Validation Runner on clean-email-test.eml |
-| pre-send-email-workflow.sh | clean-email-test.eml | 0 | PASS | ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ |
-| comprehensive-wholeness-validator.sh | clean-email-test.eml | 1 | PASS | ══════════════════════════════════════════════════ |
-| mail-capture-validate.sh | clean-email-test.eml | 0 | PASS | ══════════════════════════════════════════════════ |
+| pre-send-email-gate.sh | EMAIL-TO-LANDLORD-110-FRAZIER.md | 1 | PASS | ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ |
+| validation-runner.sh | EMAIL-TO-LANDLORD-110-FRAZIER.md | 0 | PASS | Running Validation Runner on EMAIL-TO-LANDLORD-110 |
+| pre-send-email-workflow.sh | EMAIL-TO-LANDLORD-110-FRAZIER.md | 0 | PASS | ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ |
+| comprehensive-wholeness-validator.sh | EMAIL-TO-LANDLORD-110-FRAZIER.md | 0 | PASS | ══════════════════════════════════════════════════ |
+| mail-capture-validate.sh | EMAIL-TO-LANDLORD-110-FRAZIER.md | 1 | FAIL | ══════════════════════════════════════════════════ |
+| pre-send-email-gate.sh | EMAIL-TO-AMANDA-REQUEST-APPROVAL.md | 1 | PASS | ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ |
+| validation-runner.sh | EMAIL-TO-AMANDA-REQUEST-APPROVAL.md | 0 | PASS | Running Validation Runner on EMAIL-TO-AMANDA-REQUE |
+| pre-send-email-workflow.sh | EMAIL-TO-AMANDA-REQUEST-APPROVAL.md | 0 | PASS | ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ |
+| comprehensive-wholeness-validator.sh | EMAIL-TO-AMANDA-REQUEST-APPROVAL.md | 0 | PASS | ══════════════════════════════════════════════════ |
+| mail-capture-validate.sh | EMAIL-TO-AMANDA-REQUEST-APPROVAL.md | 1 | FAIL | ══════════════════════════════════════════════════ |
 | unified-validation-mesh.sh | (project) | 124 | PASS | ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ |
-| validate_coherence.py | (project) | 0 | PASS | { |
-| check_roam_staleness.py | (project) | 0 | PASS | ================================================== |
-| contract-enforcement-gate.sh | (project) | 0 | PASS | [INFO] Verifying ROAM freshness (<= 96h)... |
+| validate_coherence.py | (project) | 0 | PASS |  |
+| check_roam_staleness.py | (project) | 1 | FAIL | ================================================== |
+| contract-enforcement-gate.sh | (project) | 1 | PASS | [INFO] Verifying ROAM freshness (<= 96h)... |
 
 ## Coverage
 - **File-level:** pre-send-email-gate.sh, validation-runner.sh, pre-send-email-workflow.sh, comprehensive-wholeness-validator.sh, mail-capture-validate.sh
@@ -38,6 +44,8 @@
 
 ## Discrepancies
 Same file, different result across validators:
+- **EMAIL-TO-LANDLORD-110-FRAZIER.md:** mixed PASS/FAIL (review per-validator output above)
+- **EMAIL-TO-AMANDA-REQUEST-APPROVAL.md:** mixed PASS/FAIL (review per-validator output above)
 
 ## Coherence (DDD/ADR/TDD/PRD)
 When validate_coherence.py exit 0, see its JSON/output for structural coherence. Traceability: docs/VALIDATION-PIPELINE-TRACING.md
@@ -63,8 +71,8 @@ When validate_coherence.py exit 0, see its JSON/output for structural coherence.
 
 
 ## DPC (Delivery Progress Constant)
-- **%/# coverage:** 100% (9/9)
-- **R(t) robustness:** 63% (7/11 implemented)
-- **DPC(t) = %/# × R(t):** 63
-- **%.# velocity:** 21% in 52min = 0.40%/min
+- **%/# coverage:** 78% (11/14)
+- **R(t) robustness:** 77% (7/9 implemented)
+- **DPC(t) = %/# × R(t):** 60
+- **%.# velocity:** 0% in 11min = 0.00%/min (EMA: -0.29%/min)
 

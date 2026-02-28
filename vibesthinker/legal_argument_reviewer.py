@@ -76,6 +76,7 @@ class ArgumentAnalysis:
     """Analysis result for legal document"""
     document_path: str
     document_type: str  # "settlement", "motion", "answer", "brief"
+    claims: List[str]
     total_claims: int
     supported_claims: int
     unsupported_claims: int
@@ -171,6 +172,7 @@ class LegalArgumentReviewer:
         return ArgumentAnalysis(
             document_path=file_path,
             document_type=doc_type,
+            claims=claims,
             total_claims=len(claims),
             supported_claims=supported,
             unsupported_claims=unsupported,
@@ -410,7 +412,22 @@ class LegalArgumentReviewer:
 
         # Pass@K Diversity Constraint
         # Generate counter-arguments for each unsupported claim, creating K variations
-        for i, gap in enumerate(analysis.coherence_gaps[:n]):
+        targets = analysis.coherence_gaps[:n]
+        if not targets and analysis.claims:
+            # If the document is perfectly coherent, generate counter-arguments against the strongest claims
+            targets = [
+                CoherenceGap(
+                    gap_type="STRATEGIC_OBJECTION",
+                    location="Main Claim",
+                    description=f"Strategic counter to claim: {claim[:100]}...",
+                    severity="Medium",
+                    evidence_needed=["Counter-evidence"],
+                    suggested_fix="Prepare evidentiary rebuttal for this specific claim",
+                    confidence=0.8
+                ) for claim in analysis.claims[:n]
+            ]
+
+        for i, gap in enumerate(targets):
             variants = []
             for j in range(k):
                 # Apply temperature-like variance to strength
@@ -455,6 +472,13 @@ class LegalArgumentReviewer:
             return "Plaintiff cites no legal authority for this claim, rendering it meritless."
         elif gap.gap_type == CoherenceGapType.COH_009:
             return "Plaintiff fails to quantify damages, making relief impossible to assess."
+        elif gap.gap_type == "STRATEGIC_OBJECTION":
+            strategic_variations = [
+                "Even if true, this claim fails to establish the requisite legal standard for liability.",
+                "Opposing counsel will likely argue this claim is barred by the statute of limitations or waiver.",
+                "The factual basis of this claim is subject to conflicting interpretation and alternate causation."
+            ]
+            return strategic_variations[variant % len(strategic_variations)]
         else:
             return "Plaintiff's argument contains logical gaps and lacks coherence."
 
@@ -486,7 +510,7 @@ class LegalArgumentReviewer:
     # OUTPUT METHODS
     # ─────────────────────────────────────────────────────────────────────────
 
-    def export_analysis(self, analysis: ArgumentAnalysis, output_path: str):
+    def export_analysis(self, analysis: ArgumentAnalysis, output_path: str, counter_args: Optional[List[CounterArgument]] = None):
         """Export analysis to JSON file"""
         data = {
             "document": analysis.document_path,
@@ -513,7 +537,17 @@ class LegalArgumentReviewer:
                 }
                 for gap in analysis.coherence_gaps
             ],
-            "recommendations": analysis.recommendations
+            "recommendations": analysis.recommendations,
+            "counter_arguments": [
+                {
+                    "argument_id": c.argument_id,
+                    "counter_claim": c.counter_claim,
+                    "supporting_points": c.supporting_points,
+                    "evidence_to_undermine": c.evidence_to_undermine,
+                    "strength": c.strength,
+                    "mitigation_strategy": c.mitigation_strategy
+                } for c in (counter_args or [])
+            ]
         }
 
         Path(output_path).write_text(json.dumps(data, indent=2))
@@ -564,6 +598,7 @@ def main():
         print(f"  {i}. {rec}")
 
     # Counter-arguments
+    counters = []
     if args.counter_args > 0:
         print(f"\n{'='*80}")
         print(f"Counter-Arguments (Top {args.counter_args})")
@@ -577,7 +612,7 @@ def main():
 
     # Export
     if args.output:
-        reviewer.export_analysis(analysis, args.output)
+        reviewer.export_analysis(analysis, args.output, counters)
 
 
 if __name__ == "__main__":

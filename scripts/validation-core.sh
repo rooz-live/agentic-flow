@@ -21,9 +21,14 @@
 #   2 - Warning/Non-blocker
 #   3 - Skipped (missing tools)
 #
-# Strict Mode Policy:
-#   This file is designed to be sourced.  Callers MUST set their own
-#   strict mode (set -euo pipefail) before sourcing.  The library does
+# =============================================================================
+#
+# NOTE: No 'set -euo pipefail' here - this is a SOURCED library!
+# Strict mode in sourced scripts breaks callers that rely on:
+#   - Unset variables (set -u fails)
+#   - Non-zero pipeline returns (set -e fails)
+#   - Word splitting behavior (set -o pipefail fails)
+# Callers MUST enable strict mode themselves if needed.
 #   NOT impose strict mode so it never silently overrides caller settings.
 #   If executed directly (not sourced), strict mode is enabled below.
 #

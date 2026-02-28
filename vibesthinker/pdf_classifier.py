@@ -3,6 +3,9 @@
 PDF Classifier - Auto-identify legal documents using multi-provider vision AI
 Part of advocate CLI suite
 
+DoR: Vision AI provider SDKs available (anthropic/openai/google-generativeai/xai)
+DoD: Multi-provider fallback working, PNG conversion via sips, JSON classification output
+
 Supports: Anthropic Claude, OpenAI GPT-4V, Google Gemini, X.AI Grok
 """
 

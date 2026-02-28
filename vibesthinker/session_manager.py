@@ -2,6 +2,9 @@
 """
 Session Manager for Advocate CLI
 Handles ~/.advocate/session.json persistence
+
+DoR: ~/.advocate directory writable, JSON serializable session structure
+DoD: Session persists across CLI invocations, feature flags toggle, trial tracking works
 """
 
 import json

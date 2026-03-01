@@ -1,33 +1,14 @@
 # ═══════════════════════════════════════════════════════════════════
 # Neural Trader v2.8.0 — Docker Image
 # ═══════════════════════════════════════════════════════════════════
-# Multi-stage: Rust WASM build → Node.js runtime
+# Uses pre-built WASM from pkg/ (built via wasm-pack on host).
+# Server is pure-JS (zero npm deps) — no Rust toolchain required.
 #
 # Build:  docker build -t neural-trader:latest .
 # Run:    docker run -d -p 8080:8080 neural-trader:latest --mode paper-trading
 # Test:   curl http://localhost:8080/health
 # Logs:   docker logs <container-id>
 # ═══════════════════════════════════════════════════════════════════
-
-# ── Stage 1: Build WASM from Rust source ─────────────────────────────
-
-FROM rust:1.77-slim AS builder
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl pkg-config libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install wasm-pack
-RUN curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-WORKDIR /build
-COPY Cargo.toml ./
-COPY src/ ./src/
-
-# Build WASM (nodejs target for server-side use)
-RUN wasm-pack build --target nodejs --release --out-dir pkg
-
-# ── Stage 2: Node.js runtime ────────────────────────────────────────
 
 FROM node:20-slim
 
@@ -37,8 +18,8 @@ LABEL description="Neural Trader — Kelly/Sharpe paper trading engine"
 
 WORKDIR /app
 
-# Copy WASM artifacts from builder
-COPY --from=builder /build/pkg/ ./pkg/
+# Pre-built WASM package (wasm-pack output committed in repo)
+COPY pkg/ ./pkg/
 
 # Copy server and package config (zero npm deps — pure Node stdlib)
 COPY server.js ./

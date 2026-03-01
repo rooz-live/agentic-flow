@@ -1,9 +1,24 @@
 #!/usr/bin/env node
-// Neural Trader - Paper Trading Mode with Income Evidence Generation
+// Neural Trader v2.8.0 — Paper Trading Mode with WASM Kelly/Sharpe Engine
 // Generates realistic trading statements for income verification
 
 const fs = require('fs');
 const path = require('path');
+
+// ── WASM Engine (Kelly/Sharpe) ──────────────────────────────────────
+let wasmEngine = null;
+try {
+  const wasm = require('./wasm-bridge.js');
+  if (wasm && wasm.NeuralTrader) {
+    // Verify WASM is initialized
+    const probe = new wasm.NeuralTrader(JSON.stringify({}));
+    probe.free();
+    wasmEngine = wasm;
+  }
+} catch (e) {
+  // WASM not built yet — fall back to JS-only mode
+  if (process.env.DEBUG) console.warn('[neural-trader] WASM load failed:', e.message);
+}
 
 class NeuralTrader {
   constructor(config = {}) {
@@ -42,21 +57,62 @@ class NeuralTrader {
     };
   }
 
-  // WSJF-based risk calculation
+  // Kelly/Sharpe risk calculation (WASM-accelerated when available)
   calculateRisk(marketData) {
-    const { price, volume } = marketData;
-    const businessValue = volume / 1000000; // Liquidity score
-    const timeCriticality = 0.7; // Market timing
-    const riskReduction = 0.3; // Risk mitigation
-    const effort = Math.abs((price - 200) / 200); // Price deviation
-    
+    const { price, volume, symbol } = marketData;
+
+    // Build MarketCondition for WASM engine
+    const volatility = Math.min(1.5, Math.max(0.05, Math.abs(price - 200) / 200));
+    const trendStrength = (price - 200) / 200;  // >0 bullish, <0 bearish
+    const winProb = 0.45 + (volume / 1e6) * 0.1; // liquidity → edge
+    const payoff = 1.5 + trendStrength * 0.5;
+
+    // Use WASM engine if available
+    if (wasmEngine) {
+      try {
+        const trader = new wasmEngine.NeuralTrader(JSON.stringify({
+          riskThreshold: this.riskThreshold,
+          maxPositionPct: 0.25,
+          totalBudget: this.startingBalance,
+        }));
+        trader.initialize();
+        const raw = trader.calculate_risk(JSON.stringify({
+          symbol: symbol || 'UNKNOWN',
+          volatility,
+          trend_strength: trendStrength,
+          mean_reversion: 0.5,
+          volume_ratio: volume / 500000,
+          risk_budget: this.riskThreshold,
+          win_probability: Math.min(0.8, Math.max(0.3, winProb)),
+          payoff_ratio: Math.min(4.0, Math.max(0.5, payoff)),
+        }));
+        trader.free();
+        const result = JSON.parse(raw);
+        return {
+          score: result.risk_score,
+          kelly: result.kelly_fraction,
+          sharpe: result.sharpe_ratio,
+          maxDrawdown: result.max_drawdown,
+          signal: result.risk_score < this.riskThreshold ? 'BUY' : 'HOLD',
+          engine: 'wasm-kelly-sharpe',
+        };
+      } catch (e) {
+        // Fall through to JS fallback
+      }
+    }
+
+    // JS fallback (WSJF-based)
+    const businessValue = volume / 1000000;
+    const timeCriticality = 0.7;
+    const riskReduction = 0.3;
+    const effort = Math.abs((price - 200) / 200);
     const wsjf = (businessValue + timeCriticality + riskReduction) / Math.max(effort, 0.01);
-    const riskScore = 1 / (1 + wsjf); // Lower WSJF = higher risk
-    
+    const riskScore = 1 / (1 + wsjf);
     return {
       score: riskScore,
       wsjf,
-      signal: riskScore < this.riskThreshold ? 'BUY' : 'HOLD'
+      signal: riskScore < this.riskThreshold ? 'BUY' : 'HOLD',
+      engine: 'js-wsjf-fallback',
     };
   }
 
@@ -223,4 +279,21 @@ if (require.main === module) {
     });
 }
 
+// ── Module exports ──────────────────────────────────────────────────
+// Capture static method before overwriting module.exports
+const _staticStatus = NeuralTrader.status;
+
 module.exports = NeuralTrader;
+module.exports.NeuralTrader = NeuralTrader;
+module.exports.wasmEngine = wasmEngine;
+module.exports.status = () => _staticStatus();
+module.exports.health = () => {
+  if (!wasmEngine) return { status: 'active', engine: 'js-only', version: '2.8.0' };
+  try {
+    const t = new wasmEngine.NeuralTrader(JSON.stringify({}));
+    t.initialize();
+    const h = JSON.parse(t.get_health());
+    t.free();
+    return h;
+  } catch { return { status: 'active', engine: 'js-only', version: '2.8.0' }; }
+};

@@ -113,7 +113,7 @@ WITH stats AS (
       ELSE 0
     END as coeff_variation,
     -- Quantile-based approach (robust to fat tails)
-    (SELECT reward FROM episodes WHERE circle='$circle' AND ceremony='$ceremony' AND success=1 AND created_at > datetime('now', '-30 days') ORDER BY reward LIMIT 1 OFFSET (SELECT COUNT(*) * 0.05 FROM episodes WHERE circle='$circle' AND ceremony='$ceremony' AND success=1 AND created_at > datetime('now', '-30 days'))) as p05_quantile
+    (SELECT reward FROM episodes WHERE circle='$circle' AND ceremony='$ceremony' AND success=1 AND created_at > datetime('now', '-30 days') ORDER BY reward LIMIT 1 OFFSET (SELECT CAST(COUNT(*) * 0.05 AS INTEGER) FROM episodes WHERE circle='$circle' AND ceremony='$ceremony' AND success=1 AND created_at > datetime('now', '-30 days'))) as p05_quantile
   FROM episodes 
   WHERE circle='$circle' AND ceremony='$ceremony'
     AND success=1
@@ -576,3 +576,226 @@ validate_thresholds() {
   calculate_check_frequency "$circle" "$ceremony" | jq .
   echo ""
 }
+
+# ═══════════════════════════════════════════
+# 9. SELF-TEST: Run with synthetic data
+# ═══════════════════════════════════════════
+
+run_self_test() {
+  local tmp_db
+  tmp_db=$(mktemp /tmp/lib-dynamic-thresholds-test.XXXXXX.db)
+  trap "rm -f '$tmp_db'" EXIT
+  
+  echo "=== lib-dynamic-thresholds.sh SELF-TEST ==="
+  echo "Using temporary DB: $tmp_db"
+  echo ""
+  
+  # Override DB_PATH for test
+  DB_PATH="$tmp_db"
+  
+  # Create schema
+  sqlite3 "$tmp_db" <<'SCHEMA'
+CREATE TABLE IF NOT EXISTS episodes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  circle TEXT NOT NULL,
+  ceremony TEXT NOT NULL,
+  reward REAL NOT NULL,
+  success INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  completed_at TEXT DEFAULT (datetime('now', '+5 minutes'))
+);
+CREATE TABLE IF NOT EXISTS skills (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  circle TEXT NOT NULL,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+SCHEMA
+  
+  # Insert synthetic episodes: 40 episodes over 30 days for 'test-circle'/'standup'
+  # Mix of success/failure with realistic reward distribution (mean ~0.75, stddev ~0.12)
+  sqlite3 "$tmp_db" <<'SEED'
+INSERT INTO episodes (circle, ceremony, reward, success, created_at, completed_at) VALUES
+  ('test-circle', 'standup', 0.85, 1, datetime('now', '-28 days'), datetime('now', '-28 days', '+3 minutes')),
+  ('test-circle', 'standup', 0.72, 1, datetime('now', '-27 days'), datetime('now', '-27 days', '+4 minutes')),
+  ('test-circle', 'standup', 0.91, 1, datetime('now', '-26 days'), datetime('now', '-26 days', '+2 minutes')),
+  ('test-circle', 'standup', 0.68, 1, datetime('now', '-25 days'), datetime('now', '-25 days', '+5 minutes')),
+  ('test-circle', 'standup', 0.55, 0, datetime('now', '-24 days'), datetime('now', '-24 days', '+8 minutes')),
+  ('test-circle', 'standup', 0.79, 1, datetime('now', '-23 days'), datetime('now', '-23 days', '+3 minutes')),
+  ('test-circle', 'standup', 0.82, 1, datetime('now', '-22 days'), datetime('now', '-22 days', '+4 minutes')),
+  ('test-circle', 'standup', 0.77, 1, datetime('now', '-21 days'), datetime('now', '-21 days', '+3 minutes')),
+  ('test-circle', 'standup', 0.88, 1, datetime('now', '-20 days'), datetime('now', '-20 days', '+2 minutes')),
+  ('test-circle', 'standup', 0.65, 1, datetime('now', '-19 days'), datetime('now', '-19 days', '+6 minutes')),
+  ('test-circle', 'standup', 0.73, 1, datetime('now', '-18 days'), datetime('now', '-18 days', '+4 minutes')),
+  ('test-circle', 'standup', 0.42, 0, datetime('now', '-17 days'), datetime('now', '-17 days', '+10 minutes')),
+  ('test-circle', 'standup', 0.80, 1, datetime('now', '-16 days'), datetime('now', '-16 days', '+3 minutes')),
+  ('test-circle', 'standup', 0.86, 1, datetime('now', '-15 days'), datetime('now', '-15 days', '+3 minutes')),
+  ('test-circle', 'standup', 0.74, 1, datetime('now', '-14 days'), datetime('now', '-14 days', '+4 minutes')),
+  ('test-circle', 'standup', 0.90, 1, datetime('now', '-13 days'), datetime('now', '-13 days', '+2 minutes')),
+  ('test-circle', 'standup', 0.71, 1, datetime('now', '-12 days'), datetime('now', '-12 days', '+5 minutes')),
+  ('test-circle', 'standup', 0.83, 1, datetime('now', '-11 days'), datetime('now', '-11 days', '+3 minutes')),
+  ('test-circle', 'standup', 0.78, 1, datetime('now', '-10 days'), datetime('now', '-10 days', '+4 minutes')),
+  ('test-circle', 'standup', 0.50, 0, datetime('now', '-9 days'), datetime('now', '-9 days', '+9 minutes')),
+  ('test-circle', 'standup', 0.81, 1, datetime('now', '-8 days'), datetime('now', '-8 days', '+3 minutes')),
+  ('test-circle', 'standup', 0.76, 1, datetime('now', '-7 days'), datetime('now', '-7 days', '+4 minutes')),
+  ('test-circle', 'standup', 0.87, 1, datetime('now', '-6 days'), datetime('now', '-6 days', '+2 minutes')),
+  ('test-circle', 'standup', 0.69, 1, datetime('now', '-5 days'), datetime('now', '-5 days', '+5 minutes')),
+  ('test-circle', 'standup', 0.84, 1, datetime('now', '-4 days'), datetime('now', '-4 days', '+3 minutes')),
+  ('test-circle', 'standup', 0.92, 1, datetime('now', '-3 days'), datetime('now', '-3 days', '+2 minutes')),
+  ('test-circle', 'standup', 0.75, 1, datetime('now', '-2 days'), datetime('now', '-2 days', '+4 minutes')),
+  ('test-circle', 'standup', 0.38, 0, datetime('now', '-1 day'), datetime('now', '-1 day', '+12 minutes')),
+  ('test-circle', 'standup', 0.80, 1, datetime('now', '-12 hours'), datetime('now', '-12 hours', '+3 minutes')),
+  ('test-circle', 'standup', 0.77, 1, datetime('now', '-6 hours'), datetime('now', '-6 hours', '+4 minutes')),
+  -- Additional episodes for statistical power
+  ('test-circle', 'standup', 0.79, 1, datetime('now', '-5 hours'), datetime('now', '-5 hours', '+3 minutes')),
+  ('test-circle', 'standup', 0.85, 1, datetime('now', '-4 hours'), datetime('now', '-4 hours', '+3 minutes')),
+  ('test-circle', 'standup', 0.73, 1, datetime('now', '-3 hours'), datetime('now', '-3 hours', '+4 minutes')),
+  ('test-circle', 'standup', 0.81, 1, datetime('now', '-2 hours'), datetime('now', '-2 hours', '+3 minutes')),
+  ('test-circle', 'standup', 0.88, 1, datetime('now', '-1 hour'), datetime('now', '-1 hour', '+2 minutes'));
+
+INSERT INTO skills (circle, name) VALUES
+  ('test-circle', 'validation'),
+  ('test-circle', 'deployment'),
+  ('test-circle', 'monitoring'),
+  ('test-circle', 'testing'),
+  ('test-circle', 'debugging');
+SEED
+  
+  local errors=0
+  
+  # Test 1: Circuit breaker threshold
+  echo "--- Test 1: Circuit Breaker Threshold ---"
+  local cb_json
+  cb_json=$(calculate_circuit_breaker_threshold "test-circle")
+  local cb_threshold
+  cb_threshold=$(echo "$cb_json" | jq -r '.threshold' 2>/dev/null)
+  if [[ -n "$cb_threshold" && "$cb_threshold" != "null" ]]; then
+    local in_range
+    in_range=$(echo "$cb_threshold >= 0.3 && $cb_threshold <= 1.0" | bc -l 2>/dev/null || echo 0)
+    if [[ "$in_range" == "1" ]]; then
+      echo "PASS: threshold=$cb_threshold (in [0.3, 1.0])"
+    else
+      echo "FAIL: threshold=$cb_threshold out of range [0.3, 1.0]"
+      errors=$((errors + 1))
+    fi
+  else
+    echo "FAIL: Could not compute circuit breaker threshold"
+    errors=$((errors + 1))
+  fi
+  echo "$cb_json" | jq . 2>/dev/null || echo "$cb_json"
+  echo ""
+  
+  # Test 2: Degradation threshold
+  echo "--- Test 2: Degradation Threshold ---"
+  local deg_json
+  deg_json=$(calculate_degradation_threshold "test-circle" "standup")
+  local deg_threshold
+  deg_threshold=$(echo "$deg_json" | jq -r '.threshold' 2>/dev/null)
+  if [[ -n "$deg_threshold" && "$deg_threshold" != "null" && "$deg_threshold" != "0" ]]; then
+    echo "PASS: threshold=$deg_threshold"
+  else
+    echo "FAIL: degradation threshold=$deg_threshold (expected non-zero)"
+    errors=$((errors + 1))
+  fi
+  echo "$deg_json" | jq . 2>/dev/null || echo "$deg_json"
+  echo ""
+  
+  # Test 3: Cascade failure threshold
+  echo "--- Test 3: Cascade Failure Threshold ---"
+  local cas_json
+  cas_json=$(calculate_cascade_threshold "test-circle" "standup")
+  local cas_count
+  cas_count=$(echo "$cas_json" | jq -r '.failure_count_threshold' 2>/dev/null)
+  if [[ -n "$cas_count" && "$cas_count" -ge 3 && "$cas_count" -le 50 ]] 2>/dev/null; then
+    echo "PASS: failure_count_threshold=$cas_count (in [3, 50])"
+  else
+    echo "FAIL: failure_count_threshold=$cas_count out of range [3, 50]"
+    errors=$((errors + 1))
+  fi
+  echo "$cas_json" | jq . 2>/dev/null || echo "$cas_json"
+  echo ""
+  
+  # Test 4: Divergence rate
+  echo "--- Test 4: Divergence Rate ---"
+  local div_json
+  div_json=$(calculate_divergence_rate "test-circle")
+  local div_rate
+  div_rate=$(echo "$div_json" | jq -r '.divergence_rate' 2>/dev/null)
+  if [[ -n "$div_rate" && "$div_rate" != "null" ]]; then
+    local div_ok
+    div_ok=$(echo "$div_rate >= 0.03 && $div_rate <= 0.30" | bc -l 2>/dev/null || echo 0)
+    if [[ "$div_ok" == "1" ]]; then
+      echo "PASS: divergence_rate=$div_rate (in [0.03, 0.30])"
+    else
+      echo "FAIL: divergence_rate=$div_rate out of range [0.03, 0.30]"
+      errors=$((errors + 1))
+    fi
+  else
+    echo "FAIL: Could not compute divergence rate"
+    errors=$((errors + 1))
+  fi
+  echo "$div_json" | jq . 2>/dev/null || echo "$div_json"
+  echo ""
+  
+  # Test 5: Check frequency
+  echo "--- Test 5: Check Frequency ---"
+  local freq_json
+  freq_json=$(calculate_check_frequency "test-circle" "standup")
+  local freq_val
+  freq_val=$(echo "$freq_json" | jq -r '.check_every_n_episodes' 2>/dev/null)
+  if [[ -n "$freq_val" && "$freq_val" -ge 3 && "$freq_val" -le 15 ]] 2>/dev/null; then
+    echo "PASS: check_every_n_episodes=$freq_val (in [3, 15])"
+  else
+    echo "FAIL: check_every_n_episodes=$freq_val out of range [3, 15]"
+    errors=$((errors + 1))
+  fi
+  echo "$freq_json" | jq . 2>/dev/null || echo "$freq_json"
+  echo ""
+  
+  # Summary
+  echo "==========================="
+  if [[ $errors -gt 0 ]]; then
+    echo "SELF-TEST: $errors FAILURE(S) out of 5 tests"
+    return 1
+  else
+    echo "SELF-TEST: ALL 5 TESTS PASSED"
+    return 0
+  fi
+}
+
+# ═══════════════════════════════════════════
+# CLI ENTRY POINT (when run directly)
+# ═══════════════════════════════════════════
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  case "${1:-}" in
+    --self-test)
+      run_self_test
+      exit $?
+      ;;
+    --validate)
+      circle="${2:-test-circle}"
+      ceremony="${3:-standup}"
+      validate_thresholds "$circle" "$ceremony"
+      ;;
+    --help|-h)
+      echo "Usage: lib-dynamic-thresholds.sh [COMMAND]"
+      echo ""
+      echo "Commands:"
+      echo "  --self-test     Run self-test with synthetic data (no DB required)"
+      echo "  --validate CIRCLE [CEREMONY]  Run validation report against live DB"
+      echo "  --help          Show this help"
+      echo ""
+      echo "As a library (source this file):"
+      echo "  calculate_circuit_breaker_threshold CIRCLE"
+      echo "  calculate_degradation_threshold CIRCLE CEREMONY"
+      echo "  calculate_cascade_threshold CIRCLE CEREMONY"
+      echo "  calculate_divergence_rate CIRCLE"
+      echo "  calculate_check_frequency CIRCLE CEREMONY"
+      ;;
+    *)
+      echo "lib-dynamic-thresholds.sh: Use --self-test, --validate, or --help"
+      echo "Or source this file to use as a library."
+      ;;
+  esac
+fi

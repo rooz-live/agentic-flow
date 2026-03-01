@@ -3,7 +3,7 @@
 **Last Updated**: 2026-03-01  
 **Status**: Active  
 **Review Cadence**: Daily  
-**Sprint**: Trial #1 (2026-02-18 → 2026-03-03, 3 days remaining)
+**Sprint**: Trial #1 (2026-02-18 → 2026-03-03, 2 days remaining)
 
 ## Current ROAM State
 
@@ -70,10 +70,12 @@
 - **Python Tests**: 1859 passing
 
 ### DPC Metrics (current branch)
-- **DPC_R(t)**: 2 (low — many validators missing deps on this branch)
-- **Coverage**: 28% | **Robustness**: 33% | **Time Ratio**: 23% (3d/13d)
-- **Zone**: RED (sprint end approaching)
+- **DPC_R(t)**: 1 (low — many validators missing deps on this branch)
+- **Coverage**: 28% | **Robustness**: 33% | **Time Ratio**: 15% (2d/13d)
+- **Zone**: RED (sprint end approaching, <25% time remaining)
 - **Validators**: 9 declared, 1 green on this branch
+- **DPC_R decay**: exponential — approaches 0 as T→deadline
+- **Projected completion**: requires velocity ≥ 5%/day to reach DPC≥60 by trial
 
 ### Action Velocity
 - **Completed**: 7/9 (78%)

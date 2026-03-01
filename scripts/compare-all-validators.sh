@@ -363,6 +363,40 @@ else
     urgency_zone="RED"
 fi
 
+# --- Hourly granularity + exponential decay (DPC_R enhancement) ---
+time_remaining_hours=$(( (target_epoch - now_epoch) / 3600 ))
+[[ $time_remaining_hours -lt 0 ]] && time_remaining_hours=0
+total_sprint_hours=$(( total_sprint_days * 24 ))
+time_ratio_hourly=0
+[[ $total_sprint_hours -gt 0 ]] && time_ratio_hourly=$(python3 -c "print(f'{${time_remaining_hours}/${total_sprint_hours}*100:.1f}')" 2>/dev/null || echo "0")
+
+# Exponential decay: DPC_R_decay = DPC_R × e^(-λ × (1 - T_ratio))
+# λ=3 → steep decay in final 25% of sprint; signals "act now"
+lambda_decay=3
+dpc_r_decay=$(python3 -c "
+import math
+t_ratio = ${time_remaining_hours} / max(${total_sprint_hours}, 1)
+dpc_r = ${dpc_r_score}
+decay = dpc_r * math.exp(-${lambda_decay} * (1 - t_ratio))
+print(f'{decay:.2f}')
+" 2>/dev/null || echo "0")
+
+# Projected completion: velocity needed to reach DPC≥60 by deadline
+dpc_gap=$(( 60 - dpc ))
+[[ $dpc_gap -lt 0 ]] && dpc_gap=0
+required_velocity_per_day=0
+[[ $time_remaining_days -gt 0 && $dpc_gap -gt 0 ]] && required_velocity_per_day=$(( dpc_gap / time_remaining_days ))
+projection_feasible="unknown"
+if [[ $dpc_gap -eq 0 ]]; then
+    projection_feasible="on_track"
+elif [[ $required_velocity_per_day -le 10 ]]; then
+    projection_feasible="feasible"
+elif [[ $required_velocity_per_day -le 25 ]]; then
+    projection_feasible="stretch"
+else
+    projection_feasible="unlikely"
+fi
+
 velocity_line=""
 velocity_ema=""
 if [[ -f "$BASELINE_FILE" ]]; then
@@ -395,13 +429,16 @@ fi
     echo "- **DPC_U(t) = DPC × urgency:** ${dpc_u_raw} (pressure gauge — rises near deadline if DPC maintained)"
     echo "- **Urgency factor:** ${urgency_factor}/100 (rises as deadline approaches)"
     echo "- **Urgency zone:** ${urgency_zone}"
+    echo "- **T_remain (hourly):** ${time_remaining_hours}h / ${total_sprint_hours}h (${time_ratio_hourly}%)"
+    echo "- **DPC_R decay:** ${dpc_r_decay} (λ=${lambda_decay}, exponential pressure signal)"
+    echo "- **Projected completion:** gap=${dpc_gap}, need ${required_velocity_per_day} DPC/day → ${projection_feasible}"
     [[ -n "$velocity_line" ]] && echo "$velocity_line"
     echo ""
 } >> "$REPORT_FILE"
 
 # Save baseline (include velocity_ema, time_ratio for next EMA computation)
 cat > "$BASELINE_FILE" <<BASELINE_EOF
-{"timestamp":"$RUN_TS","file_pass":$file_pass,"file_total":$file_total,"proj_pass":$proj_pass,"proj_total":$proj_total,"coverage_pct":$coverage_pct,"robustness":$robustness,"dpc":$dpc,"dpc_r":$dpc_r_score,"dpc_u":$dpc_u_raw,"time_ratio_pct":$time_ratio_pct,"time_remaining_days":$time_remaining_days,"total_sprint_days":$total_sprint_days,"urgency_factor":$urgency_factor,"urgency_zone":"$urgency_zone","implemented":$implemented,"declared":$declared,"velocity_ema":${velocity_ema:-0}}
+{"timestamp":"$RUN_TS","file_pass":$file_pass,"file_total":$file_total,"proj_pass":$proj_pass,"proj_total":$proj_total,"coverage_pct":$coverage_pct,"robustness":$robustness,"dpc":$dpc,"dpc_r":$dpc_r_score,"dpc_r_decay":$dpc_r_decay,"dpc_u":$dpc_u_raw,"time_ratio_pct":$time_ratio_pct,"time_remaining_days":$time_remaining_days,"time_remaining_hours":$time_remaining_hours,"total_sprint_days":$total_sprint_days,"total_sprint_hours":$total_sprint_hours,"urgency_factor":$urgency_factor,"urgency_zone":"$urgency_zone","projection_feasible":"$projection_feasible","required_velocity_per_day":$required_velocity_per_day,"implemented":$implemented,"declared":$declared,"velocity_ema":${velocity_ema:-0}}
 BASELINE_EOF
 
 if [[ "$JSON_OUTPUT" == "true" ]]; then
@@ -418,14 +455,20 @@ if [[ "$JSON_OUTPUT" == "true" ]]; then
       "coverage_pct": $coverage_pct,
       "coverage_count": $coverage_count,
       "time_remaining_days": $time_remaining_days,
+      "time_remaining_hours": $time_remaining_hours,
       "total_sprint_days": $total_sprint_days,
+      "total_sprint_hours": $total_sprint_hours,
       "time_ratio_pct": $time_ratio_pct,
+      "time_ratio_hourly": $time_ratio_hourly,
       "urgency_factor": $urgency_factor,
       "robustness_factor": $robustness,
       "dpc": $dpc,
       "dpc_r_score": $dpc_r_score,
+      "dpc_r_decay": $dpc_r_decay,
       "dpc_u_score": $dpc_u_raw,
-      "urgency_zone": "$urgency_zone"
+      "urgency_zone": "$urgency_zone",
+      "projection_feasible": "$projection_feasible",
+      "required_velocity_per_day": $required_velocity_per_day
     }
   },
   "green_validators": {

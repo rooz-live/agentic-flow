@@ -29,7 +29,8 @@ set -euo pipefail
 # ─── Paths ────────────────────────────────────────────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# mail-capture-validate.sh lives at scripts/validators/file/ — 3 levels below project root
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 CAPTURE_DIR="${PROJECT_ROOT}/tmp/mail-capture"
 REPORT_DIR="${PROJECT_ROOT}/reports/mail-validation"
 LEGAL_BASE="${HOME}/Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL"

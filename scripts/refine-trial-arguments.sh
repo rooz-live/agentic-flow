@@ -56,7 +56,8 @@ for doc in \
   "$TRIAL_DOCS_DIR/TRIAL-LANGUAGE-GUIDE.md" \
   "$TRIAL_DOCS_DIR/CONSULTING-OFFER-TEMPLATE.md" \
   "$TRIAL_DOCS_DIR/ACTION-ITEMS-MARCH-2-EOD.md" \
-  "$TRIAL_DOCS_DIR/CASE-CONSOLIDATION-JUDGE-SUMMARY.md"
+  "$TRIAL_DOCS_DIR/CASE-CONSOLIDATION-JUDGE-SUMMARY.md" \
+  "$TRIAL_DOCS_DIR/TRIAL-ARGUMENT-TOPOLOGY.md"
 do
   if [ -f "$doc" ]; then
     doc_key="trial-$(basename "$doc" .md | tr '[:upper:]' '[:lower:]' | tr '_' '-')"
@@ -94,10 +95,12 @@ for i in $(seq 1 "$ITERATIONS"); do
   
   # Spawn 12 agents for different perspectives (holacracy circles + legal extensions)
   echo "  [a] Analyst Circle: Evaluate argument strength (evidence coverage)"
-  ANALYST_PROMPT="Analyze trial arguments from docs/110-frazier/TRIAL-LANGUAGE-GUIDE.md. \
-For each key argument (duress, habitability, future earning capacity), compute: \
-(1) Evidence strength (0-100% using ACTUAL/REAL/PSEUDO/CAPABILITY framework), (2) Legal precedent alignment, (3) Perjury risk score (0-100, 0=safe). \
-Output JSON with scores + recommendations."
+  ANALYST_PROMPT="Analyze trial arguments (TOPOLOGY topics #14-22 + #43-47). \
+For each: (1) Evidence strength via MCP/MPP (Method: realized vs hypothetical, Pattern: historical vs projection, Protocol: third-party vs self-authored, Metrics: coverage %). \
+(2) Anti-fragility rating (FRAGILE/ROBUST/ANTI-FRAGILE). (3) Perjury risk (0-100). \
+Current status: ACTUAL=0%, REAL=partial, PSEUDO=available, CAPABILITY=available. \
+Score all 4 core arguments: A1(income 85%|fragile), A2(duress 75%|robust), A3(employment 80%|anti-fragile), A4(habitability 60%|fragile). \
+Output JSON with scores per argument + upgrade path to REAL(85%)."
   
   echo "  [b] Assessor Circle: Check DoR/DoD criteria for trial readiness"
   ASSESSOR_PROMPT="Assess trial readiness using DoR/DoD framework: \
@@ -118,14 +121,25 @@ Alternatives: Lead with duress? Lead with employment blocking? Lead with systems
 Recommend optimal flow with contingency branches. Include timing for TTS rehearsal (2h)."
   
   echo "  [e] Seeker Circle: Identify missing evidence/precedents"
-  SEEKER_PROMPT="Search for: (1) NC case law on 'future earning capacity' in lease disputes, \
-(2) Pro se plaintiff precedents (income-gap scenarios), (3) Missing exhibits (certifications? agentics coaching portfolio?). \
-Output gaps + recommended actions (with time estimates). Priority: consulting contract signed by March 2 EOD."
+  SEEKER_PROMPT="Search for (TOPOLOGY topics #7,#9-13,#25-29 + unknown unknowns): \
+(1) NC case law on 'future earning capacity' in lease disputes (NOT personal injury). \
+(2) Unconscionability/cooling-off doctrine for residential leases in NC. \
+(3) Whether arbitration clause in lease could void trial (unknown #4). \
+(4) Statute of limitations on Apex claims 2019-2024 (unknown #5). \
+(5) Mecklenburg County security deposit escrow rules (unknown #11). \
+(6) Whether \$3,400 rent is above market rate for Charlotte (unknown #14). \
+(7) COVID/housing emergency orders still in effect in NC (unknown #8). \
+Output gaps + actions with time estimates. CRITICAL: consulting contract by March 2 EOD."
   
   echo "  [f] Intuitive Circle: Narrative coherence + judge empathy"
-  INTUITIVE_PROMPT="Assess narrative coherence: Does 'future earning capacity' story resonate with judge? \
-Predict judge reactions: (1) Skepticism ('paper trading = no income'), (2) Empathy ('employment blocking caused crisis'), (3) Pragmatism ('what can you afford NOW?'). \
-Recommend emotional framing adjustments to maximize judge receptivity."
+  INTUITIVE_PROMPT="Assess 3 anti-compatible tensions (TOPOLOGY): \
+(1) 'I cant afford rent' vs 'I have earning capacity' → frame as temporal (couldnt THEN, can NOW). \
+(2) 'Employment blocking' vs '7-year gap' → tension between victimhood and agency. \
+(3) 'Paper trading != income' vs 'operational systems' → honesty vs capability framing. \
+Predict judge reactions (TOPOLOGY topics #36-42): Skepticism, Empathy, Pragmatism. \
+Unknown unknowns #1 (judge bias), #6 (tech literacy), #14 (market-rate rent). \
+Recommend pivot phrases for each counter-argument. \
+Highest-impact fallback: if income narrative fails → pure habitability + duress."
   
   echo "  [g] Legal Researcher: NC case law + procedural rules"
   LEGAL_RESEARCHER_PROMPT="Research NC case law: (1) Future earning capacity in lease disputes (N.C.G.S. § 42-42 habitability), \
@@ -158,10 +172,13 @@ NC R. Civ. P. 42(a) analysis: Common question of law/fact? Judicial economy? \
 Output: Motion to Consolidate draft (if judge allows post-Trial #1), timing strategy, risk assessment."
   
   echo "  [l] Rehearsal Coach: TTS + timing for trial language"
-  REHEARSAL_COACH_PROMPT="Prepare trial language rehearsal: (1) Extract key phrases from TRIAL-LANGUAGE-GUIDE.md, \
-(2) Generate TTS audio (2-3 min per argument), (3) Time each response (judge tolerance: 60-90 sec max), \
-(4) Identify pacing issues (too fast? too slow? filler words?). \
-Output: TTS audio files, timing analysis, rehearsal script with pauses marked."
+  REHEARSAL_COACH_PROMPT="Prepare trial language rehearsal covering TOPOLOGY topics #1-8 + #36-42: \
+(1) 6 key phrases: income capacity, duress timing, employment blocking, habitability, counter to 'you signed willingly', counter to 'zero income'. \
+(2) Pivot phrases for interruptions: 'As I was saying, Your Honor...', 'To clarify...', 'Respectfully, Your Honor...'. \
+(3) Time each response (60-90s max per answer, judge tolerance). \
+(4) Anti-compatible tension rehearsal: practice the temporal frame ('couldnt THEN, can NOW'). \
+(5) Counter-argument prep (topics #36-42): rehearse responses to 'voluntarily signed', 'zero income', 'paper trading', 'self-serving contract'. \
+Output: Rehearsal script with pauses, timing analysis, pivot phrases."
   
   # Run agents in parallel (background tasks)
   echo "  → Spawning 12 agents (parallel execution)..."
@@ -324,12 +341,22 @@ if [ -f "$TRIAL_DOCS_DIR/TRIAL-LANGUAGE-GUIDE.md" ]; then
   
   TRIAL_PHRASE_3="Employment blocking is a separate EEOC matter. However, it directly impacts this case via income verification failure, which led to housing crisis and duress."
   
+  # Counter-argument responses (adversary topics #36-42)
+  TRIAL_PHRASE_4="Your Honor, while I did sign the lease, I did so under housing crisis pressure with no meaningful alternative. The timing shows this: my income-generating systems became operational one day later, on February 28th. I lacked meaningful choice."
+  
+  TRIAL_PHRASE_5="I want to be clear, Your Honor. I am not claiming current income. I am demonstrating future earning capacity through operational systems, professional credentials, and consulting expertise. The distinction matters."
+  
+  TRIAL_PHRASE_6="Respectfully, Your Honor, the habitability defects including mold and plumbing issues are documented through forty-plus maintenance work orders submitted to MAA. These defects existed at the time of lease signing and remain unresolved."
+  
   # Generate TTS audio using macOS 'say' command (or espeak on Linux)
   if command -v say &> /dev/null; then
     echo "  → Generating TTS audio (macOS 'say')..."
     echo "$TRIAL_PHRASE_1" | say -o "$REHEARSAL_DIR/phrase-1-future-earning-capacity.aiff" -v Alex 2>/dev/null || echo "⚠️  TTS failed for phrase 1"
     echo "$TRIAL_PHRASE_2" | say -o "$REHEARSAL_DIR/phrase-2-duress-timing.aiff" -v Alex 2>/dev/null || echo "⚠️  TTS failed for phrase 2"
     echo "$TRIAL_PHRASE_3" | say -o "$REHEARSAL_DIR/phrase-3-employment-blocking.aiff" -v Alex 2>/dev/null || echo "⚠️  TTS failed for phrase 3"
+    echo "$TRIAL_PHRASE_4" | say -o "$REHEARSAL_DIR/phrase-4-counter-voluntary.aiff" -v Alex 2>/dev/null || echo "⚠️  TTS failed for phrase 4"
+    echo "$TRIAL_PHRASE_5" | say -o "$REHEARSAL_DIR/phrase-5-counter-zero-income.aiff" -v Alex 2>/dev/null || echo "⚠️  TTS failed for phrase 5"
+    echo "$TRIAL_PHRASE_6" | say -o "$REHEARSAL_DIR/phrase-6-habitability-evidence.aiff" -v Alex 2>/dev/null || echo "⚠️  TTS failed for phrase 6"
     
     # Convert AIFF to MP3 (if ffmpeg available)
     if command -v ffmpeg &> /dev/null; then
@@ -337,6 +364,9 @@ if [ -f "$TRIAL_DOCS_DIR/TRIAL-LANGUAGE-GUIDE.md" ]; then
       ffmpeg -i "$REHEARSAL_DIR/phrase-1-future-earning-capacity.aiff" "$REHEARSAL_DIR/phrase-1-future-earning-capacity.mp3" -y -loglevel error 2>/dev/null || true
       ffmpeg -i "$REHEARSAL_DIR/phrase-2-duress-timing.aiff" "$REHEARSAL_DIR/phrase-2-duress-timing.mp3" -y -loglevel error 2>/dev/null || true
       ffmpeg -i "$REHEARSAL_DIR/phrase-3-employment-blocking.aiff" "$REHEARSAL_DIR/phrase-3-employment-blocking.mp3" -y -loglevel error 2>/dev/null || true
+      ffmpeg -i "$REHEARSAL_DIR/phrase-4-counter-voluntary.aiff" "$REHEARSAL_DIR/phrase-4-counter-voluntary.mp3" -y -loglevel error 2>/dev/null || true
+      ffmpeg -i "$REHEARSAL_DIR/phrase-5-counter-zero-income.aiff" "$REHEARSAL_DIR/phrase-5-counter-zero-income.mp3" -y -loglevel error 2>/dev/null || true
+      ffmpeg -i "$REHEARSAL_DIR/phrase-6-habitability-evidence.aiff" "$REHEARSAL_DIR/phrase-6-habitability-evidence.mp3" -y -loglevel error 2>/dev/null || true
     fi
     
     echo "  ✅ TTS audio saved: $REHEARSAL_DIR/phrase-*.mp3"
@@ -355,11 +385,17 @@ if [ -f "$TRIAL_DOCS_DIR/TRIAL-LANGUAGE-GUIDE.md" ]; then
   PHRASE_1_WORDS=$(echo "$TRIAL_PHRASE_1" | wc -w)
   PHRASE_2_WORDS=$(echo "$TRIAL_PHRASE_2" | wc -w)
   PHRASE_3_WORDS=$(echo "$TRIAL_PHRASE_3" | wc -w)
+  PHRASE_4_WORDS=$(echo "$TRIAL_PHRASE_4" | wc -w)
+  PHRASE_5_WORDS=$(echo "$TRIAL_PHRASE_5" | wc -w)
+  PHRASE_6_WORDS=$(echo "$TRIAL_PHRASE_6" | wc -w)
   
   # Average speaking rate: 125-150 words/minute (conversational)
   PHRASE_1_DURATION=$(python3 -c "print(int($PHRASE_1_WORDS / 125 * 60))")
   PHRASE_2_DURATION=$(python3 -c "print(int($PHRASE_2_WORDS / 125 * 60))")
   PHRASE_3_DURATION=$(python3 -c "print(int($PHRASE_3_WORDS / 125 * 60))")
+  PHRASE_4_DURATION=$(python3 -c "print(int($PHRASE_4_WORDS / 125 * 60))")
+  PHRASE_5_DURATION=$(python3 -c "print(int($PHRASE_5_WORDS / 125 * 60))")
+  PHRASE_6_DURATION=$(python3 -c "print(int($PHRASE_6_WORDS / 125 * 60))")
   
   cat > "$REHEARSAL_DIR/timing-analysis.md" << EOF
 # Trial Language Timing Analysis

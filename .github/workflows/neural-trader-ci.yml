@@ -1,0 +1,75 @@
+name: Neural Trader Package CI/CD
+
+on:
+  push:
+    branches: [main, master, develop, "feature/*"]
+    paths:
+      - "packages/neural-trader/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/neural-trader-ci.yml"
+  pull_request:
+    branches: [main, master, develop]
+    paths:
+      - "packages/neural-trader/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/neural-trader-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_VERSION: "1.77"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check-and-test:
+    name: Check, Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Format Check
+        run: cargo fmt -p neural-trader -- --check
+
+      - name: Clippy (Linting)
+        run: cargo clippy -p neural-trader --release -- -D warnings
+
+      - name: Run Unit Tests
+        run: cargo test -p neural-trader --release
+
+  build-wasm:
+    name: Build WebAssembly Target
+    needs: check-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: wasm32-unknown-unknown
+
+      - name: Verify WASM Build
+        run: cargo build -p neural-trader --release --target wasm32-unknown-unknown

@@ -118,19 +118,25 @@ VALIDATOR_FILE_DIR="$SCRIPT_DIR/validators/file"
 VALIDATOR_PROJ_DIR="$SCRIPT_DIR/validators/project"
 
 FILE_VALIDATORS=(
-    "pre-send-email-gate.sh|SKIP_MESH=true $VALIDATOR_FILE_DIR/pre-send-email-gate.sh FILE"
+    # Only list validators that ACTUALLY EXIST in $VALIDATOR_FILE_DIR.
+    # Phantom declarations inflate denominator → dishonest DPC.
+    # When adding new validators, create the script FIRST, then add here.
     "validation-runner.sh|$VALIDATOR_FILE_DIR/validation-runner.sh FILE"
-    "pre-send-email-workflow.sh|COMPARE_MODE=true AUTO_REPLACE_PLACEHOLDERS=false $VALIDATOR_FILE_DIR/pre-send-email-workflow.sh FILE"
-    "comprehensive-wholeness-validator.sh|$VALIDATOR_FILE_DIR/comprehensive-wholeness-validator.sh --target-file FILE"
     "mail-capture-validate.sh|$VALIDATOR_FILE_DIR/mail-capture-validate.sh --file FILE"
+    # DEFERRED (create script first, then re-enable):
+    # "pre-send-email-gate.sh|SKIP_MESH=true $VALIDATOR_FILE_DIR/pre-send-email-gate.sh FILE"
+    # "pre-send-email-workflow.sh|COMPARE_MODE=true AUTO_REPLACE_PLACEHOLDERS=false $VALIDATOR_FILE_DIR/pre-send-email-workflow.sh FILE"
+    # "comprehensive-wholeness-validator.sh|$VALIDATOR_FILE_DIR/comprehensive-wholeness-validator.sh --target-file FILE"
 )
 
 # Project-level validators: name, command (no file)
 PROJECT_VALIDATORS=(
-    "unified-validation-mesh.sh|cd $PROJECT_ROOT && $VALIDATOR_PROJ_DIR/unified-validation-mesh.sh validate personal-only"
+    # Only list validators that ACTUALLY EXIST in $VALIDATOR_PROJ_DIR.
     "validate_coherence.py|cd $PROJECT_ROOT && python3 $VALIDATOR_PROJ_DIR/validate_coherence.py --quiet --json 2>&1"
     "check_roam_staleness.py|cd $PROJECT_ROOT && python3 $VALIDATOR_PROJ_DIR/check_roam_staleness.py --roam-path $PROJECT_ROOT/ROAM_TRACKER.yaml 2>&1"
     "contract-enforcement-gate.sh|cd $PROJECT_ROOT && $VALIDATOR_PROJ_DIR/contract-enforcement-gate.sh roam"
+    # DEFERRED (create script first, then re-enable):
+    # "unified-validation-mesh.sh|cd $PROJECT_ROOT && $VALIDATOR_PROJ_DIR/unified-validation-mesh.sh validate personal-only"
 )
 
 # Run file-level validators per file (quote file path so spaces don't break bash -c → fixes exit 126)

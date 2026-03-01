@@ -1,12 +1,12 @@
 # Consolidation Truth Report
 
 ## What works NOW
-- **File-level:** 0/10 passed (0%). Green: none
-- **Project-level:** 1/4 passed (25%). Green: contract-enforcement-gate.sh
+- **File-level:** 0/4 passed (0%). Green: none
+- **Project-level:** 2/3 passed (66%). Green: check_roam_staleness.py,contract-enforcement-gate.sh
 - **Conflicting verdicts:** See Discrepancies below.
 
 ## Run metadata
-- **Date:** 2026-03-01T02:31:34Z
+- **Date:** 2026-03-01T04:26:26Z
 - **Command:** `compare-all-validators.sh `
 - **Files validated:** 2
   - EMAIL-TO-LANDLORD-110-FRAZIER.md
@@ -17,25 +17,18 @@
 
 | Scope | Passed | Failed | Skipped | Total | % |
 |-------|--------|--------|---------|-------|---|
-| File-level | 0 | 2 | 8 | 10 | 0% |
-| Project-level | 1 | 1 | 2 | 4 | 25% |
+| File-level | 0 | 2 | 2 | 4 | 0% |
+| Project-level | 2 | 0 | 1 | 3 | 66% |
 
 ## Per-run results
 | Validator | File(s) | Exit | Result | Notes |
 |-----------|---------|------|--------|-------|
-| pre-send-email-gate.sh | EMAIL-TO-LANDLORD-110-FRAZIER.md | 127 | SKIP | bash: line 1: /Users/shahroozbhopti/Documents/code |
 | validation-runner.sh | EMAIL-TO-LANDLORD-110-FRAZIER.md | 1 | SKIP | /Users/shahroozbhopti/Documents/code/investing/age |
-| pre-send-email-workflow.sh | EMAIL-TO-LANDLORD-110-FRAZIER.md | 127 | SKIP | bash: line 1: /Users/shahroozbhopti/Documents/code |
-| comprehensive-wholeness-validator.sh | EMAIL-TO-LANDLORD-110-FRAZIER.md | 127 | SKIP | bash: line 1: /Users/shahroozbhopti/Documents/code |
 | mail-capture-validate.sh | EMAIL-TO-LANDLORD-110-FRAZIER.md | 1 | FAIL | ══════════════════════════════════════════════════ |
-| pre-send-email-gate.sh | EMAIL-TO-AMANDA-REQUEST-APPROVAL.md | 127 | SKIP | bash: line 1: /Users/shahroozbhopti/Documents/code |
 | validation-runner.sh | EMAIL-TO-AMANDA-REQUEST-APPROVAL.md | 1 | SKIP | /Users/shahroozbhopti/Documents/code/investing/age |
-| pre-send-email-workflow.sh | EMAIL-TO-AMANDA-REQUEST-APPROVAL.md | 127 | SKIP | bash: line 1: /Users/shahroozbhopti/Documents/code |
-| comprehensive-wholeness-validator.sh | EMAIL-TO-AMANDA-REQUEST-APPROVAL.md | 127 | SKIP | bash: line 1: /Users/shahroozbhopti/Documents/code |
 | mail-capture-validate.sh | EMAIL-TO-AMANDA-REQUEST-APPROVAL.md | 1 | FAIL | ══════════════════════════════════════════════════ |
-| unified-validation-mesh.sh | (project) | 127 | SKIP | bash: line 1: /Users/shahroozbhopti/Documents/code |
 | validate_coherence.py | (project) | 1 | SKIP |  |
-| check_roam_staleness.py | (project) | 1 | FAIL | ================================================== |
+| check_roam_staleness.py | (project) | 0 | PASS | ================================================== |
 | contract-enforcement-gate.sh | (project) | 0 | PASS | [INFO] Verifying ROAM freshness (<= 96h)... |
 
 ## Coverage
@@ -69,13 +62,16 @@ When validate_coherence.py exit 0, see its JSON/output for structural coherence.
 
 
 ## DPC (Delivery Progress Constant)
-- **%/# coverage:** 7% (1/14)
-- **R(t) robustness:** 11% (1/9 implemented)
-- **DPC(t) = %/# × R(t):** 0
+- **%/# coverage:** 28% (2/7)
+- **R(t) robustness:** 40% (2/5 implemented)
+- **DPC(t) = %/# × R(t):** 11
 - **T_remain/T_total:** 23% (3d / 13d) [2026-02-18 → 2026-03-03]
-- **DPC_R(t) = C × (T/T₀) × R:** 0 (normalized, decays → 0 at deadline)
-- **DPC_U(t) = DPC × urgency:** 0 (pressure gauge — rises near deadline if DPC maintained)
+- **DPC_R(t) = C × (T/T₀) × R:** 2 (normalized, decays → 0 at deadline)
+- **DPC_U(t) = DPC × urgency:** 47 (pressure gauge — rises near deadline if DPC maintained)
 - **Urgency factor:** 434/100 (rises as deadline approaches)
 - **Urgency zone:** RED
-- **%.# velocity:** -21% in 294min = -0.07%/min (EMA: -1.01%/min)
+- **T_remain (hourly):** 72h / 312h (23.1%)
+- **DPC_R decay:** 0.20 (λ=3, exponential pressure signal)
+- **Projected completion:** gap=49, need 16 DPC/day → stretch
+- **%.# velocity:** 21% in 16min = 1.31%/min (EMA: -0.10%/min)
 

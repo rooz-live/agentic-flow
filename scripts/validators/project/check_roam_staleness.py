@@ -71,7 +71,7 @@ class ROAMStalenessChecker:
     def check_metadata_freshness(self, roam_data: Dict) -> Dict:
         """Check if ROAM metadata last_updated is within threshold."""
         metadata = roam_data.get('metadata', {})
-        last_updated = metadata.get('last_updated')
+        last_updated = metadata.get('last_updated') or roam_data.get('last_updated')
         
         if not last_updated:
             return {

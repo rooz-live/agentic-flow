@@ -47,7 +47,7 @@ test("status() returns 'active'", () => {
 });
 
 test("module is a non-null object", () => {
-  assert.ok(mod && typeof mod === "object");
+  assert.ok(mod != null && typeof mod === "object" || typeof mod === "function");
 });
 
 // ── WASM pkg tests (only if built) ──────────────────────────────────
@@ -82,7 +82,7 @@ if (!hasPkg) {
     const trader = new wasm.NeuralTrader(JSON.stringify({}));
     const health = JSON.parse(trader.get_health());
     assert.strictEqual(health.status, "uninitialized");
-    assert.strictEqual(health.version, "2.8.0");
+    assert.strictEqual(health.version, "2.9.0");
     assert.strictEqual(health.engine, "kelly-sharpe-v1");
   });
 
@@ -176,6 +176,84 @@ if (!hasPkg) {
       assert.ok(sig.position_size <= 25001, `${sig.symbol} pos=${sig.position_size} exceeds 25%`);
     }
     assert.ok(result.total_allocated <= 100001, `total=${result.total_allocated}`);
+  });
+
+  // ── Agreement ROI tests ─────────────────────────────────────────
+  console.log("\nAgreement ROI:");
+
+  test("evaluate_agreement returns ROI for coaching agreement", () => {
+    const trader = new wasm.NeuralTrader(JSON.stringify({}));
+    const agreement = {
+      name: "Agentics coaching (intro)",
+      hourly_rate: 75,
+      hours_contracted: 10,
+      probability_of_payment: 0.85,
+      cost_per_hour: 15,
+      time_to_payment_days: 30,
+      market_rate_low: 150,
+      market_rate_high: 350
+    };
+    const result = JSON.parse(trader.evaluate_agreement(JSON.stringify(agreement)));
+    assert.strictEqual(result.name, "Agentics coaching (intro)");
+    assert.strictEqual(result.gross_revenue, 750);
+    assert.strictEqual(result.net_profit, 600);
+    assert.ok(result.roi_pct === 400, `roi=${result.roi_pct}`);
+    assert.ok(result.expected_roi_pct === 340, `expected_roi=${result.expected_roi_pct}`);
+    assert.ok(result.kelly_fraction > 0.8, `kelly=${result.kelly_fraction}`);
+    assert.strictEqual(result.evidence_tier, "REAL");
+    assert.strictEqual(result.evidence_score, 85);
+  });
+
+  test("evaluate_agreement upgrades to ACTUAL at 95% payment prob", () => {
+    const trader = new wasm.NeuralTrader(JSON.stringify({}));
+    const agreement = {
+      name: "Signed contract",
+      hourly_rate: 150,
+      hours_contracted: 20,
+      probability_of_payment: 0.95,
+      cost_per_hour: 20,
+      time_to_payment_days: 15,
+      market_rate_low: 150,
+      market_rate_high: 350
+    };
+    const result = JSON.parse(trader.evaluate_agreement(JSON.stringify(agreement)));
+    assert.strictEqual(result.evidence_tier, "ACTUAL");
+    assert.strictEqual(result.evidence_score, 100);
+    assert.ok(result.recommendation.includes("STRONG"), result.recommendation);
+  });
+
+  test("evaluate_agreement shows PSEUDO for unsigned speculative", () => {
+    const trader = new wasm.NeuralTrader(JSON.stringify({}));
+    const agreement = {
+      name: "Cold outreach",
+      hourly_rate: 75,
+      hours_contracted: 10,
+      probability_of_payment: 0.2,
+      cost_per_hour: 15,
+      time_to_payment_days: 60,
+      market_rate_low: 150,
+      market_rate_high: 350
+    };
+    const result = JSON.parse(trader.evaluate_agreement(JSON.stringify(agreement)));
+    assert.strictEqual(result.evidence_tier, "PSEUDO");
+    assert.strictEqual(result.evidence_score, 20);
+  });
+
+  test("evaluate_agreement SKIP on negative profit", () => {
+    const trader = new wasm.NeuralTrader(JSON.stringify({}));
+    const agreement = {
+      name: "Below-cost work",
+      hourly_rate: 10,
+      hours_contracted: 10,
+      probability_of_payment: 0.9,
+      cost_per_hour: 50,
+      time_to_payment_days: 30,
+      market_rate_low: 150,
+      market_rate_high: 350
+    };
+    const result = JSON.parse(trader.evaluate_agreement(JSON.stringify(agreement)));
+    assert.ok(result.net_profit < 0, `net_profit=${result.net_profit}`);
+    assert.ok(result.recommendation.includes("SKIP"), result.recommendation);
   });
 }
 

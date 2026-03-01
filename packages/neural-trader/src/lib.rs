@@ -7,7 +7,7 @@
 use wasm_bindgen::prelude::*;
 use serde::{Deserialize, Serialize};
 
-const VERSION: &str = "2.8.0";
+const VERSION: &str = "2.9.0";
 
 // ── Market condition input ──────────────────────────────────────────
 
@@ -82,6 +82,101 @@ pub struct RiskResult {
     pub sharpe_ratio: f64,
 }
 
+// ── Agreement ROI (consulting/contract evaluation) ──────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgreementCondition {
+    pub name: String,
+    pub hourly_rate: f64,          // $/hr offered
+    pub hours_contracted: f64,      // total hours in agreement
+    pub probability_of_payment: f64,// [0.0, 1.0] — higher if dual-signed
+    pub cost_per_hour: f64,         // your delivery cost (time, tools)
+    pub time_to_payment_days: f64,  // net-30, net-60, etc.
+    pub market_rate_low: f64,       // market floor for this service
+    pub market_rate_high: f64,      // market ceiling
+}
+
+impl AgreementCondition {
+    /// Gross revenue if fully paid.
+    pub fn gross_revenue(&self) -> f64 {
+        self.hourly_rate * self.hours_contracted
+    }
+
+    /// Total delivery cost.
+    pub fn total_cost(&self) -> f64 {
+        self.cost_per_hour * self.hours_contracted
+    }
+
+    /// Net profit if fully paid.
+    pub fn net_profit(&self) -> f64 {
+        self.gross_revenue() - self.total_cost()
+    }
+
+    /// ROI = (revenue - cost) / cost.
+    pub fn roi(&self) -> f64 {
+        let cost = self.total_cost();
+        if cost <= 0.0 { return 0.0; }
+        self.net_profit() / cost
+    }
+
+    /// Expected ROI = ROI × P(payment).
+    pub fn expected_roi(&self) -> f64 {
+        self.roi() * self.probability_of_payment
+    }
+
+    /// Annualized expected ROI.
+    pub fn annualized_roi(&self) -> f64 {
+        if self.time_to_payment_days <= 0.0 { return 0.0; }
+        self.expected_roi() * (365.0 / self.time_to_payment_days)
+    }
+
+    /// Kelly fraction for capacity allocation.
+    /// Treats agreement as a bet: P(win)=P(payment), payoff=profit/cost.
+    pub fn kelly_fraction(&self) -> f64 {
+        let cost = self.total_cost();
+        if cost <= 0.0 { return 0.0; }
+        let payoff = self.net_profit() / cost; // b = profit/cost
+        if payoff <= 0.0 { return 0.0; }
+        let p = self.probability_of_payment;
+        let f = p - (1.0 - p) / payoff;
+        f.max(0.0).min(1.0) // cap at 100% of capacity
+    }
+
+    /// Rate competitiveness: where does this rate sit in the market range?
+    pub fn rate_percentile(&self) -> f64 {
+        let range = self.market_rate_high - self.market_rate_low;
+        if range <= 0.0 { return 0.5; }
+        ((self.hourly_rate - self.market_rate_low) / range).clamp(0.0, 1.0)
+    }
+
+    /// Evidence strength tier: ACTUAL(100), REAL(85), PSEUDO(20).
+    pub fn evidence_tier(&self) -> (&'static str, u8) {
+        if self.probability_of_payment >= 0.9 {
+            ("ACTUAL", 100)  // dual-signed, payment received or near-certain
+        } else if self.probability_of_payment >= 0.5 {
+            ("REAL", 85)     // signed contract, payment pending
+        } else {
+            ("PSEUDO", 20)   // unsigned, speculative
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgreementROI {
+    pub name: String,
+    pub gross_revenue: f64,
+    pub total_cost: f64,
+    pub net_profit: f64,
+    pub roi_pct: f64,
+    pub expected_roi_pct: f64,
+    pub annualized_roi_pct: f64,
+    pub kelly_fraction: f64,
+    pub rate_percentile: f64,
+    pub evidence_tier: String,
+    pub evidence_score: u8,
+    pub recommendation: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthStatus {
     pub status: String,
@@ -107,6 +202,7 @@ macro_rules! impl_into_jsvalue {
 impl_into_jsvalue!(AnalysisResult);
 impl_into_jsvalue!(RiskResult);
 impl_into_jsvalue!(HealthStatus);
+impl_into_jsvalue!(AgreementROI);
 
 // ── Core engine ─────────────────────────────────────────────────────
 
@@ -293,6 +389,57 @@ impl NeuralTrader {
         result.into()
     }
 
+    /// Evaluate a consulting/service agreement for ROI and evidence strength.
+    ///
+    /// Input: JSON string of `AgreementCondition`.
+    /// Returns: JSON string of `AgreementROI`.
+    #[wasm_bindgen]
+    pub fn evaluate_agreement(&self, agreement_data: JsValue) -> JsValue {
+        let cond: AgreementCondition = agreement_data
+            .as_string()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or(AgreementCondition {
+                name: "unknown".into(),
+                hourly_rate: 0.0,
+                hours_contracted: 0.0,
+                probability_of_payment: 0.0,
+                cost_per_hour: 0.0,
+                time_to_payment_days: 30.0,
+                market_rate_low: 0.0,
+                market_rate_high: 0.0,
+            });
+
+        let (tier_name, tier_score) = cond.evidence_tier();
+        let kelly = cond.kelly_fraction();
+
+        let recommendation = if kelly >= 0.5 && tier_score >= 85 {
+            "STRONG: High ROI + verified evidence. Prioritize.".to_string()
+        } else if kelly >= 0.3 {
+            "MODERATE: Positive ROI. Get signature to upgrade evidence tier.".to_string()
+        } else if cond.net_profit() > 0.0 {
+            "WEAK: Marginal ROI. Consider raising rate or reducing scope.".to_string()
+        } else {
+            "SKIP: Negative ROI or speculative. Do not allocate capacity.".to_string()
+        };
+
+        let result = AgreementROI {
+            name: cond.name.clone(),
+            gross_revenue: cond.gross_revenue(),
+            total_cost: cond.total_cost(),
+            net_profit: cond.net_profit(),
+            roi_pct: cond.roi() * 100.0,
+            expected_roi_pct: cond.expected_roi() * 100.0,
+            annualized_roi_pct: cond.annualized_roi() * 100.0,
+            kelly_fraction: kelly,
+            rate_percentile: cond.rate_percentile(),
+            evidence_tier: tier_name.to_string(),
+            evidence_score: tier_score,
+            recommendation,
+        };
+
+        result.into()
+    }
+
     #[wasm_bindgen]
     pub fn get_health(&self) -> JsValue {
         let health = HealthStatus {
@@ -400,5 +547,120 @@ mod tests {
         };
         let (action, _) = c.action();
         assert_eq!(action, "SKIP");
+    }
+
+    // ── Agreement ROI tests ──────────────────────────────────────────
+
+    fn coaching_agreement() -> AgreementCondition {
+        AgreementCondition {
+            name: "Agentics coaching (intro)".into(),
+            hourly_rate: 75.0,
+            hours_contracted: 10.0,
+            probability_of_payment: 0.85,  // signed contract
+            cost_per_hour: 15.0,           // time + tools
+            time_to_payment_days: 30.0,
+            market_rate_low: 150.0,
+            market_rate_high: 350.0,
+        }
+    }
+
+    #[test]
+    fn agreement_gross_revenue() {
+        let a = coaching_agreement();
+        assert!((a.gross_revenue() - 750.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn agreement_net_profit() {
+        let a = coaching_agreement();
+        // 750 - 150 = 600
+        assert!((a.net_profit() - 600.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn agreement_roi_positive() {
+        let a = coaching_agreement();
+        // ROI = 600/150 = 4.0 (400%)
+        assert!((a.roi() - 4.0).abs() < 1e-9, "roi={}", a.roi());
+    }
+
+    #[test]
+    fn agreement_expected_roi() {
+        let a = coaching_agreement();
+        // Expected = 4.0 × 0.85 = 3.4
+        assert!((a.expected_roi() - 3.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn agreement_annualized_roi() {
+        let a = coaching_agreement();
+        // Annualized = 3.4 × (365/30) = 41.37
+        let ann = a.annualized_roi();
+        assert!(ann > 40.0 && ann < 42.0, "annualized={}", ann);
+    }
+
+    #[test]
+    fn agreement_kelly_allocates_capacity() {
+        let a = coaching_agreement();
+        let k = a.kelly_fraction();
+        // p=0.85, b=4.0 → f = 0.85 - 0.15/4.0 = 0.8125
+        assert!((k - 0.8125).abs() < 1e-9, "kelly={}", k);
+    }
+
+    #[test]
+    fn agreement_rate_below_market() {
+        let a = coaching_agreement();
+        // $75 is below market [$150, $350] → percentile 0.0 (clamped)
+        assert!((a.rate_percentile() - 0.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn agreement_evidence_tier_real() {
+        let a = coaching_agreement();
+        let (tier, score) = a.evidence_tier();
+        assert_eq!(tier, "REAL");
+        assert_eq!(score, 85);
+    }
+
+    #[test]
+    fn agreement_evidence_tier_actual() {
+        let a = AgreementCondition {
+            probability_of_payment: 0.95,
+            ..coaching_agreement()
+        };
+        let (tier, _) = a.evidence_tier();
+        assert_eq!(tier, "ACTUAL");
+    }
+
+    #[test]
+    fn agreement_evidence_tier_pseudo() {
+        let a = AgreementCondition {
+            probability_of_payment: 0.3,
+            ..coaching_agreement()
+        };
+        let (tier, score) = a.evidence_tier();
+        assert_eq!(tier, "PSEUDO");
+        assert_eq!(score, 20);
+    }
+
+    #[test]
+    fn agreement_zero_cost_safe() {
+        let a = AgreementCondition {
+            cost_per_hour: 0.0,
+            ..coaching_agreement()
+        };
+        assert_eq!(a.roi(), 0.0);
+        assert_eq!(a.kelly_fraction(), 0.0);
+    }
+
+    #[test]
+    fn agreement_negative_profit_skips() {
+        let a = AgreementCondition {
+            hourly_rate: 10.0,
+            cost_per_hour: 50.0,
+            ..coaching_agreement()
+        };
+        assert!(a.net_profit() < 0.0);
+        assert_eq!(a.kelly_fraction(), 0.0);
     }
 }

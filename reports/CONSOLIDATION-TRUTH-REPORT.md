@@ -6,7 +6,7 @@
 - **Conflicting verdicts:** See Discrepancies below.
 
 ## Run metadata
-- **Date:** 2026-03-01T04:26:26Z
+- **Date:** 2026-03-01T04:27:46Z
 - **Command:** `compare-all-validators.sh `
 - **Files validated:** 2
   - EMAIL-TO-LANDLORD-110-FRAZIER.md
@@ -73,5 +73,4 @@ When validate_coherence.py exit 0, see its JSON/output for structural coherence.
 - **T_remain (hourly):** 72h / 312h (23.1%)
 - **DPC_R decay:** 0.20 (λ=3, exponential pressure signal)
 - **Projected completion:** gap=49, need 16 DPC/day → stretch
-- **%.# velocity:** 21% in 16min = 1.31%/min (EMA: -0.10%/min)
 

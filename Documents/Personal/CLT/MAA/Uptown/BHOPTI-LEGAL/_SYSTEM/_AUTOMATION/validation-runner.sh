@@ -116,7 +116,7 @@ EOF
     # Update current run
     local temp_file
     temp_file=$(mktemp)
-    jq --arg check "$check_name" --arg result "$result" --arg details "$details" \
+    jq -c --arg check "$check_name" --arg result "$result" --arg details "$details" \
         '.checks += [{"check": $check, "result": $result, "details": $details}]' \
         "$CURRENT_RUN_FILE" > "$temp_file"
     mv "$temp_file" "$CURRENT_RUN_FILE"
@@ -451,14 +451,14 @@ run_validation_pipeline() {
         echo "Email validated: $(basename "$email_file")"
         echo "Validation log: $STATE_FILE"
         echo "Exit code: $EXIT_SUCCESS (success)"
-        return $EXIT_SUCCESS
+        return "$EXIT_SUCCESS"
     elif [[ $passing_score -ge $MIN_PASSING_SCORE ]]; then
         echo -e "${YELLOW}${BOLD}⚠ PARTIAL PASS - $passing_score% (threshold: $MIN_PASSING_SCORE%)${NC}"
         echo ""
         echo "Recommendation: Fix $failed_checks failing check(s) before sending"
         exit_code=$EXIT_SUCCESS_WITH_WARNINGS
         echo "Exit code: $exit_code (partial pass)"
-        return $exit_code
+        return "$exit_code"
     else
         # Determine specific failure type
         if grep -q 'duplicate_detection.*fail' "$CURRENT_RUN_FILE" 2>/dev/null; then
@@ -477,7 +477,7 @@ run_validation_pipeline() {
         echo ""
         echo "Fix issues and re-run validation"
         echo "Exit code: $exit_code (validation failure)"
-        return $exit_code
+        return "$exit_code"
     fi
 }
 

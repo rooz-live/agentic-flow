@@ -254,6 +254,8 @@ I certify that I served this demand letter on MAA via:
 
 ---
 
+## ATTACHMENTS
+
 **ATTACHMENT A**: 110 Frazier Ave Lease Offer  
 **ATTACHMENT B**: *Bhopti v. MAA* Case Summary  
 **ATTACHMENT C**: MAA Work Order History (Amanda's Unit)

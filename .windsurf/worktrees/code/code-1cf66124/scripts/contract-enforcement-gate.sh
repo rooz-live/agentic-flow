@@ -1,4 +1,5 @@
 #!/bin/bash
+# contract-enforcement-gate.sh
 # Contract Enforcement Gate - Verifiable Gates for Auto Commandments
 # Usage: ./scripts/contract-enforcement-gate.sh [command] [options]
 
@@ -14,6 +15,84 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
+
+# --- Metrics Calculation Function ---
+# Calculates DPC (Deadline-Projected Completion) metric:
+# DPC(t) = clamp( C(t) + v(t) * T(t), 0, 1 )
+# Where:
+# C(t) = passed_checks / total_checks (Snapshot Completion %/#)
+# v(t) = dC/dt (Velocity %.#) - currently simplified to linear projection based on recent changes if available, otherwise 0
+# T(t) = time_remaining (Deadline Pressure)
+#
+# Returns JSON object with metrics.
+calculate_metrics() {
+    local passed_checks=0
+    local total_checks=0
+    local deadline_timestamp=0
+    local current_timestamp=$(date +%s)
+    local velocity=0
+    
+    # 1. Estimate C(t) - Snapshot Completion
+    # Check for test results or coverage reports
+    if [ -f "coverage/coverage-summary.json" ]; then
+        # Parse coverage if jq available
+        if command -v jq >/dev/null 2>&1; then
+             passed_checks=$(jq '.total.lines.covered' coverage/coverage-summary.json 2>/dev/null || echo 0)
+             total_checks=$(jq '.total.lines.total' coverage/coverage-summary.json 2>/dev/null || echo 0)
+        fi
+    fi
+    
+    # Fallback to simple file count or manual tracking file
+    if [ "$total_checks" -eq 0 ]; then
+        # Heuristic: Count implementation files vs TODOs
+        total_checks=$(find . -name "*.sh" -o -name "*.py" -o -name "*.ts" | grep -v "node_modules" | wc -l)
+        # Let's assume passed = total - files_with_todos
+        local files_with_todos=$(grep -l "TODO" . 2>/dev/null | wc -l)
+        passed_checks=$((total_checks - files_with_todos))
+    fi
+    
+    local completion_ratio=0
+    if [ "$total_checks" -gt 0 ]; then
+        # Manual bc calculation without bc tool fallback
+        if command -v bc >/dev/null 2>&1; then
+            completion_ratio=$(echo "scale=4; $passed_checks / $total_checks" | bc 2>/dev/null)
+        else
+            completion_ratio=$(awk "BEGIN {print $passed_checks/$total_checks}")
+        fi
+    fi
+
+    # 2. Get T(t) - Deadline Pressure
+    # Check ROAM_TRACKER.yaml for earliest critical deadline
+    if [ -f "ROAM_TRACKER.yaml" ]; then
+        local nearest_deadline=$(grep "deadline:" ROAM_TRACKER.yaml | head -1 | awk '{print $2}' | tr -d '"')
+        if [ -n "$nearest_deadline" ]; then
+             # Convert to timestamp (compatible with mac/linux date)
+             if date -j -f "%Y-%m-%d" "$nearest_deadline" +%s >/dev/null 2>&1; then
+                 deadline_timestamp=$(date -j -f "%Y-%m-%d" "$nearest_deadline" +%s)
+             elif date -d "$nearest_deadline" +%s >/dev/null 2>&1; then
+                 deadline_timestamp=$(date -d "$nearest_deadline" +%s)
+             fi
+        fi
+    fi
+    
+    local time_remaining=0
+    if [ "$deadline_timestamp" -gt "$current_timestamp" ]; then
+        time_remaining=$((deadline_timestamp - current_timestamp))
+    fi
+    
+    # 3. Velocity v(t) - Placeholder for now (requires history)
+    # We could store current C(t) in a temp file and compare with previous run
+    
+    # Output JSON
+    echo "{"
+    echo "  \"snapshot_completion\": $completion_ratio,"
+    echo "  \"passed_checks\": $passed_checks,"
+    echo "  \"total_checks\": $total_checks,"
+    echo "  \"time_remaining_sec\": $time_remaining,"
+    echo "  \"velocity\": $velocity,"
+    echo "  \"dpc_metric\": $completion_ratio" 
+    echo "}"
+}
 
 # Command routing
 case "${1:-}" in
@@ -49,6 +128,11 @@ case "${1:-}" in
         echo -e "${GREEN}=== ALL VERIFICATION GATES PASSED ===${NC}"
         ;;
         
+    metric)
+        # minimal CLI surface for the metric
+        calculate_metrics
+        ;;
+
     audit)
         echo -e "${BLUE}=== ANNOTATION AUDIT ===${NC}"
         echo "Scanning source for @business-context, @adr, @constraint, @planned-change"
@@ -172,14 +256,20 @@ EOF
         mkdir -p reports
         
         # Collect all verification data
+        # Note: We construct valid JSON manually to avoid dependency on jq
         {
             echo "{"
             echo "  \"timestamp\": \"$(date -Iseconds)\","
             echo "  \"project_root\": \"$(pwd)\","
             echo "  \"contract_compliance\": $(("$SCRIPT_DIR/verify-contract-compliance.sh" 2>/dev/null && echo "true") || echo "false"),"
             echo "  \"roam_fresh\": $(find ROAM_TRACKER.yaml -mtime -4 >/dev/null 2>&1 && echo "true" || echo "false"),"
-            echo "  \"annotations\": $(python3 "$SCRIPT_DIR/context-annotations.py" scan --json 2>/dev/null | head -20 || echo "{}"),"
-            echo "  \"health_score\": $(("$SCRIPT_DIR/health-check.sh" 2>/dev/null | grep "Health Score:" | grep -o "[0-9]*" || echo "0"))"
+            # Get only the first 20 lines of scan output and ensure it is valid JSON if possible, or empty object
+            # For simplicity in this robust version, we skip complex embedding of scan output if it might break JSON
+            echo "  \"annotations_summary\": \"See full audit log for details\","
+            # Health check score
+            echo "  \"health_score\": $(("$SCRIPT_DIR/health-check.sh" 2>/dev/null | grep "Health Score:" | grep -o "[0-9]*" || echo "0")),"
+            # Calculate DPC metrics
+            echo "  \"dpc_metrics\": $(calculate_metrics)"
             echo "}"
         } > "$REPORT_FILE"
         
@@ -188,7 +278,11 @@ EOF
         # Summary
         echo ""
         echo "Summary:"
-        cat "$REPORT_FILE" | python3 -m json.tool
+        if command -v python3 >/dev/null 2>&1; then
+             cat "$REPORT_FILE" | python3 -m json.tool || cat "$REPORT_FILE"
+        else
+             cat "$REPORT_FILE"
+        fi
         ;;
         
     *)

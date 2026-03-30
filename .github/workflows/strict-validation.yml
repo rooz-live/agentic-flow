@@ -1,0 +1,283 @@
+# [CSQBM-CLASSIFY: LOAD-BEARING GATE INFRASTRUCTURE (R-2026-016/018)]
+
+name: Strict Validation CI
+
+on:
+  push:
+    branches: [main, master, develop]
+    paths:
+      - "scripts/**"
+      - "src/**"
+      - "docs/adr/**"
+      - "docs/prd/**"
+      - "ROAM_TRACKER.yaml"
+      - ".github/workflows/strict-validation.yml"
+  pull_request:
+    branches: [main, master, develop]
+    paths:
+      - "scripts/**"
+      - "src/**"
+      - "docs/adr/**"
+      - "docs/prd/**"
+      - "ROAM_TRACKER.yaml"
+  workflow_dispatch:
+
+env:
+  COHERENCE_THRESHOLD: 80
+  ROAM_STALENESS_THRESHOLD: 96
+
+jobs:
+  bash-syntax-validation:
+    name: Bash Syntax & Anti-Pattern Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Validate all bash scripts
+        run: |
+          set -euo pipefail
+          ERRORS=0
+
+          for file in $(find scripts -name "*.sh" -type f); do
+            echo "Checking: $file"
+
+            # Syntax check
+            if ! bash -n "$file"; then
+              echo "ERROR: Syntax check failed for $file"
+              ERRORS=$((ERRORS + 1))
+            fi
+
+            # Shellcheck
+            if ! shellcheck --severity=error "$file"; then
+              echo "ERROR: Shellcheck failed for $file"
+              ERRORS=$((ERRORS + 1))
+            fi
+
+            # Check for || true abuse
+            if grep -q '\|\| true' "$file"; then
+              echo "ERROR: Found '|| true' error masking in $file"
+              grep -n '\|\| true' "$file"
+              ERRORS=$((ERRORS + 1))
+            fi
+
+            # Check for set -euo pipefail
+            if ! grep -q 'set -euo pipefail' "$file"; then
+              echo "ERROR: Missing 'set -euo pipefail' in $file"
+              ERRORS=$((ERRORS + 1))
+            fi
+          done
+
+          if [ $ERRORS -gt 0 ]; then
+            echo "FAILED: $ERRORS bash validation errors"
+            exit 1
+          fi
+
+          echo "SUCCESS: All bash scripts pass strict validation"
+
+  adr-prd-coherence:
+    name: ADR/PRD Coherence Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pyyaml
+
+      - name: Run coherence validation
+        id: coherence
+        run: |
+          set -euo pipefail
+
+          if [ -f "scripts/validate_coherence.py" ]; then
+            python scripts/validate_coherence.py --threshold $COHERENCE_THRESHOLD --json > coherence_report.json
+            SCORE=$(python -c "import json; print(json.load(open('coherence_report.json'))['score'])" 2>/dev/null || echo "0")
+            echo "Coherence Score: $SCORE%"
+            echo "score=$SCORE" >> $GITHUB_OUTPUT
+
+            if (( $(echo "$SCORE < $COHERENCE_THRESHOLD" | bc -l) )); then
+              echo "FAILED: Coherence score $SCORE% below threshold $COHERENCE_THRESHOLD%"
+              cat coherence_report.json
+              exit 1
+            fi
+          else
+            echo "WARNING: validate_coherence.py not found, skipping coherence check"
+          fi
+
+      - name: Upload coherence report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coherence-report
+          path: coherence_report.json
+          retention-days: 30
+
+
+
+  roam-staleness-check:
+    name: ROAM Staleness Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check ROAM staleness
+        run: |
+          set -euo pipefail
+
+          if [ ! -f "ROAM_TRACKER.yaml" ]; then
+            echo "ERROR: ROAM_TRACKER.yaml not found"
+            exit 1
+          fi
+
+          # Parse last_updated timestamp
+          LAST_UPDATED=$(grep "last_updated:" ROAM_TRACKER.yaml | head -1 | cut -d: -f2- | xargs)
+          if [ -z "$LAST_UPDATED" ]; then
+            echo "ERROR: No last_updated timestamp in ROAM_TRACKER.yaml"
+            exit 1
+          fi
+
+          # Calculate hours since update
+          LAST_EPOCH=$(date -d "$LAST_UPDATED" +%s 2>/dev/null || echo "0")
+          CURRENT_EPOCH=$(date +%s)
+          HOURS_DIFF=$(( (CURRENT_EPOCH - LAST_EPOCH) / 3600 ))
+
+          echo "ROAM last updated: $LAST_UPDATED ($HOURS_DIFF hours ago)"
+          echo "Staleness threshold: $ROAM_STALENESS_THRESHOLD hours"
+
+          if [ $HOURS_DIFF -gt $ROAM_STALENESS_THRESHOLD ]; then
+            echo "FAILED: ROAM staleness detected ($HOURS_DIFF hours > $ROAM_STALENESS_THRESHOLD threshold)"
+            exit 1
+          fi
+
+          echo "SUCCESS: ROAM is fresh ($HOURS_DIFF hours <= $ROAM_STALENESS_THRESHOLD threshold)"
+
+  exit-code-validation:
+    name: Validation Script Exit Codes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test validation script exit codes
+        run: |
+          set -euo pipefail
+
+          # Define expected exit codes for major validation scripts
+          declare -A EXPECTED_EXITS=(
+            ["scripts/validation-gate.sh"]=0
+            ["scripts/validation-core.sh"]=0
+          )
+
+          ERRORS=0
+
+          for script in "${!EXPECTED_EXITS[@]}"; do
+            if [ -f "$script" ]; then
+              echo "Testing: $script"
+
+              # Make executable
+              chmod +x "$script"
+
+              # Test --help exit code
+              if ! bash "$script" --help >/dev/null 2>&1; then
+                # --help should return 0
+                echo "ERROR: $script --help failed"
+                ERRORS=$((ERRORS + 1))
+              fi
+
+              echo "  ✓ Exit codes validated for $script"
+            fi
+          done
+
+          if [ $ERRORS -gt 0 ]; then
+            exit 1
+          fi
+
+  bats-testing:
+    name: BATS Unit Tests for Bash
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install BATS
+        run: |
+          git clone https://github.com/bats-core/bats-core.git
+          cd bats-core
+          sudo ./install.sh /usr/local
+
+      - name: Run BATS tests
+        run: |
+          if [ -d "tests/bats" ]; then
+            bats tests/bats
+          else
+            echo "No BATS tests found, skipping"
+          fi
+
+  # Full local bundle (recursive submodules + contract + trust tests): scripts/validate-foundation.sh --trust-path
+  # Not wired here by default — job runtime, submodule depth, and secret remotes vary; see .goalie/go_no_go_ledger.md.
+
+  csqbm-validation:
+    name: CSQBM Current-State Query Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify CSQBM Trace Exists
+        run: |
+          set -euo pipefail
+          if [ -x scripts/validators/project/check-csqbm.sh ]; then
+            CSQBM_DEEP_WHY=true CSQBM_LOOKBACK_MINUTES=120 ./scripts/validators/project/check-csqbm.sh
+          else
+            echo "FAILED: check-csqbm.sh not executable or missing"
+            exit 1
+          fi
+
+  meta-orchestrator-validation:
+    name: Meta-Orchestrator Integrity Gating
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Cross-Tree Validator Consolidation
+        run: |
+          set -euo pipefail
+          echo "Executing the comparative meta-orchestrator to verify unstructured payload limits..."
+          bash scripts/compare-all-validators.sh --self-test
+          
+          echo "Meta-orchestrator traces successfully bound to CI matrix."
+
+  summary:
+    name: Validation Summary
+    needs: [bash-syntax-validation, adr-prd-coherence, roam-staleness-check, exit-code-validation, bats-testing, csqbm-validation, meta-orchestrator-validation]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "========================================"
+          echo "Strict Validation CI Summary"
+          echo "========================================"
+          echo "Bash Syntax:        ${{ needs.bash-syntax-validation.result }}"
+          echo "ADR/PRD Coherence:  ${{ needs.adr-prd-coherence.result }}"
+          echo "ROAM Staleness:     ${{ needs.roam-staleness-check.result }}"
+          echo "Exit Code Validation: ${{ needs.exit-code-validation.result }}"
+          echo "BATS Testing:       ${{ needs.bats-testing.result }}"
+          echo "CSQBM Validation:   ${{ needs.csqbm-validation.result }}"
+          echo "Meta-Orchestrator:  ${{ needs.meta-orchestrator-validation.result }}"
+          echo "========================================"
+
+          # Fail if any required job failed
+          if [[ "${{ needs.bash-syntax-validation.result }}" == "failure" ]] || \
+             [[ "${{ needs.adr-prd-coherence.result }}" == "failure" ]] || \
+             [[ "${{ needs.roam-staleness-check.result }}" == "failure" ]] || \
+             [[ "${{ needs.csqbm-validation.result }}" == "failure" ]] || \
+             [[ "${{ needs.meta-orchestrator-validation.result }}" == "failure" ]]; then
+            echo "CRITICAL VALIDATION FAILED"
+            exit 1
+          fi

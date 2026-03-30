@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
+# [CSQBM-CLASSIFY: LOAD-BEARING GATE INFRASTRUCTURE (R-2026-016/018)]
+
 # Tightly Coupled Feedback Loop Analyzer
 # ==============================================================================
 # Purpose: Measure context-switching friction and track Build-Measure-Learn cycles

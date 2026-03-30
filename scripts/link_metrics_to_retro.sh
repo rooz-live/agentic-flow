@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 #
+# [CSQBM-CLASSIFY: LOAD-BEARING GATE INFRASTRUCTURE (R-2026-016/018)]
+
 # link_metrics_to_retro.sh
 #
 # Links retrospective action items to code commits and metrics

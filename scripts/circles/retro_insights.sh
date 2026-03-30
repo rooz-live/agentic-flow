@@ -1,5 +1,7 @@
 #!/bin/bash
 # Retro Insights Tracking and Sync Script
+# [CSQBM-CLASSIFY: LOAD-BEARING GATE INFRASTRUCTURE (R-2026-016/018)]
+
 # Processes insights_log.jsonl, tags actionable retros, and syncs to GitLab
 
 INSIGHTS_LOG="investing/agentic-flow/.goalie/insights_log.jsonl"

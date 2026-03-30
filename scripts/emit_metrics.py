@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import sys
+# [CSQBM-CLASSIFY: LOAD-BEARING GATE INFRASTRUCTURE (R-2026-016/018)]
+
 import json
 import uuid
 import datetime

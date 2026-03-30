@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """
+# [CSQBM-CLASSIFY: LOAD-BEARING GATE INFRASTRUCTURE (R-2026-016/018)]
+
 Governance Middleware for Agentic Flow Production Maturity.
 
 Implements the 8 Governance Patterns:

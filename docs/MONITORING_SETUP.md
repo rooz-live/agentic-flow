@@ -13,3 +13,7 @@
 Ensure the DBOS python context (`pip install dbos`) is active in the cluster execution node. The scheduler daemon will proactively collect and push metrics out via the Pydantic workflow models. 
 
 Check `docs/TURBOQUANT-DGM-METRICS-*.md` for cycle velocity baseline standards and 1D contrastive intelligence metrics.
+
+## Agent Teams & Network Routing
+- **Agent Teams Integration (`code.claude.com/docs/en/agent-teams`)**: Cross-node worker delegation and hierarchical topology for Swarm memory management. 
+- **SCION (`GoogleCloudPlatform/scion`)**: Greenfield topology explorations prioritizing path-aware routing, resilience, and secure isolation for OpenStack deployments and Agentic communication paths over public internets.

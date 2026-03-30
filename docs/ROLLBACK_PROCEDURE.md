@@ -1,7 +1,7 @@
 # Risk Analytics Soft Launch: Rollback Procedure
 
 ## Initiation Thresholds
-A rollback MUST be initiated if any of the following constraints are breached during the OpenStack K8s / STX 12/13 soft launch:
+A rollback MUST be initiated if any of the following constraints are breached during the OpenStack K8s / STX 11/12/13 Greenfield soft launch:
 - DBOS Token Ceiling metrics exceed 4000 active tokens without native trimming.
 - `check-infra-health.sh` issues an INFRASTRUCTURE HEALTH NO-GO warning in production.
 - `check-csqbm.sh` fails to detect evidential CSQBM bounds for >120 minutes.

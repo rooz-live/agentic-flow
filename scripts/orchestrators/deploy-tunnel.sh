@@ -70,9 +70,14 @@ elif [ "$TUNNEL_MODE" == "ngrok" ]; then
     fi
     
     # Check for v3 config with api_key
-    NGROK_CONFIG="$HOME/.ngrok2/ngrok.yml"
+    if [[ -f "$HOME/.config/ngrok/ngrok.yml" ]]; then
+        NGROK_CONFIG="$HOME/.config/ngrok/ngrok.yml"
+    else
+        NGROK_CONFIG="$HOME/.ngrok2/ngrok.yml"
+    fi
+
     if [[ ! -f "$NGROK_CONFIG" ]] || ! grep -q "api_key\|authtoken" "$NGROK_CONFIG" 2>/dev/null; then
-        echo "⚠️  ngrok v3 config not found or api_key missing"
+        echo "⚠️  ngrok config not found or api_key missing"
         echo "Run: ngrok config add-authtoken <your_token>"
         echo "Continuing with default ngrok configuration..."
     fi

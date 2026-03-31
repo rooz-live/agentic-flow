@@ -764,9 +764,14 @@ try_ngrok() {
     fi
 
     # Check if v3 config exists with api_key
-    NGROK_CONFIG="$HOME/.ngrok2/ngrok.yml"
+    if [[ -f "$HOME/.config/ngrok/ngrok.yml" ]]; then
+        NGROK_CONFIG="$HOME/.config/ngrok/ngrok.yml"
+    else
+        NGROK_CONFIG="$HOME/.ngrok2/ngrok.yml"
+    fi
+
     if [[ ! -f "$NGROK_CONFIG" ]]; then
-        warn "ngrok v3 config not found at $NGROK_CONFIG"
+        warn "ngrok config not found at ~/.config/ngrok/ngrok.yml or ~/.ngrok2/ngrok.yml"
         warn "Run: ngrok config add-authtoken <token>"
         return ${EX_TUNNEL_NGROK_FAILED:-113}
     fi

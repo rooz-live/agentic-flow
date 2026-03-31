@@ -377,3 +377,29 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `tm_disk_guardian.sh` | Retained capability in `check-infra-health.sh` | Integrated capability mapped securely | R-2026-016 |
 
 - **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.
+
+### Cycle AC — Phase 74: Superproject Logic Sprawl Safe Cleanup Pass 2 (2026-03-31)
+- **Thread:** Phase 74 Formalized explicit "Safe Cleanup Pass" to purge untracked/duplicated UI pipelines and background scripts from the superproject root, directly addressing systemic attention fragmentation (R-2026-018) while retaining complete telemetry fidelity securely.
+- **Substitution Map (R-2026-016 Explicit Evidence):**
+
+| Remove / Archive Path | Canonical Replacement / Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+|-----------------------|-----------------------------------|------------------------------|-------------|
+| `tm_disk_guardian.sh` | Mapped to `check-infra-health.sh` & STX telemetry | Physical storage checked locally via CI health bounds | R-2026-016 |
+| `enhanced_monitoring_dashboard.py` | Canonical `site_health_monitor.py` | `.github/workflows/` and `.gitlab-ci.yml` routing to canonical | R-2026-016 |
+| `scripts/agentic/enhanced_monitoring_dashboard.py` | Canonical `site_health_monitor.py` | CI pipelines bound natively | R-2026-016 |
+| `heartbeat_monitor.py` | Capability transferred to `hitl-audit-safeguard.sh --pulse` | Pulse/cron metric execution natively | R-2026-016 |
+| `scripts/_SYSTEM/_AUTOMATION/eta-live-stream.sh` | Attention Fragmentation Eradication | Removed unproven non-critical pipeline | R-2026-018 |
+| `scripts/_SYSTEM/_AUTOMATION/legal-pdf-ocr.sh` | Attention Fragmentation Eradication | Removed unproven non-critical pipeline | R-2026-018 |
+
+- **Verify:** Execution is tracked securely by committing `git rm` against the boundary constraints prior to triggering `validate-foundation.sh --trust-path`.
+
+### Cycle AD — Phase 75: HostBill STX Baseline Telemetry Integration (2026-03-31)
+- **Thread:** Phase 75 Dynamic OpenStack StarlingX IPMI Baseline & Telecom Billing Execution.
+- **Substitution Map (R-2026-020 and R-2026-019 Explicit Evidence):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+|---------------------|----------------------|------------------------------|-------------|
+| `scripts/ci/hostbill-sync-agent.py` | Ingest true physical STX Chassis/Sensor power footprint. | Execution natively logged. | R-2026-020 |
+| `.goalie/hostbill_ledger.json` | HostBill REST synchronization mapped bounding `ENTERPRISE` synthetics. | JSON API tracing pipeline | R-2026-019 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.

@@ -22,6 +22,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 # shellcheck source=validation-core.sh
 [ -f "$_PROJECT_ROOT/scripts/validation-core.sh" ] && source "$_PROJECT_ROOT/scripts/validation-core.sh"
+[ -f "$SCRIPT_DIR/exit-codes.sh" ] && source "$SCRIPT_DIR/exit-codes.sh"
 
 # Hash DB: default = agentic-flow log-backed module; optional BHOPTI TSV DB (same semantics as post-send-hook).
 _USE_BHOPTI_HASH_DB=0
@@ -127,7 +128,7 @@ validate_email() {
         if grep -qE '\{\{[A-Z_]+\}\}' "$email_file"; then
             echo -e "${RED}✗ BLOCKER (Exit 111): Placeholders detected in ${email_file}${NC}"
             INVALID_EMAILS+=("$email_file: Placeholders detected ({{...}})")
-            return 111
+            return "${EXIT_PLACEHOLDER_DETECTED:-111}"
         fi
 
         # 4. Context-Aware Date Validation (Exit 110 fix)
@@ -172,7 +173,7 @@ validate_email() {
                         # Action: strict validation - future dates only
                         echo -e "${RED}✗ BLOCKER (Exit 110): Date $detect_date is in the past (action email requires future date)${NC}"
                         INVALID_EMAILS+=("$email_file: Date in past ($detect_date) - action emails require future dates")
-                        return 110
+                        return "${EXIT_DATE_IN_PAST:-110}"
                         ;;
                     unknown)
                         # Unknown type: warn but don't block (fail-open for edge cases)
@@ -195,7 +196,7 @@ validate_email() {
     # Basic RFC 5322 regex validation
     if ! echo "$email" | grep -qE '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'; then
         INVALID_EMAILS+=("$email: Invalid syntax")
-        return 1
+        return "${EXIT_INVALID_FORMAT:-12}"
     fi
 
     # Extract domain
@@ -204,7 +205,7 @@ validate_email() {
     # Check MX records
     if ! dig +short MX "$domain" | grep -q '.'; then
         WARNING_EMAILS+=("$email: No MX records found (may bounce)")
-        return 2
+        return "${EXIT_SUCCESS_WITH_WARNINGS:-1}"
     fi
 
     # Known bounce patterns from rules — emit routing artifact for escalation
@@ -220,22 +221,22 @@ validate_email() {
                 ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%s)
                 printf '{"bounce_email":"%s","reason":"550 5.4.1 previously bounced","routing_escalation":"use_website_form","timestamp":"%s"}\n' "$email" "$ts" >> "$meta_dir/validation-bounce-route.jsonl" 2>/dev/null || true
             fi
-            return 2
+            return "${EXIT_RECIPIENT_BLACKLISTED:-151}"
             ;;
     esac
 
     VALID_EMAILS+=("$email")
     if [[ "$has_warning" -eq 1 ]]; then
-        return "${EX_SUCCESS_WARNING:-2}"
+        return "${EXIT_SUCCESS_WITH_WARNINGS:-1}"
     fi
-    return "${EX_SUCCESS:-0}"
+    return "${EXIT_SUCCESS:-0}"
 }
 
 # Main
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     if [ $# -eq 0 ]; then
         echo "Usage: $0 <email1> <email2> ..."
-        exit "${EX_USAGE:-10}"
+        exit "${EXIT_INVALID_ARGS:-10}"
     fi
 
     if ! check_arbitration_window_or_exit; then
@@ -251,16 +252,16 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         if [ ! -f "$email" ] && [[ "$email" == *.eml ]]; then
             echo -e "${RED}✗ ERROR: File not found: $email${NC}"
             INVALID_EMAILS+=("$email: File not found")
-            global_exit=${EX_NOFILE:-11}
+            global_exit=${EXIT_FILE_NOT_FOUND:-11}
             continue
         fi
 
         validate_email "$email"
         ret=$?
-        if [ $ret -ne 0 ] && [ $ret -ne 2 ]; then
+        if [ "$ret" -ne "${EXIT_SUCCESS:-0}" ] && [ "$ret" -ne "${EXIT_SUCCESS_WITH_WARNINGS:-1}" ]; then
             global_exit=$ret
-        elif [ $ret -eq 2 ] && [ "$global_exit" -eq 0 ]; then
-            global_exit=${EX_SUCCESS_WARNING:-2}
+        elif [ "$ret" -eq "${EXIT_SUCCESS_WITH_WARNINGS:-1}" ] && [ "$global_exit" -eq "${EXIT_SUCCESS:-0}" ]; then
+            global_exit=${EXIT_SUCCESS_WITH_WARNINGS:-1}
         fi
     done
 
@@ -291,13 +292,13 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 
     # Exit code prioritization
     if [ ${#INVALID_EMAILS[@]} -gt 0 ]; then
-        if [ "$global_exit" -eq 0 ] || [ "$global_exit" -eq 2 ]; then
-            exit "${EX_VALIDATION_FAILED:-150}"
+        if [ "$global_exit" -eq "${EXIT_SUCCESS:-0}" ] || [ "$global_exit" -eq "${EXIT_SUCCESS_WITH_WARNINGS:-1}" ]; then
+            exit "${EXIT_SCHEMA_VALIDATION_FAILED:-100}"
         fi
         exit "$global_exit"
     elif [ ${#WARNING_EMAILS[@]} -gt 0 ]; then
-        exit "${EX_SUCCESS_WARNING:-2}"
+        exit "${EXIT_SUCCESS_WITH_WARNINGS:-1}"
     else
-        exit "${EX_SUCCESS:-0}"
+        exit "${EXIT_SUCCESS:-0}"
     fi
 fi

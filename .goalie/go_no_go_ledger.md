@@ -366,12 +366,12 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 - **Substitution Map (R-2026-016 Explicit Evidence):**
 
 | Remove / Archive Path | Canonical Replacement / Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
-|-----------------------|-----------------------------------|------------------------------|-------------|
+| --------------------- | --------------------------------- | ---------------------------- | ----------- |
 | `.integrations/aisp-open-core-broken-backup-*` | Recursive removal of untracked backup | Authoritative `.integrations/aisp-open-core` | R-2026-016 |
 | `.integrations/aisp-open-core-quarantine-*` | Recursive removal of untracked QA backup | Authoritative `.integrations/aisp-open-core` | R-2026-016 |
 | `external/VisionFlow` | Submodule Drift Clearance | `git submodule status` GREEN / `.gitmodules` authoritative | R-2026-016 |
 | `external/agentic-drift` | Submodule Drift Clearance | `.gitmodules` authoritative | R-2026-016 |
-| `external/lionagi-qe-fleet`| Submodule Drift Clearance | `.gitmodules` authoritative | R-2026-016 |
+| `external/lionagi-qe-fleet` | Submodule Drift Clearance | `.gitmodules` authoritative | R-2026-016 |
 | `external/ruvector` | Submodule Drift Clearance | `.gitmodules` authoritative | R-2026-016 |
 | `external/turbo-flow` | Submodule Drift Clearance | `.gitmodules` authoritative | R-2026-016 |
 | `tm_disk_guardian.sh` | Retained capability in `check-infra-health.sh` | Integrated capability mapped securely | R-2026-016 |
@@ -379,11 +379,12 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 - **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.
 
 ### Cycle AC — Phase 74: Superproject Logic Sprawl Safe Cleanup Pass 2 (2026-03-31)
+
 - **Thread:** Phase 74 Formalized explicit "Safe Cleanup Pass" to purge untracked/duplicated UI pipelines and background scripts from the superproject root, directly addressing systemic attention fragmentation (R-2026-018) while retaining complete telemetry fidelity securely.
 - **Substitution Map (R-2026-016 Explicit Evidence):**
 
 | Remove / Archive Path | Canonical Replacement / Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
-|-----------------------|-----------------------------------|------------------------------|-------------|
+| --------------------- | --------------------------------- | ---------------------------- | ----------- |
 | `tm_disk_guardian.sh` | Mapped to `check-infra-health.sh` & STX telemetry | Physical storage checked locally via CI health bounds | R-2026-016 |
 | `enhanced_monitoring_dashboard.py` | Canonical `site_health_monitor.py` | `.github/workflows/` and `.gitlab-ci.yml` routing to canonical | R-2026-016 |
 | `scripts/agentic/enhanced_monitoring_dashboard.py` | Canonical `site_health_monitor.py` | CI pipelines bound natively | R-2026-016 |
@@ -425,5 +426,18 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `scripts/orchestrators/cascade-tunnel.sh` | Replaced rigid `~/.ngrok2` paths with dynamic `~/.config/ngrok` detection safely. | Avoided `1033` fallback to ephemeral cloudflared limits. | R-2026-018 |
 | `scripts/orchestrators/deploy-tunnel.sh` | Migrated v3 detection establishing explicit domain persistence cleanly. | Emitted `Using ngrok [v3]` logs terminating blindly. | R-2026-018 |
 | `scripts/orchestrators/start-ledger-tunnel.sh` | Applied robust detection loops evading headless daemon crash failures natively. | Sourced explicit limits accurately tracing 100% pathing. | R-2026-018 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.
+
+### Cycle AG — Phase 78: Gate Script Consolidation & Governance Tracking (2026-03-31)
+- **Thread:** Phase 78 Mapping untracked or modified gate infrastructure elements, verifying dashboard streams are bound by process contracts.
+- **Substitution Map (R-2026-018 Dashboard Improvements / R-2026-016 Explicit Evidence):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+|---------------------|----------------------|------------------------------|-------------|
+| `_SYSTEM/_AUTOMATION/validate-email.sh` | Formalized numerical fallback matrix explicitly tracking positional values natively. | Semantic Dates passing Contract Gate securely. | R-2026-024 |
+| `_SYSTEM/_AUTOMATION/eta-live-stream.sh` | Deployed Dashboard updates strictly bounded by `run_bounded()` timeouts avoiding daemon crashes. | Wrapped execution avoiding unstructured payload anomalies. | R-2026-018 |
+| `_SYSTEM/_AUTOMATION/legal-pdf-ocr.sh` | Bound document intelligence into bounded OCR `robust-quality.sh` pipeline arrays limiting memory sprawl. | Strict Process Contracts enforced seamlessly. | R-2026-018 |
+| `scripts/validators/project/check-csqbm.sh` | Matrix formally integrated under tracked execution boundaries defending AgentDB freshness covenants natively. | Validation passing CSQBM and `validate-claims.sh`. | R-2026-021 |
 
 - **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.

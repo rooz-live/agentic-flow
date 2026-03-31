@@ -1,8 +1,41 @@
 #!/bin/bash
-# exit-codes.sh — Thin wrapper for backward compatibility
-# VERIFIED - DO NOT EDIT (Shellcheck 2026-03-25)
-# DEPRECATED: Prefer sourcing exit-codes-robust.sh directly.
+# Robust Exit Code Registry v1.0
+# Mapped via Phase 76 Semantic Exit Code Matrix Framework.
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck disable=SC1091
-source "${SCRIPT_DIR}/exit-codes-robust.sh" 2>/dev/null || true
+# WSJF Success zone (0-9)
+export EXIT_SUCCESS=0
+export EXIT_SUCCESS_WITH_WARNINGS=1
+
+# WSJF Client errors (10-49)
+export EXIT_INVALID_ARGS=10
+export EXIT_FILE_NOT_FOUND=11
+export EXIT_INVALID_FORMAT=12
+export EXIT_PARSE_ERROR=20
+export EXIT_MISSING_REQUIRED_FIELD=21
+
+# WSJF Dependency errors (50-99)
+export EXIT_NETWORK_UNAVAILABLE=50
+export EXIT_TOOL_MISSING=60
+export EXIT_MODULE_MISSING=61
+
+# WSJF Validation errors (100-149)
+export EXIT_SCHEMA_VALIDATION_FAILED=100
+export EXIT_DATE_IN_PAST=110
+export EXIT_PLACEHOLDER_DETECTED=111
+export EXIT_DUPLICATE_DETECTED=120
+export EXIT_ADDRESS_MISMATCH=130
+
+# WSJF Business logic errors (150-199)
+export EXIT_LEGAL_CITATION_MALFORMED=150
+export EXIT_RECIPIENT_BLACKLISTED=151
+export EXIT_WSJF_SCORE_LOW=160
+export EXIT_ADR_COMPLIANCE=170
+
+# Infrastructure errors (200-249)
+export EXIT_DISK_FULL=200
+export EXIT_PERMISSION_DENIED=210
+export EXIT_DAEMON_CRASHED=220
+
+# Critical/Fatal (250-255)
+export EXIT_DATA_CORRUPTION=250
+export EXIT_PANIC=255

@@ -141,8 +141,14 @@ run_bounded() {
     local start_time=$(date +%s)
     local step=0
     
-    # Execute with timeout guard
+    # Launch async progress hook tracking dashboard updates securely
+    monitor_progress "$description" "$max_steps" &
+    local monitor_pid=$!
+    
+    # Execute with timeout guard natively
     if timeout_guard "$max_duration" "$command" "$@"; then
+        kill "$monitor_pid" 2>/dev/null || true
+        wait "$monitor_pid" 2>/dev/null || true
         local end_time=$(date +%s)
         local actual_duration=$((end_time - start_time))
         
@@ -155,6 +161,8 @@ run_bounded() {
         
         return 0
     else
+        kill "$monitor_pid" 2>/dev/null || true
+        wait "$monitor_pid" 2>/dev/null || true
         local exit_code=$?
         emit_progress "FAILED" 0 "Failed with exit code $exit_code" 0
         

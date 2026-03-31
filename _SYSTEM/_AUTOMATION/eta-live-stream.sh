@@ -28,11 +28,9 @@ DESCRIPTION="ETA Live Streaming Dashboard Telemetry"
 "$ROBUST_WRAPPER" hook
 
 # The actual telemetry stream command
-# This simulates or streams actual ETA metrics to the dashboard
-STREAM_CMD="for i in {1..20}; do \
-    echo 'Streaming telemetry packet \$i...'; \
-    sleep 2; \
-done"
+# Transmitting bounded JSONL metrics securely to the ETA Dashboard 
+# Relies natively on the `timeout_guard` wrapper safely exiting unbounded operations.
+STREAM_CMD="if [ -f .goalie/metrics_log.jsonl ]; then tail -n 10 -f .goalie/metrics_log.jsonl | while read -r line; do echo \"[DBOS-ETA-HOOK] \$line\"; sleep 1; done; else echo 'Missing metrics'; exit 1; fi"
 
 # Execute bound by contracts
 echo "Starting bounded ETA live stream..."

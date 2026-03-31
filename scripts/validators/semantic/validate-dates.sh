@@ -148,46 +148,53 @@ validate_dates() {
   local warnings=0
   local confidence=1.0
 
-  declare -A results
+  local result_keys=()
+  local result_vals=()
 
   # Check 1: March 3 trial (must be past)
-  ((total_checks++))
+  total_checks=$((total_checks + 1))
   if grep -q "March 3" "$email_file" 2>/dev/null || false; then
     if is_past_date "2026-03-03"; then
       log_pass "March 3 trial correctly referenced as past event"
-      results["march_3_trial"]="PASS|March 3 trial is past event (verified)"
-      ((passed_checks++))
+      result_keys+=("march_3_trial")
+      result_vals+=("PASS|March 3 trial is past event (verified)")
+      passed_checks=$((passed_checks + 1))
     else
       log_fail "March 3 trial referenced but date logic failed"
-      results["march_3_trial"]="FAIL|March 3 should be past but validation failed"
+      result_keys+=("march_3_trial")
+      result_vals+=("FAIL|March 3 should be past but validation failed")
       confidence=$(echo "$confidence * 0.8" | bc -l)
     fi
   else
     log_warn "March 3 trial not mentioned (may be OK for non-trial emails)"
-    results["march_3_trial"]="SKIPPED|Not mentioned in email"
-    ((warnings++))
+    result_keys+=("march_3_trial")
+    result_vals+=("SKIPPED|Not mentioned in email")
+    warnings=$((warnings + 1))
   fi
 
   # Check 2: March 10 event (must be future)
-  ((total_checks++))
+  total_checks=$((total_checks + 1))
   if grep -q "March 10" "$email_file" 2>/dev/null || false; then
     if is_future_date "2026-03-10"; then
       log_pass "March 10 correctly referenced as future event"
-      results["march_10_future"]="PASS|March 10 is future event"
-      ((passed_checks++))
+      result_keys+=("march_10_future")
+      result_vals+=("PASS|March 10 is future event")
+      passed_checks=$((passed_checks + 1))
     else
       log_fail "March 10 referenced but is not future (date logic error)"
-      results["march_10_future"]="FAIL|March 10 should be future"
+      result_keys+=("march_10_future")
+      result_vals+=("FAIL|March 10 should be future")
       confidence=$(echo "$confidence * 0.5" | bc -l)
     fi
   else
     log_warn "March 10 not mentioned"
-    results["march_10_future"]="SKIPPED|Not mentioned"
-    ((warnings++))
+    result_keys+=("march_10_future")
+    result_vals+=("SKIPPED|Not mentioned")
+    warnings=$((warnings + 1))
   fi
 
   # Check 3: Arbitration date arithmetic (if April 16 mentioned)
-  ((total_checks++))
+  total_checks=$((total_checks + 1))
   if grep -qE "April 16|04/16/2026" "$email_file" 2>/dev/null || false; then
     local arb_date="2026-04-16"
     local pre_arb_due="2026-04-06"  # 10 days before
@@ -197,50 +204,58 @@ validate_dates() {
 
     if [[ "$days_diff" -eq 10 ]]; then
       log_pass "Pre-arb form deadline calculation correct (10 days before April 16 = April 6)"
-      results["pre_arb_deadline"]="PASS|April 6 is 10 days before April 16"
-      ((passed_checks++))
+      result_keys+=("pre_arb_deadline")
+      result_vals+=("PASS|April 6 is 10 days before April 16")
+      passed_checks=$((passed_checks + 1))
     else
       log_fail "Pre-arb deadline calculation error (expected 10 days, got $days_diff days)"
-      results["pre_arb_deadline"]="FAIL|Date arithmetic error"
+      result_keys+=("pre_arb_deadline")
+      result_vals+=("FAIL|Date arithmetic error")
       confidence=$(echo "$confidence * 0.6" | bc -l)
     fi
   else
     log_warn "Arbitration date (April 16) not mentioned"
-    results["pre_arb_deadline"]="SKIPPED|Arb date not mentioned"
-    ((warnings++))
+    result_keys+=("pre_arb_deadline")
+    result_vals+=("SKIPPED|Arb date not mentioned")
+    warnings=$((warnings + 1))
   fi
 
   # Check 4: No impossible past events
-  ((total_checks++))
+  total_checks=$((total_checks + 1))
   local impossible_dates=false
   if grep -qE "March 4.*trial|March 5.*trial|March 6.*trial" "$email_file" 2>/dev/null || false; then
     log_fail "Email mentions trial on impossible dates (trial was March 3)"
-    results["impossible_past"]="FAIL|Trial date mentioned incorrectly"
+    result_keys+=("impossible_past")
+    result_vals+=("FAIL|Trial date mentioned incorrectly")
     impossible_dates=true
     confidence=$(echo "$confidence * 0.3" | bc -l)
   else
     log_pass "No impossible past event dates detected"
-    results["impossible_past"]="PASS|No date contradictions"
-    ((passed_checks++))
+    result_keys+=("impossible_past")
+    result_vals+=("PASS|No date contradictions")
+    passed_checks=$((passed_checks + 1))
   fi
 
   # Check 5: Date mentions match known events
-  ((total_checks++))
+  total_checks=$((total_checks + 1))
   local date_consistency=true
   if grep -q "700 E Trade" "$email_file" 2>/dev/null || false; then
     if ! grep -q "March 3" "$email_file" 2>/dev/null && true; then
       log_warn "700 E Trade St mentioned but no March 3 date (trial location)"
-      results["event_location_match"]="WARN|Location mentioned without date"
+      result_keys+=("event_location_match")
+      result_vals+=("WARN|Location mentioned without date")
       date_consistency=false
-      ((warnings++))
+      warnings=$((warnings + 1))
     else
       log_pass "Event location (700 E Trade) matches trial date (March 3)"
-      results["event_location_match"]="PASS|Location and date match"
-      ((passed_checks++))
+      result_keys+=("event_location_match")
+      result_vals+=("PASS|Location and date match")
+      passed_checks=$((passed_checks + 1))
     fi
   else
-    results["event_location_match"]="SKIPPED|Location not mentioned"
-    ((warnings++))
+    result_keys+=("event_location_match")
+    result_vals+=("SKIPPED|Location not mentioned")
+    warnings=$((warnings + 1))
   fi
 
   # Summary
@@ -259,11 +274,13 @@ validate_dates() {
     echo -n '"checks":{'
 
     local first=true
-    for check_name in "${!results[@]}"; do
+    local i
+    for (( i=0; i<${#result_keys[@]}; i++ )); do
       [[ "$first" == false ]] && echo -n ','
       first=false
 
-      local result="${results[$check_name]}"
+      local check_name="${result_keys[$i]}"
+      local result="${result_vals[$i]}"
       local status="${result%%|*}"
       local message="${result#*|}"
 
@@ -291,8 +308,10 @@ validate_dates() {
     fi
     echo ""
 
-    for check_name in "${!results[@]}"; do
-      local result="${results[$check_name]}"
+    local i
+    for (( i=0; i<${#result_keys[@]}; i++ )); do
+      local check_name="${result_keys[$i]}"
+      local result="${result_vals[$i]}"
       local status="${result%%|*}"
       local message="${result#*|}"
 

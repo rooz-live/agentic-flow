@@ -469,3 +469,27 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `.goalie/hostbill_ledger.json` | Extracted the REST logic payload executing physical file emissions natively blocking permission bounds. | JSON tracking execution | R-2026-019 |
 
 - **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.
+
+### Cycle AJ — Phase 83: Pre-commit Date Semantics & ETA Dashboard Wrappers (2026-03-31)
+- **Thread:** Upgrading immutable Git tracking to encompass Date Semantics constraints locally, bypassing reliance on external payload wrappers.
+- **Substitution Map (R-2026-018 Bounds):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+|---------------------|----------------------|------------------------------|-------------|
+| `.git/hooks/pre-commit` | Invoked `validate-dates.sh` directly checking all 5 temporal arrays (March 3 / March 10 / April 16) securely. | `perfect-pass-dates.txt` generated 80% passing standard. | R-2026-018 |
+| `eta-live-stream.sh` | Swapped unbounded sleep loops for infinite `tail -f` streams capped explicitly by asynchronous `timeout_guards`. | `monitor_progress` emits dynamic telemetry hooks. | R-2026-018 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path` (`99e26b627e2`).
+
+### Cycle AK — Phase 84: Superproject Git Health & Safe Cleanup Pass (Scope Split)
+- **Thread:** Executing single-thread WSJF priority resolving Git object health anomalies and defining the explicit safe cleanup substitution map for eliminated logic sprawl.
+- **Substitution Map (R-2026-016 Capability Retention):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+|---------------------|----------------------|------------------------------|-------------|
+| `tm_disk_guardian.sh` | Removed active disk watcher sprawl. | Bounded by native STX telemetry locally via `hostbill-sync-agent.py`. | R-2026-016 |
+| `heartbeat_monitor.py` | Dropped redundant cron heartbeat logs. | Capability fully substituted natively via `hitl-audit-safeguard.sh --pulse`. | R-2026-016 |
+| `enhanced_monitoring_dashboard.py` | Removed unanchored visual layer. | Capability fully substituted natively via `site_health_monitor.py --watch`. | R-2026-016 |
+| `eta-live-stream.sh` / `legal-pdf-ocr.sh` | Archived untracked pipeline wrappers. | Logic loops bounded inherently inside CSQBM extraction parameters. | R-2026-016 |
+
+- **Verify:** Native Submodule Rehydration Execution + Pre-commit Integrity + `validate-foundation.sh --trust-path`.

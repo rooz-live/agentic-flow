@@ -1,0 +1,125 @@
+pattern: Guardrail-Lock
+description: Enforce safety constraints when system health degrades - prevent risky operations
+category: governance
+
+definition_of_ready:
+  - criterion: Health checks defined
+    description: Clear health status indicators (healthy/degraded/critical)
+    validation: Health check endpoints return status
+    command: "curl -s http://localhost/health | jq -e '.status'"
+    
+  - criterion: Guardrails identified
+    description: List of operations to block when degraded
+    validation: Guardrail configuration file exists
+    command: "test -f config/guardrails/{{module}}_locks.yaml"
+    
+  - criterion: Override mechanism
+    description: Emergency bypass procedure documented
+    validation: Override process in runbook with audit logging
+
+definition_of_done:
+  - criterion: Health monitoring active
+    description: Real-time health status tracking
+    validation: Health metrics flowing to dashboard
+    command: "python3 scripts/monitoring/check_health_metrics.py --module {{module}}"
+    blocking: true
+    
+  - criterion: Locks enforced
+    description: Risky operations blocked when health < threshold
+    validation: Integration tests confirm lock behavior
+    command: "pytest tests/guardrails/test_{{module}}_locks.py -v"
+    blocking: true
+    
+  - criterion: User feedback
+    description: Clear error messages when operations locked
+    validation: Error responses include health status and ETA
+    manual: true
+    
+  - criterion: Override audited
+    description: All override attempts logged with justification
+    validation: Override events in audit log
+    command: "grep -q 'guardrail_override' logs/audit.jsonl"
+    blocking: false
+    
+  - criterion: Auto-recovery tested
+    description: Locks automatically release when health improves
+    validation: Recovery tests pass
+    command: "pytest tests/guardrails/test_{{module}}_recovery.py -v"
+    blocking: true
+
+telemetry:
+  emit_on_start: true
+  emit_on_complete: true
+  emit_on_lock: true
+  emit_on_unlock: true
+  metrics:
+    - lock_count
+    - blocked_operations
+    - override_count
+    - locked_duration_seconds
+    
+wsjf_guidance:
+  user_value: "Very High - prevents catastrophic user impact"
+  time_criticality: "High - critical for production safety"
+  risk_reduction: "Very High - stops cascading failures"
+  job_size: "Medium 2-3 (requires health system integration)"
+  
+examples:
+  - title: "Block deployments when error rate > 5%"
+    wsjf: 20.0
+    cod: 40
+    size: 2
+    outcome: "Success - Prevented bad deployment that would have caused 99% error rate"
+    
+  - title: "Disable writes when database replication lag > 10s"
+    wsjf: 18.0
+    cod: 36
+    size: 2
+    outcome: "Success - Avoided data inconsistency during replica failover"
+    
+  - title: "Lock user signups when fraud score > threshold"
+    wsjf: 16.0
+    cod: 32
+    size: 2
+    outcome: "Success - Blocked 1,200 fraudulent accounts in first week"
+
+health_thresholds:
+  healthy:
+    error_rate: "< 1%"
+    latency_p99: "< 500ms"
+    cpu_usage: "< 70%"
+    memory_usage: "< 80%"
+    
+  degraded:
+    error_rate: "1-5%"
+    latency_p99: "500ms-2s"
+    cpu_usage: "70-90%"
+    memory_usage: "80-95%"
+    
+  critical:
+    error_rate: "> 5%"
+    latency_p99: "> 2s"
+    cpu_usage: "> 90%"
+    memory_usage: "> 95%"
+
+locked_operations:
+  degraded:
+    - deployment
+    - schema_migration
+    - cache_invalidation
+    - bulk_operations
+    
+  critical:
+    - all_writes
+    - user_registration
+    - payment_processing
+    - data_export
+
+override_policy:
+  requires:
+    - executive_approval
+    - incident_ticket
+    - justification
+  audit:
+    log_to: "logs/audit.jsonl"
+    notify: "ops-team@company.com"

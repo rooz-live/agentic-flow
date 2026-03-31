@@ -1,0 +1,6 @@
+- [ ] #pattern:TDD #wsjf:14.0 Add metrics to monitor governance pattern success rates
+- [ ] #pattern:TDD #wsjf:9.0 Implement WSJF sorting for all circles
+- [ ] #pattern:TDD #wsjf:8.0 Integrate promote_to_kanban.py into scripts/af
+- [ ] #pattern:TDD #wsjf:8.0 Test implementing deduplication for backlog automation
+- [ ] #pattern:TDD #wsjf:5.0 Verify Holacracy alignment for Circle Leads
+- [ ] #pattern:TDD #wsjf:3.0 Actionable Insight

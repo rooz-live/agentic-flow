@@ -1,0 +1,83 @@
+# Flarum Forum Platform Deployment
+# Target VM: flarum (10.20.0.22)
+# SLA: 99.9% availability
+version: '3.8'
+
+services:
+  flarum:
+    image: crazymax/flarum:latest
+    container_name: flarum-app
+    restart: unless-stopped
+    ports:
+      - "8888:8000"
+    environment:
+      - TZ=UTC
+      - PUID=1000
+      - PGID=1000
+      - FLARUM_BASE_URL=https://forum.interface.tag.ooo
+      - FLARUM_FORUM_TITLE=Interface Community
+      - FLARUM_API_PATH=api
+      - FLARUM_ADMIN_USER=admin
+      - FLARUM_ADMIN_PASSWORD=${FLARUM_ADMIN_PASSWORD:-AdminSecure123!}
+      - FLARUM_ADMIN_EMAIL=admin@interface.tag.ooo
+      - DB_HOST=flarum-mysql
+      - DB_NAME=flarum
+      - DB_USER=flarum
+      - DB_PASSWORD=${FLARUM_DB_PASSWORD:-FlarumSecure123!}
+    volumes:
+      - flarum_data:/data
+      - flarum_extensions:/flarum/extensions
+    networks:
+      - flarum-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+    labels:
+      - "com.stx.platform=flarum"
+      - "com.stx.role=community"
+      - "traefik.enable=true"
+      - "traefik.http.routers.flarum.rule=Host(`forum.interface.tag.ooo`)"
+
+  flarum-mysql:
+    image: mysql:8.0
+    container_name: flarum-mysql
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-RootSecure123!}
+      - MYSQL_DATABASE=flarum
+      - MYSQL_USER=flarum
+      - MYSQL_PASSWORD=${FLARUM_DB_PASSWORD:-FlarumSecure123!}
+    volumes:
+      - flarum_mysql_data:/var/lib/mysql
+    networks:
+      - flarum-net
+
+  flarum-redis:
+    image: redis:7-alpine
+    container_name: flarum-redis
+    restart: unless-stopped
+    volumes:
+      - flarum_redis_data:/data
+    networks:
+      - flarum-net
+
+networks:
+  flarum-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.23.0.0/24
+
+volumes:
+  flarum_data:
+  flarum_extensions:
+  flarum_mysql_data:
+  flarum_redis_data:
+

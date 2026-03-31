@@ -1,0 +1,97 @@
+name: Root File Gate
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-root-files:
+    name: Prevent root sprawl
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for unauthorized root files
+        run: |
+          # Allowlist of files permitted in the repo root
+          ALLOWED_FILES=(
+            # Core project files
+            README.md
+            CHANGELOG.md
+            WARP.md
+            CLAUDE.md
+            LICENSE
+            RUST_CLI_SPEC.md
+            PR-DESCRIPTION.md
+            backlog.md
+            # Config files
+            package.json
+            package-lock.json
+            tsconfig.json
+            jest.config.js
+            jest.config.integration.cjs
+            jest.config.medical.cjs
+            jest.config.prod-cycle.js
+            Cargo.toml
+            Cargo.lock
+            Dockerfile
+            Dockerfile.node22-test
+            docker-compose.yml
+            docker-compose.monitoring.yml
+            .gitignore
+            .gitattributes
+            .eslintrc.json
+            .prettierrc
+            .npmrc
+            .env.example
+            .env.template
+            # Build/deploy
+            Makefile
+            Procfile
+            render.yaml
+            fly.toml
+            # Data files (tracked)
+            ROAM_TRACKER.yaml
+          )
+
+          # Build grep pattern from allowlist
+          PATTERN=$(printf "|%s" "${ALLOWED_FILES[@]}")
+          PATTERN="${PATTERN:1}"  # remove leading |
+
+          # Find root-level files not in allowlist (exclude hidden files and dirs)
+          UNAUTHORIZED=$(find . -maxdepth 1 -type f \
+            ! -name '.*' \
+            ! -name '*.lock' \
+            ! -name '*.toml' \
+            ! -name '*.json' \
+            ! -name '*.yaml' \
+            ! -name '*.yml' \
+            ! -name '*.js' \
+            ! -name '*.cjs' \
+            ! -name '*.ts' \
+            ! -name '*.sh' \
+            ! -name 'Makefile' \
+            ! -name 'Procfile' \
+            ! -name 'Dockerfile*' \
+            ! -name 'LICENSE' \
+            -name '*.md' \
+            | sed 's|^\./||' \
+            | grep -vE "^(${PATTERN})$" \
+            || true)
+
+          if [ -n "$UNAUTHORIZED" ]; then
+            echo "❌ Unauthorized .md files found in repo root:"
+            echo "$UNAUTHORIZED"
+            echo ""
+            echo "Move these to the appropriate docs/ subdirectory:"
+            echo "  - Status reports → docs/status/"
+            echo "  - Implementation summaries → docs/completion-reports/"
+            echo "  - Quick start guides → docs/guides/quickstart/"
+            echo "  - WSJF docs → docs/wsjf/"
+            echo "  - ROAM docs → docs/governance/roam/"
+            echo ""
+            echo "Or add to the allowlist in .github/workflows/root-file-gate.yml"
+            exit 1
+          fi
+
+          echo "✅ Root directory clean — no unauthorized .md files"

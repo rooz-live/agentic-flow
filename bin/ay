@@ -1,0 +1,266 @@
+#!/usr/bin/env bash
+#
+# ay - Agentic validation CLI wrapper
+# Lean wrapper around existing validation infrastructure
+#
+# Usage:
+#   ay validate email --file <path>
+#   ay validate coherence
+#   ay validate roam [--roam-path <path>]
+#   ay validate all --file <path> [--roam-path <path>]
+#
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+print_usage() {
+  cat <<EOF
+ay - Agentic Validation CLI
+
+Usage:
+  ay validate email --file <path>       Validate email file (placeholder, legal, prose, attachment)
+  ay validate coherence                 Validate DDD/TDD/ADR/PRD coherence
+  ay validate roam [--roam-path <path>] Check ROAM tracker staleness
+  ay validate all --file <path> [--roam-path <path>] Run all validations
+
+Options:
+  --file <path>         File path for email validation
+  --roam-path <path>    ROAM tracker path (default: PROJECT_ROOT/ROAM_TRACKER.yaml)
+  --json                Output JSON when supported
+  --help                Show this help
+
+Examples:
+  ay validate email --file ~/Documents/email-draft.eml
+  ay validate coherence
+  ay validate all --file ~/Documents/email-draft.eml
+EOF
+}
+
+log_info() {
+  echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_success() {
+  echo -e "${GREEN}[PASS]${NC} $1"
+}
+
+log_warn() {
+  echo -e "${YELLOW}[WARN]${NC} $1"
+}
+
+log_error() {
+  echo -e "${RED}[FAIL]${NC} $1" >&2
+}
+
+validate_email() {
+  local file_path="$1"
+  local json_flag="${2:-false}"
+  local semantic="${3:-false}"
+  local exit_code=0
+
+  if [[ ! -f "$file_path" ]]; then
+    log_error "File not found: $file_path"
+    return 1
+  fi
+
+  if [[ "$semantic" == "true" ]]; then
+    log_info "Running DEEP semantic validation: $file_path"
+    bash "$PROJECT_ROOT/scripts/validate.sh" --file "$file_path" --mode deep --confidence
+    exit_code=$?
+  else
+    log_info "Validating email (syntax): $file_path"
+    
+    if [[ "$json_flag" == "true" ]]; then
+      "$PROJECT_ROOT/scripts/validation-core.sh" email --file "$file_path" --json
+      exit_code=$?
+    else
+      "$PROJECT_ROOT/scripts/validation-core.sh" email --file "$file_path"
+      exit_code=$?
+    fi
+  fi
+
+  return $exit_code
+}
+
+validate_coherence() {
+  local json_flag="${1:-false}"
+  local exit_code=0
+
+  log_info "Validating DDD/TDD/ADR/PRD coherence..."
+  
+  if ! command -v python3 >/dev/null 2>&1; then
+    log_error "python3 not found"
+    return 1
+  fi
+
+  if [[ "$json_flag" == "true" ]]; then
+    python3 "$PROJECT_ROOT/scripts/validators/project/validate_coherence.py" --json
+    exit_code=$?
+  else
+    python3 "$PROJECT_ROOT/scripts/validators/project/validate_coherence.py"
+    exit_code=$?
+  fi
+
+  return $exit_code
+}
+
+validate_roam() {
+  local roam_path="${1:-$PROJECT_ROOT/ROAM_TRACKER.yaml}"
+  local exit_code=0
+
+  log_info "Checking ROAM staleness: $roam_path"
+
+  if [[ ! -f "$roam_path" ]]; then
+    log_warn "ROAM tracker not found: $roam_path"
+    log_warn "Skipping ROAM validation (graceful degradation)"
+    return 0
+  fi
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    log_error "python3 not found"
+    return 1
+  fi
+
+  python3 "$PROJECT_ROOT/scripts/validators/project/check_roam_staleness.py" --roam-path "$roam_path"
+  exit_code=$?
+
+  return $exit_code
+}
+
+validate_all() {
+  local file_path="$1"
+  local roam_path="$2"
+  local json_flag="$3"
+  local exit_code=0
+
+  echo "========================================="
+  echo "  AY VALIDATION SUITE"
+  echo "========================================="
+
+  # Email validation
+  if validate_email "$file_path" "$json_flag"; then
+    log_success "Email validation passed"
+  else
+    log_error "Email validation failed"
+    exit_code=1
+  fi
+
+  echo ""
+
+  # Coherence validation
+  if validate_coherence "$json_flag"; then
+    log_success "Coherence validation passed"
+  else
+    log_warn "Coherence validation reported issues"
+    # Don't hard fail for coherence in semi-auto mode
+  fi
+
+  echo ""
+
+  # ROAM validation
+  if validate_roam "$roam_path"; then
+    log_success "ROAM validation passed"
+  else
+    log_warn "ROAM validation reported issues"
+    # Don't hard fail for ROAM in semi-auto mode
+  fi
+
+  echo ""
+  if [[ $exit_code -eq 0 ]]; then
+    log_success "AY validation suite complete (exit 0)"
+  else
+    log_error "AY validation suite failed (exit 1)"
+  fi
+
+  return $exit_code
+}
+
+# Main command parser
+if [[ $# -eq 0 ]] || [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]]; then
+  print_usage
+  exit 0
+fi
+
+command="$1"
+subcommand="${2:-}"
+
+if [[ "$command" != "validate" ]]; then
+  log_error "Unknown command: $command"
+  print_usage
+  exit 1
+fi
+
+if [[ -z "$subcommand" ]]; then
+  log_error "Missing subcommand"
+  print_usage
+  exit 1
+fi
+
+shift 2
+
+file_path=""
+roam_path="$PROJECT_ROOT/ROAM_TRACKER.yaml"
+json_flag="false"
+semantic_flag="false"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --file)
+      file_path="$2"
+      shift 2
+      ;;
+    --roam-path)
+      roam_path="$2"
+      shift 2
+      ;;
+    --json)
+      json_flag="true"
+      shift
+      ;;
+    --semantic)
+      semantic_flag="true"
+      shift
+      ;;
+    *)
+      log_error "Unknown option: $1"
+      exit 1
+      ;;
+  esac
+done
+
+case "$subcommand" in
+  email)
+    if [[ -z "$file_path" ]]; then
+      log_error "--file is required for email validation"
+      exit 1
+    fi
+    validate_email "$file_path" "$json_flag" "$semantic_flag"
+    ;;
+  coherence)
+    validate_coherence "$json_flag"
+    ;;
+  roam)
+    validate_roam "$roam_path"
+    ;;
+  all)
+    if [[ -z "$file_path" ]]; then
+      log_error "--file is required for all validation"
+      exit 1
+    fi
+    validate_all "$file_path" "$roam_path" "$json_flag"
+    ;;
+  *)
+    log_error "Unknown validate subcommand: $subcommand"
+    print_usage
+    exit 1
+    ;;
+esac

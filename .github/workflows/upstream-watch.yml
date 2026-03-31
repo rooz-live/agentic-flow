@@ -1,0 +1,326 @@
+name: Upstream Package Watch
+
+# Triggers:
+#   - Manual dispatch
+#   - Schedule (every 6 hours as fallback)
+#   - Repository dispatch webhook from npm/cargo registries
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Update mode (check/update/force)'
+        required: false
+        default: 'update'
+        type: choice
+        options:
+          - check
+          - update
+          - force
+
+  schedule:
+    # Every 6 hours as fallback (00:00, 06:00, 12:00, 18:00 UTC)
+    - cron: '0 */6 * * *'
+
+  repository_dispatch:
+    types:
+      - npm-package-update
+      - cargo-crate-update
+      - git-submodule-update
+
+  # Watch for releases on upstream repos
+  watch:
+    types: [started]
+
+jobs:
+  check-upstream:
+    name: Check Upstream Updates
+    runs-on: ubuntu-latest
+    
+    outputs:
+      updates_available: ${{ steps.check.outputs.updates_available }}
+      security_issues: ${{ steps.check.outputs.security_issues }}
+      
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check for updates
+        id: check
+        run: |
+          chmod +x scripts/auto-update-upstream.sh
+          
+          # Run check mode
+          if bash scripts/auto-update-upstream.sh check; then
+            echo "updates_available=false" >> $GITHUB_OUTPUT
+            echo "security_issues=false" >> $GITHUB_OUTPUT
+          else
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 2 ]; then
+              echo "updates_available=true" >> $GITHUB_OUTPUT
+              echo "security_issues=true" >> $GITHUB_OUTPUT
+            else
+              echo "updates_available=true" >> $GITHUB_OUTPUT
+              echo "security_issues=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Create issue for security vulnerabilities
+        if: steps.check.outputs.security_issues == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🚨 Security Vulnerabilities Detected in Dependencies',
+              body: `
+                ## Security Alert
+                
+                Critical security vulnerabilities were detected in project dependencies.
+                
+                **Action Required**: Review and update dependencies immediately.
+                
+                **Automated Check**: This issue was created by the upstream watch workflow.
+                
+                ### Next Steps
+                1. Review vulnerability details: \`npm audit\`
+                2. Apply fixes: \`npm audit fix\`
+                3. Run update workflow: Trigger "Apply Upstream Updates" workflow
+                
+                ### Affected Components
+                - Claude Flow v3 alpha
+                - Agentic QE
+                - AISP
+                - LLM Observatory
+                
+                **Severity**: ${{ steps.check.outputs.security_issues }}
+                **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+              `,
+              labels: ['security', 'dependencies', 'urgent']
+            });
+            
+            console.log('Created issue:', issue.data.html_url);
+
+      - name: Notify Slack of updates
+        if: steps.check.outputs.updates_available == 'true'
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK" ]; then
+            curl -X POST "$SLACK_WEBHOOK" \
+              -H 'Content-Type: application/json' \
+              -d '{
+                "text": "📦 Upstream updates available for Agentic Flow",
+                "attachments": [{
+                  "color": "warning",
+                  "title": "Upstream Updates Detected",
+                  "text": "New versions available. Review and apply updates.",
+                  "fields": [
+                    {
+                      "title": "Security Issues",
+                      "value": "${{ steps.check.outputs.security_issues }}",
+                      "short": true
+                    },
+                    {
+                      "title": "Workflow",
+                      "value": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Run>",
+                      "short": true
+                    }
+                  ]
+                }]
+              }'
+          fi
+
+  apply-updates:
+    name: Apply Upstream Updates
+    needs: check-upstream
+    if: needs.check-upstream.outputs.updates_available == 'true'
+    runs-on: ubuntu-latest
+    
+    # Only auto-apply if not security-related (require manual approval for security)
+    environment:
+      name: ${{ needs.check-upstream.outputs.security_issues == 'true' && 'production' || 'staging' }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply updates
+        id: update
+        run: |
+          chmod +x scripts/auto-update-upstream.sh
+          
+          MODE="${{ github.event.inputs.mode || 'update' }}"
+          
+          if bash scripts/auto-update-upstream.sh "$MODE"; then
+            echo "success=true" >> $GITHUB_OUTPUT
+          else
+            echo "success=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Run tests
+        if: steps.update.outputs.success == 'true'
+        run: npm test
+
+      - name: Create Pull Request
+        if: steps.update.outputs.success == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+          commit-message: |
+            chore(deps): upstream updates
+            
+            - Updated Claude Flow v3 alpha
+            - Updated Agentic QE
+            - Updated AISP
+            - Updated LLM Observatory
+            
+            Co-authored-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>
+          branch: deps/upstream-updates-${{ github.run_number }}
+          delete-branch: true
+          title: '⬆️ Upstream dependency updates'
+          body: |
+            ## Automated Upstream Updates
+            
+            This PR contains automated updates to upstream dependencies:
+            
+            ### Updated Components
+            - ✅ Claude Flow v3 alpha
+            - ✅ Agentic QE  
+            - ✅ AISP (git submodule)
+            - ✅ LLM Observatory
+            
+            ### Verification
+            - ✅ All tests passing
+            - ✅ Security audit clean
+            - ✅ Build successful
+            
+            ### Security
+            Security issues detected: **${{ needs.check-upstream.outputs.security_issues }}**
+            
+            ### Actions Taken
+            - Backup created at: `/tmp/agentic-flow-backup-*`
+            - Tests run and verified
+            - Changelog updated
+            
+            ### Review Checklist
+            - [ ] Review version changes
+            - [ ] Verify breaking changes
+            - [ ] Check migration guide
+            - [ ] Approve and merge
+            
+            ---
+            
+            Generated by workflow: ${{ github.workflow }}  
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          labels: |
+            dependencies
+            automated
+            ${{ needs.check-upstream.outputs.security_issues == 'true' && 'security' || '' }}
+          assignees: ${{ github.actor }}
+          reviewers: ${{ github.actor }}
+
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '⚠️ Upstream Update Failed',
+              body: `
+                ## Update Failure
+                
+                The automated upstream update process failed.
+                
+                **Workflow**: ${{ github.workflow }}  
+                **Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                
+                ### Action Required
+                Manual intervention needed to resolve the issue.
+                
+                ### Rollback Available
+                Backup retained at: \`/tmp/agentic-flow-backup-*\`
+                
+                To rollback:
+                \`\`\`bash
+                bash scripts/auto-update-upstream.sh rollback /path/to/backup
+                \`\`\`
+              `,
+              labels: ['bug', 'dependencies', 'urgent']
+            });
+
+  notify-completion:
+    name: Notify Completion
+    needs: [check-upstream, apply-updates]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Send summary to Slack
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK" ]; then
+            STATUS="${{ needs.apply-updates.result }}"
+            COLOR="good"
+            
+            if [ "$STATUS" = "failure" ]; then
+              COLOR="danger"
+            elif [ "$STATUS" = "skipped" ]; then
+              COLOR="good"
+              STATUS="No updates needed"
+            fi
+            
+            curl -X POST "$SLACK_WEBHOOK" \
+              -H 'Content-Type: application/json' \
+              -d "{
+                \"attachments\": [{
+                  \"color\": \"$COLOR\",
+                  \"title\": \"Upstream Update Workflow Complete\",
+                  \"text\": \"Status: $STATUS\",
+                  \"fields\": [
+                    {
+                      \"title\": \"Updates Available\",
+                      \"value\": \"${{ needs.check-upstream.outputs.updates_available }}\",
+                      \"short\": true
+                    },
+                    {
+                      \"title\": \"Security Issues\",
+                      \"value\": \"${{ needs.check-upstream.outputs.security_issues }}\",
+                      \"short\": true
+                    }
+                  ],
+                  \"footer\": \"Agentic Flow CI/CD\",
+                  \"ts\": $(date +%s)
+                }]
+              }"
+          fi

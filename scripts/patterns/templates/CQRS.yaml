@@ -1,0 +1,264 @@
+pattern: CQRS
+description: Command Query Responsibility Segregation - separate read and write models
+category: governance
+
+definition_of_ready:
+  - criterion: Read/write patterns identified
+    description: Which operations are commands vs queries?
+    validation: Command and query lists documented
+    
+  - criterion: Sync strategy defined
+    description: How to keep read model synchronized with write model?
+    validation: Synchronization approach specified (sync/async/eventual)
+    
+  - criterion: Storage strategy selected
+    description: Same or separate databases for read/write?
+    validation: Storage topology documented
+
+definition_of_done:
+  - criterion: Command model implemented
+    description: Write operations go through command model
+    validation: Commands modify only write model
+    command: "pytest tests/test_cqrs.py::test_command_writes"
+    blocking: true
+    
+  - criterion: Query model implemented
+    description: Read operations use query model
+    validation: Queries read only from query model
+    command: "pytest tests/test_cqrs.py::test_query_reads"
+    blocking: true
+    
+  - criterion: Synchronization working
+    description: Read model reflects write model changes
+    validation: Query results match expected state after commands
+    command: "pytest tests/test_cqrs.py::test_read_write_consistency"
+    blocking: true
+    
+  - criterion: Performance improved
+    description: Read queries faster than before CQRS
+    validation: Query latency reduced by >30%
+    command: "pytest tests/test_cqrs.py::test_query_performance"
+    blocking: false
+    
+  - criterion: Telemetry tracking separation
+    description: Command/query metrics tracked separately
+    validation: Separate metrics for commands vs queries
+    command: "grep -E '(command_executed|query_executed)' logs/telemetry.jsonl | jq '.operation_type'"
+    blocking: false
+
+telemetry:
+  emit_on_command: true
+  emit_on_query: true
+  emit_on_sync: true
+  metrics:
+    - commands_executed_total
+    - queries_executed_total
+    - sync_lag_seconds
+    - command_latency_ms
+    - query_latency_ms
+
+wsjf_guidance:
+  user_value: "High - improves read performance and scalability"
+  time_criticality: "Low - optimization pattern, not urgent"
+  risk_reduction: "Medium - reduces contention, improves availability"
+  job_size: "Medium 5-10 days (refactoring)"
+
+core_principles:
+  command_responsibility:
+    description: "Commands change state, no return values (except ack)"
+    examples: ["CreateUser", "PlaceOrder", "UpdateProfile"]
+    characteristics: ["Side effects", "Validates business rules", "Transactional"]
+    
+  query_responsibility:
+    description: "Queries return data, no side effects"
+    examples: ["GetUserProfile", "ListOrders", "SearchProducts"]
+    characteristics: ["No side effects", "Optimized for reads", "Eventually consistent"]
+
+architecture_variants:
+  simple_cqrs:
+    description: "Same database, separate models"
+    write_model: "Normalized tables for transactions"
+    read_model: "Denormalized views for queries"
+    sync: "Database views or triggers"
+    pros: "Simple, ACID guarantees"
+    cons: "Limited scalability"
+    
+  separate_databases:
+    description: "Different databases for read/write"
+    write_model: "PostgreSQL for ACID writes"
+    read_model: "MongoDB for flexible queries"
+    sync: "Event-driven (Kafka, message queue)"
+    pros: "Independent scaling, technology choice"
+    cons: "Eventual consistency, complexity"
+    
+  event_sourced_cqrs:
+    description: "Combine CQRS with Event Sourcing"
+    write_model: "Event store"
+    read_model: "Projections from events"
+    sync: "Event replay and subscriptions"
+    pros: "Audit trail, time travel, flexible views"
+    cons: "High complexity, learning curve"
+
+synchronization_strategies:
+  synchronous:
+    description: "Update read model in same transaction"
+    implementation: "Write model → update read model → commit"
+    pros: "Strong consistency"
+    cons: "Slower writes, tight coupling"
+    latency: "< 10ms"
+    
+  asynchronous:
+    description: "Update read model via message queue"
+    implementation: "Write model → publish event → consumer updates read model"
+    pros: "Fast writes, decoupled"
+    cons: "Eventual consistency"
+    latency: "100ms - 1s typical"
+    
+  polling:
+    description: "Read model polls write model for changes"
+    implementation: "Periodic query of changelog table"
+    pros: "Simple, no infrastructure"
+    cons: "Lag, inefficient"
+    latency: "Poll interval (e.g., 5s)"
+
+examples:
+  - title: "E-Commerce Product Catalog with CQRS"
+    write_model:
+      database: "PostgreSQL"
+      tables: ["products", "inventory", "prices"]
+      operations: ["CreateProduct", "UpdateInventory", "SetPrice"]
+    read_model:
+      database: "Elasticsearch"
+      indexes: ["product_search", "product_details"]
+      operations: ["SearchProducts", "GetProduct", "GetProductRecommendations"]
+    sync: "Async via Kafka events"
+    wsjf: 13.0
+    cod: 26
+    size: 2
+    metrics:
+      - write_latency_p99: "50ms"
+      - read_latency_p99: "15ms (was 200ms)"
+      - sync_lag_p99: "500ms"
+      - search_throughput: "10,000 qps"
+    result: "Success - 90% improvement in search performance"
+    
+  - title: "Banking Account System with Separate Read Model"
+    write_model:
+      database: "PostgreSQL"
+      tables: ["accounts", "transactions", "balances"]
+      operations: ["Deposit", "Withdraw", "Transfer"]
+    read_model:
+      database: "Redis"
+      structures: ["account_balance", "transaction_history"]
+      operations: ["GetBalance", "GetTransactions", "GetStatements"]
+    sync: "Sync updates via triggers + Redis pub/sub"
+    wsjf: 11.0
+    cod: 22
+    size: 2
+    metrics:
+      - write_latency_p99: "100ms"
+      - read_latency_p99: "5ms (was 80ms)"
+      - consistency: "Strong (sync updates)"
+    result: "Success - Sub-10ms balance lookups, regulatory compliance maintained"
+
+anti_patterns:
+  premature_cqrs:
+    description: "Using CQRS when simple CRUD would suffice"
+    consequence: "Unnecessary complexity"
+    mitigation: "Use CQRS only when read/write patterns significantly differ"
+    
+  shared_model:
+    description: "Command and query using same model classes"
+    consequence: "Defeats purpose of separation"
+    mitigation: "Separate DTOs for commands and queries"
+    
+  no_validation_in_commands:
+    description: "Skipping business rule validation in commands"
+    consequence: "Invalid state, data corruption"
+    mitigation: "Commands must validate all business rules"
+    
+  complex_query_in_command:
+    description: "Commands performing complex queries"
+    consequence: "Slow writes, contention"
+    mitigation: "Queries belong in query model only"
+
+best_practices:
+  command_design:
+    naming: "Imperative verb: CreateOrder, not OrderCreation"
+    payload: "All data needed for validation"
+    response: "Success/failure only, no data"
+    validation: "Reject invalid commands early"
+    
+  query_design:
+    naming: "Descriptive: GetUserProfile, SearchOrders"
+    parameters: "Only what's needed for filtering/pagination"
+    response: "Read model DTOs, not domain entities"
+    caching: "Aggressive caching for read models"
+    
+  consistency_model:
+    commands: "Strong consistency required"
+    queries: "Eventual consistency acceptable"
+    sync_lag: "Monitor and alert if > SLA"
+    
+  denormalization:
+    read_model: "Denormalize for query performance"
+    example: "Embed related data to avoid joins"
+    trade_off: "Storage for speed"
+
+integration_patterns:
+  with_event_sourcing:
+    description: "Commands produce events, queries consume"
+    benefit: "Natural fit, audit trail included"
+    
+  with_domain_driven_design:
+    description: "Commands map to aggregate methods"
+    benefit: "Clear domain boundaries"
+    
+  with_microservices:
+    description: "Each service has its own CQRS"
+    benefit: "Service autonomy, polyglot persistence"
+
+tooling:
+  frameworks:
+    - axon_framework: "Java CQRS/Event Sourcing"
+    - eventuate: "Microservices event sourcing"
+    - mediatr: ".NET CQRS library"
+    - cqrs_es: "Python CQRS/ES framework"
+    
+  databases:
+    write:
+      - postgresql: "ACID transactions"
+      - mysql: "Relational integrity"
+      - mongodb: "Document flexibility"
+    read:
+      - elasticsearch: "Full-text search"
+      - redis: "Low latency cache"
+      - cassandra: "Time-series queries"
+
+monitoring:
+  metrics:
+    - command_execution_rate
+    - query_execution_rate
+    - sync_lag_histogram
+    - command_failure_rate
+    - query_cache_hit_rate
+  alerts:
+    - name: "High Sync Lag"
+      condition: "sync_lag_p99 > 5 seconds"
+      severity: "warning"
+    - name: "Command Failures"
+      condition: "command_failure_rate > 5%"
+      severity: "critical"
+
+revenue_attribution:
+  pattern: CQRS
+  circles_using:
+    - circle: innovator
+      monthly_cost_savings: 4500
+      reason: "Improved read performance, reduced database costs"
+    - circle: analyst
+      monthly_cost_savings: 2500
+      reason: "Optimized analytics queries, faster insights"
+  total_monthly_impact: 7000
+  performance_improvement: "80% faster read queries"
+  scalability_improvement: "3x read throughput"

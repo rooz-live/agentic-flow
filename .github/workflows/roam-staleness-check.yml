@@ -1,0 +1,89 @@
+name: ROAM Staleness Check
+
+on:
+  pull_request:
+    branches: [ main, master, develop ]
+  push:
+    branches: [ main, master, develop ]
+  schedule:
+    # Run daily at 9 AM UTC
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+jobs:
+  check-roam-freshness:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install pyyaml python-dateutil
+
+      - name: Check ROAM staleness
+        id: roam_check
+        run: |
+          python scripts/governance/check_roam_staleness.py --max-age-days 3 --output github
+
+      - name: Comment on PR with ROAM status
+        if: always() && github.event_name == 'pull_request' && steps.roam_check.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const fs = require('fs');
+            const reportPath = '.goalie/roam_staleness_report.json';
+
+            if (!fs.existsSync(reportPath)) {
+              console.log('No report file found');
+              return;
+            }
+
+            const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+
+            let body = '## ⚠️ ROAM Staleness Detection\n\n';
+            body += `**Status:** ${report.status}\n`;
+            body += `**Last Updated:** ${report.last_updated}\n`;
+            body += `**Age:** ${report.age_days} days (max: ${report.max_age_days} days)\n\n`;
+
+            if (report.stale_entries && report.stale_entries.length > 0) {
+              body += '### Stale ROAM Entries\n\n';
+              report.stale_entries.forEach(entry => {
+                body += `- **${entry.id}**: ${entry.title}\n`;
+                body += `  - Status: ${entry.roam_status}\n`;
+                body += `  - Age: ${entry.age_days} days\n`;
+                body += `  - Owner: ${entry.owner}\n\n`;
+              });
+            }
+
+            body += '\n### Action Required\n';
+            body += '- Update `.goalie/ROAM_TRACKER.yaml` with current status\n';
+            body += '- Resolve or update stale entries\n';
+            body += '- Ensure `last_updated` field is current\n\n';
+            body += '_ROAM age must be < 3 days to maintain TRUTH dimension alignment._';
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+      - name: Fail if ROAM is stale
+        if: always() && steps.roam_check.outcome == 'failure'
+        run: |
+          echo "❌ ROAM tracker is stale (> 3 days old)"
+          echo "Please update .goalie/ROAM_TRACKER.yaml before merging"
+          exit 1
+
+      - name: Success message
+        if: always() && steps.roam_check.outcome == 'success'
+        run: |
+          echo "✅ ROAM tracker is fresh (<= 3 days old)"

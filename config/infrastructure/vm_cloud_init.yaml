@@ -1,0 +1,173 @@
+#cloud-config
+# Ubuntu 22.04 Cloud-Init Configuration for StarlingX VMs
+# Provides: containerd 2.2.1, Docker, base security hardening
+
+# System configuration
+hostname: ${HOSTNAME}
+manage_etc_hosts: true
+timezone: UTC
+
+# User configuration
+users:
+  - name: ubuntu
+    groups: [sudo, docker]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ${SSH_PUBLIC_KEY}
+
+# Package configuration
+package_update: true
+package_upgrade: true
+
+packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gnupg
+  - lsb-release
+  - vim
+  - htop
+  - net-tools
+  - jq
+  - unzip
+  - git
+  - python3
+  - python3-pip
+  - nginx
+  - ufw
+  - auditd
+  - aide
+
+# Write configuration files
+write_files:
+  # Docker daemon configuration
+  - path: /etc/docker/daemon.json
+    content: |
+      {
+        "storage-driver": "overlay2",
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "100m",
+          "max-file": "5"
+        },
+        "default-ulimits": {
+          "nofile": {
+            "Name": "nofile",
+            "Hard": 65535,
+            "Soft": 65535
+          }
+        },
+        "metrics-addr": "0.0.0.0:9323"
+      }
+    permissions: '0644'
+
+  # containerd configuration for SystemdCgroup
+  - path: /etc/containerd/config.toml
+    content: |
+      version = 2
+      [plugins]
+        [plugins."io.containerd.grpc.v1.cri"]
+          [plugins."io.containerd.grpc.v1.cri".containerd]
+            [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
+              [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+                runtime_type = "io.containerd.runc.v2"
+                [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
+                  SystemdCgroup = true
+    permissions: '0644'
+
+  # Sysctl settings for Kubernetes
+  - path: /etc/sysctl.d/99-kubernetes.conf
+    content: |
+      net.bridge.bridge-nf-call-iptables = 1
+      net.bridge.bridge-nf-call-ip6tables = 1
+      net.ipv4.ip_forward = 1
+      net.ipv4.conf.all.forwarding = 1
+      vm.swappiness = 0
+      vm.overcommit_memory = 1
+    permissions: '0644'
+
+  # Node exporter for Prometheus metrics
+  - path: /etc/systemd/system/node-exporter.service
+    content: |
+      [Unit]
+      Description=Prometheus Node Exporter
+      After=network.target
+      [Service]
+      Type=simple
+      User=root
+      ExecStart=/usr/local/bin/node_exporter
+      Restart=always
+      RestartSec=5
+      [Install]
+      WantedBy=multi-user.target
+    permissions: '0644'
+
+  # Health check script
+  - path: /usr/local/bin/health-check.sh
+    content: |
+      #!/bin/bash
+      echo "{"
+      echo "  \"hostname\": \"$(hostname)\","
+      echo "  \"uptime\": $(cat /proc/uptime | cut -d' ' -f1),"
+      echo "  \"containerd\": \"$(containerd --version 2>/dev/null || echo 'not installed')\","
+      echo "  \"docker\": \"$(docker --version 2>/dev/null || echo 'not installed')\","
+      echo "  \"memory_free_mb\": $(free -m | awk '/Mem:/ {print $4}'),"
+      echo "  \"disk_free_gb\": $(df -BG / | tail -1 | awk '{print $4}' | tr -d 'G'),"
+      echo "  \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\""
+      echo "}"
+    permissions: '0755'
+
+# Run commands during first boot
+runcmd:
+  # Install Docker repository
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list
+  
+  # Install Docker and containerd
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+  
+  # Configure containerd
+  - mkdir -p /etc/containerd
+  - containerd config default > /etc/containerd/config.toml.default
+  - sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+  - systemctl restart containerd
+  - systemctl enable containerd
+  
+  # Download and install node_exporter
+  - curl -LO https://github.com/prometheus/node_exporter/releases/download/v1.7.0/node_exporter-1.7.0.linux-amd64.tar.gz
+  - tar xzf node_exporter-1.7.0.linux-amd64.tar.gz
+  - mv node_exporter-1.7.0.linux-amd64/node_exporter /usr/local/bin/
+  - rm -rf node_exporter-1.7.0.linux-amd64*
+  - systemctl daemon-reload
+  - systemctl enable node-exporter
+  - systemctl start node-exporter
+  
+  # Configure firewall
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow ssh
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw allow 9100/tcp  # node_exporter
+  - ufw allow 9323/tcp  # docker metrics
+  - ufw --force enable
+  
+  # Apply sysctl settings
+  - sysctl --system
+  
+  # Enable and configure auditd
+  - systemctl enable auditd
+  - systemctl start auditd
+  
+  # Log completion
+  - echo "Cloud-init bootstrap complete at $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> /var/log/cloud-init-complete.log
+  - /usr/local/bin/health-check.sh >> /var/log/health-check.log
+
+final_message: |
+  Ubuntu 22.04 VM initialized successfully!
+  containerd version: $(containerd --version)
+  Docker version: $(docker --version)
+  Host: $(hostname) - $(hostname -I)
+

@@ -1,0 +1,92 @@
+name: Environment Template Drift Check
+
+on:
+  pull_request:
+    paths:
+      - '.env.example'
+      - '.env.template'
+      - '.env.integration'
+      - '.env.docker-test'
+      - 'config/.env.example'
+      - 'config/.env.fastmcp'
+      - 'config/**/*.env.template'
+      - 'docker/configs/*.env.template'
+      - 'examples/**/.env.example'
+      - 'config/env.catalog.json'
+      - 'tooling/scripts/env-sync.ts'
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - '.env.example'
+      - '.env.template'
+      - 'config/env.catalog.json'
+
+jobs:
+  check-drift:
+    name: Check Environment Template Drift
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install -g tsx
+      
+      - name: Run env-sync dry-run
+        id: drift-check
+        run: |
+          set +e
+          ./tooling/cli/ay env sync
+          EXIT_CODE=$?
+          set -e
+          
+          if [ $EXIT_CODE -eq 1 ]; then
+            echo "drift=true" >> $GITHUB_OUTPUT
+            echo "⚠️ Template drift detected!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Run \`ay env sync --write\` locally to fix." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          elif [ $EXIT_CODE -eq 0 ]; then
+            echo "drift=false" >> $GITHUB_OUTPUT
+            echo "✅ No template drift detected." >> $GITHUB_STEP_SUMMARY
+            exit 0
+          else
+            echo "error=true" >> $GITHUB_OUTPUT
+            echo "❌ env-sync failed with exit code $EXIT_CODE" >> $GITHUB_STEP_SUMMARY
+            exit $EXIT_CODE
+          fi
+      
+      - name: Comment on PR (if drift detected)
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `## ⚠️ Environment Template Drift Detected
+              
+              Your changes have caused environment templates to drift from the catalog.
+              
+              **To fix:**
+              \`\`\`bash
+              ./tooling/cli/ay env sync --write
+              git add .
+              git commit -m "chore: sync environment templates"
+              git push
+              \`\`\`
+              
+              This ensures all environment templates across the system stay in sync with \`config/env.catalog.json\`.`
+            })

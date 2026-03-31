@@ -1,0 +1,274 @@
+name: WSJF Domain Bridge - macOS Universal Binaries
+
+on:
+  push:
+    branches: [main, master, develop, "feature/*"]
+    paths:
+      - "crates/wsjf-domain-bridge/**"
+      - "rust/core/src/domain/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "packages/neural-trader/**"
+      - ".github/workflows/wsjf-domain-bridge.yml"
+    tags:
+      - "wsjf-v*"
+  pull_request:
+    branches: [main, master, develop]
+    paths:
+      - "crates/wsjf-domain-bridge/**"
+      - "rust/core/src/domain/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "packages/neural-trader/**"
+      - ".github/workflows/wsjf-domain-bridge.yml"
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Create release artifacts"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_VERSION: "1.85"
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: "sccache"
+
+jobs:
+  # ===========================================================================
+  # CHECK & TEST
+  # ===========================================================================
+  check:
+    name: Check & Test
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt, clippy
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.6
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Format check
+        run: cargo fmt -p wsjf-domain-bridge -- --check
+
+      - name: Clippy
+        run: cargo clippy -p wsjf-domain-bridge --release -- -D warnings
+
+      - name: Run tests
+        run: cargo test -p wsjf-domain-bridge --release
+
+  # ===========================================================================
+  # TS CONSUMER TEST (pure Node.js, no external deps)
+  # ===========================================================================
+  node-test:
+    name: TS Consumer Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run consumer tests
+        working-directory: packages/neural-trader
+        run: npm test
+
+  # ===========================================================================
+  # BUILD MATRIX: arm64 + x64
+  # ===========================================================================
+  build:
+    name: Build (${{ matrix.target }})
+    needs: check
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            arch: arm64
+          - runner: macos-13
+            target: x86_64-apple-darwin
+            arch: x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: ${{ matrix.target }}
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.6
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: Build release binaries
+        run: cargo build --release -p wsjf-domain-bridge --target ${{ matrix.target }}
+
+      - name: Collect binaries
+        run: |
+          mkdir -p artifacts
+          for bin in wsjf-domain-train wsjf-domain-transfer wsjf-parquet-ingest; do
+            cp target/${{ matrix.target }}/release/$bin artifacts/${bin}-${{ matrix.arch }}
+          done
+          ls -lh artifacts/
+
+      - name: Upload arch-specific binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.arch }}
+          path: artifacts/
+          retention-days: 14
+
+  # ===========================================================================
+  # UNIVERSAL BINARY (lipo)
+  # ===========================================================================
+  universal:
+    name: Universal Binary (arm64 + x64)
+    needs: build
+    runs-on: macos-14
+    steps:
+      - name: Download arm64 binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries-arm64
+          path: arm64/
+
+      - name: Download x64 binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: binaries-x64
+          path: x64/
+
+      - name: Create universal binaries via lipo
+        run: |
+          mkdir -p universal
+          for bin in wsjf-domain-train wsjf-domain-transfer wsjf-parquet-ingest; do
+            lipo -create \
+              arm64/${bin}-arm64 \
+              x64/${bin}-x64 \
+              -output universal/${bin}-darwin-universal
+            chmod +x universal/${bin}-darwin-universal
+            echo "Created: ${bin}-darwin-universal"
+            file universal/${bin}-darwin-universal
+            lipo -info universal/${bin}-darwin-universal
+          done
+          ls -lh universal/
+
+      - name: Upload universal binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: wsjf-domain-bridge-darwin-universal
+          path: universal/
+          retention-days: 30
+
+  # ===========================================================================
+  # RELEASE (on tag or manual dispatch)
+  # ===========================================================================
+  release:
+    name: Create Release
+    needs: [check, universal]
+    if: github.event.inputs.release == 'true' || startsWith(github.ref, 'refs/tags/wsjf-v')
+    runs-on: macos-14
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download universal binaries
+        uses: actions/download-artifact@v4
+        with:
+          name: wsjf-domain-bridge-darwin-universal
+          path: release/
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/wsjf-v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/wsjf-v}"
+          else
+            VERSION="0.1.0-dev.$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Generate checksums
+        working-directory: release
+        run: |
+          shasum -a 256 * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "WSJF Domain Bridge v${{ steps.version.outputs.version }}"
+          tag_name: "wsjf-v${{ steps.version.outputs.version }}"
+          body: |
+            ## WSJF Domain Bridge - macOS Universal Binaries
+
+            Cross-domain transfer learning: WSJF prioritization ↔ trading signals ↔ risk assessment.
+
+            ### Binaries
+            - `wsjf-domain-train-darwin-universal` — Train domain expansion on WSJF data
+            - `wsjf-domain-transfer-darwin-universal` — Cross-domain transfer experiments
+            - `wsjf-parquet-ingest-darwin-universal` — JSONL → Parquet pipeline
+
+            ### Architecture
+            Universal binaries (arm64 + x86_64) via `lipo`.
+          files: |
+            release/*
+          prerelease: ${{ contains(steps.version.outputs.version, 'dev') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ===========================================================================
+  # SUMMARY
+  # ===========================================================================
+  summary:
+    name: Build Summary
+    needs: [check, node-test, build, universal]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate summary
+        run: |
+          echo "# WSJF Domain Bridge Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Check & Test | ${{ needs.check.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build (matrix) | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Universal Binary | ${{ needs.universal.result }} |" >> $GITHUB_STEP_SUMMARY

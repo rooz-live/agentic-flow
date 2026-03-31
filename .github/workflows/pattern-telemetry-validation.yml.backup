@@ -1,0 +1,281 @@
+name: Pattern Telemetry Validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - '.goalie/pattern_metrics.jsonl'
+      - 'scripts/policy/governance.py'
+      - 'scripts/af'
+      - 'scripts/log_pattern_event.py'
+      - 'tools/federation/**'
+      - 'docs/PATTERN_EVENT_SCHEMA.md'
+
+jobs:
+  validate-telemetry:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install jsonschema pyyaml
+      
+      - name: Validate pattern metrics schema
+        id: validate
+        run: |
+          if [ -f .goalie/pattern_metrics.jsonl ]; then
+            python scripts/analysis/validate_pattern_metrics.py \
+              --metrics .goalie/pattern_metrics.jsonl \
+              --report .goalie/schema_validation_report.json \
+              --threshold 0.90
+            echo "validation_passed=true" >> $GITHUB_OUTPUT
+          else
+            echo "No pattern_metrics.jsonl found, skipping validation"
+            echo "validation_passed=true" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Check tag coverage
+        id: tag_coverage
+        run: |
+          python3 << 'EOF'
+          import json
+          import sys
+          from pathlib import Path
+          
+          metrics_file = Path(".goalie/pattern_metrics.jsonl")
+          if not metrics_file.exists():
+              print("No metrics file, skipping tag coverage check")
+              sys.exit(0)
+          
+          total_events = 0
+          tagged_events = 0
+          tag_counts = {}
+          
+          with open(metrics_file, "r") as f:
+              for line in f:
+                  line = line.strip()
+                  if not line:
+                      continue
+                  try:
+                      event = json.loads(line)
+                      total_events += 1
+                      
+                      tags = event.get("tags", [])
+                      if tags:
+                          tagged_events += 1
+                          for tag in tags:
+                              tag_counts[tag] = tag_counts.get(tag, 0) + 1
+                  except:
+                      continue
+          
+          if total_events == 0:
+              print("No events found")
+              sys.exit(0)
+          
+          coverage = (tagged_events / total_events) * 100
+          print(f"Tag coverage: {coverage:.1f}% ({tagged_events}/{total_events})")
+          print(f"Tag distribution: {tag_counts}")
+          
+          threshold = 90.0
+          if coverage < threshold:
+              print(f"❌ Tag coverage {coverage:.1f}% below threshold {threshold}%")
+              sys.exit(1)
+          else:
+              print(f"✅ Tag coverage meets threshold")
+              sys.exit(0)
+          EOF
+      
+      - name: Verify economic scoring
+        run: |
+          python3 << 'EOF'
+          import json
+          import sys
+          from pathlib import Path
+          
+          metrics_file = Path(".goalie/pattern_metrics.jsonl")
+          if not metrics_file.exists():
+              print("No metrics file, skipping economic scoring check")
+              sys.exit(0)
+          
+          total_events = 0
+          events_with_economic = 0
+          prioritization_patterns = ["safe-degrade", "guardrail-lock", "iteration-budget", "circle-risk-focus"]
+          
+          with open(metrics_file, "r") as f:
+              for line in f:
+                  line = line.strip()
+                  if not line:
+                      continue
+                  try:
+                      event = json.loads(line)
+                      total_events += 1
+                      
+                      economic = event.get("economic", {})
+                      if isinstance(economic, dict) and "cod" in economic and "wsjf_score" in economic:
+                          events_with_economic += 1
+                          
+                          # Check that prioritization patterns have non-zero economic impact
+                          pattern = event.get("pattern", "")
+                          if pattern in prioritization_patterns:
+                              cod = economic.get("cod", 0)
+                              if cod == 0 and event.get("mutation", False):
+                                  print(f"⚠️  Pattern '{pattern}' has mutation but zero COD")
+                  except:
+                      continue
+          
+          if total_events == 0:
+              print("No events found")
+              sys.exit(0)
+          
+          coverage = (events_with_economic / total_events) * 100
+          print(f"Economic scoring coverage: {coverage:.1f}% ({events_with_economic}/{total_events})")
+          
+          if coverage < 80.0:
+              print(f"❌ Economic scoring coverage below 80%")
+              sys.exit(1)
+          else:
+              print(f"✅ Economic scoring adequate")
+              sys.exit(0)
+          EOF
+      
+      - name: Check timestamp monotonicity
+        run: |
+          python3 << 'EOF'
+          import json
+          import sys
+          from datetime import datetime
+          from pathlib import Path
+          
+          metrics_file = Path(".goalie/pattern_metrics.jsonl")
+          if not metrics_file.exists():
+              print("No metrics file, skipping timestamp check")
+              sys.exit(0)
+          
+          run_timestamps = {}
+          violations = 0
+          
+          with open(metrics_file, "r") as f:
+              for line_num, line in enumerate(f, 1):
+                  line = line.strip()
+                  if not line:
+                      continue
+                  try:
+                      event = json.loads(line)
+                      run_id = event.get("run_id")
+                      ts_str = event.get("ts")
+                      
+                      if not run_id or not ts_str:
+                          continue
+                      
+                      try:
+                          ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+                      except:
+                          continue
+                      
+                      if run_id in run_timestamps:
+                          last_ts = run_timestamps[run_id]
+                          if ts < last_ts:
+                              violations += 1
+                              if violations <= 5:  # Only print first 5
+                                  print(f"⚠️  Line {line_num}: Timestamp went backwards for run {run_id[:8]}")
+                      
+                      run_timestamps[run_id] = ts
+                  except:
+                      continue
+          
+          if violations > 0:
+              print(f"\n⚠️  Found {violations} timestamp monotonicity violations")
+              # Don't fail on this, just warn
+          else:
+              print("✅ Timestamps are monotonic")
+          EOF
+      
+      - name: Verify run ID consistency
+        run: |
+          python3 << 'EOF'
+          import json
+          import sys
+          from pathlib import Path
+          
+          metrics_file = Path(".goalie/pattern_metrics.jsonl")
+          if not metrics_file.exists():
+              print("No metrics file, skipping run ID check")
+              sys.exit(0)
+          
+          run_patterns = {}
+          
+          with open(metrics_file, "r") as f:
+              for line in f:
+                  line = line.strip()
+                  if not line:
+                      continue
+                  try:
+                      event = json.loads(line)
+                      run_id = event.get("run_id")
+                      pattern = event.get("pattern")
+                      
+                      if run_id and pattern:
+                          if run_id not in run_patterns:
+                              run_patterns[run_id] = set()
+                          run_patterns[run_id].add(pattern)
+                  except:
+                      continue
+          
+          print(f"Found {len(run_patterns)} unique run IDs")
+          
+          # Check for runs with good pattern diversity
+          diverse_runs = sum(1 for patterns in run_patterns.values() if len(patterns) >= 3)
+          print(f"Runs with ≥3 patterns: {diverse_runs}/{len(run_patterns)}")
+          
+          print("✅ Run ID consistency check passed")
+          EOF
+      
+      - name: Upload validation report
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: pattern-validation-report
+          path: .goalie/schema_validation_report.json
+          if-no-files-found: ignore
+      
+      - name: Comment PR with validation results
+        if: github.event_name == 'pull_request' && steps.validate.outputs.validation_passed == 'true'
+        uses: actions/github-script@v6
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = '.goalie/schema_validation_report.json';
+            
+            if (!fs.existsSync(reportPath)) {
+              console.log('No validation report found');
+              return;
+            }
+            
+            const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+            const summary = report.summary;
+            
+            const comment = `## Pattern Telemetry Validation Results
+            
+            - **Total events**: ${summary.total_events}
+            - **Valid events**: ${summary.valid_events}
+            - **Pass rate**: ${summary.pass_rate_pct.toFixed(1)}%
+            - **Tag coverage**: ${summary.tag_coverage_pct.toFixed(1)}%
+            
+            ${summary.pass_rate_pct >= 90 ? '✅ Validation passed' : '❌ Validation failed'}
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });

@@ -1,0 +1,467 @@
+#!/bin/bash
+# advocate: CLI wrapper for wholeness validation and governance council
+
+set -e
+
+# Base directory for agentic-flow tools
+FLOW_DIR="/Users/shahroozbhopti/Documents/code/investing/agentic-flow"
+LEGAL_DIR="/Users/shahroozbhopti/Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/11-ADVOCACY-PIPELINE"
+CEREMONY_METRICS_FILE="$FLOW_DIR/.goalie/ceremony_metrics.jsonl"
+ROAM_TRACKER_FILE="${ROAM_TRACKER_PATH:-$FLOW_DIR/ROAM_TRACKER.yaml}"
+
+# ===========================================================================
+# AISP Configuration: Source env, then guard (email-validation lane)
+# ===========================================================================
+source "$FLOW_DIR/scripts/cpanel-env-setup.sh" 2>/dev/null || true
+EXIT_CODES_REGISTRY="${EXIT_CODES_REGISTRY:-$FLOW_DIR/scripts/validation-core.sh}"
+# shellcheck disable=SC1090
+source "$EXIT_CODES_REGISTRY" 2>/dev/null || true
+# Backward-compatible fallbacks if robust registry cannot be sourced
+: "${EXIT_INVALID_ARGS:=10}"
+: "${EXIT_INVALID_FORMAT:=12}"
+: "${EXIT_MISSING_REQUIRED_FIELD:=21}"
+: "${EXIT_WSJF_SCORE_LOW:=160}"
+
+export AISP_LANE="email-validation"
+
+# Source shared guard-failure envelope (unified behavior across ay, advocate, cascade-tunnel)
+# shellcheck source=guard-failure-envelope.sh
+source "$FLOW_DIR/_SYSTEM/_AUTOMATION/guard-failure-envelope.sh" 2>/dev/null || true
+
+# --- AISP Config Guard Block ---
+AISP_CHECKS_PASSED=0
+AISP_CHECKS_TOTAL=5
+
+# 1) Required roots
+if [[ -z "${AISP_WORKSPACE_ROOT:-}" || -z "${LEGAL_ROOT:-}" ]]; then
+    echo "❌ [advocate] AISP config missing ROOTS" >&2
+    ADV_STATUS="${AISP_STATUS_PATH:-$FLOW_DIR/reports/aisp-status.json}"
+    ADV_STATUS="${ADV_STATUS%aisp-status.json}aisp-advocate-status.json"
+    emit_guard_failure_status "$ADV_STATUS" "email-validation" "${EXIT_INVALID_ARGS}" "Missing required roots (AISP_WORKSPACE_ROOT / LEGAL_ROOT)" "scripts/advocate"
+    exit "${EXIT_INVALID_ARGS}"
+fi
+((AISP_CHECKS_PASSED++)) || true
+
+# 2) LEGAL_ROOT must exist
+if [[ ! -d "${LEGAL_ROOT}" ]]; then
+    echo "❌ [advocate] LEGAL_ROOT does not exist: ${LEGAL_ROOT}" >&2
+    ADV_STATUS="${AISP_STATUS_PATH:-$FLOW_DIR/reports/aisp-status.json}"
+    ADV_STATUS="${ADV_STATUS%aisp-status.json}aisp-advocate-status.json"
+    emit_guard_failure_status "$ADV_STATUS" "email-validation" "${EXIT_INVALID_ARGS}" "Configured LEGAL_ROOT does not exist" "scripts/advocate"
+    exit "${EXIT_INVALID_ARGS}"
+fi
+((AISP_CHECKS_PASSED++)) || true
+
+# 2b) PWD under roots — error or auto-cd once with loud message (no silent run)
+case "$PWD" in
+    "$AISP_WORKSPACE_ROOT"/*|"$AISP_WORKSPACE_ROOT"|"$LEGAL_ROOT"/*|"$LEGAL_ROOT") ;;
+    *)
+        echo "⚠️  [advocate] PWD ($PWD) not under AISP_WORKSPACE_ROOT or LEGAL_ROOT — cd'ing to AISP_WORKSPACE_ROOT once" >&2
+        if ! cd "$AISP_WORKSPACE_ROOT"; then
+            ADV_STATUS="${AISP_STATUS_PATH:-$FLOW_DIR/reports/aisp-status.json}"
+            ADV_STATUS="${ADV_STATUS%aisp-status.json}aisp-advocate-status.json"
+            emit_guard_failure_status "$ADV_STATUS" "email-validation" "${EXIT_INVALID_FORMAT}" "Invalid root / cd failure while enforcing workspace root" "scripts/advocate"
+            exit "${EXIT_INVALID_FORMAT}"
+        fi
+        ;;
+esac
+((AISP_CHECKS_PASSED++)) || true
+
+# 3) Cases present
+if [[ -z "${LEGAL_CASE_IDS:-}" ]]; then
+    echo "❌ [advocate] LEGAL_CASE_IDS missing" >&2
+    ADV_STATUS="${AISP_STATUS_PATH:-$FLOW_DIR/reports/aisp-status.json}"
+    ADV_STATUS="${ADV_STATUS%aisp-status.json}aisp-advocate-status.json"
+    emit_guard_failure_status "$ADV_STATUS" "email-validation" "${EXIT_MISSING_REQUIRED_FIELD}" "Missing required LEGAL_CASE_IDS" "scripts/advocate"
+    exit "${EXIT_MISSING_REQUIRED_FIELD}"
+fi
+((AISP_CHECKS_PASSED++)) || true
+
+# Robust default-branch detection that works when origin/HEAD is missing.
+resolve_default_branch() {
+    local root="$1"
+    local detected=""
+    detected=$(git -C "$root" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@') || true
+    if [[ -z "$detected" ]]; then
+        detected=$(git -C "$root" config --get init.defaultBranch 2>/dev/null || true)
+    fi
+    if [[ -z "$detected" ]]; then
+        if git -C "$root" show-ref --verify --quiet refs/heads/main; then
+            detected="main"
+        elif git -C "$root" show-ref --verify --quiet refs/heads/master; then
+            detected="master"
+        else
+            detected=$(git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+        fi
+    fi
+    : "${detected:=main}"
+    printf '%s' "$detected"
+}
+
+# 4) Prod branch gate
+if [[ "${AISP_ENV:-dev}" == "prod" ]]; then
+    DEFAULT_BRANCH=$(resolve_default_branch "$AISP_WORKSPACE_ROOT")
+    CUR_BRANCH=$(git -C "$AISP_WORKSPACE_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "UNKNOWN")
+    if [[ "$CUR_BRANCH" != "$DEFAULT_BRANCH" ]]; then
+        echo "❌ [advocate] Not on default branch ($CUR_BRANCH != $DEFAULT_BRANCH) — AISP_ENV=prod requires it" >&2
+        ADV_STATUS="${AISP_STATUS_PATH:-$FLOW_DIR/reports/aisp-status.json}"
+        ADV_STATUS="${ADV_STATUS%aisp-status.json}aisp-advocate-status.json"
+        emit_guard_failure_status "$ADV_STATUS" "email-validation" "${EXIT_WSJF_SCORE_LOW}" "Prod branch gate failed ($CUR_BRANCH != $DEFAULT_BRANCH)" "scripts/advocate"
+        exit "${EXIT_WSJF_SCORE_LOW}"
+    fi
+fi
+((AISP_CHECKS_PASSED++)) || true
+
+# FA T0 gate
+if [[ "${AISP_MODE_DEFAULT:-SA}" == "FA" && "${AISP_T_STAGE:-T0}" == "T0" ]]; then
+    echo "⚠️  [advocate] Full-Auto requested but T0 — downgrading to SA" >&2
+    export AISP_MODE_DEFAULT="SA"
+fi
+
+echo "✅ [advocate] AISP config: ${AISP_CHECKS_PASSED}/${AISP_CHECKS_TOTAL} checks | env=${AISP_ENV:-dev} stage=${AISP_T_STAGE:-T0} lane=${AISP_LANE} mode=${AISP_MODE_DEFAULT:-SA}"
+
+# CSQBM Governance Constraint: Trace AI Governance Advocate CLI execution
+
+function show_help() {
+    echo "Usage: advocate <command> [options]"
+    echo ""
+    echo "Commands:"
+    echo "  validate <file> [options]   Run wholeness validator (Circles, Roles, Patterns)"
+    echo "  council                     Run governance council voting (Interactive/Python API)"
+    echo "  --json-aisp                 Output AISP config envelope as JSON"
+    echo "  help                        Show this help"
+    echo ""
+    echo "Validation Options:"
+    echo "  --circles <list>            Specific circles (default: all)"
+    echo "  --roles <list>              Specific roles (default: all)"
+    echo "  --patterns <list>           Software patterns (prd,adr,ddd,tdd)"
+    echo ""
+    echo "Examples:"
+    echo "  advocate validate document.md"
+    echo "  advocate validate lease.txt --patterns prd,adr"
+    echo "  advocate --json-aisp"
+}
+
+build_ceremony_contract_json() {
+    local checks_passed="${1:-0}"
+    local checks_total="${2:-0}"
+    local pass_velocity="${3:-0}"
+    local resolved_velocity="${4:-0}"
+    local exit_code="${5:-0}"
+
+    python3 - "$CEREMONY_METRICS_FILE" "$ROAM_TRACKER_FILE" "$checks_passed" "$checks_total" "$pass_velocity" "$resolved_velocity" "$exit_code" <<'PY'
+import json
+import pathlib
+import re
+import sys
+
+metrics_path = pathlib.Path(sys.argv[1])
+roam_path = pathlib.Path(sys.argv[2])
+checks_passed = float(sys.argv[3] or 0)
+checks_total = float(sys.argv[4] or 0)
+pass_velocity = float(sys.argv[5] or 0)
+resolved_velocity = float(sys.argv[6] or 0)
+exit_code = int(float(sys.argv[7] or 0))
+
+ceremony_names = ["review", "retro", "replenish", "refine", "standup", "pi_sync"]
+counts = {name: 0 for name in ceremony_names}
+
+if metrics_path.exists():
+    for raw in metrics_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            evt = json.loads(raw)
+        except Exception:
+            continue
+        name = str(evt.get("ceremony", "")).strip().lower().replace("-", "_")
+        if name in counts and evt.get("type", "ceremony_completion") == "ceremony_completion":
+            counts[name] += 1
+
+roam_total = 0
+roam_open = 0
+roam_owned = 0
+if roam_path.exists():
+    for line in roam_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        match = re.match(r"\s*status:\s*([A-Za-z_]+)", line)
+        if not match:
+            continue
+        roam_total += 1
+        status = match.group(1).strip().lower()
+        if status not in {"resolved", "mitigated", "closed"}:
+            roam_open += 1
+        if status == "owned":
+            roam_owned += 1
+
+ratio = checks_passed / checks_total if checks_total > 0 else 0.0
+total_events = sum(counts.values())
+status = "ready"
+if exit_code >= 100 or ratio < 0.5:
+    status = "blocked"
+elif ratio < 0.8:
+    status = "degraded"
+
+summary_score = max(0.0, min(100.0, (ratio * 100.0) - min(roam_open, 20)))
+ceremonies = {}
+for name in ceremony_names:
+    observed = counts[name]
+    checks_total_local = observed if observed > 0 else 1
+    checks_passed_local = int(round(checks_total_local * ratio)) if observed > 0 else 0
+    checks_passed_local = max(0, min(checks_total_local, checks_passed_local))
+    weight = (observed / total_events) if total_events > 0 else 0.0
+    local_status = status if observed > 0 else ("pending" if exit_code < 100 else "blocked")
+    blockers = []
+    if local_status == "blocked":
+        blockers.append({
+            "id": f"B-{name.upper()}-EXIT",
+            "desc": f"{name} blocked by lane exit {exit_code}",
+            "exit_code": exit_code
+        })
+    ceremonies[name] = {
+        "status": local_status,
+        "%/#": {"checks_passed": checks_passed_local, "checks_total": checks_total_local},
+        "%.#": {
+            "checks_passed_per_min": round(pass_velocity * weight, 2),
+            "actions_resolved_per_min": round(resolved_velocity * weight, 2)
+        },
+        "wsjf": {
+            "score": round(summary_score, 2),
+            "band": "high" if summary_score >= 70 else ("medium" if summary_score >= 40 else "low")
+        },
+        "roam": {"risk_total": roam_total, "risk_open": roam_open, "risk_owned": roam_owned},
+        "blockers": blockers,
+        "dependencies": [{"on": "wsjf+roam+guard", "status": "healthy" if local_status == "ready" else "degraded"}]
+    }
+
+result = {
+    "contract_version": "1.0",
+    "summary": {
+        "%/#": {"checks_passed": int(checks_passed), "checks_total": int(checks_total) if checks_total > 0 else 0},
+        "%.#": {
+            "checks_passed_per_min": round(pass_velocity, 2),
+            "actions_resolved_per_min": round(resolved_velocity, 2)
+        },
+        "wsjf": {"score": round(summary_score, 2)},
+        "roam": {"risk_total": roam_total, "risk_open": roam_open, "risk_owned": roam_owned},
+        "telemetry_events": total_events
+    },
+    "review": ceremonies["review"],
+    "retro": ceremonies["retro"],
+    "replenish": ceremonies["replenish"],
+    "refine": ceremonies["refine"],
+    "standup": ceremonies["standup"],
+    "pi_sync": ceremonies["pi_sync"]
+}
+print(json.dumps(result, separators=(",", ":")))
+PY
+}
+
+# --- AISP JSON Envelope Writer ---
+write_advocate_aisp() {
+    local exit_code="${1:-0}"
+    local reason="${2:-config valid}"
+    local rolling_10=0 rolling_12=0 rolling_21=0 rolling_160=0
+    local rolling_total=0 rolling_runs=0
+    local rolling_rate_pct="0.00" failures_per_run="0.00"
+    local exit_zone="success"
+    if [[ $exit_code -ge 200 ]]; then
+        exit_zone="infra"
+    elif [[ $exit_code -ge 150 ]]; then
+        exit_zone="business"
+    elif [[ $exit_code -ge 100 ]]; then
+        exit_zone="validation"
+    elif [[ $exit_code -ge 10 ]]; then
+        exit_zone="client"
+    fi
+
+    local status_file="${AISP_STATUS_PATH:-$FLOW_DIR/reports/aisp-status.json}"
+    status_file="${status_file%aisp-status.json}aisp-advocate-status.json"
+    mkdir -p "$(dirname "$status_file")"
+    local gov_status="${AISP_STATUS_PATH:-$FLOW_DIR/reports/aisp-status.json}"
+    if [[ -f "$gov_status" ]]; then
+        local rolling_csv
+        rolling_csv=$(python3 - "$gov_status" <<'PY'
+import json, sys
+p = sys.argv[1]
+try:
+    obj = json.load(open(p, "r", encoding="utf-8"))
+except Exception:
+    obj = {}
+h = obj.get("aisp_header", {}) if isinstance(obj, dict) else {}
+c = h.get("rolling_failure_counter", {}) if isinstance(h, dict) else {}
+def i(v):
+    try:
+        return int(v)
+    except Exception:
+        return 0
+r10 = i(c.get("10", 0)); r12 = i(c.get("12", 0)); r21 = i(c.get("21", 0)); r160 = i(c.get("160", 0))
+total = i(h.get("rolling_failure_total", r10 + r12 + r21 + r160))
+runs = i(h.get("rolling_runs", 0))
+print(f"{r10},{r12},{r21},{r160},{total},{runs}")
+PY
+)
+        if [[ -n "$rolling_csv" ]]; then
+            IFS=',' read -r rolling_10 rolling_12 rolling_21 rolling_160 rolling_total rolling_runs <<< "$rolling_csv"
+        fi
+    fi
+    if [[ "${rolling_runs:-0}" -gt 0 ]]; then
+        rolling_rate_pct=$(awk "BEGIN { printf \"%.2f\", (${rolling_total} * 100) / ${rolling_runs} }")
+        failures_per_run=$(awk "BEGIN { printf \"%.2f\", ${rolling_total} / ${rolling_runs} }")
+    fi
+    local ceremonies_json
+    ceremonies_json=$(build_ceremony_contract_json "${AISP_CHECKS_PASSED}" "${AISP_CHECKS_TOTAL}" 0 0 "${exit_code}")
+
+    cat <<AISP_EOF
+{
+  "aisp_header": {
+    "version": "1.0",
+    "timestamp_utc": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+    "t_stage": "${AISP_T_STAGE:-T0}",
+    "domain": ["$(echo "${AISP_DOMAINS:-legal}" | sed 's/,/","/g')"],
+    "case_ids": ["$(echo "${LEGAL_CASE_IDS:-}" | sed 's/,/","/g')"],
+    "lane": "${AISP_LANE}",
+    "mode": "${AISP_MODE_DEFAULT:-SA}",
+    "env": "${AISP_ENV:-dev}",
+    "%/#": { "checks_passed": ${AISP_CHECKS_PASSED}, "checks_total": ${AISP_CHECKS_TOTAL} },
+    "env_%/#": { "config_checks_passed": ${AISP_CHECKS_PASSED}, "config_checks_total": ${AISP_CHECKS_TOTAL} },
+    "%.#": { "checks_passed_per_min": 0.00, "actions_resolved_per_min": 0.00 },
+    "exit_code": ${exit_code},
+    "exit_zone": "${exit_zone}",
+    "rolling_failure_counter": { "10": ${rolling_10}, "12": ${rolling_12}, "21": ${rolling_21}, "160": ${rolling_160} },
+    "rolling_failure_total": ${rolling_total},
+    "rolling_runs": ${rolling_runs},
+    "trend_velocity": { "rolling_failure_rate_pct": ${rolling_rate_pct}, "failures_per_run": ${failures_per_run} }
+  },
+  "intro": {
+    "build": "Advocate CLI: email-validation lane",
+    "measure": "${AISP_CHECKS_PASSED}/${AISP_CHECKS_TOTAL} env config checks passed",
+    "learn": "${reason}"
+  },
+  "body": {
+    "circles": [
+      {
+        "name": "email-validation",
+        "role": "AdvocateCLI",
+        "status": "$([ "$exit_code" -eq 0 ] && echo "ready" || echo "degraded")",
+        "%/#": { "checks_passed": ${AISP_CHECKS_PASSED}, "checks_total": ${AISP_CHECKS_TOTAL} },
+        "blockers": [],
+        "dependencies": [
+          { "on": "AISP env contract", "status": "healthy" }
+        ]
+      }
+    ],
+    "ceremonies": ${ceremonies_json}
+  },
+  "menu": [
+    {
+      "id": "run_advocate_validate",
+      "label": "Run advocate validate",
+      "mode": "${AISP_MODE_DEFAULT:-SA}",
+      "api": { "cli": "scripts/advocate validate <file>" },
+      "guards": { "required_exit_codes": [0,1] }
+    }
+  ],
+  "manifest": {
+    "id": "AISP-ADVOCATE-$(date -u +"%Y-%m-%dT%H-%M-%SZ")",
+    "workspace": "agentic-flow",
+    "source_script": "scripts/advocate",
+    "legal_root": "${LEGAL_ROOT:-}",
+    "principles": ["Discover/Consolidate THEN extend", "Semi-Auto before Full-Auto in T0/T1"]
+  }
+}
+AISP_EOF
+
+    # Also write to file for dashboard
+    cat > "$status_file" <<AISP_FILE
+{
+  "aisp_header": {
+    "version": "1.0",
+    "timestamp_utc": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+    "t_stage": "${AISP_T_STAGE:-T0}",
+    "domain": ["$(echo "${AISP_DOMAINS:-legal}" | sed 's/,/","/g')"],
+    "case_ids": ["$(echo "${LEGAL_CASE_IDS:-}" | sed 's/,/","/g')"],
+    "lane": "${AISP_LANE}",
+    "mode": "${AISP_MODE_DEFAULT:-SA}",
+    "env": "${AISP_ENV:-dev}",
+    "%/#": { "checks_passed": ${AISP_CHECKS_PASSED}, "checks_total": ${AISP_CHECKS_TOTAL} },
+    "env_%/#": { "config_checks_passed": ${AISP_CHECKS_PASSED}, "config_checks_total": ${AISP_CHECKS_TOTAL} },
+    "%.#": { "checks_passed_per_min": 0.00, "actions_resolved_per_min": 0.00 },
+    "exit_code": ${exit_code},
+    "exit_zone": "${exit_zone}",
+    "rolling_failure_counter": { "10": ${rolling_10}, "12": ${rolling_12}, "21": ${rolling_21}, "160": ${rolling_160} },
+    "rolling_failure_total": ${rolling_total},
+    "rolling_runs": ${rolling_runs},
+    "trend_velocity": { "rolling_failure_rate_pct": ${rolling_rate_pct}, "failures_per_run": ${failures_per_run} }
+  },
+  "intro": {
+    "build": "Advocate CLI: email-validation lane",
+    "measure": "${AISP_CHECKS_PASSED}/${AISP_CHECKS_TOTAL} env config checks passed",
+    "learn": "${reason}"
+  },
+  "body": {
+    "circles": [
+      {
+        "name": "email-validation",
+        "role": "AdvocateCLI",
+        "status": "$([ "$exit_code" -eq 0 ] && echo "ready" || echo "degraded")",
+        "%/#": { "checks_passed": ${AISP_CHECKS_PASSED}, "checks_total": ${AISP_CHECKS_TOTAL} },
+        "blockers": [],
+        "dependencies": [
+          { "on": "AISP env contract", "status": "healthy" }
+        ]
+      }
+    ],
+    "ceremonies": ${ceremonies_json}
+  },
+  "menu": [
+    {
+      "id": "run_advocate_validate",
+      "label": "Run advocate validate",
+      "mode": "${AISP_MODE_DEFAULT:-SA}",
+      "api": { "cli": "scripts/advocate validate <file>" },
+      "guards": { "required_exit_codes": [0,1] }
+    }
+  ],
+  "manifest": {
+    "id": "AISP-ADVOCATE-$(date -u +"%Y-%m-%dT%H-%M-%SZ")",
+    "workspace": "agentic-flow",
+    "source_script": "scripts/advocate",
+    "legal_root": "${LEGAL_ROOT:-}",
+    "principles": ["Discover/Consolidate THEN extend", "Semi-Auto before Full-Auto in T0/T1"]
+  }
+}
+AISP_FILE
+}
+
+case "$1" in
+    --json-aisp)
+        write_advocate_aisp 0
+        exit 0
+        ;;
+    validate|v)
+        shift
+        export PYTHONPATH="${LEGAL_DIR}:${FLOW_DIR}:${PYTHONPATH:-}"
+        python3 -m vibesthinker.advocate_cli validate "$@"
+        ;;
+    cycle|cy)
+        shift
+        export PYTHONPATH="${LEGAL_DIR}:${FLOW_DIR}:${PYTHONPATH:-}"
+        python3 -m vibesthinker.advocate_cli cycle "$@"
+        ;;
+    council|c)
+        shift
+        python3 "$LEGAL_DIR/vibesthinker/governance_council.py" "$@"
+        ;;
+    dashboard|d)
+        shift
+        python3 -m vibesthinker.advocate_cli dashboard "$@"
+        ;;
+    help|--help|-h)
+        python3 -m vibesthinker.advocate_cli --help
+        ;;
+    *)
+        # Default to passing through to CLI
+        python3 -m vibesthinker.advocate_cli "$@"
+        ;;
+esac

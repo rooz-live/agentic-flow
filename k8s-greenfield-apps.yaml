@@ -1,0 +1,306 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: greenfield-apps
+---
+# Storage Configuration
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hostbill-db-pvc
+  namespace: greenfield-apps
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-storage
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: wordpress-db-pvc
+  namespace: greenfield-apps
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-storage
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: flarum-db-pvc
+  namespace: greenfield-apps
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-storage
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: trading-data-pvc
+  namespace: greenfield-apps
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-storage
+  resources:
+    requests:
+      storage: 20Gi
+---
+# Databases
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-hostbill
+  namespace: greenfield-apps
+spec:
+  selector:
+    matchLabels:
+      app: mysql-hostbill
+  template:
+    metadata:
+      labels:
+        app: mysql-hostbill
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:5.7
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: "admin123"
+        - name: MYSQL_DATABASE
+          value: "hostbill"
+        ports:
+        - containerPort: 3306
+        volumeMounts:
+        - name: db-data
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: db-data
+        persistentVolumeClaim:
+          claimName: hostbill-db-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-hostbill
+  namespace: greenfield-apps
+spec:
+  ports:
+  - port: 3306
+  selector:
+    app: mysql-hostbill
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-wordpress
+  namespace: greenfield-apps
+spec:
+  selector:
+    matchLabels:
+      app: mysql-wordpress
+  template:
+    metadata:
+      labels:
+        app: mysql-wordpress
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: "admin123"
+        - name: MYSQL_DATABASE
+          value: "wordpress"
+        ports:
+        - containerPort: 3306
+        volumeMounts:
+        - name: db-data
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: db-data
+        persistentVolumeClaim:
+          claimName: wordpress-db-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-wordpress
+  namespace: greenfield-apps
+spec:
+  ports:
+  - port: 3306
+  selector:
+    app: mysql-wordpress
+---
+# Applications
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hostbill
+  namespace: greenfield-apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hostbill
+  template:
+    metadata:
+      labels:
+        app: hostbill
+    spec:
+      containers:
+      - name: hostbill
+        image: php:7.4-apache # Content placeholder for HostBill
+        ports:
+        - containerPort: 80
+        env:
+        - name: DB_HOST
+          value: "mysql-hostbill"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hostbill
+  namespace: greenfield-apps
+spec:
+  ports:
+  - port: 80
+  selector:
+    app: hostbill
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wordpress
+  namespace: greenfield-apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wordpress
+  template:
+    metadata:
+      labels:
+        app: wordpress
+    spec:
+      containers:
+      - name: wordpress
+        image: wordpress:latest
+        ports:
+        - containerPort: 80
+        env:
+        - name: WORDPRESS_DB_HOST
+          value: "mysql-wordpress"
+        - name: WORDPRESS_DB_PASSWORD
+          value: "admin123"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wordpress
+  namespace: greenfield-apps
+spec:
+  ports:
+  - port: 80
+  selector:
+    app: wordpress
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trading-platform
+  namespace: greenfield-apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trading-platform
+  template:
+    metadata:
+      labels:
+        app: trading-platform
+    spec:
+      containers:
+      - name: trading
+        image: python:3.9-slim
+        command: ["python3", "-m", "http.server", "8000"] # Placeholder
+        ports:
+        - containerPort: 8000
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: trading-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trading-platform
+  namespace: greenfield-apps
+spec:
+  ports:
+  - port: 80
+    targetPort: 8000
+  selector:
+    app: trading-platform
+---
+# Ingress
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: greenfield-ingress
+  namespace: greenfield-apps
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod" # Assuming existence
+spec:
+  tls:
+  - hosts:
+    - greenfield-hostbill.interface.tag.ooo
+    - greenfield-wordpress.interface.tag.ooo
+    - greenfield-trading.interface.tag.ooo
+    secretName: greenfield-tls
+  rules:
+  - host: greenfield-hostbill.interface.tag.ooo
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: hostbill
+            port:
+              number: 80
+  - host: greenfield-wordpress.interface.tag.ooo
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: wordpress
+            port:
+              number: 80
+  - host: greenfield-trading.interface.tag.ooo
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: trading-platform
+            port:
+              number: 80

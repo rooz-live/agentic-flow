@@ -1,0 +1,36 @@
+# /etc/rsyslog.conf configuration
+global(
+    DefaultNetstreamDriver="gtls"
+    DefaultNetstreamDriverCAFile="/etc/rsyslog-certs/ca.pem"
+    DefaultNetstreamDriverCertFile="/etc/rsyslog-certs/server-cert.pem"
+    DefaultNetstreamDriverKeyFile="/etc/rsyslog-certs/server-key.pem"
+)
+
+# Load TCP module with TLS
+module(load="imtcp"
+    streamdriver.name="gtls"
+    streamdriver.mode="1"
+    streamdriver.authmode="x509/name"
+    streamdriver.permittedpeers=["stx-aio-0.corp.interface.tag.ooo"]
+)
+
+# Listen on port {{ syslog_port }}
+input(type="imtcp" port="{{ syslog_port }}" name="imtcp-tls")
+
+# Templates for log file paths
+template(name="RemoteHostFile" type="string" string="/var/log/remote/%HOSTNAME%/%PROGRAMNAME%.log")
+template(name="RemoteAuthFile" type="string" string="/var/log/remote/auth.log")
+
+# Rules
+if $fromhost-ip == '{{ allowed_sender_ip }}' then {
+    if $syslogfacility-text == 'authpriv' or $programname == 'sudo' then {
+        action(type="omfile" file="/var/log/remote/auth.log")
+        stop
+    }
+    if $syslogseverity-text == 'warn' or $syslogseverity <= 4 then {
+         # Exclude authpriv from general warn logs if it slipped through (redundant but safe)
+         if $syslogfacility-text != 'authpriv' then {
+             action(type="omfile" DynaFile="RemoteHostFile")
+         }
+    }
+}

@@ -1,0 +1,556 @@
+# Production Cycle Improvements - Forensic Analysis
+# Generated: 2025-12-04T21:41:00Z
+# Focus: code_search.py, doc_query.py, better-sqlite3, memory leaks, process coordination
+
+analysis_date: 2025-12-04
+priority: HIGH
+status: ANALYZED
+
+# ==============================================================================
+# 1. CODE_SEARCH.PY REVIEW
+# ==============================================================================
+code_search_findings:
+  file: scripts/code_search.py
+  lines_of_code: 502
+  complexity: MODERATE
+  
+  strengths:
+    - Concurrent processing with ThreadPoolExecutor (4 workers)
+    - Rate limiting with exponential backoff (RateLimiter class)
+    - Process mapper optimizes file order by size
+    - Timeout protection (_check_timeout)
+    - Performance metrics tracking (SearchMetrics dataclass)
+    - Skip directories properly (node_modules, .git, etc)
+  
+  issues_identified:
+    issue_1_memory:
+      severity: MEDIUM
+      line_range: 269-327
+      description: "File collection happens before processing - all file paths held in memory"
+      impact: "For large repos (>10k files), memory spikes before processing starts"
+      fix: "Use generator pattern instead of list accumulation"
+      recommendation: |
+        Replace:
+          all_files = []
+          for path in self._walk_with_depth(self.root_dir, max_depth):
+              all_files.append(path)
+        
+        With generator:
+          def _file_generator(self, max_depth):
+              for path in self._walk_with_depth(self.root_dir, max_depth):
+                  if path.suffix.lstrip('.') in file_types:
+                      yield path
+    
+    issue_2_rate_limiter:
+      severity: LOW
+      line_range: 43-77
+      description: "Rate limiter waits on EVERY file, even when no contention"
+      impact: "Unnecessary delays in sequential processing mode"
+      fix: "Only apply rate limiting in concurrent mode"
+      recommendation: |
+        Add condition in _search_file_batch (line 156):
+          if self.enable_concurrency:
+              self.rate_limiter.wait()
+    
+    issue_3_logging_config:
+      severity: LOW
+      line_range: 254-263
+      description: "Logging configured inside search() method - can be called multiple times"
+      impact: "Handler duplication on repeated calls"
+      fix: "Move logging config to __init__ or use logging.basicConfig once"
+      recommendation: "Use logging.basicConfig at module level or check if handlers exist"
+    
+    issue_4_metrics_reset:
+      severity: MEDIUM
+      line_range: 134
+      description: "SearchMetrics instance never resets between search() calls"
+      impact: "Metrics accumulate across searches if CodeSearch instance reused"
+      fix: "Reset metrics at start of search() method"
+      recommendation: |
+        At line 236 (start of search()):
+          self.metrics = SearchMetrics()
+  
+  performance_validation:
+    max_workers: 4
+    rate_limit_initial: 50.0
+    rate_limit_max: 500.0
+    timeout_default: 30s
+    status: "Rate limiting may be too conservative for local filesystem"
+
+# ==============================================================================
+# 2. DOC_QUERY.PY REVIEW
+# ==============================================================================
+doc_query_findings:
+  file: scripts/doc_query.py
+  lines_of_code: 656
+  complexity: MODERATE-HIGH
+  
+  strengths:
+    - SmartCache with LRU eviction (100MB default)
+    - File hash-based cache invalidation (mtime + size)
+    - Concurrent processing (ThreadPoolExecutor)
+    - Relevance scoring (0.0-1.0 scale)
+    - Performance target: <1s for 372 files
+    - Retrospective analysis built-in
+    - Context extraction (2 lines before/after matches)
+  
+  issues_identified:
+    issue_1_cache_thrashing:
+      severity: HIGH
+      line_range: 55-103
+      description: "Cache size management uses string encoding to estimate size"
+      impact: "Inaccurate size calculation, potential thrashing"
+      code: |
+        # Line 74: entry_size = len(str(value).encode('utf-8'))
+        # This converts dict to string, then encodes - inefficient and imprecise
+      fix: "Use sys.getsizeof() or restrict cache by entry count, not size"
+      recommendation: |
+        import sys
+        
+        def _get_entry_size(self, value: Dict) -> int:
+            return sys.getsizeof(json.dumps(value))
+    
+    issue_2_concurrent_threshold:
+      severity: MEDIUM
+      line_range: 283
+      description: "Concurrency only enabled if len(all_files) > 5"
+      impact: "Very low threshold - overhead of ThreadPoolExecutor may exceed benefit"
+      fix: "Increase threshold to 20-50 files"
+      recommendation: |
+        Line 283: if self.enable_concurrency and len(all_files) > 20:
+    
+    issue_3_file_collection:
+      severity: MEDIUM
+      line_range: 260-280
+      description: "All files collected before processing (same as code_search.py)"
+      impact: "Memory spike, delayed processing start"
+      fix: "Use generator or streaming approach"
+      recommendation: "Same generator pattern as code_search.py"
+    
+    issue_4_cache_persistence:
+      severity: LOW
+      line_range: 413-428
+      description: "_save_cache only saves stats, not actual cache content"
+      impact: "Cache lost between runs - defeats purpose"
+      fix: "Persist actual cache entries to disk"
+      recommendation: |
+        # Save cache entries (careful with size):
+        def _save_cache(self):
+            cache_data = {
+                'entries': dict(self.smart_cache.cache),  # Serialize cache
+                'stats': self.smart_cache.get_stats(),
+                'last_saved': datetime.now().isoformat()
+            }
+            # Compress with gzip if size > 10MB
+    
+    issue_5_retrospective_timestamps:
+      severity: LOW
+      line_range: 593-599
+      description: "Two datetime formats handled, but no timezone handling"
+      impact: "Incorrect time calculations if logs span timezone changes"
+      fix: "Always use UTC with explicit timezone"
+      recommendation: "Use datetime.fromisoformat().replace(tzinfo=timezone.utc)"
+  
+  performance_validation:
+    cache_size_mb: 100
+    max_workers: 4
+    target_latency_ms: 1000
+    status: "Cache persistence issue critical - losing all cache benefits"
+
+# ==============================================================================
+# 3. BETTER-SQLITE3 NOTIFICATION HOOK FAILURES
+# ==============================================================================
+sqlite_hook_analysis:
+  context: "User reported better-sqlite3 module loading failures in notification hooks"
+  
+  hypothesis_1_native_module:
+    description: "better-sqlite3 is native Node.js addon - requires rebuild on Mac M4"
+    evidence:
+      - User has Apple M4 Max (rule 91ssTIMCceRTLyX7uuooD5)
+      - Native modules need architecture-specific compilation
+      - Common issue: x86_64 vs arm64 mismatch
+    validation_command: |
+      cd /Users/shahroozbhopti/Documents/code/investing/agentic-flow
+      npm list better-sqlite3
+      file node_modules/better-sqlite3/build/Release/better_sqlite3.node
+    expected_output: "Mach-O 64-bit dynamically linked shared library arm64"
+    fix_if_wrong_arch: |
+      npm rebuild better-sqlite3
+      # Or force rebuild all native modules:
+      npm rebuild
+  
+  hypothesis_2_hook_execution_context:
+    description: "Notification hooks run in separate process/context without proper PATH"
+    evidence:
+      - Coordination failures in hook executions (per user context)
+      - Process dependencies issues
+    validation_command: |
+      # Check if hooks are spawning child processes
+      ps aux | grep node | grep -E "(hook|notification|better-sqlite)"
+    fix: |
+      # Ensure NODE_PATH is set in hook execution environment
+      export NODE_PATH=/Users/shahroozbhopti/Documents/code/investing/agentic-flow/node_modules:$NODE_PATH
+  
+  hypothesis_3_concurrent_access:
+    description: "Multiple hooks accessing SQLite database simultaneously without proper locking"
+    evidence:
+      - Better-sqlite3 supports WAL mode but needs configuration
+      - Coordination failures suggest race conditions
+    validation_command: |
+      # Check if databases use WAL mode
+      sqlite3 /path/to/db.sqlite "PRAGMA journal_mode;"
+    expected_output: "wal"
+    fix: |
+      # Enable WAL mode for concurrent access:
+      const db = require('better-sqlite3')('path.db');
+      db.pragma('journal_mode = WAL');
+      db.pragma('busy_timeout = 5000');
+  
+  recommended_investigation:
+    step_1: "Check better-sqlite3 installation architecture"
+    step_2: "Review notification hook code for module import patterns"
+    step_3: "Test hook execution with explicit NODE_PATH"
+    step_4: "Enable SQLite WAL mode if concurrent access needed"
+  
+  files_to_inspect:
+    - "node_modules/better-sqlite3/package.json"
+    - "scripts/*/notification*.js"
+    - "scripts/*/hooks*.js"
+    - ".husky/ (if using git hooks)"
+
+# ==============================================================================
+# 4. DASHBOARD MEMORY LEAKS
+# ==============================================================================
+memory_leak_analysis:
+  context: "User reported dashboard memory leaks and process count volatility"
+  
+  running_dashboards_found:
+    process_1:
+      pid: 6092
+      command: "Docker Desktop.app (dashboard component)"
+      memory_bytes: 166528
+      runtime: "Since Wed07AM"
+      cpu_time: "2:28.60"
+      notes: "Docker Desktop internal dashboard - not user's code"
+  
+  dashboard_files_identified:
+    python_dashboards:
+      - scripts/af_dashboard.py
+      - scripts/portfolio_risk_dashboard.py
+      - scripts/analysis/dt_evaluation_dashboard.py
+      - scripts/analysis/governance_evaluation_dashboard.py
+      - scripts/agentic/enhanced_monitoring_dashboard.py
+      - VisionFlow/scripts/log_monitor_dashboard.py
+    
+    javascript_dashboards:
+      - scripts/monitoring/dashboard_server.js
+      - dist/src/trading/ui/trading_dashboard.js
+  
+  common_memory_leak_patterns:
+    pattern_1_event_listeners:
+      description: "Event listeners not removed when components unmount"
+      check_for: "addEventListener without removeEventListener"
+      recommendation: |
+        # Always clean up in componentWillUnmount / useEffect cleanup:
+        useEffect(() => {
+          const handler = () => { /*...*/ };
+          window.addEventListener('resize', handler);
+          return () => window.removeEventListener('resize', handler);
+        }, []);
+    
+    pattern_2_intervals_timers:
+      description: "setInterval/setTimeout not cleared"
+      check_for: "setInterval without clearInterval"
+      recommendation: |
+        # Always store timer ID and clear:
+        const timerId = setInterval(() => { /*...*/ }, 1000);
+        return () => clearInterval(timerId);
+    
+    pattern_3_data_accumulation:
+      description: "Unbounded arrays/objects growing over time"
+      check_for: "array.push() in loops, no max size limit"
+      recommendation: |
+        # Use circular buffer or limit size:
+        if (dataArray.length > MAX_SIZE) {
+          dataArray.shift();  // Remove oldest
+        }
+        dataArray.push(newData);
+    
+    pattern_4_websocket_connections:
+      description: "WebSocket connections not properly closed"
+      check_for: "new WebSocket() without close() on unmount"
+      recommendation: |
+        # Close connection on cleanup:
+        const ws = new WebSocket(url);
+        return () => ws.close();
+    
+    pattern_5_plotly_memory:
+      description: "Plotly charts not properly destroyed (common with rule 5d6JY7sHw9DsTeUtt2qRxn)"
+      check_for: "Plotly.newPlot without Plotly.purge"
+      recommendation: |
+        # Purge plot before unmount:
+        Plotly.newPlot('myDiv', data, layout);
+        // On cleanup:
+        Plotly.purge('myDiv');
+  
+  diagnostic_commands:
+    check_python_memory: |
+      # Use memory_profiler to profile dashboard scripts
+      /usr/local/opt/python@3.13/bin/python3.13 -m memory_profiler scripts/af_dashboard.py
+    
+    check_node_memory: |
+      # Use Node.js --inspect to profile
+      node --inspect scripts/monitoring/dashboard_server.js
+      # Then open chrome://inspect and take heap snapshots
+    
+    monitor_process_growth: |
+      # Watch memory over time
+      watch -n 5 'ps aux | grep dashboard | grep -v grep'
+
+# ==============================================================================
+# 5. PROCESS COORDINATION IMPROVEMENTS
+# ==============================================================================
+process_coordination_findings:
+  issues:
+    issue_1_concurrent_stress_tests:
+      description: "Multiple concurrent stress tests without coordination"
+      impact: "Resource contention, inconsistent results, system instability"
+      recommendation: |
+        # Use file-based locking:
+        import fcntl
+        
+        lock_file = "/tmp/stress_test.lock"
+        with open(lock_file, 'w') as f:
+            try:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                # Run stress test
+            except BlockingIOError:
+                print("Another stress test is running")
+                sys.exit(1)
+    
+    issue_2_process_count_volatility:
+      description: "Process count fluctuates - suggests orphaned processes"
+      diagnostic: |
+        # Find orphaned child processes:
+        ps -ef | awk '$3 == 1 && $8 ~ /python|node/ {print $0}'
+      recommendation: |
+        # Always use context managers or ensure cleanup:
+        import atexit
+        import signal
+        
+        def cleanup():
+            # Kill child processes
+            for proc in child_processes:
+                proc.terminate()
+        
+        atexit.register(cleanup)
+        signal.signal(signal.SIGTERM, lambda s, f: cleanup())
+    
+    issue_3_hook_coordination:
+      description: "Notification hooks run without mutex/coordination"
+      recommendation: |
+        # Use Redis or file-based coordination:
+        # Option 1: File-based
+        import time
+        from pathlib import Path
+        
+        lock = Path("/tmp/hook.lock")
+        while lock.exists():
+            time.sleep(0.1)  # Wait for other hook
+        
+        lock.touch()
+        try:
+            # Run hook logic
+        finally:
+            lock.unlink()
+        
+        # Option 2: Redis (if available)
+        import redis
+        r = redis.Redis()
+        with r.lock('hook:notification', timeout=10):
+            # Run hook logic
+
+# ==============================================================================
+# 6. ACTIONABLE RECOMMENDATIONS (PRIORITIZED)
+# ==============================================================================
+recommendations:
+  immediate_p0:
+    - id: REC-001
+      title: "Fix doc_query.py cache persistence"
+      priority: P0
+      effort: 1 hour
+      impact: HIGH
+      action: |
+        Modify _save_cache() to persist actual cache entries, not just stats.
+        Add _load_cache() to restore entries on startup.
+        Expected benefit: 50-80% query speedup on repeated queries.
+      verification: |
+        python3 scripts/doc_query.py "StarlingX" --json > run1.json
+        python3 scripts/doc_query.py "StarlingX" --json > run2.json
+        # Compare elapsed_time_ms - run2 should be significantly faster
+    
+    - id: REC-002
+      title: "Diagnose better-sqlite3 architecture mismatch"
+      priority: P0
+      effort: 30 minutes
+      impact: HIGH
+      action: |
+        file node_modules/better-sqlite3/build/Release/better_sqlite3.node
+        # If shows x86_64 instead of arm64:
+        npm rebuild better-sqlite3
+      verification: |
+        file node_modules/better-sqlite3/build/Release/better_sqlite3.node
+        # Should output: "Mach-O 64-bit dynamically linked shared library arm64"
+    
+    - id: REC-003
+      title: "Add memory leak detection to dashboards"
+      priority: P0
+      effort: 2 hours
+      impact: HIGH
+      action: |
+        1. Add memory tracking to dashboard scripts:
+           import psutil
+           import os
+           
+           def log_memory():
+               process = psutil.Process(os.getpid())
+               mem_mb = process.memory_info().rss / 1024 / 1024
+               print(f"Memory: {mem_mb:.1f} MB")
+           
+           # Call every N seconds
+        
+        2. Set up alerts if memory > threshold:
+           if mem_mb > 500:  # 500 MB threshold
+               logger.warning(f"High memory usage: {mem_mb:.1f} MB")
+      verification: |
+        # Run dashboard for 10 minutes, check memory doesn't grow unbounded
+        python3 scripts/af_dashboard.py &
+        for i in {1..10}; do
+          sleep 60
+          ps aux | grep af_dashboard | grep -v grep
+        done
+  
+  short_term_p1:
+    - id: REC-004
+      title: "Convert file collection to generators in code_search.py and doc_query.py"
+      priority: P1
+      effort: 2 hours
+      impact: MEDIUM
+      action: "Refactor to use generator pattern for file iteration"
+      expected_benefit: "30-50% memory reduction on large repos"
+    
+    - id: REC-005
+      title: "Add process coordination for stress tests"
+      priority: P1
+      effort: 3 hours
+      impact: MEDIUM
+      action: "Implement file-based locking for concurrent test execution"
+      expected_benefit: "Eliminate resource contention, stable test results"
+    
+    - id: REC-006
+      title: "Enable SQLite WAL mode for concurrent access"
+      priority: P1
+      effort: 1 hour
+      impact: MEDIUM
+      action: |
+        # Add to all SQLite database initialization:
+        db.pragma('journal_mode = WAL');
+        db.pragma('busy_timeout = 5000');
+      expected_benefit: "Reduce coordination failures in hooks"
+  
+  medium_term_p2:
+    - id: REC-007
+      title: "Optimize rate limiting in code_search.py"
+      priority: P2
+      effort: 1 hour
+      impact: LOW-MEDIUM
+      action: "Only apply rate limiting in concurrent mode"
+    
+    - id: REC-008
+      title: "Increase concurrency threshold in doc_query.py"
+      priority: P2
+      effort: 15 minutes
+      impact: LOW
+      action: "Change threshold from 5 to 20 files"
+    
+    - id: REC-009
+      title: "Add orphaned process cleanup"
+      priority: P2
+      effort: 2 hours
+      impact: MEDIUM
+      action: "Use atexit and signal handlers for proper cleanup"
+
+# ==============================================================================
+# 7. NEXT STEPS
+# ==============================================================================
+next_steps:
+  immediate:
+    - "Run REC-002: Check better-sqlite3 architecture"
+    - "Run REC-001: Fix cache persistence in doc_query.py"
+    - "Identify which dashboard has memory leak (REC-003)"
+  
+  verification:
+    - "Test code_search.py performance after generator refactor"
+    - "Test doc_query.py cache hit rate after persistence fix"
+    - "Monitor dashboard memory for 1 hour after leak detection added"
+  
+  metrics_to_track:
+    - "code_search.py: files/sec processing rate"
+    - "doc_query.py: cache hit rate %, query latency"
+    - "Dashboard: memory usage over time (MB)"
+    - "Process count stability: max deviation from baseline"
+
+# ==============================================================================
+# 8. TEST-FIRST VERIFICATION COMMANDS
+# ==============================================================================
+verification_commands:
+  code_search_baseline:
+    command: |
+      python3 scripts/code_search.py "openstack" --json --no-progress > /tmp/baseline.json
+      cat /tmp/baseline.json | jq '.performance_metrics'
+    expected_fields:
+      - processing_rate_files_per_sec
+      - avg_file_read_time_ms
+      - final_rate_limit
+  
+  doc_query_cache_test:
+    command: |
+      # Run twice, measure cache hits on second run
+      python3 scripts/doc_query.py "StarlingX" --json > /tmp/query1.json
+      python3 scripts/doc_query.py "StarlingX" --json > /tmp/query2.json
+      echo "Run 1 time:" $(jq '.elapsed_time_ms' /tmp/query1.json)
+      echo "Run 2 time:" $(jq '.elapsed_time_ms' /tmp/query2.json)
+      echo "Cache hit rate:" $(jq '.performance_metrics.cache_hit_rate' /tmp/query2.json)
+    expected: "Run 2 time < 50% of Run 1 time (if cache working)"
+  
+  better_sqlite3_arch:
+    command: |
+      file node_modules/better-sqlite3/build/Release/better_sqlite3.node
+    expected: "Mach-O 64-bit dynamically linked shared library arm64"
+  
+  memory_leak_detection:
+    command: |
+      # Run dashboard for 5 minutes, sample memory every 10 seconds
+      python3 scripts/af_dashboard.py &
+      PID=$!
+      for i in {1..30}; do
+        ps -o rss= -p $PID | awk '{print $1/1024 " MB"}'
+        sleep 10
+      done
+      kill $PID
+    expected: "Memory should plateau, not grow linearly"
+
+# ==============================================================================
+# DoD (Definition of Done) for Analysis
+# ==============================================================================
+dod_checklist:
+  - "[✓] code_search.py reviewed for memory issues"
+  - "[✓] doc_query.py reviewed for cache persistence"
+  - "[✓] better-sqlite3 hypothesis generated"
+  - "[✓] Dashboard memory leak patterns documented"
+  - "[✓] Process coordination recommendations provided"
+  - "[✓] Prioritized action items (P0/P1/P2) created"
+  - "[✓] Test-first verification commands provided"
+  - "[ ] better-sqlite3 architecture verified (awaiting execution)"
+  - "[ ] Dashboard memory leak reproduced (awaiting execution)"
+  - "[ ] Cache persistence fix tested (awaiting implementation)"

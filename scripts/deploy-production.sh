@@ -1,0 +1,1 @@
+monitoring/deploy_monitoring.sh

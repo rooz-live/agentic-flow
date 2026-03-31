@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+#
+# Validator #12: WSJF ROAM Escalator
+# Purpose: Auto-route critical files (PDFs, MD, JSON) to appropriate swarms
+#
+# Solves RCA root cause:
+# - Files like ARBITRATION-NOTICE-MARCH-3-2026.pdf exist but not auto-routed
+# - Folder replies (movers/, utilities/) sit idle without WSJF escalation
+# - Ripgrep finds 20+ files with "arbitration|utilities" but no swarm routing
+#
+# Usage:
+#   ./validator-12-wsjf-roam-escalator.sh --scan-folders
+#   ./validator-12-wsjf-roam-escalator.sh --route-file "ARBITRATION-NOTICE-MARCH-3-2026.pdf"
+#
+# Integration:
+#   - Runs daily at 9 AM via LaunchAgent
+#   - Integrates with ruflo memory + RuVector
+#   - Stores successful patterns in @claude-flow/cli memory
+#
+# Dependencies:
+#   - ripgrep (rg)
+#   - ruflo CLI
+#   - @claude-flow/cli
+#   - jq
+
+set -euo pipefail
+
+# Configuration
+BASE_DIR="/Users/shahroozbhopti/Documents"
+LEGAL_FOLDER="$BASE_DIR/Personal/CLT/MAA"
+CODE_FOLDER="$BASE_DIR/code/investing/agentic-flow"
+LOG_FILE="$HOME/Library/Logs/wsjf-roam-escalator.log"
+ROAM_TRACKER="$CODE_FOLDER/docs/110-frazier/ROAM_TRACKER.yaml"
+
+# WSJF priority thresholds
+WSJF_CRITICAL=45.0  # Physical move, arbitration notices
+WSJF_HIGH=40.0      # Utilities, credit disputes
+WSJF_MEDIUM=35.0    # Consulting, income
+WSJF_LOW=30.0       # Legal prep, exhibits
+
+# Ensure log directory exists
+mkdir -p "$(dirname "$LOG_FILE")"
+
+log() {
+    echo "[$(date +'%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+log "🚀 Validator #12: WSJF ROAM Escalator started"
+
+# Function: Detect file type and assign WSJF score
+assign_wsjf_score() {
+    local file="$1"
+    local filename=$(basename "$file")
+    local wsjf=30.0  # Default LOW
+    
+    # Critical files (WSJF 45.0)
+    if [[ "$filename" =~ ARBITRATION.*NOTICE|MOVE.*QUOTE|MOVER.*RESPONSE ]]; then
+        wsjf=$WSJF_CRITICAL
+    
+    # High priority (WSJF 40.0)
+    elif [[ "$filename" =~ utilities|Duke\ Energy|UTILITIES|CREDIT.*DISPUTE ]]; then
+        wsjf=$WSJF_HIGH
+    
+    # Medium priority (WSJF 35.0)
+    elif [[ "$filename" =~ consulting|income|720\.chat|applications\.json ]]; then
+        wsjf=$WSJF_MEDIUM
+    
+    # Low priority (WSJF 30.0)
+    else
+        wsjf=$WSJF_LOW
+    fi
+    
+    echo "$wsjf"
+}
+
+# Function: Route file to appropriate swarm
+route_to_swarm() {
+    local file="$1"
+    local wsjf="$2"
+    local filename=$(basename "$file")
+    
+    log "📋 Routing $filename (WSJF $wsjf) to swarm..."
+    
+    # Determine swarm based on WSJF score
+    local swarm="unknown"
+    local task_description=""
+    
+    if (( $(echo "$wsjf >= $WSJF_CRITICAL" | bc -l) )); then
+        swarm="physical-move-swarm"
+        task_description="Process critical file: $filename"
+    
+    elif (( $(echo "$wsjf >= $WSJF_HIGH" | bc -l) )); then
+        swarm="utilities-unblock-swarm"
+        task_description="Process utilities/credit file: $filename"
+    
+    elif (( $(echo "$wsjf >= $WSJF_MEDIUM" | bc -l) )); then
+        swarm="income-unblock-swarm"
+        task_description="Process consulting/income file: $filename"
+    
+    else
+        swarm="contract-legal-swarm"
+        task_description="Process legal file: $filename"
+    fi
+    
+    log "  → Swarm: $swarm"
+    log "  → Task: $task_description"
+    
+    # Route to ruflo hooks
+    npx ruflo hooks route \
+        --task "$task_description" \
+        --context "$swarm" \
+        >> "$LOG_FILE" 2>&1
+    
+    # Store in memory
+    npx @claude-flow/cli@latest memory store \
+        --key "wsjf-routed-$(date +%Y%m%d-%H%M%S)" \
+        --value "{\"file\": \"$filename\", \"wsjf\": $wsjf, \"swarm\": \"$swarm\"}" \
+        --namespace patterns \
+        >> "$LOG_FILE" 2>&1
+    
+    log "  ✅ Routed successfully"
+}
+
+# Function: Scan folders for unrouted files
+scan_folders() {
+    log "🔍 Scanning folders for unrouted critical files..."
+    
+    # Critical patterns to search for
+    local patterns=(
+        "ARBITRATION.*NOTICE"
+        "TRIAL.*DEBRIEF"
+        "applications\.json"
+        "MOVER.*QUOTE"
+        "utilities.*response"
+        "Duke.*Energy"
+    )
+    
+    local files_found=0
+    
+    for pattern in "${patterns[@]}"; do
+        log "  Searching for pattern: $pattern"
+        
+        # Use ripgrep to find files matching pattern (filename only, not content)
+        while IFS= read -r file; do
+            if [ -f "$file" ]; then
+                files_found=$((files_found + 1))
+                
+                # Assign WSJF score
+                local wsjf=$(assign_wsjf_score "$file")
+                
+                log "  📄 Found: $(basename "$file") (WSJF $wsjf)"
+                
+                # Route to swarm
+                route_to_swarm "$file" "$wsjf"
+            fi
+        done < <(find "$LEGAL_FOLDER" "$CODE_FOLDER/docs/12-AMANDA-BECK-110-FRAZIER" -type f -name "*$pattern*" 2>/dev/null || true)
+    done
+    
+    log "📊 Scan complete: $files_found files routed"
+}
+
+# Function: Check for new files in watched folders
+watch_folders() {
+    log "👀 Watching folders for new files..."
+    
+    local watched_folders=(
+        "$CODE_FOLDER/docs/12-AMANDA-BECK-110-FRAZIER/movers"
+        "$LEGAL_FOLDER/CORRESPONDENCE/INBOUND"
+        "$LEGAL_FOLDER/CORRESPONDENCE/OUTBOUND"
+    )
+    
+    local new_files=0
+    
+    for folder in "${watched_folders[@]}"; do
+        if [ -d "$folder" ]; then
+            log "  📁 Checking $folder..."
+            
+            # Find files modified in last 7 days (Gate 0 fix: was -1, now -7)
+            while IFS= read -r file; do
+                new_files=$((new_files + 1))
+                
+                local wsjf=$(assign_wsjf_score "$file")
+                log "    🆕 New file: $(basename "$file") (WSJF $wsjf)"
+                
+                route_to_swarm "$file" "$wsjf"
+            done < <(find "$folder" -type f -mtime -7 2>/dev/null || true)
+        fi
+    done
+    
+    log "📊 Watch complete: $new_files new files routed"
+}
+
+# Function: Update ROAM tracker with escalations
+update_roam_tracker() {
+    log "📝 Updating ROAM tracker..."
+    
+    if [ ! -f "$ROAM_TRACKER" ]; then
+        log "⚠️ ROAM tracker not found: $ROAM_TRACKER"
+        return
+    fi
+    
+    # Count today's escalations
+    local escalations=$(grep -c "wsjf-routed-$(date +%Y%m%d)" "$LOG_FILE" 2>/dev/null || echo "0")
+    
+    if [ "$escalations" -gt 0 ]; then
+        log "  → $escalations escalations today"
+        
+        # Append to ROAM tracker
+        cat >> "$ROAM_TRACKER" << EOF
+
+# AUTO-GENERATED by validator-12-wsjf-roam-escalator.sh on $(date +'%Y-%m-%d %H:%M:%S')
+R-2026-$(date +%j)-ESCALATOR:
+  description: "WSJF ROAM Escalator: $escalations files auto-routed to swarms"
+  priority: AUTOMATED
+  wsjf: 50.0
+  source: "validator-12"
+  escalations: $escalations
+  timestamp: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+EOF
+        log "  ✅ ROAM tracker updated"
+    fi
+}
+
+# Function: Generate summary report
+generate_summary() {
+    log "📊 Generating summary report..."
+    
+    local report_file="$CODE_FOLDER/reports/wsjf-roam-escalator-$(date +%Y%m%d).md"
+    mkdir -p "$(dirname "$report_file")"
+    
+    cat > "$report_file" << EOF
+# WSJF ROAM Escalator Summary
+**Date**: $(date +'%Y-%m-%d %H:%M:%S')  
+**Status**: ✅ Complete
+
+## Files Routed Today
+
+\`\`\`
+$(grep "Routed successfully" "$LOG_FILE" | tail -20)
+\`\`\`
+
+## WSJF Distribution
+
+| Priority | WSJF Range | Files |
+|----------|------------|-------|
+| CRITICAL | 45.0+ | $(grep "WSJF 45" "$LOG_FILE" | wc -l) |
+| HIGH | 40.0-44.9 | $(grep "WSJF 40" "$LOG_FILE" | wc -l) |
+| MEDIUM | 35.0-39.9 | $(grep "WSJF 3[5-9]" "$LOG_FILE" | wc -l) |
+| LOW | 30.0-34.9 | $(grep "WSJF 3[0-4]" "$LOG_FILE" | wc -l) |
+
+## Next Actions
+
+1. Review routed files in ruflo memory
+2. Check swarm progress: \`npx ruflo swarm status --name physical-move-swarm\`
+3. Verify ROAM tracker updates
+
+---
+
+**Automation**: Runs daily at 9 AM via LaunchAgent  
+**Log**: ~/Library/Logs/wsjf-roam-escalator.log
+EOF
+    
+    log "  ✅ Report saved: $report_file"
+}
+
+# Main execution
+case "${1:-scan}" in
+    --scan-folders)
+        scan_folders
+        watch_folders
+        update_roam_tracker
+        generate_summary
+        ;;
+    
+    --route-file)
+        if [ -z "${2:-}" ]; then
+            log "❌ Error: --route-file requires file path"
+            exit 1
+        fi
+        
+        local file="$2"
+        if [ ! -f "$file" ]; then
+            log "❌ Error: File not found: $file"
+            exit 1
+        fi
+        
+        local wsjf=$(assign_wsjf_score "$file")
+        route_to_swarm "$file" "$wsjf"
+        ;;
+    
+    --watch)
+        watch_folders
+        ;;
+    
+    *)
+        log "📋 Usage:"
+        log "  $0 --scan-folders    # Scan all folders and route files"
+        log "  $0 --route-file FILE # Route specific file"
+        log "  $0 --watch           # Watch folders for new files"
+        exit 1
+        ;;
+esac
+
+# Post task success
+npx @claude-flow/cli@latest hooks post-task \
+    --task-id "validator-12-wsjf-roam-escalator-$(date +%Y%m%d)" \
+    --success true \
+    --store-results true \
+    >> "$LOG_FILE" 2>&1
+
+log "🎉 Validator #12 complete!"

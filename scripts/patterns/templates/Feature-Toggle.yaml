@@ -1,0 +1,234 @@
+pattern: Feature-Toggle
+description: Progressive delivery with runtime feature flags and gradual rollout
+category: execution
+
+definition_of_ready:
+  - criterion: Toggle scope defined
+    description: Which features will be toggleable?
+    validation: Feature list documented with toggle keys
+    
+  - criterion: Rollout strategy specified
+    description: How will feature be rolled out? (percentage, user segments, etc.)
+    validation: Rollout plan documented (0% → 10% → 50% → 100%)
+    
+  - criterion: Rollback plan exists
+    description: How to disable feature quickly if issues arise?
+    validation: Emergency rollback procedure documented
+
+definition_of_done:
+  - criterion: Toggle system implemented
+    description: Feature flags evaluated at runtime
+    validation: Toggle checks present in code
+    command: "grep -r 'feature_toggle\\|feature_flag' src/ | wc -l"
+    blocking: true
+    
+  - criterion: Configuration externalized
+    description: Toggles configurable without code deployment
+    validation: Toggle state stored in config system (DB, Redis, etc.)
+    command: "pytest tests/test_feature_toggle.py::test_external_config"
+    blocking: true
+    
+  - criterion: Gradual rollout working
+    description: Feature enabled for specified percentage of users
+    validation: Rollout percentage honored
+    command: "pytest tests/test_feature_toggle.py::test_percentage_rollout"
+    blocking: true
+    
+  - criterion: User segmentation functional
+    description: Toggle based on user attributes (beta users, regions, etc.)
+    validation: Correct users see feature
+    command: "pytest tests/test_feature_toggle.py::test_user_segments"
+    blocking: false
+    
+  - criterion: Telemetry tracking toggles
+    description: Toggle evaluations logged
+    validation: Toggle events in telemetry
+    command: "grep 'feature_toggle_evaluated' logs/telemetry.jsonl | jq '.feature_name'"
+    blocking: false
+
+telemetry:
+  emit_on_evaluation: true
+  emit_on_state_change: true
+  metrics:
+    - toggle_evaluations_total
+    - toggle_state  # enabled/disabled
+    - rollout_percentage
+    - user_segment_distribution
+
+wsjf_guidance:
+  user_value: "Very High - enables safe feature releases and A/B testing"
+  time_criticality: "Medium - foundation for continuous delivery"
+  risk_reduction: "Very High - eliminates big-bang release risk"
+  job_size: "Small 1-3 days (infrastructure)"
+
+toggle_types:
+  release_toggle:
+    description: "Hide incomplete features in production"
+    lifespan: "Short-term (weeks to months)"
+    use_case: "Trunk-based development, incomplete features"
+    example: "new_checkout_flow"
+    
+  experiment_toggle:
+    description: "A/B testing, multivariate experiments"
+    lifespan: "Short-term (days to weeks)"
+    use_case: "Data-driven product decisions"
+    example: "pricing_variant_b"
+    
+  ops_toggle:
+    description: "Operational control (disable resource-heavy features)"
+    lifespan: "Long-term (permanent)"
+    use_case: "Load shedding, circuit breaker override"
+    example: "enable_recommendations_engine"
+    
+  permission_toggle:
+    description: "Feature access control"
+    lifespan: "Long-term (permanent)"
+    use_case: "Premium features, beta programs"
+    example: "premium_analytics_dashboard"
+
+rollout_strategies:
+  percentage_based:
+    description: "Enable for X% of users"
+    implementation: "hash(user_id) % 100 < rollout_percentage"
+    pros: "Simple, predictable distribution"
+    cons: "Not sticky (user may flip between states)"
+    
+  user_segment:
+    description: "Enable for specific user groups"
+    implementation: "user.segment in enabled_segments"
+    pros: "Precise targeting"
+    cons: "Requires segment data"
+    
+  ring_deployment:
+    description: "Progressive rings: internal → beta → prod"
+    implementation: "Ring 0 (devs) → Ring 1 (10%) → Ring 2 (50%) → Ring 3 (100%)"
+    pros: "Controlled blast radius"
+    cons: "Requires ring infrastructure"
+    
+  canary:
+    description: "Small percentage initially, auto-rollout if healthy"
+    implementation: "Start 1%, increment by 10% every 30 min if metrics good"
+    pros: "Automated rollout"
+    cons: "Requires metric monitoring"
+
+toggle_management:
+  storage:
+    - database: "PostgreSQL with caching"
+    - redis: "Fast reads, pub/sub for updates"
+    - config_service: "LaunchDarkly, Unleash, Split.io"
+    
+  evaluation:
+    server_side: "Backend evaluates toggles (recommended)"
+    client_side: "Frontend evaluates toggles (less secure)"
+    hybrid: "Backend provides toggle state, client caches"
+    
+  lifecycle:
+    - create: "Add toggle with 0% rollout"
+    - rollout: "Gradually increase percentage"
+    - monitor: "Watch metrics during rollout"
+    - complete: "100% rollout achieved"
+    - cleanup: "Remove toggle code (technical debt reduction)"
+
+examples:
+  - title: "New Recommendation Algorithm with 10% Rollout"
+    toggle_key: "ml_recommendations_v2"
+    rollout_strategy: "percentage_based"
+    initial_percentage: 10
+    target_percentage: 100
+    increment_schedule: "10% per day if error_rate < 1%"
+    wsjf: 15.0
+    cod: 30
+    size: 2
+    metrics:
+      - day_1: "10% rollout, 0.2% error rate ✅"
+      - day_3: "30% rollout, 0.3% error rate ✅"
+      - day_7: "70% rollout, 0.5% error rate ✅"
+      - day_10: "100% rollout, 0.4% error rate ✅"
+    result: "Success - New algorithm deployed safely with no incidents"
+    
+  - title: "Premium Features for Beta Users"
+    toggle_key: "premium_analytics"
+    rollout_strategy: "user_segment"
+    segments: ["beta_testers", "enterprise_tier"]
+    wsjf: 10.0
+    cod: 20
+    size: 2
+    metrics:
+      - beta_users_enabled: 150
+      - enterprise_users_enabled: 45
+      - feature_usage_rate: "68%"
+    result: "Success - Premium features validated with beta users before GA"
+
+anti_patterns:
+  toggle_spaghetti:
+    description: "Too many nested toggles, unreadable code"
+    consequence: "Maintenance nightmare, hard to reason about states"
+    mitigation: "Limit toggle depth to 2, clean up old toggles aggressively"
+    
+  long_lived_toggles:
+    description: "Toggles never removed, accumulate over time"
+    consequence: "Technical debt, code bloat"
+    mitigation: "Set expiration dates, automate toggle cleanup"
+    
+  no_monitoring:
+    description: "Toggle changes without metric tracking"
+    consequence: "Can't detect problems, blind rollouts"
+    mitigation: "Emit telemetry on every toggle evaluation"
+    
+  toggle_overuse:
+    description: "Everything is a toggle, even trivial changes"
+    consequence: "Complexity without benefit"
+    mitigation: "Use toggles only for risky or gradual releases"
+
+best_practices:
+  naming_convention:
+    format: "<scope>_<feature>_<version>"
+    examples:
+      - "api_rate_limiting_v2"
+      - "ui_dark_mode"
+      - "backend_new_cache_layer"
+      
+  default_state:
+    rule: "Default to OFF (disabled)"
+    reason: "Fail-safe if toggle system unavailable"
+    
+  toggle_expiration:
+    release_toggle: "30-90 days"
+    experiment_toggle: "7-30 days"
+    ops_toggle: "No expiration (permanent)"
+    permission_toggle: "No expiration (permanent)"
+    
+  monitoring:
+    - track_evaluation_count
+    - track_toggle_latency
+    - alert_on_config_load_failure
+    - dashboard_showing_active_toggles
+
+integration_tools:
+  open_source:
+    - unleash: "Feature toggle service with UI"
+    - flipper: "Ruby feature flipping"
+    - togglz: "Java feature flags"
+    
+  commercial:
+    - launchdarkly: "Enterprise feature management"
+    - split_io: "Feature delivery with experimentation"
+    - optimizely: "A/B testing and feature flags"
+    
+  cloud_native:
+    - aws_appconfig: "AWS native feature flags"
+    - gcp_remote_config: "Firebase Remote Config"
+    - azure_app_configuration: "Azure feature flags"
+
+revenue_attribution:
+  pattern: Feature-Toggle
+  circles_using:
+    - circle: innovator
+      monthly_cost_savings: 4000
+      reason: "Safe feature releases, reduced rollback incidents"
+    - circle: assessor
+      monthly_cost_savings: 2500
+      reason: "A/B testing without deployment overhead"
+  total_monthly_impact: 6500
+  release_velocity_improvement: "2x faster feature releases"
+  incident_reduction: "60% fewer rollback incidents"

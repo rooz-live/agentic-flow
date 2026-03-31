@@ -1,0 +1,116 @@
+# Monitoring Setup
+# Last Updated: 2025-11-28
+# Status: Operational
+
+components:
+  - name: Cron Health Monitor
+    location: scripts/monitoring/cron_health_monitor.sh
+    purpose: Checks system load and logs to governor incidents
+    schedule: Every 5 minutes (recommended)
+    log_output: logs/governor_incidents.jsonl
+    installation:
+      macos: ./scripts/install_daily_upstream_check.sh
+      linux: "crontab -e  # Add: */5 * * * * /path/to/scripts/monitoring/cron_health_monitor.sh"
+
+  - name: Upstream Dependency Check
+    location: scripts/check_upstream_updates.sh
+    purpose: Checks IRIS dependency health and runs npm audit
+    schedule: Daily at 09:00 UTC
+    output: logs/upstream_updates_latest.md
+    actions_generated: .goalie/UPSTREAM_ACTIONS.yaml
+
+  - name: IRIS Governance Dashboard
+    location: scripts/monitoring/dashboard.html
+    purpose: Real-time IRIS metrics visualization
+    start_command: cd scripts/monitoring && python3 -m http.server 8000
+    url: http://localhost:8000/dashboard.html
+    metrics_displayed:
+      - Total IRIS evaluations (24h)
+      - Critical/Urgent actions count
+      - Active circles status
+      - Production maturity score
+
+  - name: Metrics Collection Pipeline
+    primary_log: .goalie/metrics_log.jsonl
+    event_types:
+      - iris_evaluation
+      - dt_calibration
+      - learning_event
+      - health_check
+    periodic_collection:
+      5_minutes: /usr/local/bin/python3 .agentdb/plugins/collect_tdd_metrics.py --calibration-test
+      hourly: npx agentdb db stats
+      daily: /usr/local/bin/python3 scripts/agentic/calculate_readiness_score.py
+
+ci_cd_monitoring:
+  github_actions:
+    - check: IRIS Governance Tests
+      trigger: IRIS update
+      pass_criteria: Exit 0
+    - check: DT Calibration Tests
+      trigger: Python/IRIS update
+      pass_criteria: Exit 0
+    - check: ReasoningBank Public API
+      trigger: npm update
+      pass_criteria: Exit 0, 1 test pass
+    - check: Dashboard Validation
+      trigger: IRIS update
+      pass_criteria: Exit 0
+    - check: Security Audit
+      trigger: npm update
+      pass_criteria: <= 10 high vulns
+
+  gitlab_ci_stages:
+    - stage: detect
+      jobs: detect-dependency-changes
+      image: alpine
+    - stage: test-iris
+      jobs: iris-governance, iris-prod-cycle
+      image: python:3.11
+    - stage: test-dt
+      jobs: dt-calibration, dt-quality-gates
+      image: python:3.11
+    - stage: test-reasoningbank
+      jobs: reasoningbank-public-api
+      image: node:20
+    - stage: security
+      jobs: security-audit
+      image: node:20
+    - stage: validate
+      jobs: major-update-approval (manual)
+      image: alpine
+
+alerting:
+  severity_levels:
+    - level: CRITICAL
+      response_time: Immediate
+      escalation: Page on-call
+    - level: HIGH
+      response_time: 1 hour
+      escalation: Slack notification
+    - level: MEDIUM
+      response_time: 4 hours
+      escalation: Email digest
+    - level: LOW
+      response_time: 24 hours
+      escalation: Weekly report
+
+  alert_sources:
+    - npm audit (Security vulnerabilities)
+    - IRIS evaluations (Critical actions backlog)
+    - DT quality gates (Threshold drift)
+    - Cron health (System load spikes)
+
+troubleshooting:
+  no_metrics_in_dashboard:
+    - command: ls -la .goalie/metrics_log.jsonl
+      purpose: Check if metrics log exists
+    - command: grep iris_evaluation .goalie/metrics_log.jsonl | tail -5
+      purpose: Verify IRIS generating events
+    - command: python3 scripts/agentic/bootstrap_local_metrics.py
+      purpose: Restart metrics collection
+
+  cron_not_running:
+    macos: launchctl list | grep agentic
+    linux: grep CRON /var/log/syslog | tail -10
+

@@ -1,0 +1,366 @@
+global:
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alerts@agentic-flow.com'
+  smtp_auth_username: 'alerts@agentic-flow.com'
+  smtp_auth_password: 'password'
+  slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+
+# Route configuration for alert routing
+route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: 'default'
+  routes:
+    # Critical alerts go to all channels immediately
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 0s
+      repeat_interval: 5m
+      continue: true
+
+    # Warning alerts go to specific channels
+    - match:
+        severity: warning
+      receiver: 'warning-alerts'
+      group_wait: 30s
+      repeat_interval: 2h
+      continue: true
+
+    # System alerts go to ops team
+    - match:
+        service: system
+      receiver: 'ops-team'
+      continue: true
+
+    # Security alerts go to security team
+    - match:
+        service: security
+      receiver: 'security-team'
+      continue: true
+
+    # Business alerts go to business team
+    - match:
+        service: business
+      receiver: 'business-team'
+      continue: true
+
+    # Trading alerts go to trading team
+    - match:
+        service: trading
+      receiver: 'trading-team'
+      continue: true
+
+    # Discord alerts go to discord team
+    - match:
+        service: discord
+      receiver: 'discord-team'
+      continue: true
+
+    # Payment alerts go to payment team
+    - match:
+        service: payment
+      receiver: 'payment-team'
+      continue: true
+
+    # Application alerts go to dev team
+    - match:
+        service: application
+      receiver: 'dev-team'
+      continue: true
+
+    # Database alerts go to dba team
+    - match:
+        service: database
+      receiver: 'dba-team'
+      continue: true
+
+# Inhibition rules to prevent alert spam
+inhibit_rules:
+  # Inhibit warning alerts if critical alert is firing for same instance
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'instance']
+
+  # Inhibit non-critical alerts if system is down
+  - source_match:
+      alertname: 'ApplicationDown'
+    target_match_re:
+      service: '.+'
+    equal: ['instance']
+
+  # Inhibit database alerts if database is down
+  - source_match:
+      alertname: 'DatabaseDown'
+    target_match_re:
+      alertname: 'HighDatabase.+'
+    equal: ['job']
+
+# Notification receivers
+receivers:
+  # Default receiver
+  - name: 'default'
+    email_configs:
+      - to: 'ops@agentic-flow.com'
+        headers:
+          Subject: '[Agentic Flow Alert] {{ .GroupLabels.alertname }}'
+        html: |
+          <h2>Agentic Flow Alert</h2>
+          {{ range .Alerts }}
+          <p><strong>Alert:</strong> {{ .Annotations.summary }}</p>
+          <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+          <p><strong>Labels:</strong> {{ range .Labels.SortedPairs }}{{ .Name }}={{ .Value }} {{ end }}</p>
+          <hr>
+          {{ end }}
+    slack_configs:
+      - channel: '#alerts'
+        title: 'Agentic Flow Alert'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Severity:* {{ .Labels.severity }}
+          *Service:* {{ .Labels.service }}
+          {{ end }}
+
+  # Critical alerts receiver - all channels
+  - name: 'critical-alerts'
+    email_configs:
+      - to: 'critical@agentic-flow.com,ops@agentic-flow.com'
+        headers:
+          Subject: '[CRITICAL] {{ .GroupLabels.alertname }}'
+        html: |
+          <h2>🚨 CRITICAL ALERT 🚨</h2>
+          {{ range .Alerts }}
+          <p><strong>Alert:</strong> {{ .Annotations.summary }}</p>
+          <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+          <p><strong>Instance:</strong> {{ .Labels.instance }}</p>
+          <p><strong>Service:</strong> {{ .Labels.service }}</p>
+          <p><strong>Time:</strong> {{ .StartsAt }}</p>
+          <p><strong>Immediate action required!</strong></p>
+          <hr>
+          {{ end }}
+    slack_configs:
+      - channel: '#critical-alerts'
+        title: '🚨 CRITICAL ALERT'
+        color: 'danger'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Instance:* {{ .Labels.instance }}
+          *Service:* {{ .Labels.service }}
+          *Time:* {{ .StartsAt }}
+          {{ end }}
+    webhook_configs:
+      - url: 'http://localhost:8080/webhooks/critical'
+        send_resolved: true
+
+  # Warning alerts receiver
+  - name: 'warning-alerts'
+    email_configs:
+      - to: 'alerts@agentic-flow.com'
+        headers:
+          Subject: '[WARNING] {{ .GroupLabels.alertname }}'
+        html: |
+          <h2>⚠️ WARNING ALERT ⚠️</h2>
+          {{ range .Alerts }}
+          <p><strong>Alert:</strong> {{ .Annotations.summary }}</p>
+          <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+          <p><strong>Instance:</strong> {{ .Labels.instance }}</p>
+          <p><strong>Service:</strong> {{ .Labels.service }}</p>
+          <p><strong>Time:</strong> {{ .StartsAt }}</p>
+          <hr>
+          {{ end }}
+    slack_configs:
+      - channel: '#warnings'
+        title: '⚠️ WARNING ALERT'
+        color: 'warning'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Instance:* {{ .Labels.instance }}
+          *Service:* {{ .Labels.service }}
+          {{ end }}
+
+  # Operations team receiver
+  - name: 'ops-team'
+    email_configs:
+      - to: 'ops@agentic-flow.com'
+        headers:
+          Subject: '[OPS] {{ .GroupLabels.alertname }}'
+        html: |
+          <h2>Operations Alert</h2>
+          {{ range .Alerts }}
+          <p><strong>Alert:</strong> {{ .Annotations.summary }}</p>
+          <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+          <p><strong>Instance:</strong> {{ .Labels.instance }}</p>
+          <hr>
+          {{ end }}
+    slack_configs:
+      - channel: '#ops'
+        title: 'Operations Alert'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+
+  # Security team receiver
+  - name: 'security-team'
+    email_configs:
+      - to: 'security@agentic-flow.com'
+        headers:
+          Subject: '[SECURITY] {{ .GroupLabels.alertname }}'
+        html: |
+          <h2>🛡️ SECURITY ALERT 🛡️</h2>
+          {{ range .Alerts }}
+          <p><strong>Alert:</strong> {{ .Annotations.summary }}</p>
+          <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+          <p><strong>Instance:</strong> {{ .Labels.instance }}</p>
+          <p><strong>Severity:</strong> {{ .Labels.severity }}</p>
+          <hr>
+          {{ end }}
+    slack_configs:
+      - channel: '#security'
+        title: '🛡️ Security Alert'
+        color: 'danger'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Severity:* {{ .Labels.severity }}
+          {{ end }}
+
+  # Business team receiver
+  - name: 'business-team'
+    email_configs:
+      - to: 'business@agentic-flow.com'
+        headers:
+          Subject: '[BUSINESS] {{ .GroupLabels.alertname }}'
+        html: |
+          <h2>Business Metrics Alert</h2>
+          {{ range .Alerts }}
+          <p><strong>Alert:</strong> {{ .Annotations.summary }}</p>
+          <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+          <hr>
+          {{ end }}
+    slack_configs:
+      - channel: '#business-metrics'
+        title: 'Business Alert'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+
+  # Trading team receiver
+  - name: 'trading-team'
+    email_configs:
+      - to: 'trading@agentic-flow.com'
+        headers:
+          Subject: '[TRADING] {{ .GroupLabels.alertname }}'
+        html: |
+          <h2>Trading System Alert</h2>
+          {{ range .Alerts }}
+          <p><strong>Alert:</strong> {{ .Annotations.summary }}</p>
+          <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+          <hr>
+          {{ end }}
+    slack_configs:
+      - channel: '#trading'
+        title: 'Trading Alert'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+
+  # Discord team receiver
+  - name: 'discord-team'
+    email_configs:
+      - to: 'discord-team@agentic-flow.com'
+        headers:
+          Subject: '[DISCORD] {{ .GroupLabels.alertname }}'
+        html: |
+          <h2>Discord Bot Alert</h2>
+          {{ range .Alerts }}
+          <p><strong>Alert:</strong> {{ .Annotations.summary }}</p>
+          <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+          <hr>
+          {{ end }}
+
+  # Payment team receiver
+  - name: 'payment-team'
+    email_configs:
+      - to: 'payments@agentic-flow.com'
+        headers:
+          Subject: '[PAYMENT] {{ .GroupLabels.alertname }}'
+        html: |
+          <h2>Payment System Alert</h2>
+          {{ range .Alerts }}
+          <p><strong>Alert:</strong> {{ .Annotations.summary }}</p>
+          <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+          <hr>
+          {{ end }}
+    slack_configs:
+      - channel: '#payments'
+        title: 'Payment Alert'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+
+  # Development team receiver
+  - name: 'dev-team'
+    email_configs:
+      - to: 'dev@agentic-flow.com'
+        headers:
+          Subject: '[DEV] {{ .GroupLabels.alertname }}'
+        html: |
+          <h2>Application Alert</h2>
+          {{ range .Alerts }}
+          <p><strong>Alert:</strong> {{ .Annotations.summary }}</p>
+          <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+          <hr>
+          {{ end }}
+    slack_configs:
+      - channel: '#development'
+        title: 'Application Alert'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+
+  # Database team receiver
+  - name: 'dba-team'
+    email_configs:
+      - to: 'dba@agentic-flow.com'
+        headers:
+          Subject: '[DBA] {{ .GroupLabels.alertname }}'
+        html: |
+          <h2>Database Alert</h2>
+          {{ range .Alerts }}
+          <p><strong>Alert:</strong> {{ .Annotations.summary }}</p>
+          <p><strong>Description:</strong> {{ .Annotations.description }}</p>
+          <hr>
+          {{ end }}
+    slack_configs:
+      - channel: '#database'
+        title: 'Database Alert'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          {{ end }}
+
+# Templates for custom alert formatting
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'

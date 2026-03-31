@@ -1,0 +1,166 @@
+# Multi-Domain SSO Configuration for interface.* Domains
+# RISK-005 Mitigation: WordPress/Flarum SSO across 7 domains
+# Status: POC_READY
+# Owner: innovator_circle
+# ROAM: OWNED → MITIGATING
+
+metadata:
+  risk_id: "RISK-005"
+  created_at: "2025-12-31"
+  priority: "P1"
+  wsjf_score: 9
+  description: "Single sign-on across 7 interface.* domains + Flarum integration"
+
+# OAuth2/OpenID Connect Server Configuration
+# Using agentic-flow-core OAuthAuthenticator as foundation
+identity_provider:
+  type: "oauth2_oidc"
+  provider_name: "interface-identity"
+  
+  # Recommended: Keycloak for self-hosted, or Auth0 for managed
+  implementation_options:
+    keycloak:
+      description: "Self-hosted, full control, free"
+      endpoint: "https://auth.interface.tag.ooo"
+      admin_console: "https://auth.interface.tag.ooo/admin"
+      recommended: true
+      
+    auth0:
+      description: "Managed service, easier setup"
+      endpoint: "https://interface-identity.auth0.com"
+      
+    custom:
+      description: "Use agentic-flow-core OAuthAuthenticator"
+      endpoint: "https://api.interface.tag.ooo/auth"
+      component: "@ruvector/agentic-flow-core/security/oauth/oauth-authenticator"
+
+# Protected Domains (7 total)
+domains:
+  - name: "app"
+    fqdn: "app.interface.tag.ooo"
+    type: "primary_app"
+    requires_auth: true
+    
+  - name: "enterprise"
+    fqdn: "enterprise.interface.tag.ooo"
+    type: "enterprise_app"
+    requires_auth: true
+    requires_role: ["enterprise_admin", "enterprise_user"]
+    
+  - name: "billing"
+    fqdn: "billing.interface.tag.ooo"
+    type: "hostbill"
+    requires_auth: true
+    sso_plugin: "hostbill-oauth2"
+    
+  - name: "forum"
+    fqdn: "forum.interface.tag.ooo"
+    type: "flarum"
+    requires_auth: true
+    sso_extension: "fof/oauth"
+    
+  - name: "blog"
+    fqdn: "blog.interface.tag.ooo"
+    type: "wordpress"
+    requires_auth: false  # Blog can be public
+    sso_plugin: "nextend-social-login"
+    
+  - name: "analytics"
+    fqdn: "analytics.interface.tag.ooo"
+    type: "internal"
+    requires_auth: true
+    requires_role: ["admin", "analyst"]
+    
+  - name: "risk"
+    fqdn: "risk.interface.tag.ooo"
+    type: "internal"
+    requires_auth: true
+    requires_role: ["admin", "analyst", "risk_manager"]
+
+# SSO Flow Configuration
+sso_flow:
+  # JWT/Token configuration
+  tokens:
+    access_token_expiry: 3600  # 1 hour
+    refresh_token_expiry: 604800  # 7 days
+    id_token_expiry: 3600
+    algorithm: "RS256"
+    
+  # Session configuration
+  sessions:
+    timeout: 28800  # 8 hours
+    rolling: true
+    max_concurrent: 5
+    storage: "redis"  # or "database"
+    
+  # PKCE configuration (required for public clients)
+  pkce:
+    enabled: true
+    code_verifier_length: 43
+    
+  # Cross-domain cookie configuration
+  cookies:
+    domain: ".interface.tag.ooo"  # Shared cookie domain
+    secure: true
+    http_only: true
+    same_site: "lax"
+
+# Platform-Specific Integration Steps
+integration_steps:
+  wordpress:
+    plugin: "nextend-social-login"
+    configuration:
+      provider: "oauth2"
+      client_id: "${WORDPRESS_OAUTH_CLIENT_ID}"
+      client_secret: "${WORDPRESS_OAUTH_CLIENT_SECRET}"
+      redirect_uri: "https://blog.interface.tag.ooo/wp-login.php?loginSocial=oauth2"
+      
+  flarum:
+    extension: "fof/oauth"
+    configuration:
+      provider: "custom"
+      client_id: "${FLARUM_OAUTH_CLIENT_ID}"
+      client_secret: "${FLARUM_OAUTH_CLIENT_SECRET}"
+      authorize_url: "https://auth.interface.tag.ooo/auth/authorize"
+      token_url: "https://auth.interface.tag.ooo/auth/token"
+      
+  hostbill:
+    plugin: "oauth2-module"
+    configuration:
+      enabled: true
+      provider: "custom"
+      client_id: "${HOSTBILL_OAUTH_CLIENT_ID}"
+      
+# Validation Checklist
+validation_checklist:
+  - id: "SSO-001"
+    description: "Identity provider deployed and accessible"
+    command: "curl -s https://auth.interface.tag.ooo/.well-known/openid-configuration"
+    
+  - id: "SSO-002"
+    description: "WordPress SSO plugin configured"
+    command: "curl -s https://blog.interface.tag.ooo/wp-json/nextend-social/v1/providers"
+    
+  - id: "SSO-003"
+    description: "Flarum SSO extension enabled"
+    command: "curl -s https://forum.interface.tag.ooo/api | jq '.data.attributes.extensions'"
+    
+  - id: "SSO-004"
+    description: "Cross-domain cookie working"
+    command: "curl -s -c cookies.txt -b cookies.txt https://app.interface.tag.ooo/auth/check"
+    
+  - id: "SSO-005"
+    description: "Token refresh flow working"
+    command: "./scripts/af test-sso-refresh --domain app.interface.tag.ooo"
+
+# ROAM Transition Steps
+roam_transition:
+  current_status: "OWNED"
+  target_status: "MITIGATED"
+  steps:
+    - "Deploy identity provider (Keycloak recommended)"
+    - "Configure WordPress SSO plugin"
+    - "Configure Flarum OAuth extension"
+    - "Test cross-domain authentication"
+    - "Update ROAM_TRACKER.yaml status to MITIGATED"
+

@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deck.gl 4-Layer Swarm Visualization - Claude Flow V3</title>
+    <script src="https://unpkg.com/deck.gl@latest/dist.min.js"></script>
+    <script src="https://unpkg.com/@deck.gl/core@latest/dist.min.js"></script>
+    <script src="https://unpkg.com/@deck.gl/layers@latest/dist.min.js"></script>
+    <script src="https://unpkg.com/@deck.gl/aggregation-layers@latest/dist.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #0a0e1a;
+            color: #e0e6ed;
+            overflow: hidden;
+        }
+        
+        #deck-container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .panel {
+            position: absolute;
+            background: rgba(15, 20, 35, 0.95);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(100, 150, 255, 0.2);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+            z-index: 1000;
+        }
+        
+        #layer-control {
+            top: 20px;
+            left: 20px;
+            width: 320px;
+        }
+        
+        #stats {
+            top: 20px;
+            right: 20px;
+            width: 280px;
+        }
+        
+        #swarm-info {
+            bottom: 20px;
+            left: 20px;
+            width: 400px;
+        }
+        
+        h2 {
+            color: #6495ff;
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            border-bottom: 2px solid rgba(100, 149, 255, 0.3);
+            padding-bottom: 8px;
+        }
+        
+        .layer-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px;
+            margin: 8px 0;
+            background: rgba(100, 149, 255, 0.1);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .layer-toggle:hover {
+            background: rgba(100, 149, 255, 0.2);
+            transform: translateX(4px);
+        }
+        
+        .layer-toggle.active {
+            background: rgba(100, 149, 255, 0.3);
+            border-left: 3px solid #6495ff;
+        }
+        
+        .layer-icon {
+            font-size: 24px;
+            margin-right: 12px;
+        }
+        
+        .layer-label {
+            flex: 1;
+            font-weight: 600;
+        }
+        
+        .layer-count {
+            color: #6495ff;
+            font-weight: 700;
+        }
+        
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            margin: 6px 0;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        
+        .metric-label {
+            color: #8e9aaf;
+        }
+        
+        .metric-value {
+            color: #00ff88;
+            font-weight: 700;
+        }
+        
+        .metric-value.warning { color: #ffaa00; }
+        .metric-value.critical { color: #ff4444; }
+        
+        button {
+            width: 100%;
+            padding: 14px;
+            margin: 10px 0;
+            background: linear-gradient(135deg, #6495ff 0%, #5478e0 100%);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-weight: 700;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 24px rgba(100, 149, 255, 0.4);
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-active { background: #00ff88; }
+        .status-idle { background: #ffaa00; }
+        .status-error { background: #ff4444; }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        #queen-status {
+            font-size: 36px;
+            font-weight: 800;
+            text-align: center;
+            background: linear-gradient(135deg, #6495ff 0%, #00ff88 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin: 16px 0;
+            text-shadow: 0 0 30px rgba(100, 149, 255, 0.5);
+        }
+        
+        .connection-arc {
+            stroke: rgba(100, 149, 255, 0.6);
+            stroke-width: 2;
+            fill: none;
+            animation: flow 2s linear infinite;
+        }
+        
+        @keyframes flow {
+            0% { stroke-dashoffset: 0; }
+            100% { stroke-dashoffset: 100; }
+        }
+    </style>
+</head>
+<body>
+    <div id="deck-container"></div>
+    
+    <div id="layer-control" class="panel">
+        <h2>🎯 Swarm Layers</h2>
+        
+        <div class="layer-toggle active" onclick="toggleLayer('queen')">
+            <span class="layer-icon">👑</span>
+            <span class="layer-label">Queen (Aggregate)</span>
+            <span class="layer-count" id="queen-count">1</span>
+        </div>
+        
+        <div class="layer-toggle active" onclick="toggleLayer('specialists')">
+            <span class="layer-icon">🎯</span>
+            <span class="layer-label">Specialists (ROAM)</span>
+            <span class="layer-count" id="specialist-count">8</span>
+        </div>
+        
+        <div class="layer-toggle active" onclick="toggleLayer('memory')">
+            <span class="layer-icon">🧠</span>
+            <span class="layer-label">Memory (Vector)</span>
+            <span class="layer-count" id="memory-count">256</span>
+        </div>
+        
+        <div class="layer-toggle active" onclick="toggleLayer('execution')">
+            <span class="layer-icon">⚡</span>
+            <span class="layer-label">Execution (Real-time)</span>
+            <span class="layer-count" id="execution-count">42</span>
+        </div>
+        
+        <button onclick="initializeSwarm()">🚀 Initialize Swarm</button>
+        <button onclick="resetVisualization()">🔄 Reset View</button>
+    </div>
+    
+    <div id="stats" class="panel">
+        <h2>📊 Performance</h2>
+        <div class="metric">
+            <span class="metric-label">Frame Rate</span>
+            <span class="metric-value" id="fps">60 FPS</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">GPU Memory</span>
+            <span class="metric-value" id="gpu-mem">--</span>
+        </div>
+        <div class="metric">
+            <span class="metric-label">Active Agents</span>
+            <span class="metric-value" id="active-agents">8

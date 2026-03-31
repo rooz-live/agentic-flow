@@ -1,0 +1,140 @@
+# Prometheus Configuration for Greenfield Infrastructure
+# Target: 99.9% availability, MTTR <15min, >1000 RPS, <200ms P95
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: 'production'
+    cluster: 'stx-greenfield'
+    datacenter: 'interface-tag-ooo'
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+rule_files:
+  - '/etc/prometheus/rules/sla_rules.yml'
+  - '/etc/prometheus/rules/platform_rules.yml'
+  - '/etc/prometheus/rules/infrastructure_rules.yml'
+
+scrape_configs:
+  # Self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # StarlingX host metrics
+  - job_name: 'starlingx'
+    static_configs:
+      - targets: ['23.92.79.2:9100']
+        labels:
+          host: 'stx-aio-0'
+          role: 'hypervisor'
+
+  # Ubuntu VM node exporters
+  - job_name: 'ubuntu-vms'
+    static_configs:
+      - targets:
+          - '10.20.0.10:9100'  # loki-monitor
+          - '10.20.0.11:9100'  # k8s-control
+          - '10.20.0.20:9100'  # hostbill
+          - '10.20.0.21:9100'  # wordpress
+          - '10.20.0.22:9100'  # flarum
+          - '10.20.0.23:9100'  # affiliate
+          - '10.20.0.24:9100'  # trading
+        labels:
+          os: 'ubuntu-22.04'
+          containerd_version: '2.2.1'
+
+  # Platform-specific metrics
+  - job_name: 'hostbill'
+    static_configs:
+      - targets: ['10.20.0.20:9113']
+        labels:
+          platform: 'hostbill'
+          role: 'billing'
+
+  - job_name: 'wordpress'
+    static_configs:
+      - targets: ['10.20.0.21:9113']
+        labels:
+          platform: 'wordpress'
+          role: 'cms'
+
+  - job_name: 'flarum'
+    static_configs:
+      - targets: ['10.20.0.22:9113']
+        labels:
+          platform: 'flarum'
+          role: 'community'
+
+  - job_name: 'affiliate'
+    static_configs:
+      - targets: ['10.20.0.23:3000']
+        labels:
+          platform: 'affiliate'
+          role: 'affiliate-marketing'
+    metrics_path: '/metrics'
+
+  - job_name: 'trading'
+    static_configs:
+      - targets: ['10.20.0.24:8000']
+        labels:
+          platform: 'trading'
+          role: 'financial-trading'
+    metrics_path: '/metrics'
+
+  # Kubernetes metrics
+  - job_name: 'kubernetes-apiservers'
+    kubernetes_sd_configs:
+      - role: endpoints
+        kubeconfig_file: /etc/prometheus/kubeconfig
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: default;kubernetes;https
+
+  # Docker/containerd metrics
+  - job_name: 'docker'
+    static_configs:
+      - targets:
+          - '10.20.0.20:9323'
+          - '10.20.0.21:9323'
+          - '10.20.0.22:9323'
+          - '10.20.0.23:9323'
+          - '10.20.0.24:9323'
+
+  # Loki metrics
+  - job_name: 'loki'
+    static_configs:
+      - targets: ['loki:3100']
+    metrics_path: '/metrics'
+
+  # Grafana metrics
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+    metrics_path: '/metrics'
+
+# Recording rules for efficient queries
+recording_rules:
+  - record: platform:availability:5m
+    expr: avg_over_time(up{job=~"hostbill|wordpress|flarum|affiliate|trading"}[5m]) * 100
+
+  - record: platform:request_rate:5m
+    expr: sum(rate(http_requests_total[5m])) by (platform)
+
+  - record: platform:error_rate:5m
+    expr: sum(rate(http_requests_total{status=~"5.."}[5m])) by (platform) / sum(rate(http_requests_total[5m])) by (platform)
+
+  - record: platform:latency_p95:5m
+    expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, platform))
+
+  - record: platform:latency_p99:5m
+    expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, platform))
+

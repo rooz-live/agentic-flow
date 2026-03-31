@@ -1,0 +1,447 @@
+name: Multi-Language CI (Rust + Python + TypeScript)
+
+on:
+  push:
+    branches: [main, master, develop, "release/*", "feature/*"]
+    paths:
+      - "**/*.rs"
+      - "**/*.py"
+      - "**/*.ts"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/pyproject.toml"
+      - "**/package.json"
+      - "rust/core/**"
+      - "src/wsjf/**"
+      - "scripts/**"
+      - "ruvector/**"
+      - "crates/**"
+      - "crates/wsjf-domain-bridge/**"
+      - "packages/**"
+      - ".github/workflows/rust-ci.yml"
+  pull_request:
+    branches: [main, master, develop]
+    paths:
+      - "**/*.rs"
+      - "**/*.py"
+      - "**/*.ts"
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/pyproject.toml"
+      - "**/package.json"
+      - "rust/core/**"
+      - "src/wsjf/**"
+      - "scripts/**"
+      - "ruvector/**"
+      - "crates/**"
+      - "crates/wsjf-domain-bridge/**"
+      - "packages/**"
+      - ".github/workflows/rust-ci.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_VERSION: "1.77"
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: short
+
+jobs:
+  # ===========================================================================
+  # RUST TOOLCHAIN VALIDATION
+  # ===========================================================================
+  rust-check:
+    name: Rust Toolchain & Format Check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-git-
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-
+
+      - name: Check Rust version
+        run: |
+          rustc --version
+          cargo --version
+          cargo clippy --version
+          cargo fmt --version
+
+      - name: Check code formatting
+        run: cargo fmt --all -- --check
+
+  # ===========================================================================
+  # CLIPPY LINTING
+  # ===========================================================================
+  clippy:
+    name: Clippy Linting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: clippy
+
+      - name: Restore cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-clippy-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run clippy on agentic-flow-quic
+        working-directory: crates/agentic-flow-quic
+        run: cargo clippy --release -- -D warnings
+
+      - name: Run clippy on agent-booster
+        working-directory: packages/agent-booster
+        run: cargo clippy --release -- -D warnings
+
+      - name: Run clippy on wsjf-domain-bridge
+        run: cargo clippy -p wsjf-domain-bridge --release -- -D warnings
+
+      - name: Run clippy on rust/core
+        run: cargo clippy -p rust_core --release -- -D warnings
+
+  # ===========================================================================
+  # BUILD VERIFICATION
+  # ===========================================================================
+  build:
+    name: Build Rust Crates
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        crate:
+          - { name: "rust_core", path: "rust/core" }
+          - { name: "agentic-flow-quic", path: "crates/agentic-flow-quic" }
+          - { name: "agent-booster", path: "packages/agent-booster" }
+          - { name: "wsjf-domain-bridge", path: "crates/wsjf-domain-bridge" }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Restore cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.crate.name }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build ${{ matrix.crate.name }} (debug)
+        working-directory: ${{ matrix.crate.path }}
+        run: cargo build --verbose
+
+      - name: Build ${{ matrix.crate.name }} (release)
+        working-directory: ${{ matrix.crate.path }}
+        run: cargo build --release --verbose
+
+  # ===========================================================================
+  # TEST EXECUTION
+  # ===========================================================================
+  test:
+    name: Run Rust Tests
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Restore cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run tests for agentic-flow-quic
+        working-directory: crates/agentic-flow-quic
+        run: cargo test --verbose
+
+      - name: Run tests for agent-booster
+        working-directory: packages/agent-booster
+        run: cargo test --verbose
+
+      - name: Run tests for wsjf-domain-bridge
+        run: cargo test -p wsjf-domain-bridge --verbose
+
+      - name: Run tests for rust/core
+        run: cargo test -p rust_core --verbose
+
+  # ===========================================================================
+  # BENCHMARKS (optional)
+  # ===========================================================================
+  benchmark:
+    name: Run Benchmarks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Restore cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run benchmarks
+        working-directory: crates/agentic-flow-quic
+        run: cargo bench --no-run
+
+  # ===========================================================================
+  # SECURITY AUDIT
+  # ===========================================================================
+  security-audit:
+    name: Security Audit (cargo-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run cargo audit
+        run: cargo audit --deny warnings
+
+  # ===========================================================================
+  # PYTHON TESTING
+  # ===========================================================================
+  python-tests:
+    name: Python Tests & Linting
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-cov ruff mypy
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f pyproject.toml ]; then pip install -e .; fi
+
+      - name: Run ruff linting
+        run: |
+          ruff check src/ scripts/
+
+      - name: Run mypy type checking
+        run: |
+          mypy src/wsjf/ --ignore-missing-imports
+
+      - name: Run pytest with coverage
+        run: |
+          pytest tests/ --cov=src --cov-report=xml --cov-report=term
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        with:
+          files: ./coverage.xml
+          flags: python
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  # ===========================================================================
+  # TYPESCRIPT BUILDING (if packages/ exists)
+  # ===========================================================================
+  typescript-build:
+    name: TypeScript Build & Lint
+    runs-on: ubuntu-latest
+    if: hashFiles('packages/*/package.json') != ''
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "packages/*/package-lock.json"
+
+      - name: Install dependencies
+        run: |
+          if [ -d packages/ ]; then
+            cd packages/
+            for dir in */; do
+              if [ -f "${dir}package.json" ]; then
+                echo "Installing ${dir}"
+                cd "$dir" && npm ci && cd ..
+              fi
+            done
+          fi
+
+      - name: Build TypeScript packages
+        run: |
+          if [ -d packages/ ]; then
+            cd packages/
+            for dir in */; do
+              if [ -f "${dir}tsconfig.json" ]; then
+                echo "Building ${dir}"
+                cd "$dir" && npm run build && cd ..
+              fi
+            done
+          fi
+
+      - name: Run TypeScript linting
+        run: |
+          if [ -d packages/ ]; then
+            cd packages/
+            for dir in */; do
+              if [ -f "${dir}package.json" ]; then
+                echo "Linting ${dir}"
+                cd "$dir" && npm run lint && cd ..
+              fi
+            done
+          fi
+
+  # ===========================================================================
+  # COHERENCE VALIDATION GATE (99%+ required)
+  # ===========================================================================
+  coherence-validation:
+    name: DDD/TDD/ADR Coherence Gate (99%+)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyyaml pytest
+
+      - name: Run coherence validator
+        id: coherence
+        run: |
+          python scripts/validate_coherence_fast.py
+          echo "COHERENCE_RESULT=$?" >> $GITHUB_OUTPUT
+
+      - name: Check coherence threshold
+        run: |
+          # Extract coherence percentage from validator output
+          COHERENCE=$(python scripts/validate_coherence_fast.py 2>&1 | grep -oP 'Verdict: PASS \(\K[0-9.]+' || echo "0")
+          echo "Coherence: ${COHERENCE}%"
+
+          # Require 99%+ coherence for PR merges
+          if (( $(echo "$COHERENCE >= 99.0" | bc -l) )); then
+            echo "✅ Coherence threshold met: ${COHERENCE}% >= 99.0%"
+            exit 0
+          else
+            echo "❌ Coherence below threshold: ${COHERENCE}% < 99.0%"
+            echo "Please fix coherence gaps before merging."
+            exit 1
+          fi
+
+      - name: Upload coherence report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coherence-report
+          path: |
+            coherence-report.txt
+            validation-*.json
+
+  # ===========================================================================
+  # SUMMARY
+  # ===========================================================================
+  ci-summary:
+    name: Multi-Language CI Summary
+    needs: [rust-check, clippy, build, test, python-tests, coherence-validation]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate summary
+        run: |
+          echo "# Multi-Language CI Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow**: ${{ github.workflow }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Run ID**: ${{ github.run_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Job Results" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Rust Check | ${{ needs.rust-check.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Clippy | ${{ needs.clippy.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build | ${{ needs.build.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test | ${{ needs.test.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Python Tests | ${{ needs.python-tests.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Coherence Gate | ${{ needs.coherence-validation.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Coherence Requirement**: 99%+ (enforced on PRs)" >> $GITHUB_STEP_SUMMARY

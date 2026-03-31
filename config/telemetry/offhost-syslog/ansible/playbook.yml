@@ -1,0 +1,85 @@
+- name: Configure off-host syslog sink
+  hosts: all
+  become: true
+  vars:
+    syslog_tls_port: 6514
+    syslog_log_dir: /var/log/offhost-syslog
+    rsyslog_tls_dir: /etc/rsyslog.d/certs
+    rsyslog_ca_cert_local_path: ""
+    rsyslog_server_cert_local_path: ""
+    rsyslog_server_key_local_path: ""
+  tasks:
+    - name: Install rsyslog packages
+      ansible.builtin.apt:
+        name:
+          - rsyslog
+          - rsyslog-gnutls
+        state: present
+        update_cache: true
+
+    - name: Ensure syslog log directory exists
+      ansible.builtin.file:
+        path: "{{ syslog_log_dir }}"
+        state: directory
+        owner: root
+        group: adm
+        mode: "0750"
+
+    - name: Ensure TLS directory exists
+      ansible.builtin.file:
+        path: "{{ rsyslog_tls_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Copy CA certificate
+      ansible.builtin.copy:
+        src: "{{ rsyslog_ca_cert_local_path }}"
+        dest: "{{ rsyslog_tls_dir }}/ca.crt"
+        owner: root
+        group: root
+        mode: "0600"
+      when: rsyslog_ca_cert_local_path | length > 0
+
+    - name: Copy server certificate
+      ansible.builtin.copy:
+        src: "{{ rsyslog_server_cert_local_path }}"
+        dest: "{{ rsyslog_tls_dir }}/server.crt"
+        owner: root
+        group: root
+        mode: "0600"
+      when: rsyslog_server_cert_local_path | length > 0
+
+    - name: Copy server private key
+      ansible.builtin.copy:
+        src: "{{ rsyslog_server_key_local_path }}"
+        dest: "{{ rsyslog_tls_dir }}/server.key"
+        owner: root
+        group: root
+        mode: "0600"
+      when: rsyslog_server_key_local_path | length > 0
+
+    - name: Deploy rsyslog TLS sink configuration
+      ansible.builtin.template:
+        src: templates/rsyslog_offhost_sink.conf.j2
+        dest: /etc/rsyslog.d/10-offhost-sink.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify:
+        - Restart rsyslog
+
+    - name: Deploy logrotate policy
+      ansible.builtin.template:
+        src: templates/logrotate_offhost_syslog.j2
+        dest: /etc/logrotate.d/offhost-syslog
+        owner: root
+        group: root
+        mode: "0644"
+
+  handlers:
+    - name: Restart rsyslog
+      ansible.builtin.service:
+        name: rsyslog
+        state: restarted

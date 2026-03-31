@@ -1,0 +1,328 @@
+#!/usr/bin/env bash
+# ay-insights - Causal learning insights and reporting tool
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+log_info() {
+  echo -e "${CYAN}[INFO]${NC} $*"
+}
+
+log_success() {
+  echo -e "${GREEN}[✓]${NC} $*"
+}
+
+log_error() {
+  echo -e "${RED}[✗]${NC} $*"
+}
+
+log_header() {
+  echo -e "${BOLD}${BLUE}═══════════════════════════════════════════${NC}"
+  echo -e "${BOLD}${BLUE}  $*${NC}"
+  echo -e "${BOLD}${BLUE}═══════════════════════════════════════════${NC}"
+}
+
+# Analyze causal experiments
+analyze_experiments() {
+  local min_observations="${1:-30}"
+  
+  log_header "Causal Experiment Analysis"
+  echo ""
+  
+  local db_file="$ROOT_DIR/src/integrations/causal-learning.db"
+  if [[ ! -f "$db_file" ]]; then
+    log_error "No causal learning data found at $db_file"
+    echo "Run ceremonies first to collect observations"
+    return 1
+  fi
+  
+  # Check observation count
+  local obs_count=$(sqlite3 "$db_file" "SELECT COUNT(*) FROM observations;" 2>/dev/null || echo "0")
+  log_info "Total observations: $obs_count"
+  
+  if [[ $obs_count -lt $min_observations ]]; then
+    log_error "Need at least $min_observations observations (have $obs_count)"
+    echo "Run more ceremonies: ./scripts/ay-prod-learn-loop.sh 10"
+    return 1
+  fi
+  
+  echo ""
+  log_info "Running causal analysis..."
+  tsx "$ROOT_DIR/src/integrations/causal-learning-integration.ts" analyze "$obs_count"
+}
+
+# Explain specific low performers
+explain_low_performers() {
+  local circle="$1"
+  local ceremony="$2"
+  local performance_levels="${3:-0.30,0.35,0.40}"
+  
+  log_header "Low Performer Analysis: $circle::$ceremony"
+  echo ""
+  
+  # Parse performance levels
+  IFS=',' read -ra PERFS <<< "$performance_levels"
+  
+  for perf in "${PERFS[@]}"; do
+    echo -e "${YELLOW}═══ Performance at ${perf} ═══${NC}"
+    tsx "$ROOT_DIR/src/integrations/causal-learning-integration.ts" explain "$circle" "$ceremony" "$perf"
+    echo ""
+  done
+}
+
+# Generate comprehensive insights report
+generate_report() {
+  local output_file="${1:-$ROOT_DIR/reports/causal-insights-$(date +%Y%m%d_%H%M%S).txt}"
+  
+  log_header "Generating Insights Report"
+  echo ""
+  
+  # Create reports directory
+  mkdir -p "$(dirname "$output_file")"
+  
+  local db_file="$ROOT_DIR/src/integrations/causal-learning.db"
+  if [[ ! -f "$db_file" ]]; then
+    log_error "No causal learning data found"
+    return 1
+  fi
+  
+  log_info "Writing report to: $output_file"
+  
+  # Generate report
+  {
+    echo "═══════════════════════════════════════════"
+    echo "  Causal Learning Insights Report"
+    echo "  Generated: $(date)"
+    echo "═══════════════════════════════════════════"
+    echo ""
+    
+    echo "## Database Summary"
+    echo ""
+    
+    if command -v sqlite3 >/dev/null 2>&1; then
+      echo "### Experiments"
+      sqlite3 "$db_file" "SELECT name, created_at FROM experiments ORDER BY created_at DESC LIMIT 10;"
+      echo ""
+      
+      echo "### Observations by Circle/Ceremony"
+      sqlite3 "$db_file" "SELECT circle, ceremony, COUNT(*) as count FROM observations GROUP BY circle, ceremony ORDER BY count DESC;"
+      echo ""
+      
+      echo "### Treatment Distribution"
+      sqlite3 "$db_file" "SELECT treatment, COUNT(*) as count FROM observations GROUP BY treatment;"
+      echo ""
+    fi
+    
+    echo "## Causal Analysis"
+    echo ""
+    
+    local obs_count=$(sqlite3 "$db_file" "SELECT COUNT(*) FROM observations;" 2>/dev/null || echo "0")
+    tsx "$ROOT_DIR/src/integrations/causal-learning-integration.ts" analyze "$obs_count" 2>/dev/null || echo "Analysis failed"
+    
+  } > "$output_file"
+  
+  log_success "Report generated: $output_file"
+  
+  # Display summary
+  if command -v wc >/dev/null 2>&1; then
+    local line_count=$(wc -l < "$output_file")
+    log_info "Report contains $line_count lines"
+  fi
+}
+
+# Show database statistics
+show_stats() {
+  log_header "Causal Learning Statistics"
+  echo ""
+  
+  local db_file="$ROOT_DIR/src/integrations/causal-learning.db"
+  if [[ ! -f "$db_file" ]]; then
+    log_error "No causal learning data found"
+    return 1
+  fi
+  
+  if ! command -v sqlite3 >/dev/null 2>&1; then
+    log_error "sqlite3 not available"
+    return 1
+  fi
+  
+  echo -e "${CYAN}Database:${NC} $db_file"
+  local db_size=$(du -h "$db_file" | cut -f1)
+  echo -e "${CYAN}Size:${NC} $db_size"
+  echo ""
+  
+  echo -e "${BOLD}${GREEN}Experiments:${NC}"
+  sqlite3 "$db_file" "SELECT COUNT(*) || ' total experiments' FROM experiments;"
+  echo ""
+  
+  echo -e "${BOLD}${GREEN}Observations:${NC}"
+  sqlite3 "$db_file" "SELECT COUNT(*) || ' total observations' FROM observations;"
+  echo ""
+  
+  echo -e "${BOLD}${GREEN}Coverage:${NC}"
+  sqlite3 "$db_file" "
+    SELECT 
+      circle || '::' || ceremony || ' - ' || COUNT(*) || ' obs' as coverage
+    FROM observations 
+    GROUP BY circle, ceremony 
+    ORDER BY COUNT(*) DESC;
+  "
+  echo ""
+  
+  echo -e "${BOLD}${GREEN}Treatment Balance:${NC}"
+  sqlite3 "$db_file" "
+    SELECT 
+      treatment || ' - ' || COUNT(*) || ' obs (' || 
+      ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM observations), 1) || '%)' as distribution
+    FROM observations 
+    GROUP BY treatment;
+  "
+}
+
+# Export data for analysis
+export_data() {
+  local format="${1:-csv}"
+  local output_file="${2:-$ROOT_DIR/reports/causal-data-$(date +%Y%m%d_%H%M%S).$format}"
+  
+  log_header "Exporting Causal Data"
+  echo ""
+  
+  local db_file="$ROOT_DIR/src/integrations/causal-learning.db"
+  if [[ ! -f "$db_file" ]]; then
+    log_error "No causal learning data found"
+    return 1
+  fi
+  
+  mkdir -p "$(dirname "$output_file")"
+  
+  case "$format" in
+    csv)
+      log_info "Exporting to CSV: $output_file"
+      sqlite3 -header -csv "$db_file" "SELECT * FROM observations;" > "$output_file"
+      ;;
+    json)
+      log_info "Exporting to JSON: $output_file"
+      sqlite3 "$db_file" "SELECT json_group_array(json_object(
+        'id', id,
+        'experiment_id', experiment_id,
+        'circle', circle,
+        'ceremony', ceremony,
+        'treatment', treatment,
+        'outcome', outcome,
+        'timestamp', timestamp
+      )) FROM observations;" > "$output_file"
+      ;;
+    *)
+      log_error "Unknown format: $format (use csv or json)"
+      return 1
+      ;;
+  esac
+  
+  log_success "Data exported: $output_file"
+}
+
+# Main
+usage() {
+  cat <<EOF
+${BOLD}ay-insights${NC} - Causal Learning Insights & Reporting
+
+${BOLD}USAGE:${NC}
+  $0 <command> [options]
+
+${BOLD}COMMANDS:${NC}
+  analyze [N]              Analyze causal experiments (min N observations, default: 30)
+  explain <circle> <ceremony> [perfs]  
+                           Explain low performance (default perfs: 0.30,0.35,0.40)
+  report [output_file]     Generate comprehensive insights report
+  stats                    Show database statistics
+  export [format] [file]   Export data (formats: csv, json)
+
+${BOLD}EXAMPLES:${NC}
+  # Analyze experiments
+  $0 analyze 50
+
+  # Explain low performance
+  $0 explain assessor wsjf
+  $0 explain assessor wsjf 0.30,0.35,0.40,0.45
+
+  # Generate report
+  $0 report
+  $0 report reports/insights-$(date +%Y%m%d).txt
+
+  # Show statistics
+  $0 stats
+
+  # Export data
+  $0 export csv reports/data.csv
+  $0 export json reports/data.json
+
+${BOLD}WORKFLOW:${NC}
+  1. Run ceremonies to collect data:
+     ./scripts/ay-prod-learn-loop.sh --analyze 10
+
+  2. Check statistics:
+     $0 stats
+
+  3. Analyze experiments:
+     $0 analyze 30
+
+  4. Explain low performers:
+     $0 explain assessor wsjf
+
+  5. Generate report:
+     $0 report
+
+EOF
+  exit 1
+}
+
+main() {
+  if [[ $# -eq 0 ]]; then
+    usage
+  fi
+  
+  local command="$1"
+  shift
+  
+  case "$command" in
+    analyze)
+      analyze_experiments "${1:-30}"
+      ;;
+    explain)
+      if [[ $# -lt 2 ]]; then
+        log_error "Missing arguments for explain"
+        echo "Usage: $0 explain <circle> <ceremony> [performance_levels]"
+        exit 1
+      fi
+      explain_low_performers "$1" "$2" "${3:-0.30,0.35,0.40}"
+      ;;
+    report)
+      generate_report "${1:-}"
+      ;;
+    stats)
+      show_stats
+      ;;
+    export)
+      export_data "${1:-csv}" "${2:-}"
+      ;;
+    -h|--help)
+      usage
+      ;;
+    *)
+      log_error "Unknown command: $command"
+      usage
+      ;;
+  esac
+}
+
+main "$@"

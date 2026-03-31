@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AY Hive Mind - Agentic Flow Visualization</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+        canvas { display: block; }
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #0f0;
+            background: rgba(0,0,0,0.7);
+            padding: 20px;
+            border: 1px solid #0f0;
+            border-radius: 5px;
+            font-size: 12px;
+            max-width: 300px;
+        }
+        #metrics {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: #0ff;
+            background: rgba(0,0,0,0.7);
+            padding: 20px;
+            border: 1px solid #0ff;
+            border-radius: 5px;
+            font-size: 12px;
+            min-width: 200px;
+        }
+        .metric { margin: 5px 0; }
+        .label { color: #888; }
+        .value { color: #0ff; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div id="info">
+        <h3>🐝 AY HIVE MIND</h3>
+        <p>Agentic Flow Maturity Visualization</p>
+        <p><strong>Skills:</strong> <span id="skillCount">0</span></p>
+        <p><strong>Confidence:</strong> <span id="avgConfidence">0%</span></p>
+        <p><strong>ROAM Status:</strong> <span id="roamStatus">Unknown</span></p>
+    </div>
+    
+    <div id="metrics">
+        <h3>📊 METRICS</h3>
+        <div class="metric">
+            <span class="label">P0 Validation:</span>
+            <span class="value" id="p0Status">Pending</span>
+        </div>
+        <div class="metric">
+            <span class="label">Test Coverage:</span>
+            <span class="value" id="coverage">0%</span>
+        </div>
+        <div class="metric">
+            <span class="label">MYM Scores:</span>
+            <span class="value" id="mymScores">N/A</span>
+        </div>
+        <div class="metric">
+            <span class="label">Staleness:</span>
+            <span class="value" id="staleness">Fresh</span>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // Central hive node
+        const hiveGeometry = new THREE.SphereGeometry(2, 32, 32);
+        const hiveMaterial = new THREE.MeshPhongMaterial({ 
+            color: 0x00ff00,
+            emissive: 0x00ff00,
+            emissiveIntensity: 0.2,
+            transparent: true,
+            opacity: 0.8
+        });
+        const hive = new THREE.Mesh(hiveGeometry, hiveMaterial);
+        scene.add(hive);
+
+        // Skill nodes (orbiting agents)
+        const skills = [];
+        const skillCount = 12;
+        for (let i = 0; i < skillCount; i++) {
+            const geometry = new THREE.SphereGeometry(0.3, 16, 16);
+            const material = new THREE.MeshPhongMaterial({ 
+                color: 0x00ffff,
+                emissive: 0x00ffff,
+                emissiveIntensity: 0.3
+            });
+            const skill = new THREE.Mesh(geometry, material);
+            
+            const angle = (i / skillCount) * Math.PI * 2;
+            const radius = 5;
+            skill.position.x = Math.cos(angle) * radius;
+            skill.position.z = Math.sin(angle) * radius;
+            skill.userData = { angle, radius, speed: 0.01 + Math.random() * 0.01 };
+            
+            scene.add(skill);
+            skills.push(skill);
+        }
+
+        // Connections (neural pathways)
+        const connections = [];
+        skills.forEach((skill, i) => {
+            const points = [hive.position, skill.position];
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const material = new THREE.LineBasicMaterial({ 
+                color: 0x00ff00,
+                transparent: true,
+                opacity: 0.2
+            });
+            const line = new THREE.Line(geometry, material);
+            scene.add(line);
+            connections.push({ line, skill });
+        });
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x404040);
+        scene.add(ambientLight);
+        
+        const pointLight = new THREE.PointLight(0x00ff00, 1, 100);
+        pointLight.position.set(0, 0, 0);
+        scene.add(pointLight);
+
+        camera.position.z = 15;
+        camera.position.y = 5;
+        camera.lookAt(0, 0, 0);
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Rotate hive
+            hive.rotation.y += 0.005;
+            hive.rotation.x += 0.002;
+
+            // Orbit skills
+            skills.forEach((skill, i) => {
+                const data = skill.userData;
+                data.angle += data.speed;
+                skill.position.x = Math.cos(data.angle) * data.radius;
+                skill.position.z = Math.sin(data.angle) * data.radius;
+                skill.position.y = Math.sin(data.angle * 2) * 1;
+                
+                // Pulse effect based on confidence
+                const pulse = Math.sin(Date.now() * 0.001 + i) * 0.1 + 0.9;
+                skill.scale.setScalar(pulse);
+            });
+
+            // Update connections
+            connections.forEach(({ line, skill }) => {
+                const points = [hive.position, skill.position];
+                line.geometry.setFromPoints(points);
+                line.material.opacity = 0.1 + Math.sin(Date.now() * 0.001) * 0.1;
+            });
+
+            renderer.render(scene, camera);
+        }
+
+        // Load metrics from reports
+        async function loadMetrics() {
+            try {
+                const response = await fetch('/reports/maturity/maturity-state.json');
+                const data = await response.json();
+                
+                document.getElementById('skillCount').textContent = data.metrics?.observability_patterns || 0;
+                document.getElementById('avgConfidence').textContent = 
+                    Math.round(data.metrics?.ok_rate_percentage || 0) + '%';
+                document.getElementById('p0Status').textContent = 
+                    data.maturity_dimensions?.p0_validation?.status || 'Pending';
+                document.getElementById('coverage').textContent = 
+                    Math.round(data.maturity_dimensions?.test_coverage?.coverage_percentage || 0) + '%';
+                document.getElementById('staleness').textContent = 
+                    data.metrics?.roam_staleness_days < 3 ? 'Fresh' : 'Stale';
+            } catch (err) {
+                console.warn('Could not load metrics:', err);
+            }
+        }
+
+        animate();
+        loadMetrics();
+        setInterval(loadMetrics, 5000);
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+#cloud-config
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+    variant: ""
+
+  identity:
+    hostname: stx-aio-0
+    username: sysadmin
+    password: "$6$REPLACE_WITH_SHA512_PASSWORD_HASH"
+
+  ssh:
+    install-server: true
+    authorized-keys:
+      - "ssh-rsa ..."
+    allow-pw: false
+
+  apt:
+    geoip: true
+
+  network:
+    version: 2
+    renderer: networkd
+    ethernets:
+      eno1:
+        match:
+          macaddress: "3c:ec:ef:76:e5:4a"
+        set-name: eno1
+        dhcp4: false
+        dhcp6: false
+      eno2:
+        match:
+          macaddress: "3c:ec:ef:76:e5:4b"
+        set-name: eno2
+        dhcp4: false
+        dhcp6: false
+    bonds:
+      bond0:
+        interfaces: [eno1, eno2]
+        parameters:
+          mode: 802.3ad
+          mii-monitor-interval: 100
+          lacp-rate: fast
+          transmit-hash-policy: layer2+3
+        addresses:
+          - 23.92.79.2/30
+        routes:
+          - to: default
+            via: 23.92.79.1
+            metric: 300
+        nameservers:
+          addresses:
+            - 8.8.8.8
+            - 1.1.1.1
+
+  packages:
+    - openssh-server
+    - curl
+    - ca-certificates
+    - gnupg
+    - lsb-release
+    - jq
+    - net-tools
+    - git
+    - vim
+
+  late-commands:
+    - curtin in-target --target=/target -- bash -lc "mkdir -p /root/.ssh && chmod 700 /root/.ssh"
+    - curtin in-target --target=/target -- bash -lc "test -f /home/sysadmin/.ssh/authorized_keys && cp /home/sysadmin/.ssh/authorized_keys /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys || true"
+    - curtin in-target --target=/target -- bash -lc "grep -qE '^Port[[:space:]]+2222$' /etc/ssh/sshd_config || (sed -i -E 's/^#?Port[[:space:]]+[0-9]+/Port 2222/' /etc/ssh/sshd_config || true; grep -qE '^Port[[:space:]]+2222$' /etc/ssh/sshd_config || echo 'Port 2222' >> /etc/ssh/sshd_config)"
+    - curtin in-target --target=/target -- bash -lc "sed -i -E 's/^#?PasswordAuthentication[[:space:]]+.*/PasswordAuthentication no/' /etc/ssh/sshd_config || true"
+    - curtin in-target --target=/target -- bash -lc "sed -i -E 's/^#?PermitRootLogin[[:space:]]+.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config || true"

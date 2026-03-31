@@ -1,0 +1,151 @@
+# LOKI Monitoring Stack Deployment
+# Deploys: Grafana, Loki, Prometheus, Alertmanager
+# Target: loki-monitor VM (10.20.0.10)
+version: '3.8'
+
+services:
+  # Grafana Dashboard
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-SecurePassword123!}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=https://grafana.interface.tag.ooo
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-piechart-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./provisioning:/etc/grafana/provisioning
+    networks:
+      - monitoring
+    labels:
+      - "com.stx.role=monitoring"
+      - "com.stx.migration=ubuntu-22.04"
+
+  # Loki Log Aggregation
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/loki-config.yaml
+    volumes:
+      - ./loki-config.yaml:/etc/loki/loki-config.yaml:ro
+      - loki_data:/loki
+    networks:
+      - monitoring
+    labels:
+      - "com.stx.role=logging"
+
+  # Prometheus Metrics
+  prometheus:
+    image: prom/prometheus:v2.48.1
+    container_name: prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerting_rules.yml:/etc/prometheus/alerting_rules.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - monitoring
+    labels:
+      - "com.stx.role=metrics"
+
+  # Alertmanager
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: alertmanager
+    restart: unless-stopped
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    networks:
+      - monitoring
+
+  # Promtail Log Collector
+  promtail:
+    image: grafana/promtail:2.9.3
+    container_name: promtail
+    restart: unless-stopped
+    volumes:
+      - ./promtail-config.yaml:/etc/promtail/promtail-config.yaml:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: -config.file=/etc/promtail/promtail-config.yaml
+    networks:
+      - monitoring
+
+  # SLA Dashboard (Custom)
+  sla-dashboard:
+    image: node:20-slim
+    container_name: sla-dashboard
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    working_dir: /app
+    volumes:
+      - ./sla-dashboard:/app
+    command: ["node", "server.js"]
+    environment:
+      - PROMETHEUS_URL=http://prometheus:9090
+      - LOKI_URL=http://loki:3100
+      - SLA_AVAILABILITY_TARGET=99.9
+      - SLA_MTTR_TARGET=900
+      - SLA_THROUGHPUT_TARGET=1000
+      - SLA_P95_LATENCY_TARGET=200
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+      - loki
+
+  # MTTR Tracker Service
+  mttr-tracker:
+    image: python:3.11-slim
+    container_name: mttr-tracker
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./mttr-tracker:/app
+    command: ["python", "mttr_service.py"]
+    environment:
+      - PROMETHEUS_URL=http://prometheus:9090
+      - ALERTMANAGER_URL=http://alertmanager:9093
+      - TARGET_MTTR_SECONDS=900
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+      - alertmanager
+
+networks:
+  monitoring:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+volumes:
+  grafana_data:
+  loki_data:
+  prometheus_data:
+  alertmanager_data:
+

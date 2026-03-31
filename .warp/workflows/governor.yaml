@@ -1,0 +1,65 @@
+---
+# Warp Workflow: Process Governor Monitor
+# Tracks CPU/memory load and WIP violations
+
+name: Governor Monitor
+description: Monitor Process Governor CPU load, WIP limits, and incidents
+tags:
+  - performance
+  - monitoring
+  - governor
+
+# Main command: Show current system load
+command: |
+  echo "📊 Process Governor Status"
+  echo "=========================="
+  echo ""
+  echo "CPU Cores: $(sysctl -n hw.ncpu 2>/dev/null || echo 'unknown')"
+  echo "Load Average (1/5/15 min): $(uptime | awk -F'load averages: ' '{print $2}')"
+  echo ""
+  echo "Process Governor Config:"
+  echo "  CPU Headroom Target: ${AF_CPU_HEADROOM_TARGET:-0.35} (35% idle)"
+  echo "  Max WIP: ${AF_MAX_WIP:-10}"
+  echo "  Batch Size: ${AF_BATCH_SIZE:-5}"
+  echo ""
+  if [ -f logs/governor_incidents.jsonl ]; then
+    echo "Recent Incidents (last 10):"
+    tail -10 logs/governor_incidents.jsonl | jq -r '.timestamp + " [" + .type + "] " + (.details | tostring | .[0:60])'
+  else
+    echo "No incidents logged"
+  fi
+
+working_directory: .
+
+environment:
+  AF_CPU_HEADROOM_TARGET: "0.35"
+  AF_MAX_WIP: "10"
+  AF_BATCH_SIZE: "5"
+
+subcommands:
+  - name: View Incidents
+    description: Show all governor incidents with details
+    command: cat logs/governor_incidents.jsonl | jq '.' | tail -50
+  
+  - name: CPU Stats
+    description: Show detailed CPU utilization
+    command: |
+      echo "CPU Utilization:"
+      top -l 1 | grep "CPU usage" || echo "CPU stats unavailable"
+      echo ""
+      echo "Memory:"
+      vm_stat | perl -ne '/page size of (\d+)/ and $size=$1; /Pages\s+([^:]+)[^\d]+(\d+)/ and printf("%-16s % 16.2f Mi\n", "$1:", $2 * $size / 1048576);'
+  
+  - name: Test Stress
+    description: Run governor stress test (validation script)
+    command: ./scripts/validate-governor-integration.sh
+  
+  - name: Clear Logs
+    description: Archive and clear incident logs
+    command: |
+      if [ -f logs/governor_incidents.jsonl ]; then
+        mv logs/governor_incidents.jsonl logs/governor_incidents.$(date +%Y%m%d_%H%M%S).jsonl
+        echo "✅ Incidents archived"
+      else
+        echo "⚠️  No logs to clear"
+      fi

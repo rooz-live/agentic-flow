@@ -1,0 +1,192 @@
+# HostBill Environment Isolation Security Audit
+# WSJF Score: 14.0 (URGENT)
+# Domain: billing.interface.tag.ooo
+# Status: IN_PROGRESS
+# Last Updated: 2025-12-31
+
+metadata:
+  audit_id: "HB-001"
+  priority: "CRITICAL"
+  owner: "innovator_circle"
+  roam_status: "OWNED"
+  risk_score: 9
+  created_at: "2025-12-31"
+
+# ============================================================================
+# SECTION 1: Database Isolation Verification
+# ============================================================================
+database_isolation:
+  status: "NEEDS_VALIDATION"
+  questions:
+    - id: "DB-001"
+      question: "Are test and production databases physically separated?"
+      expected: "Yes - separate database servers or instances"
+      actual: null
+      verified: false
+      verified_by: null
+      verified_at: null
+      
+    - id: "DB-002"
+      question: "Do test transactions exist in the production database?"
+      expected: "No - test data should never touch production"
+      actual: null
+      verified: false
+      evidence_query: "SELECT COUNT(*) FROM transactions WHERE metadata LIKE '%test%'"
+      
+    - id: "DB-003"
+      question: "Is there a staging HostBill instance?"
+      expected: "Yes - separate staging instance at billing-stg.interface.tag.ooo"
+      actual: null
+      recommendation: "Create staging HostBill instance if not exists"
+      
+    - id: "DB-004"
+      question: "Are database credentials different per environment?"
+      expected: "Yes - unique credentials for local/dev/stg/prod"
+      actual: null
+
+# ============================================================================
+# SECTION 2: Payment Gateway Configuration Audit
+# ============================================================================
+payment_gateway_audit:
+  stripe:
+    status: "NEEDS_VALIDATION"
+    checks:
+      - id: "STRIPE-001"
+        check: "Verify test keys (sk_test_*) used in non-production"
+        environment: "local,dev,stg"
+        expected_key_prefix: "sk_test_"
+        actual_key_prefix: null
+        verified: false
+        
+      - id: "STRIPE-002"
+        check: "Verify live keys (sk_live_*) ONLY in production"
+        environment: "prod"
+        expected_key_prefix: "sk_live_"
+        actual_key_prefix: null
+        verified: false
+        
+      - id: "STRIPE-003"
+        check: "Webhook endpoints are environment-specific"
+        expected: |
+          local: https://localhost:*/stripe/webhook
+          dev: https://dev.interface.tag.ooo/stripe/webhook
+          stg: https://billing-stg.interface.tag.ooo/stripe/webhook
+          prod: https://billing.interface.tag.ooo/stripe/webhook
+        actual: null
+        verified: false
+
+  paypal:
+    status: "NEEDS_VALIDATION"
+    checks:
+      - id: "PAYPAL-001"
+        check: "Verify sandbox mode in non-production"
+        environment: "local,dev,stg"
+        expected_mode: "sandbox"
+        actual_mode: null
+        verified: false
+        
+      - id: "PAYPAL-002"
+        check: "Verify live mode ONLY in production"
+        environment: "prod"
+        expected_mode: "live"
+        actual_mode: null
+        verified: false
+
+# ============================================================================
+# SECTION 3: Affiliate Data Flow Audit
+# ============================================================================
+affiliate_data_flow:
+  status: "DOCUMENTED"
+  last_updated: "2025-12-31"
+  concerns:
+    - id: "AFF-001"
+      concern: "Affiliate commissions calculated using which environment's data?"
+      risk: "Dev test data affecting prod commission calculations"
+      mitigation: "Ensure affiliate calculations ONLY use production data for payouts"
+      
+    - id: "AFF-002"
+      concern: "Test affiliate accounts in production?"
+      risk: "Test commissions being paid out as real money"
+      mitigation: "Tag all test affiliates with is_test=true flag, exclude from payouts"
+      
+    - id: "AFF-003"
+      concern: "Commission reporting accuracy"
+      risk: "Reports including test transactions"
+      mitigation: "Filter reports by environment and test flags"
+
+  data_sources_per_environment:
+    local:
+      database: "sqlite or local postgres"
+      affiliate_data: "mock/seed data only"
+      commission_calculation: "disabled"
+      
+    dev:
+      database: "shared dev postgres"
+      affiliate_data: "test affiliates only"
+      commission_calculation: "simulation mode"
+      
+    stg:
+      database: "stx-aio-0 staging tenant"
+      affiliate_data: "copy of prod structure, sanitized data"
+      commission_calculation: "simulation mode with real formulas"
+      
+    prod:
+      database: "stx-aio-0 production tenant"
+      affiliate_data: "real affiliate accounts"
+      commission_calculation: "live - real payouts"
+
+# ============================================================================
+# SECTION 4: Remediation Actions
+# ============================================================================
+remediation_actions:
+  immediate:
+    - action: "Audit production HostBill for test transaction artifacts"
+      priority: "P0"
+      owner: "innovator_circle"
+      due_date: "2025-01-02"
+      status: "NOT_STARTED"
+      
+    - action: "Verify Stripe key configuration in all environments"
+      priority: "P0"
+      owner: "assessor_circle"
+      due_date: "2025-01-02"
+      status: "NOT_STARTED"
+      
+    - action: "Document PayPal sandbox vs live configuration"
+      priority: "P0"
+      owner: "assessor_circle"
+      due_date: "2025-01-02"
+      status: "NOT_STARTED"
+
+  short_term:
+    - action: "Create staging HostBill instance if needed"
+      priority: "P1"
+      owner: "orchestrator_circle"
+      due_date: "2025-01-07"
+      status: "NOT_STARTED"
+      
+    - action: "Implement environment-aware webhook routing"
+      priority: "P1"
+      owner: "innovator_circle"
+      due_date: "2025-01-07"
+      status: "NOT_STARTED"
+      
+    - action: "Add is_test flag to all affiliate test accounts"
+      priority: "P1"
+      owner: "analyst_circle"
+      due_date: "2025-01-07"
+      status: "NOT_STARTED"
+
+  medium_term:
+    - action: "Implement automated environment detection in HostBill integrations"
+      priority: "P2"
+      owner: "innovator_circle"
+      due_date: "2025-01-14"
+      status: "NOT_STARTED"
+      
+    - action: "Create payment gateway configuration parity checker"
+      priority: "P2"
+      owner: "assessor_circle"
+      due_date: "2025-01-14"
+      status: "NOT_STARTED"
+

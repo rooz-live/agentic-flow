@@ -1,0 +1,96 @@
+pattern: Safe-Degrade
+description: Graceful degradation - System continues operating with reduced functionality on failure
+category: governance
+
+definition_of_ready:
+  - criterion: Failure modes identified
+    description: All potential failure scenarios documented
+    validation: Failure modes list exists with severity ratings
+    command: "grep -q 'Failure Mode:' docs/{{module}}_failure_modes.md"
+    
+  - criterion: Degradation strategy defined
+    description: Clear fallback behavior for each failure mode
+    validation: Degradation matrix populated (failure -> fallback)
+    
+  - criterion: Monitoring in place
+    description: Metrics and alerts configured to detect degradation
+    validation: Prometheus/Grafana alerts configured
+    command: "grep -q '{{service}}_degraded' monitoring/alerts.yaml"
+
+definition_of_done:
+  - criterion: Degradation tested
+    description: All failure modes trigger correct fallback behavior
+    validation: Chaos engineering tests pass
+    command: "pytest tests/chaos/test_{{module}}_degrade.py -v"
+    blocking: true
+    
+  - criterion: Recovery verified
+    description: System recovers automatically when failure resolves
+    validation: Recovery time < SLA threshold
+    command: "pytest tests/chaos/test_{{module}}_recovery.py -v"
+    blocking: true
+    
+  - criterion: User communication
+    description: Users notified of degraded state (UI/API response)
+    validation: Degradation status visible in responses
+    manual: true
+    
+  - criterion: Runbook updated
+    description: Operations documentation includes degradation handling
+    validation: Runbook section exists for this failure mode
+    manual: true
+    
+  - criterion: Metrics collected
+    description: Degradation events logged to telemetry
+    validation: Events appear in pattern_metrics.jsonl
+    command: "grep -q 'safe-degrade' .goalie/pattern_metrics.jsonl"
+    blocking: false
+
+telemetry:
+  emit_on_start: true
+  emit_on_complete: true
+  emit_on_degrade: true
+  metrics:
+    - degradation_count
+    - recovery_time_ms
+    - user_impact_count
+    - availability_percentage
+    
+wsjf_guidance:
+  user_value: "High - prevents complete outages"
+  time_criticality: "Medium-High - depends on service criticality"
+  risk_reduction: "Very High - mitigates catastrophic failures"
+  job_size: "Medium 2-3 (requires testing infrastructure)"
+  
+examples:
+  - title: "API gateway with circuit breaker fallback"
+    wsjf: 15.0
+    cod: 30
+    size: 2
+    outcome: "Success - 99.9% uptime maintained during database outage"
+    
+  - title: "Payment processor with cached approval backup"
+    wsjf: 18.0
+    cod: 36
+    size: 2
+    outcome: "Success - $0 lost revenue during payment gateway failure"
+    
+  - title: "Search service with stale cache fallback"
+    wsjf: 12.0
+    cod: 24
+    size: 2
+    outcome: "Success - Users experienced 5s delay vs complete failure"
+
+chaos_engineering:
+  scenarios:
+    - name: "Database connection failure"
+      trigger: "Kill primary DB connection"
+      expected: "Switch to read replica with 2s timeout"
+      
+    - name: "Third-party API timeout"
+      trigger: "Inject 30s delay in external API"
+      expected: "Return cached data with staleness warning"
+      
+    - name: "Memory pressure"
+      trigger: "Consume 90% available memory"
+      expected: "Disable non-critical features, maintain core functionality"

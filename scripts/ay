@@ -1,0 +1,326 @@
+#!/bin/bash
+# ay - Intelligent Mode Selector with FIRE Integration
+# Focused Incremental Relentless Execution
+# 
+# Usage:
+#   ay                                   # Intelligent mode selection (FIRE)
+#   ay fire                              # Explicit FIRE execution
+#   ay assess                            # Assessment mode (24h window)
+#   ay continuous                        # Background monitoring (>1h)
+#   ay governance                        # Weekly governance cycle
+#   ay dashboard                         # Live monitoring dashboard
+#   ay legacy                            # Legacy 10-iteration loop
+#   ay --max-iterations=3                # Custom max iterations
+#   GO_THRESHOLD=90 ay                   # Custom GO threshold
+#
+# Intelligent Selection:
+#   - Checks system state (verdicts, baselines, learning)
+#   - Selects appropriate mode based on context
+#   - Preserves Three Dimensions (Spiritual/Ethical/Lived)
+#   - Validates truth conditions at each stage
+#
+# Co-Authored-By: Warp <agent@warp.dev>
+
+set -euo pipefail
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Default configuration
+COMMAND="intelligent"
+SKIP_BASELINE=false
+SKIP_GOVERNANCE=false
+SKIP_RETRO=false
+GOVERNANCE_CHECK=false
+MAX_ITERATIONS=5
+GO_THRESHOLD=80
+CONTINUE_THRESHOLD=60
+ASSESSMENT_WINDOW="24h"
+CONTINUOUS_DURATION="2h"
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        fire|integrated|cycle)
+            COMMAND="fire"
+            shift
+            ;;
+        assess|assessment)
+            COMMAND="assess"
+            shift
+            ;;
+        continuous|monitor)
+            COMMAND="continuous"
+            shift
+            ;;
+        governance|govern)
+            COMMAND="governance"
+            shift
+            ;;
+        dashboard|live)
+            COMMAND="dashboard"
+            shift
+            ;;
+        legacy)
+            COMMAND="legacy"
+            shift
+            ;;
+        --skip-baseline)
+            SKIP_BASELINE=true
+            shift
+            ;;
+        --skip-governance)
+            SKIP_GOVERNANCE=true
+            shift
+            ;;
+        --skip-retro)
+            SKIP_RETRO=true
+            shift
+            ;;
+        --governance-check)
+            GOVERNANCE_CHECK=true
+            shift
+            ;;
+        --max-iterations=*)
+            MAX_ITERATIONS="${1#*=}"
+            shift
+            ;;
+        --max-iterations)
+            MAX_ITERATIONS="$2"
+            shift 2
+            ;;
+        --go-threshold=*)
+            GO_THRESHOLD="${1#*=}"
+            shift
+            ;;
+        --go-threshold)
+            GO_THRESHOLD="$2"
+            shift 2
+            ;;
+        --help|-h)
+            cat << 'EOF'
+ay - Intelligent Mode Selector with FIRE Integration
+    Focused Incremental Relentless Execution
+
+USAGE:
+  ay [COMMAND] [OPTIONS]
+
+COMMANDS:
+  (default)          Intelligent mode selection (analyzes state, picks best mode)
+  fire               Full FIRE cycle (Baseline→Governance→Execute→Validate→Retro→Learn)
+  assess             Assessment mode (analyze last 24h, provide recommendations)
+  continuous         Background monitoring (>1h duration, alert on issues)
+  governance         Weekly governance cycle (truth conditions, authority validation)
+  dashboard          Live monitoring dashboard (real-time metrics)
+  legacy             Legacy 10-iteration learning loop
+
+OPTIONS:
+  --skip-baseline    Skip baseline capture stage
+  --skip-governance  Skip governance review stage
+  --skip-retro       Skip retrospective analysis stage
+  --max-iterations N Set maximum iterations (default: 5)
+  --go-threshold N   Set GO threshold % (default: 80)
+  --help            Show this help message
+
+ENVIRONMENT VARIABLES:
+  MAX_ITERATIONS     Override default max iterations
+  GO_THRESHOLD       Override default GO threshold
+  SKIP_BASELINE      Set to 'true' to skip baseline
+  SKIP_GOVERNANCE    Set to 'true' to skip governance
+  SKIP_RETRO         Set to 'true' to skip retrospective
+
+EXAMPLES:
+  # Run auto-resolution with custom threshold
+  GO_THRESHOLD=90 ay
+
+  # Run with skipped stages
+  SKIP_BASELINE=true SKIP_GOVERNANCE=true ay
+
+  # Run with limited iterations
+  MAX_ITERATIONS=2 ay
+
+  # Run legacy 10-iteration loop
+  ay legacy
+
+EXITS:
+  0  - GO verdict reached or legacy completed
+  1  - NO_GO verdict or error occurred
+  143 - Timeout (interrupted)
+
+EOF
+            exit 0
+            ;;
+        *)
+            echo "Error: Unknown option '$1'" >&2
+            exit 1
+            ;;
+    esac
+done
+
+# Intelligent mode selection function
+select_intelligent_mode() {
+    echo "🧠 [AY] Analyzing system state for intelligent mode selection..."
+    
+    # Check for recent verdict
+    local latest_verdict=""
+    if [[ -f "$ROOT_DIR/.ay-verdicts/registry.json" ]]; then
+        latest_verdict=$(jq -r '.verdicts[-1].status // "NONE"' "$ROOT_DIR/.ay-verdicts/registry.json" 2>/dev/null || echo "NONE")
+    fi
+    
+    # Check baseline age
+    local baseline_age=999
+    if [[ -d "$ROOT_DIR/.ay-baselines" ]]; then
+        local latest_baseline=$(ls -t "$ROOT_DIR/.ay-baselines/"baseline-*.json 2>/dev/null | head -1)
+        if [[ -n "$latest_baseline" ]]; then
+            local baseline_ts=$(stat -f %m "$latest_baseline" 2>/dev/null || stat -c %Y "$latest_baseline" 2>/dev/null)
+            local now_ts=$(date +%s)
+            baseline_age=$(( (now_ts - baseline_ts) / 3600 ))
+        fi
+    fi
+    
+    # Check for learning files
+    local learning_count=0
+    if [[ -d "$ROOT_DIR/.cache" ]]; then
+        learning_count=$(find "$ROOT_DIR/.cache" -name "learning-retro-*.json" 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    
+    # Decision logic
+    if [[ "$latest_verdict" == "NO_GO" ]]; then
+        echo "🔴 Last verdict: NO_GO - Running FIRE to resolve issues"
+        echo "fire"
+    elif [[ "$latest_verdict" == "GO" && $baseline_age -lt 24 ]]; then
+        echo "🟢 Last verdict: GO (recent) - Running assessment mode"
+        echo "assess"
+    elif [[ $baseline_age -gt 168 ]]; then  # 1 week
+        echo "⚠️  Baseline stale (${baseline_age}h old) - Running governance review"
+        echo "governance"
+    elif [[ $learning_count -gt 5 ]]; then
+        echo "📚 Unconsumed learning detected ($learning_count files) - Running FIRE"
+        echo "fire"
+    else
+        echo "🎯 No urgent issues - Running FIRE for continuous improvement"
+        echo "fire"
+    fi
+}
+
+# Execute command
+case "$COMMAND" in
+    intelligent)
+        # Intelligent mode selection
+        SELECTED_MODE=$(select_intelligent_mode)
+        COMMAND="$SELECTED_MODE"
+        echo ""
+        ;;
+esac
+
+# Execute selected command
+case "$COMMAND" in
+    fire)
+        # Full FIRE cycle
+        export MAX_ITERATIONS
+        export GO_THRESHOLD
+        export CONTINUE_THRESHOLD
+        
+        echo "╔═══════════════════════════════════════════════════════╗"
+        echo "║   AY FIRE - Focused Incremental Relentless Execution ║"
+        echo "╚═══════════════════════════════════════════════════════╝"
+        echo ""
+        
+        if [[ -f "$SCRIPT_DIR/ay-integrated-cycle.sh" ]]; then
+            exec bash "$SCRIPT_DIR/ay-integrated-cycle.sh"
+        else
+            echo "❌ FIRE script not found: $SCRIPT_DIR/ay-integrated-cycle.sh" >&2
+            exit 1
+        fi
+        ;;
+    
+    assess)
+        # Assessment mode (24h window)
+        echo "📊 [AY ASSESS] Analyzing last $ASSESSMENT_WINDOW..."
+        
+        # Run assessment
+        if [[ -f "$SCRIPT_DIR/ay-assess.sh" ]]; then
+            if [[ "${GOVERNANCE_CHECK}" == "true" ]]; then
+                export AY_GOVERNANCE_CHECK=1
+            fi
+            ASSESSMENT_WINDOW="$ASSESSMENT_WINDOW" exec bash "$SCRIPT_DIR/ay-assess.sh"
+        else
+            # Fallback: Run FIRE with assessment focus
+            echo "⚠️  Dedicated assess script not found, running FIRE with focus on validation"
+            MAX_ITERATIONS=1 exec bash "$SCRIPT_DIR/ay-integrated-cycle.sh"
+        fi
+        ;;
+    
+    continuous)
+        # Background monitoring
+        echo "🔄 [AY CONTINUOUS] Starting background monitoring ($CONTINUOUS_DURATION)..."
+        
+        if [[ -f "$SCRIPT_DIR/ay-continuous.sh" ]]; then
+            CONTINUOUS_DURATION="$CONTINUOUS_DURATION" exec bash "$SCRIPT_DIR/ay-continuous.sh"
+        else
+            echo "⚠️  Continuous monitoring script not found, running FIRE with extended monitoring"
+            MAX_ITERATIONS=3 exec bash "$SCRIPT_DIR/ay-integrated-cycle.sh"
+        fi
+        ;;
+    
+    governance)
+        # Weekly governance cycle
+        echo "⚖️  [AY GOVERNANCE] Running governance review..."
+        
+        if [[ -f "$SCRIPT_DIR/ay-governance-framework.sh" ]]; then
+            exec bash "$SCRIPT_DIR/ay-governance-framework.sh"
+        else
+            # Fallback: Run FIRE with governance focus
+            echo "⚠️  Governance script not found, running FIRE with governance emphasis"
+            SKIP_BASELINE=true exec bash "$SCRIPT_DIR/ay-integrated-cycle.sh"
+        fi
+        ;;
+    
+    dashboard)
+        # Live monitoring dashboard
+        echo "📈 [AY DASHBOARD] Launching live monitoring..."
+        
+        if [[ -f "$SCRIPT_DIR/ay-dashboard.sh" ]]; then
+            exec bash "$SCRIPT_DIR/ay-dashboard.sh" live
+        else
+            echo "❌ Dashboard script not found: $SCRIPT_DIR/ay-dashboard.sh" >&2
+            echo "   Falling back to basic monitoring..."
+            
+            # Basic monitoring loop
+            while true; do
+                clear
+                echo "╔═══════════════════════════════════════════════════════╗"
+                echo "║   AY Dashboard (Basic)                                ║"
+                echo "╚═══════════════════════════════════════════════════════╝"
+                echo ""
+                
+                # Latest verdict
+                if [[ -f "$ROOT_DIR/.ay-verdicts/registry.json" ]]; then
+                    echo "Latest Verdict:"
+                    jq -r '.verdicts[-1] | "  Status: \(.status)\n  Score: \(.score)%\n  Time: \(.timestamp)"' \
+                        "$ROOT_DIR/.ay-verdicts/registry.json" 2>/dev/null || echo "  No data"
+                fi
+                
+                echo ""
+                echo "Press Ctrl+C to exit"
+                sleep 5
+            done
+        fi
+        ;;
+    
+    legacy)
+        # Run legacy 10-iteration loop
+        if [[ -f "$SCRIPT_DIR/ay-prod-learn-loop.sh" ]]; then
+            exec bash "$SCRIPT_DIR/ay-prod-learn-loop.sh"
+        else
+            echo "Error: Legacy script not found at $SCRIPT_DIR/ay-prod-learn-loop.sh" >&2
+            exit 1
+        fi
+        ;;
+    
+    *)
+        echo "Error: Unknown command '$COMMAND'" >&2
+        exit 1
+        ;;
+esac

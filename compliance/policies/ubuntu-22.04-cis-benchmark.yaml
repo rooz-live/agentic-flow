@@ -1,0 +1,168 @@
+# Ubuntu 22.04 CIS Benchmark Compliance Policy
+# Integrated with Bounded Reasoning Framework
+# Version: 1.0.0
+# Reference: CIS Ubuntu Linux 22.04 LTS Benchmark v2.0.0
+
+apiVersion: compliance.agentic-flow/v1
+kind: ComplianceProfile
+metadata:
+  name: ubuntu-22.04-cis-hardening
+  namespace: canary-release
+  labels:
+    environment: production
+    framework: bounded-reasoning
+    risk-level: high
+spec:
+  title: Ubuntu 22.04 CIS Benchmark Compliance
+  description: Automated compliance validation for Ubuntu 22.04 canary deployments
+  targetScore: 95  # Minimum compliance score for canary promotion
+  
+  # ROAM Integration
+  roam:
+    riskId: RISK-CANARY-001
+    status: MITIGATING
+    owner: innovator_circle
+  
+  # Validation Gates (aligned with 4-tier model)
+  gates:
+    local:
+      requiredScore: 80
+      blocksPromotion: false
+    development:
+      requiredScore: 85
+      blocksPromotion: false
+    staging:
+      requiredScore: 90
+      blocksPromotion: true
+    production:
+      requiredScore: 95
+      blocksPromotion: true
+
+  rules:
+    # === Section 1: Initial Setup ===
+    - id: CIS-1.1.1
+      title: Ensure filesystem integrity is regularly checked
+      severity: medium
+      category: filesystem
+      check:
+        type: command
+        script: |
+          systemctl is-enabled aide.timer 2>/dev/null || 
+          dpkg -l aide 2>/dev/null | grep -q "^ii"
+      remediation:
+        script: |
+          apt-get install -y aide aide-common
+          aideinit
+          mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+
+    - id: CIS-1.4.1
+      title: Ensure UEFI Secure Boot is enabled
+      severity: high
+      category: boot
+      check:
+        type: command
+        script: |
+          mokutil --sb-state 2>/dev/null | grep -q "SecureBoot enabled"
+
+    # === Section 2: Services ===
+    - id: CIS-2.1.1
+      title: Ensure unnecessary services are not installed
+      severity: medium
+      category: services
+      check:
+        type: command
+        script: |
+          ! dpkg -l | grep -qE "(telnetd|nis|rsh-server|talk)"
+      remediation:
+        script: |
+          apt-get purge -y telnetd nis rsh-server talk 2>/dev/null || true
+
+    # === Section 3: Network Configuration ===
+    - id: CIS-3.1.1
+      title: Ensure IP forwarding is disabled
+      severity: high
+      category: network
+      check:
+        type: command
+        script: |
+          sysctl net.ipv4.ip_forward | grep -q "= 0"
+      remediation:
+        script: |
+          sysctl -w net.ipv4.ip_forward=0
+          echo "net.ipv4.ip_forward = 0" >> /etc/sysctl.d/99-cis.conf
+
+    - id: CIS-3.2.1
+      title: Ensure iptables firewall is active
+      severity: critical
+      category: firewall
+      check:
+        type: command
+        script: |
+          systemctl is-active ufw 2>/dev/null | grep -q "active" ||
+          systemctl is-active firewalld 2>/dev/null | grep -q "active"
+
+    # === Section 4: Access Control ===
+    - id: CIS-4.1.1
+      title: Ensure permissions on /etc/passwd are configured
+      severity: high
+      category: access
+      check:
+        type: command
+        script: |
+          stat -c "%a" /etc/passwd | grep -qE "^(644|600)$"
+      remediation:
+        script: |
+          chmod 644 /etc/passwd
+
+    - id: CIS-4.2.1
+      title: Ensure SSH root login is disabled
+      severity: critical
+      category: ssh
+      check:
+        type: command
+        script: |
+          grep -qE "^PermitRootLogin\s+no" /etc/ssh/sshd_config
+      remediation:
+        script: |
+          sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+          systemctl reload sshd
+
+    # === Section 5: Logging and Auditing ===
+    - id: CIS-5.1.1
+      title: Ensure auditd is installed and enabled
+      severity: high
+      category: audit
+      check:
+        type: command
+        script: |
+          dpkg -l auditd 2>/dev/null | grep -q "^ii" &&
+          systemctl is-enabled auditd | grep -q "enabled"
+      remediation:
+        script: |
+          apt-get install -y auditd
+          systemctl enable --now auditd
+
+    # === Containerd Specific (Ubuntu 22.04 Migration) ===
+    - id: CONTAINERD-001
+      title: Ensure containerd v1.7+ is installed
+      severity: critical
+      category: container
+      check:
+        type: command
+        script: |
+          containerd --version 2>/dev/null | grep -qE "containerd.io 1\.[7-9]|2\."
+      remediation:
+        script: |
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list
+          apt-get update && apt-get install -y containerd.io
+
+    - id: CONTAINERD-002
+      title: Ensure containerd config is secure
+      severity: high
+      category: container
+      check:
+        type: command
+        script: |
+          grep -q "SystemdCgroup = true" /etc/containerd/config.toml 2>/dev/null
+

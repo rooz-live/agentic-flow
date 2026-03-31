@@ -1,0 +1,82 @@
+---
+- name: Install rsyslog and rsyslog-gnutls
+  apt:
+    name:
+      - rsyslog
+      - rsyslog-gnutls
+    state: present
+    update_cache: yes
+
+- name: Create directory for certs
+  file:
+    path: /etc/rsyslog-certs
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Copy CA certificate
+  copy:
+    src: certs/ca.pem
+    dest: /etc/rsyslog-certs/ca.pem
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart rsyslog
+
+- name: Copy Server certificate
+  copy:
+    src: certs/server-cert.pem
+    dest: /etc/rsyslog-certs/server-cert.pem
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart rsyslog
+
+- name: Copy Server key
+  copy:
+    src: certs/server-key.pem
+    dest: /etc/rsyslog-certs/server-key.pem
+    owner: root
+    group: root
+    mode: '0600'
+  notify: Restart rsyslog
+
+- name: Configure rsyslog
+  template:
+    src: rsyslog.conf.j2
+    dest: /etc/rsyslog.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart rsyslog
+
+- name: Configure log rotation
+  copy:
+    dest: /etc/logrotate.d/remote-syslog
+    content: |
+      /var/log/remote/*.log {
+          daily
+          rotate 7
+          missingok
+          notifempty
+          compress
+          delaycompress
+          sharedscripts
+          postrotate
+              /usr/lib/rsyslog/rsyslog-rotate
+          endscript
+      }
+      # Auth logs kept longer (30 days)
+      /var/log/remote/auth.log {
+          daily
+          rotate 30
+          missingok
+          notifempty
+          compress
+          delaycompress
+          sharedscripts
+          postrotate
+              /usr/lib/rsyslog/rsyslog-rotate
+          endscript
+      }

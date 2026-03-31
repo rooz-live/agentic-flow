@@ -1,0 +1,101 @@
+name: Proxy Gaming Detection Check
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  proxy-gaming-check:
+    runs-on: ubuntu-latest
+    name: P2-TRUTH Gaming Detection
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Create .goalie directory
+        run: mkdir -p .goalie
+
+      - name: Initialize pattern metrics if missing
+        run: |
+          if [ ! -f ".goalie/pattern_metrics.jsonl" ]; then
+            echo '{"pattern": "init", "circle": "ci", "timestamp": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'", "alignment_score": {"manthra_score": 0.5, "yasna_score": 0.5, "mithra_score": 0.5, "overall_drift": 0.5, "consequence_tracked": true}, "rationale": "CI initialization pattern for proxy gaming check baseline"}' > .goalie/pattern_metrics.jsonl
+          fi
+
+      - name: Run Proxy Gaming Detection
+        id: gaming-check
+        run: |
+          echo "Running P2-TRUTH proxy gaming detection..."
+          
+          # Run alignment checker with philosophical framework
+          python3 scripts/agentic/alignment_checker.py --philosophical --json --hours 24 > /tmp/gaming_result.json 2>&1 || true
+          
+          # Extract gaming metrics
+          GAMING_DETECTED=$(cat /tmp/gaming_result.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('philosophical_framework',{}).get('proxy_gaming',{}).get('gaming_detected', False))" 2>/dev/null || echo "False")
+          RISK_LEVEL=$(cat /tmp/gaming_result.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('philosophical_framework',{}).get('proxy_gaming',{}).get('risk_level', 'UNKNOWN'))" 2>/dev/null || echo "UNKNOWN")
+          GAMING_SCORE=$(cat /tmp/gaming_result.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('philosophical_framework',{}).get('proxy_gaming',{}).get('gaming_score', 0))" 2>/dev/null || echo "0")
+          
+          echo "gaming_detected=$GAMING_DETECTED" >> $GITHUB_OUTPUT
+          echo "risk_level=$RISK_LEVEL" >> $GITHUB_OUTPUT
+          echo "gaming_score=$GAMING_SCORE" >> $GITHUB_OUTPUT
+          
+          echo "## Proxy Gaming Detection Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Gaming Detected | $GAMING_DETECTED |" >> $GITHUB_STEP_SUMMARY
+          echo "| Risk Level | $RISK_LEVEL |" >> $GITHUB_STEP_SUMMARY
+          echo "| Gaming Score | $GAMING_SCORE |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail on Gaming Detection
+        if: steps.gaming-check.outputs.gaming_detected == 'True' || steps.gaming-check.outputs.risk_level == 'HIGH'
+        run: |
+          echo "::error::🚨 PROXY GAMING DETECTED - BUILD BLOCKED"
+          echo ""
+          echo "═══════════════════════════════════════════════════════════════════"
+          echo "  P2-TRUTH QUALITY GATE FAILURE: Proxy Gaming Detected"
+          echo "═══════════════════════════════════════════════════════════════════"
+          echo ""
+          echo "  Gaming Score: ${{ steps.gaming-check.outputs.gaming_score }}"
+          echo "  Risk Level: ${{ steps.gaming-check.outputs.risk_level }}"
+          echo ""
+          echo "  This build has been blocked because metrics optimization was"
+          echo "  detected without corresponding genuine improvement."
+          echo ""
+          echo "  Common indicators:"
+          echo "    - CHECKBOX_COMPLIANCE: High alignment scores without verification"
+          echo "    - ARTIFICIAL_CONSISTENCY: Suspiciously uniform score variance"
+          echo "    - BLIND_COMPLIANCE: Policy adherence without rationale"
+          echo ""
+          echo "  To resolve:"
+          echo "    1. Run: python3 scripts/agentic/alignment_checker.py --philosophical"
+          echo "    2. Review the 'indicators' array for specific issues"
+          echo "    3. Ensure patterns include consequence_tracked=true only for verified outcomes"
+          echo "    4. Add semantic rationale explaining WHY patterns comply with policy"
+          echo ""
+          echo "  Documentation: docs/p2-truth-gaming-detection.md"
+          echo "═══════════════════════════════════════════════════════════════════"
+          exit 1
+
+      - name: Gaming Check Passed
+        if: steps.gaming-check.outputs.gaming_detected != 'True' && steps.gaming-check.outputs.risk_level != 'HIGH'
+        run: |
+          echo "✅ Proxy gaming check passed"
+          echo "  Gaming Score: ${{ steps.gaming-check.outputs.gaming_score }}"
+          echo "  Risk Level: ${{ steps.gaming-check.outputs.risk_level }}"
+
+      - name: Upload Gaming Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: proxy-gaming-report
+          path: /tmp/gaming_result.json
+          retention-days: 30
+

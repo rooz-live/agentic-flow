@@ -15,6 +15,25 @@ echo -e "${CYAN}===========================================${NC}"
 echo -e "${CYAN}   DISK GUARDIAN MATRIX (SWARM DBOS)       ${NC}"
 echo -e "${CYAN}===========================================${NC}"
 
+# Check TimeMachine local snapshots
+echo "Checking TimeMachine local snapshots..."
+SNAPSHOTS=$(tmutil listlocalsnapshots / | wc -l | tr -d ' ')
+if [ "$SNAPSHOTS" -gt 0 ]; then
+    echo -e "${YELLOW}[WARNING] Found $SNAPSHOTS TimeMachine local snapshots${NC}"
+    tmutil listlocalsnapshots / | while read -r snapshot; do
+        echo "  $snapshot"
+    done
+    
+    # Check if snapshots are consuming excessive space
+    AVAILABLE_SPACE=$(df / | tail -1 | awk '{print $4}')
+    if [ "$AVAILABLE_SPACE" -lt 52428800 ]; then  # Less than 50GB
+        echo -e "${YELLOW}[ACTION] Low disk space detected, thinning snapshots...${NC}"
+        sudo tmutil thinlocalsnapshots / 1000000000 4 || echo "Failed to thin snapshots"
+    fi
+else
+    echo -e "${GREEN}[OK] No TimeMachine local snapshots found${NC}"
+fi
+
 # Limits established at 500MB
 MAX_DB_SIZE_BYTES=$((500 * 1024 * 1024))
 AGENT_DB=".agentdb/agentdb.sqlite"

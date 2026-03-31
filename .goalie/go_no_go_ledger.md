@@ -360,3 +360,20 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 - **Milestone Matrix**: **GREEN** - HostBill API array generated bridging the physical hardware node constraints to the business layer natively.
 - **Status**: [GO] (Telemetry accurately parameterized without violating the CSQBM graph boundary capabilities).
 - [2026-03-31T00:52:33Z] K8s v1.33 Conformance Sync [STX-Node: 23.92.79.2] -> ✅ **GO** (Sonobuoy Verified)
+
+### Cycle AB — Phase 73: Superproject Submodule Consolidation & Safe Cleanup Pass (2026-03-31)
+- **Thread:** Phase 73 Formalized explicit "Safe Cleanup Pass" to purge disconnected `.integrations` backups and explicitly rehydrate `external` sprawl resolving uncommitted anomalies correctly natively.
+- **Substitution Map (R-2026-016 Explicit Evidence):**
+
+| Remove / Archive Path | Canonical Replacement / Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+|-----------------------|-----------------------------------|------------------------------|-------------|
+| `.integrations/aisp-open-core-broken-backup-*` | Recursive removal of untracked backup | Authoritative `.integrations/aisp-open-core` | R-2026-016 |
+| `.integrations/aisp-open-core-quarantine-*` | Recursive removal of untracked QA backup | Authoritative `.integrations/aisp-open-core` | R-2026-016 |
+| `external/VisionFlow` | Submodule Drift Clearance | `git submodule status` GREEN / `.gitmodules` authoritative | R-2026-016 |
+| `external/agentic-drift` | Submodule Drift Clearance | `.gitmodules` authoritative | R-2026-016 |
+| `external/lionagi-qe-fleet`| Submodule Drift Clearance | `.gitmodules` authoritative | R-2026-016 |
+| `external/ruvector` | Submodule Drift Clearance | `.gitmodules` authoritative | R-2026-016 |
+| `external/turbo-flow` | Submodule Drift Clearance | `.gitmodules` authoritative | R-2026-016 |
+| `tm_disk_guardian.sh` | Retained capability in `check-infra-health.sh` | Integrated capability mapped securely | R-2026-016 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.

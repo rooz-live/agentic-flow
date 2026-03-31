@@ -403,3 +403,27 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `.goalie/hostbill_ledger.json` | HostBill REST synchronization mapped bounding `ENTERPRISE` synthetics. | JSON API tracing pipeline | R-2026-019 |
 
 - **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.
+
+### Cycle AE — Phase 76: Robust Semantic Exit Code Architecture (2026-03-31)
+- **Thread:** Phase 76 Implementing Explicit Exit Code Domains resolving ambiguous workflow states natively.
+- **Substitution Map (R-2026-024 Explicit Evidence):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+|---------------------|----------------------|------------------------------|-------------|
+| `_SYSTEM/_AUTOMATION/exit-codes.sh` | Defined structured POSIX limits spanning 0-255 states explicitly. | `test-placeholder.eml` execution returns 111. | R-2026-024 |
+| `_SYSTEM/_AUTOMATION/explain-exit-code.sh` | Translated numerical vectors back into actionable human errors dynamically. | Wrapper evaluation returned perfect formatting. | R-2026-024 |
+| `_SYSTEM/_AUTOMATION/validate-email.sh` | Replaced rigid `exit 1` paths with sourced Semantic Boundaries resolving ambiguity. | Execution sequence accurately breaks tracking R-2026. | R-2026-024 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.
+
+### Cycle AF — Phase 77: Dashboard Tunnel Persistence (2026-03-31)
+- **Thread:** Phase 77 Establishing permanent tunnel architecture mapping the `ngrok` v3 authtoken directly.
+- **Substitution Map (R-2026-018 Dashboard Ephemerality Drop):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+|---------------------|----------------------|------------------------------|-------------|
+| `scripts/orchestrators/cascade-tunnel.sh` | Replaced rigid `~/.ngrok2` paths with dynamic `~/.config/ngrok` detection safely. | Avoided `1033` fallback to ephemeral cloudflared limits. | R-2026-018 |
+| `scripts/orchestrators/deploy-tunnel.sh` | Migrated v3 detection establishing explicit domain persistence cleanly. | Emitted `Using ngrok [v3]` logs terminating blindly. | R-2026-018 |
+| `scripts/orchestrators/start-ledger-tunnel.sh` | Applied robust detection loops evading headless daemon crash failures natively. | Sourced explicit limits accurately tracing 100% pathing. | R-2026-018 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.

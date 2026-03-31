@@ -55,8 +55,14 @@ if command -v ngrok >/dev/null 2>&1; then
     echo "Starting ngrok tunnel: $ngrok_name"
     
     # Check if ngrok config has this tunnel
-    if grep -q "$ngrok_name:" "$HOME/.ngrok2/ngrok.yml" 2>/dev/null; then
-        ngrok start "$ngrok_name" --config="$HOME/.ngrok2/ngrok.yml" > "/tmp/ngrok-${LEDGER_ID}.log" 2>&1 &
+    if [[ -f "$HOME/.config/ngrok/ngrok.yml" ]]; then
+        NGROK_CONFIG="$HOME/.config/ngrok/ngrok.yml"
+    else
+        NGROK_CONFIG="$HOME/.ngrok2/ngrok.yml"
+    fi
+
+    if grep -q "$ngrok_name:" "$NGROK_CONFIG" 2>/dev/null; then
+        ngrok start "$ngrok_name" --config="$NGROK_CONFIG" > "/tmp/ngrok-${LEDGER_ID}.log" 2>&1 &
         NGROK_PID=$!
         echo "Started ngrok with PID: $NGROK_PID"
         

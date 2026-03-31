@@ -24,7 +24,21 @@ echo -e "${YELLOW}[PRUNE] Auditing stale execution telemetry tracking bounds...$
 find .goalie -name "*.jsonl" -type f -mmin +120 -exec rm -f {} \; || true
 find .goalie -name "*.md" -type f -mmin +240 -exec rm -f {} \; || true
 
-# 2. Trigger active Model Router cycles
+# 2. CSQBM Truth Gate (ADR-005 Governance Constraint)
+echo -e "${YELLOW}[GATE] Verifying CSQBM truth context via ADR-005 bounds...${NC}"
+if [[ -x scripts/validators/project/check-csqbm.sh ]]; then
+     if ! ./scripts/validators/project/check-csqbm.sh --deep-why > /dev/null 2>&1; then
+         echo -e "${RED}[HALT] CSQBM Governance Halt. agentdb.db staleness >96h. Execution Topology bypassed.${NC}"
+         python3 scripts/emit_metrics.py --source "mcp-daemon" --signal CSQBM_HALT --value 1.0 \
+              --metadata '{"state": "DAEMON_PULSE_BLOCKED_STALE"}' || true
+         exit 150
+     fi
+     echo -e "${GREEN}[GATE] CSQBM Deep-Why Validation complete. Hydration confirmed.${NC}"
+else
+     echo -e "${YELLOW}[WARNING] scripts/validators/project/check-csqbm.sh not found. Assuming risk bypass for legacy reasons...${NC}"
+fi
+
+# 3. Trigger active Model Router cycles
 if [[ -x scripts/agentic/aqe-model-router.sh ]]; then
      echo -e "${GREEN}[PULSE] Triggering STX AQE Topology...${NC}"
      ./scripts/agentic/aqe-model-router.sh || echo -e "${RED}[WARNING] Router triggered faults.${NC}"
@@ -32,7 +46,7 @@ else
      echo -e "${YELLOW}[SKIP] AQE router unavailable natively. Bypassing pulse.${NC}"
 fi
 
-# 3. Log Daemon Heartbeat
+# 4. Log Daemon Heartbeat
 python3 scripts/emit_metrics.py --source "mcp-daemon" --signal SATURATION --value 0.1 \
      --metadata '{"state": "DAEMON_PULSE_NOMINAL"}' || true
 

@@ -1,11 +1,11 @@
 # DDD/TDD/ADR Coherence Validation Report
-**Generated:** 2026-03-30 21:11:54
+**Generated:** 2026-03-31 10:10:26
 **Project:** `/Users/shahroozbhopti/Documents/code/investing/agentic-flow`
-**Files Scanned:** 236
+**Files Scanned:** 239
 **Automation Level:** Level 4 (Fully Auto)
 
 ## ✅ Overall: PASS
-`█████████████████████████████░` **97.5%** (512/525 checks)
+`█████████████████████████████░` **97.6%** (518/531 checks)
 
 ## Layer Health
 
@@ -14,7 +14,7 @@
 | **PRD** | 🟢 93% | 9 | 1 | 9 PRD document(s) found |
 | **ADR** | 🟢 90% | 27 | 3 | 27 ADR document(s) found |
 | **DDD** | 🟢 97% | 34 | 0 | 34 domain file(s) found |
-| **TDD** | 🟢 100% | 166 | 0 | 166 test file(s) found |
+| **TDD** | 🟢 100% | 169 | 0 | 169 test file(s) found |
 
 ## Cross-Layer Coherence
 
@@ -26,7 +26,7 @@
 - ✅ **COH-010** (ddd→prd): 31/31 domain modules have DoR/DoD docstrings (100%)
 - ✅ **COH-006** (ddd→ddd): 12/12 Python packages have __init__.py (100%)
 - ✅ **COH-009** (ddd→ddd): 40/41 Rust domain structs derive Serialize (98%)
-- ✅ **COH-007** (tdd→tdd): 54/54 test files follow naming convention (100%)
+- ✅ **COH-007** (tdd→tdd): 57/57 test files follow naming convention (100%)
 - ✅ **COH-008** (prd→prd): 9/9 PRD documents have measurable success metrics (100%) [9 stray PRD-like file(s) outside docs/prd/]
 
 ### PRD Checks
@@ -351,6 +351,8 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.8 assertions/test (128 assertions, 22 tests) `tests/governance/semantic_context_enricher.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: guardrail.test.ts `tests/guardrail.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.3 assertions/test (65 assertions, 28 tests) `tests/guardrail.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test_api_client.py `tests/hostbill/test_api_client.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.9 assertions/test (41 assertions, 14 tests) `tests/hostbill/test_api_client.py`
 - ✅ [INFO] Test file follows naming convention: Correct: AffiliateWorkflows.test.ts `tests/integration/AffiliateWorkflows.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.7 assertions/test (30 assertions, 11 tests) `tests/integration/AffiliateWorkflows.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: CICDPipeline.test.ts `tests/integration/CICDPipeline.test.ts`
@@ -455,6 +457,8 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.9 assertions/test (43 assertions, 15 tests) `tests/safety/hallucination-detection.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: security-validation.test.ts `tests/safety/security-validation.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.7 assertions/test (32 assertions, 19 tests) `tests/safety/security-validation.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test_ipmitool_integration.py `tests/stx/test_ipmitool_integration.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.7 assertions/test (8 assertions, 3 tests) `tests/stx/test_ipmitool_integration.py`
 - ✅ [INFO] Test file follows naming convention: Correct: offhost_syslog_drift_monitor.test.ts `tests/telemetry/offhost_syslog_drift_monitor.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 6.7 assertions/test (20 assertions, 3 tests) `tests/telemetry/offhost_syslog_drift_monitor.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: offhost_syslog_provider_selection.test.ts `tests/telemetry/offhost_syslog_provider_selection.test.ts`
@@ -478,6 +482,8 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (57 assertions, 29 tests) `tests/test_guardrails.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_hivelocity_device_manager.py `tests/test_hivelocity_device_manager.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.5 assertions/test (10 assertions, 4 tests) `tests/test_hivelocity_device_manager.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_hostbill_sync.py `tests/test_hostbill_sync.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (4 assertions, 2 tests) `tests/test_hostbill_sync.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_pattern_schema.py `tests/test_pattern_schema.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.6 assertions/test (19 assertions, 12 tests) `tests/test_pattern_schema.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_platform_strategies.py `tests/test_platform_strategies.py`
@@ -556,9 +562,9 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (28 assertions, 13 tests) `tests/verification/verification-pipeline.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: vscode-extension-mocks.test.ts `tests/vscode-extension/vscode-extension-mocks.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (109 assertions, 31 tests) `tests/vscode-extension/vscode-extension-mocks.test.ts`
-- ✅ [CRITICAL] Unit tests present: 1952 test functions found
-- ✅ [WARNING] Integration tests present: 60 integration test file(s)
-- ✅ [INFO] Total assertion count reasonable: 6137 total assertions across 166 files
+- ✅ [CRITICAL] Unit tests present: 1971 test functions found
+- ✅ [WARNING] Integration tests present: 62 integration test file(s)
+- ✅ [INFO] Total assertion count reasonable: 6190 total assertions across 169 files
 
 ## Recommendations
 
@@ -571,10 +577,10 @@
 
 | Phase | Coherence Action |
 |:------|:-----------------|
-| **Observe** | Scanned 236 files across 4 layers |
+| **Observe** | Scanned 239 files across 4 layers |
 | **Orient** | Health: PRD=93%, ADR=90%, DDD=97%, TDD=100% |
 | **Decide** | Verdict: PASS at 98% |
 | **Act** | 4 recommendations to implement |
 
 ---
-*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-03-30 21:11:54*
+*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-03-31 10:10:26*

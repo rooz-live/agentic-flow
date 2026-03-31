@@ -493,3 +493,20 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `eta-live-stream.sh` / `legal-pdf-ocr.sh` | Archived untracked pipeline wrappers. | Logic loops bounded inherently inside CSQBM extraction parameters. | R-2026-016 |
 
 - **Verify:** Native Submodule Rehydration Execution + Pre-commit Integrity + `validate-foundation.sh --trust-path`.
+
+### Cycle AL — Phase 85: Superproject Consolidation — Gate Script Tracking (Cycle AL)
+- [x] **STANDUP**: Run `git status` to locate the untracked load-bearing gate scripts (`check-csqbm.sh`, `governance.py`, etc.).
+- [x] **DoR CHECK (Classification)**: Audit and mentally classify script utility against CSQBM constraint tracing.
+- [ ] **EXECUTE**: Stage (`git add`) the foundational gates and retro synthesis layers directly into the superproject matrix.
+- **Substitution Map (R-2026-018 Gate Script Tracking):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+|---------------------|----------------------|------------------------------|-------------|
+| `check-csqbm.sh` | Deep-why capable truth boundary validation gate (CSQBM). | Execution via Pre-commit Gate | R-2026-018 |
+| `governance.py` / `test_automated_rca.sh` | Strongest RCA signal source (`rca.dt_consecutive_failures`) / Deep-why metric capture. | `test_automated_rca.sh` PASS | R-2026-018 |
+| `emit_metrics.py` | Central telemetry emitter for Retro RCA execution fields natively. | `metrics_log.jsonl` traces | R-2026-018 |
+| `feedback-loop-analyzer.sh` | Retrospective analytics targeting flow friction boundaries. | `validate-claims.sh` log binds | R-2026-018 |
+| `link_metrics_to_retro.sh` / `retro_insights.sh` | Ties retro execution items cleanly to measurable matrices natively. | Governance Retro loop PASS | R-2026-018 |
+| `cmd_retro.py` / `retro_replenish_workflow.py` | SRE retro approvals and replenishment orchestration flow. | CLI/UI metric capture | R-2026-018 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + CSQBM Deep-Why Validation.

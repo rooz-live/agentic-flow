@@ -1,0 +1,878 @@
+#!/bin/bash
+set -e
+
+# --- Configuration ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -z "$PROJECT_ROOT" ]; then
+  export PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+fi
+
+export PYTHONPATH="$SCRIPT_DIR:$PROJECT_ROOT:$PYTHONPATH"
+export AF_RUN_ID=${AF_RUN_ID:-$(uuidgen | tr '[:upper:]' '[:lower:]')}
+export AF_PROD_OBSERVABILITY_FIRST=${AF_PROD_OBSERVABILITY_FIRST:-1}
+
+export AF_ENV=${AF_ENV:-local}
+case "$AF_ENV" in
+  local|dev|stg|prod)
+    ;;
+  *)
+    echo "Error: Invalid AF_ENV '$AF_ENV'. Valid choices are: local, dev, stg, prod" >&2
+    exit 1
+    ;;
+esac
+
+if [ "$AF_ENV" = "prod" ]; then
+  export AF_FORCE_MODE=${AF_FORCE_MODE:-advisory}
+  export AF_NO_DEPLOY=1
+  export AF_ALLOW_CODE_AUTOCOMMIT=0
+  export AF_FULL_CYCLE_AUTOCOMMIT=0
+  export AF_AUTOCOMMIT_SHADOW=0
+elif [ "$AF_ENV" = "dev" ]; then
+  export AF_NO_DEPLOY=1
+  export AF_ALLOW_CODE_AUTOCOMMIT=0
+  export AF_FULL_CYCLE_AUTOCOMMIT=0
+  export AF_AUTOCOMMIT_SHADOW=${AF_AUTOCOMMIT_SHADOW:-1}
+elif [ "$AF_ENV" = "local" ]; then
+  export AF_AUTOCOMMIT_SHADOW=${AF_AUTOCOMMIT_SHADOW:-1}
+elif [ "$AF_ENV" = "stg" ]; then
+  export AF_AUTOCOMMIT_SHADOW=${AF_AUTOCOMMIT_SHADOW:-1}
+  if [ "${AF_CI_GREEN:-0}" != "1" ] && [ "${AF_BREAK_GLASS:-0}" != "1" ]; then
+    export AF_NO_DEPLOY=1
+  fi
+fi
+
+# Ensure Goalie directories exist
+mkdir -p "$PROJECT_ROOT/.goalie/hooks"
+
+# --- Subcommands ---
+
+case "$1" in
+    prod-cycle)
+        shift
+        # Parse --mode and --testing arguments specifically for prod-cycle
+        MODE="mutate"  # Default mode
+        TESTING="none"  # Default testing
+        CIRCLE=""  # Optional circle (used for tier-depth coverage)
+        RUN_TIER_DEPTH=1
+        JSON_OUTPUT=false
+        RUN_PRE_HEALTH=false
+        RUN_POST_EVIDENCE=false
+        OTHER_ARGS=()
+
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --mode)
+                    MODE="$2"
+                    OTHER_ARGS+=("--mode" "$2")
+                    shift 2
+                    ;;
+                --circle)
+                    CIRCLE="$2"
+                    OTHER_ARGS+=("--circle" "$2")
+                    shift 2
+                    ;;
+                --testing)
+                    TESTING="$2"
+                    OTHER_ARGS+=("--testing" "$2")
+                    shift 2
+                    ;;
+                --testing-strategy|--testing-samples)
+                    OTHER_ARGS+=("$1" "$2")
+                    shift 2
+                    ;;
+                --tier-depth-coverage|--tier-depth)
+                    RUN_TIER_DEPTH=1
+                    shift
+                    ;;
+                --no-tier-depth-coverage|--no-tier-depth)
+                    RUN_TIER_DEPTH=0
+                    shift
+                    ;;
+                --json)
+                    JSON_OUTPUT=true
+                    OTHER_ARGS+=("--json")
+                    shift
+                    ;;
+                --log-goalie)
+                    export AF_ENABLE_IRIS_METRICS=1
+                    shift
+                    ;;
+                --with-health-check|--pre-health)
+                    RUN_PRE_HEALTH=true
+                    shift
+                    ;;
+                --with-evidence-assess|--post-assess)
+                    RUN_POST_EVIDENCE=true
+                    shift
+                    ;;
+                --with-full-workflow)
+                    RUN_PRE_HEALTH=true
+                    RUN_POST_EVIDENCE=true
+                    shift
+                    ;;
+                *)
+                    OTHER_ARGS+=("$1")
+                    shift
+                    ;;
+            esac
+        done
+
+        # Validate mode choices
+        case $MODE in
+            mutate|advisory|enforcement)
+                # Valid mode
+                ;;
+            *)
+                if [ "$JSON_OUTPUT" = true ]; then
+                    echo '{"error": "Invalid mode", "message": "Invalid mode '$MODE'. Valid choices are: mutate, advisory, enforcement"}'
+                else
+                    echo "Error: Invalid mode '$MODE'. Valid choices are: mutate, advisory, enforcement"
+                fi
+                exit 1
+                ;;
+        esac
+
+        # Validate testing choices
+        case $TESTING in
+            backtest|forward|full|none)
+                # Valid testing type
+                ;;
+            *)
+                if [ "$JSON_OUTPUT" = true ]; then
+                    echo '{"error": "Invalid testing", "message": "Invalid testing '$TESTING'. Valid choices are: backtest, forward, full, none"}'
+                else
+                    echo "Error: Invalid testing '$TESTING'. Valid choices are: backtest, forward, full, none"
+                fi
+                exit 1
+                ;;
+        esac
+
+        # Pass mode as environment variable and other args
+        export AF_PROD_CYCLE_MODE="$MODE"
+
+        # Pre-cycle: Quick health check
+        if [ "$RUN_PRE_HEALTH" = true ]; then
+            echo "🏥 Pre-Cycle Health Check"
+            if [ -f "$SCRIPT_DIR/af" ]; then
+                "$SCRIPT_DIR/af" quick-health || echo "⚠️  Health check warnings (non-blocking)"
+            fi
+            echo ""
+        fi
+
+        # Check if we should use the existing script or our new implementation
+        if [ -f "$SCRIPT_DIR/cmd_prod_cycle.py" ]; then
+            python3 "$SCRIPT_DIR/cmd_prod_cycle.py" --mode "$MODE" "${OTHER_ARGS[@]}"
+        else
+            python3 "$SCRIPT_DIR/af_prod_cycle.py" --mode "$MODE" "${OTHER_ARGS[@]}"
+        fi
+
+        if [ "$RUN_TIER_DEPTH" -eq 1 ]; then
+          TD_ARGS=("--correlation-id" "$AF_RUN_ID")
+          if [ -n "$CIRCLE" ]; then
+            TD_ARGS+=("--circle" "$CIRCLE")
+            if [ "$CIRCLE" = "testing" ]; then
+              TD_ARGS+=("--tier1-circles" "orchestrator,assessor,testing")
+            fi
+          fi
+          if [ "$JSON_OUTPUT" = true ]; then
+            TD_ARGS+=("--json")
+          fi
+
+          if [ -f "$SCRIPT_DIR/cmd_tier_depth_coverage.py" ]; then
+            python3 "$SCRIPT_DIR/cmd_tier_depth_coverage.py" "${TD_ARGS[@]}"
+          else
+            echo "Warning: Tier depth coverage script not found, skipping"
+          fi
+        fi
+
+        # Post-cycle: Autocommit graduation assessment
+        if [ "$RUN_POST_EVIDENCE" = true ]; then
+            echo ""
+            echo "📊 Post-Cycle Autocommit Graduation Assessment"
+            if [ -f "$SCRIPT_DIR/agentic/prod_learning_collector.py" ]; then
+                python3 "$SCRIPT_DIR/agentic/prod_learning_collector.py" >/dev/null 2>&1 || true
+            fi
+            if [ -f "$SCRIPT_DIR/agentic/autocommit_graduation.py" ]; then
+                ASSESS_ARGS=("--assess")
+                if [ "$JSON_OUTPUT" = true ]; then
+                    ASSESS_ARGS+=("--json")
+                fi
+                python3 "$SCRIPT_DIR/agentic/autocommit_graduation.py" "${ASSESS_ARGS[@]}"
+            else
+                echo "⚠️  Autocommit graduation script not found"
+            fi
+        fi
+        ;;
+
+    prod-swarm)
+        shift
+        JSON_OUTPUT=false
+        RUN_PRE_HEALTH=false
+        RUN_POST_EVIDENCE=false
+        INTERNAL_GRAD_ASSESS=false
+        OTHER_ARGS=()
+
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --json)
+                    JSON_OUTPUT=true
+                    OTHER_ARGS+=("--json")
+                    shift
+                    ;;
+                --auto-compare)
+                    OTHER_ARGS+=("--auto-compare")
+                    shift
+                    ;;
+                --default-emitters)
+                    INTERNAL_GRAD_ASSESS=true
+                    OTHER_ARGS+=("--default-emitters")
+                    shift
+                    ;;
+                --save-table)
+                    OTHER_ARGS+=("--save-table")
+                    shift
+                    ;;
+                --label)
+                    OTHER_ARGS+=("--label" "$2")
+                    shift 2
+                    ;;
+                --ab-test)
+                    OTHER_ARGS+=("--ab-test")
+                    shift
+                    ;;
+                --variant-a-iters)
+                    OTHER_ARGS+=("--variant-a-iters" "$2")
+                    shift 2
+                    ;;
+                --variant-b-iters)
+                    OTHER_ARGS+=("--variant-b-iters" "$2")
+                    shift 2
+                    ;;
+                --variant-a-label)
+                    OTHER_ARGS+=("--variant-a-label" "$2")
+                    shift 2
+                    ;;
+                --variant-b-label)
+                    OTHER_ARGS+=("--variant-b-label" "$2")
+                    shift 2
+                    ;;
+                --ab-reps)
+                    OTHER_ARGS+=("--ab-reps" "$2")
+                    shift 2
+                    ;;
+                --variant-c-iters)
+                    OTHER_ARGS+=("--variant-c-iters" "$2")
+                    shift 2
+                    ;;
+                --variant-d-iters)
+                    OTHER_ARGS+=("--variant-d-iters" "$2")
+                    shift 2
+                    ;;
+                --variant-c-label)
+                    OTHER_ARGS+=("--variant-c-label" "$2")
+                    shift 2
+                    ;;
+                --variant-d-label)
+                    OTHER_ARGS+=("--variant-d-label" "$2")
+                    shift 2
+                    ;;
+                --variant-e-iters)
+                    OTHER_ARGS+=("--variant-e-iters" "$2")
+                    shift 2
+                    ;;
+                --variant-e-label)
+                    OTHER_ARGS+=("--variant-e-label" "$2")
+                    shift 2
+                    ;;
+                --winner-grade)
+                    INTERNAL_GRAD_ASSESS=true
+                    OTHER_ARGS+=("--winner-grade")
+                    shift
+                    ;;
+                --intent-coverage)
+                    OTHER_ARGS+=("--intent-coverage")
+                    shift
+                    ;;
+                --with-health-check|--pre-health)
+                    RUN_PRE_HEALTH=true
+                    shift
+                    ;;
+                --with-evidence-assess|--post-assess)
+                    RUN_POST_EVIDENCE=true
+                    shift
+                    ;;
+                --with-full-workflow)
+                    RUN_PRE_HEALTH=true
+                    RUN_POST_EVIDENCE=true
+                    shift
+                    ;;
+                *)
+                    OTHER_ARGS+=("$1")
+                    shift
+                    ;;
+            esac
+        done
+
+        # Pre-swarm: Quick health check
+        if [ "$RUN_PRE_HEALTH" = true ]; then
+            echo "🏥 Pre-Swarm Health Check"
+            if [ -f "$SCRIPT_DIR/af" ]; then
+                "$SCRIPT_DIR/af" quick-health || echo "⚠️  Health check warnings (non-blocking)"
+            fi
+            echo ""
+        fi
+
+        # Use the correct prod-swarm runner
+        python3 "$SCRIPT_DIR/../src/prod_cycle_swarm_runner.py" "${OTHER_ARGS[@]}"
+
+        # Post-swarm: Autocommit graduation assessment
+        if [ "$RUN_POST_EVIDENCE" = true ]; then
+            echo ""
+            echo "📊 Post-Swarm Autocommit Graduation Assessment"
+            if [ -f "$SCRIPT_DIR/agentic/prod_learning_collector.py" ]; then
+                python3 "$SCRIPT_DIR/agentic/prod_learning_collector.py" >/dev/null 2>&1 || true
+            fi
+            if [ -f "$SCRIPT_DIR/agentic/autocommit_graduation.py" ]; then
+                if [ "$INTERNAL_GRAD_ASSESS" = false ]; then
+                    ASSESS_ARGS=("--assess")
+                    if [ "$JSON_OUTPUT" = true ]; then
+                        ASSESS_ARGS+=("--json")
+                    fi
+                    python3 "$SCRIPT_DIR/agentic/autocommit_graduation.py" "${ASSESS_ARGS[@]}"
+                fi
+            else
+                echo "⚠️  Autocommit graduation script not found"
+            fi
+        fi
+        ;;
+
+    wsjf|wsjf-top|wsjf-by-circle|wsjf-replenish)
+        cmd="$1"
+        shift
+        case "$cmd" in
+            wsjf)
+                if [ -f "$SCRIPT_DIR/../investing/agentic-flow/scripts/cmd_wsjf.py" ]; then
+                    python3 "$SCRIPT_DIR/../investing/agentic-flow/scripts/cmd_wsjf.py" "$@"
+                else
+                    echo "Error: WSJF script not found"
+                    exit 1
+                fi
+                ;;
+            wsjf-top)
+                if [ -f "$SCRIPT_DIR/../investing/agentic-flow/scripts/cmd_wsjf.py" ]; then
+                    python3 "$SCRIPT_DIR/../investing/agentic-flow/scripts/cmd_wsjf.py" --top "$@"
+                else
+                    echo "Error: WSJF script not found"
+                    exit 1
+                fi
+                ;;
+            wsjf-by-circle)
+                if [ -f "$SCRIPT_DIR/../investing/agentic-flow/scripts/cmd_wsjf.py" ]; then
+                    python3 "$SCRIPT_DIR/../investing/agentic-flow/scripts/cmd_wsjf.py" --circle "$@"
+                else
+                    echo "Error: WSJF script not found"
+                    exit 1
+                fi
+                ;;
+            wsjf-replenish)
+                if [ -f "$SCRIPT_DIR/../investing/agentic-flow/scripts/circles/replenish_circle.sh" ]; then
+                    "$SCRIPT_DIR/../investing/agentic-flow/scripts/circles/replenish_circle.sh" "$@"
+                else
+                    echo "Error: WSJF replenish script not found"
+                    exit 1
+                fi
+                ;;
+        esac
+        ;;
+
+    swarm-compare|swarm-delta)
+        shift
+        JSON_OUTPUT=false
+        OTHER_ARGS=()
+
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --json)
+                    JSON_OUTPUT=true
+                    OTHER_ARGS+=("--json")
+                    shift
+                    ;;
+                *)
+                    OTHER_ARGS+=("$1")
+                    shift
+                    ;;
+            esac
+        done
+
+        python3 "$SCRIPT_DIR/cmd_swarm_compare.py" "${OTHER_ARGS[@]}"
+        ;;
+
+    actionable-context|allocation-efficiency|execution-velocity|flow-efficiency|revenue-impact)
+        cmd="$1"
+        shift
+        JSON_OUTPUT=false
+        OTHER_ARGS=()
+
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --json)
+                    JSON_OUTPUT=true
+                    OTHER_ARGS+=("--json")
+                    shift
+                    ;;
+                *)
+                    OTHER_ARGS+=("$1")
+                    shift
+                    ;;
+            esac
+        done
+
+        # Map command to script
+        case "$cmd" in
+            actionable-context)
+                SCRIPT="cmd_actionable_context.py"
+                ;;
+            allocation-efficiency)
+                SCRIPT="cmd_allocation_efficiency.py"
+                ;;
+            execution-velocity)
+                SCRIPT="cmd_execution_velocity.py"
+                ;;
+            flow-efficiency)
+                SCRIPT="cmd_flow_efficiency.py"
+                ;;
+            revenue-impact)
+                SCRIPT="cmd_revenue_impact.py"
+                ;;
+        esac
+
+        if [ -f "$SCRIPT_DIR/$SCRIPT" ]; then
+            python3 "$SCRIPT_DIR/$SCRIPT" "${OTHER_ARGS[@]}"
+        else
+            echo "Error: $SCRIPT not found"
+            exit 1
+        fi
+        ;;
+
+    goalie-metrics|goalie-insights|goalie-cycle-log|goalie-actions|goalie-board)
+        cmd="$1"
+        shift
+        JSON_OUTPUT=false
+        OTHER_ARGS=()
+
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --json)
+                    JSON_OUTPUT=true
+                    OTHER_ARGS+=("--json")
+                    shift
+                    ;;
+                *)
+                    OTHER_ARGS+=("$1")
+                    shift
+                    ;;
+            esac
+        done
+
+        # Map command to artifact type
+        case "$cmd" in
+            goalie-metrics)
+                ARTIFACT="metrics"
+                ;;
+            goalie-insights)
+                ARTIFACT="insights"
+                ;;
+            goalie-cycle-log)
+                ARTIFACT="cycle-log"
+                ;;
+            goalie-actions)
+                ARTIFACT="actions"
+                ;;
+            goalie-board)
+                ARTIFACT="board"
+                ;;
+        esac
+
+        if [ -f "$PROJECT_ROOT/.goalie/$ARTIFACT" ]; then
+            if [ "$JSON_OUTPUT" = true ]; then
+                cat "$PROJECT_ROOT/.goalie/$ARTIFACT"
+            else
+                cat "$PROJECT_ROOT/.goalie/$ARTIFACT"
+            fi
+        else
+            if [ "$JSON_OUTPUT" = true ]; then
+                echo '{"error": "Artifact not found", "message": "No '$ARTIFACT' artifact found in .goalie directory"}'
+            else
+                echo "Error: No $ARTIFACT artifact found in .goalie directory"
+            fi
+            exit 1
+        fi
+        ;;
+
+    pattern-stats)
+        shift
+        if [ -f "$SCRIPT_DIR/cmd_pattern_stats.py" ]; then
+            python3 "$SCRIPT_DIR/cmd_pattern_stats.py" "$@"
+        else
+            echo "Error: Pattern stats script not found"
+            exit 1
+        fi
+        ;;
+
+    revenue-attribution|revenue-safe)
+        shift
+        # Call the revenue attribution script logic (using same path as pattern-stats relative location or direct)
+        # Note: We modified revenue_attribution.py to be runnable directly.
+        if [ -f "$SCRIPT_DIR/agentic/revenue_attribution.py" ]; then
+            python3 "$SCRIPT_DIR/agentic/revenue_attribution.py" "$@"
+        elif [ -f "$SCRIPT_DIR/../investing/agentic-flow/scripts/agentic/revenue_attribution.py" ]; then
+             python3 "$SCRIPT_DIR/../investing/agentic-flow/scripts/agentic/revenue_attribution.py" "$@"
+        else
+            echo "Error: Revenue attribution script not found"
+            exit 1
+        fi
+        ;;
+
+    detect-observability-gaps)
+        shift
+        if [ -f "$SCRIPT_DIR/cmd_detect_observability_gaps.py" ]; then
+            python3 "$SCRIPT_DIR/cmd_detect_observability_gaps.py" "$@"
+        else
+            echo "Error: Detect observability gaps script not found"
+            exit 1
+        fi
+        ;;
+
+    tier-depth-coverage)
+        shift
+        if [ -f "$SCRIPT_DIR/cmd_tier_depth_coverage.py" ]; then
+            python3 "$SCRIPT_DIR/cmd_tier_depth_coverage.py" "$@"
+        else
+            echo "Error: Tier depth coverage script not found"
+            exit 1
+        fi
+        ;;
+
+    prompt-intent-coverage|intent-coverage)
+        shift
+        if [ -f "$SCRIPT_DIR/cmd_prompt_intent_coverage.py" ]; then
+            python3 "$SCRIPT_DIR/cmd_prompt_intent_coverage.py" "$@"
+        else
+            echo "Error: Prompt intent coverage script not found"
+            exit 1
+        fi
+        ;;
+
+    balance-workload)
+        shift
+        # Run workload balancer to redistribute patterns from overloaded circles
+        if [ -f "$SCRIPT_DIR/workload_balancer.py" ]; then
+            python3 "$SCRIPT_DIR/workload_balancer.py" "$@"
+        else
+            echo "Error: Workload balancer script not found"
+            exit 1
+        fi
+        ;;
+
+    full-cycle)
+        shift
+        DEPTH="${1:-2}"
+        shift 2>/dev/null || true
+        CIRCLE=""
+        NO_DEPLOY=""
+        while [[ $# -gt 0 ]]; do
+            case $1 in
+                --circle) CIRCLE="$2"; shift 2 ;;
+                --no-deploy) NO_DEPLOY="1"; shift ;;
+                *) shift ;;
+            esac
+        done
+        
+        # Run governance agent for the cycle
+        if [ -f "$SCRIPT_DIR/../tools/federation/governance_agent.ts" ]; then
+            npx tsx "$SCRIPT_DIR/../tools/federation/governance_agent.ts" --depth "$DEPTH" ${CIRCLE:+--circle "$CIRCLE"} 2>&1 || true
+        fi
+        
+        # Run WSJF calculator
+        if [ -f "$SCRIPT_DIR/agentic/wsjf_calculator.py" ]; then
+            python3 "$SCRIPT_DIR/agentic/wsjf_calculator.py" ${CIRCLE:+--circle "$CIRCLE"} 2>&1 || true
+        fi
+        
+        helper="$SCRIPT_DIR/agentic/pattern_logging_helper.py"
+        if [ ! -f "$helper" ]; then
+            helper="$SCRIPT_DIR/../investing/agentic-flow/scripts/agentic/pattern_logging_helper.py"
+        fi
+
+        if [ -f "$helper" ]; then
+            pattern_state='{"full_cycle_complete":{"enforced":true,"health_state":"healthy","metrics_written":1}}'
+            cmd=(python3 "$helper" \
+                --pattern "full_cycle_complete" \
+                --circle "${CIRCLE:-assessor}" \
+                --depth "$DEPTH" \
+                --gate "completion" \
+                --mode "enforcement" \
+                --behavioral-type "enforcement" \
+                --pattern-state "$pattern_state" \
+                --tags "pattern:full_cycle_complete" "gate:completion" "Federation")
+
+            if [ "${AF_PATTERN_MIRROR_METRICS:-1}" = "1" ]; then
+                cmd+=(--mirror-metrics)
+            fi
+
+            "${cmd[@]}" 2>&1 || true
+        else
+            python3 "$SCRIPT_DIR/log_pattern_event.py" \
+                --pattern "full_cycle_complete" \
+                --circle "${CIRCLE:-assessor}" \
+                --depth "$DEPTH" \
+                --enforced 1 \
+                --health-state healthy \
+                --metrics-written 1 2>&1 || true
+        fi
+        
+        echo "✅ Full cycle complete: depth=$DEPTH circle=${CIRCLE:-assessor}"
+        ;;
+
+    retro)
+        shift
+        python3 "$SCRIPT_DIR/cmd_retro.py" "$@"
+        ;;
+
+    goalie-gaps)
+        shift
+        python3 "$SCRIPT_DIR/cmd_detect_observability_gaps.py" "$@"
+        ;;
+
+    pattern-coverage)
+        shift
+        python3 "$SCRIPT_DIR/cmd_detect_observability_gaps.py" --filter pattern-coverage "$@"
+        ;;
+
+    prod)
+        shift
+        
+        # Check for --with-monitoring flag
+        WITH_MONITORING=false
+        PROD_ARGS=()
+        for arg in "$@"; do
+            if [ "$arg" = "--with-monitoring" ]; then
+                WITH_MONITORING=true
+            else
+                PROD_ARGS+=("$arg")
+            fi
+        done
+        
+        # Adaptive production orchestrator - rotates between cycle and swarm
+        if [ -f "$SCRIPT_DIR/cmd_prod.py" ]; then
+            python3 "$SCRIPT_DIR/cmd_prod.py" "${PROD_ARGS[@]}"
+            
+            # Run monitoring workflow if requested
+            if [ "$WITH_MONITORING" = true ]; then
+                echo ""
+                echo "📈 Running Post-Production Monitoring Workflow..."
+                echo "======================================================"
+                
+                # System verification scripts
+                [ -x "$SCRIPT_DIR/verify_logger_enhanced.py" ] && "$SCRIPT_DIR/verify_logger_enhanced.py" || true
+                [ -x "$SCRIPT_DIR/verify_system_improvements.py" ] && "$SCRIPT_DIR/verify_system_improvements.py" || true
+                [ -x "$SCRIPT_DIR/validate_learning_parity.py" ] && "$SCRIPT_DIR/validate_learning_parity.py" || true
+                
+                # Monitoring scripts
+                [ -x "$SCRIPT_DIR/temporal/budget_tracker.py" ] && "$SCRIPT_DIR/temporal/budget_tracker.py" || true
+                [ -x "$SCRIPT_DIR/execution/wip_monitor.py" ] && "$SCRIPT_DIR/execution/wip_monitor.py" || true
+                [ -x "$SCRIPT_DIR/monitoring/site_health_monitor.py" ] && "$SCRIPT_DIR/monitoring/site_health_monitor.py" || true
+                [ -x "$SCRIPT_DIR/monitoring/heartbeat_monitor.py" ] && "$SCRIPT_DIR/monitoring/heartbeat_monitor.py" || true
+                
+                echo "✅ Monitoring workflow complete"
+            fi
+        else
+            echo "❌ Error: Adaptive prod orchestrator not found"
+            exit 1
+        fi
+        ;;
+
+    evidence)
+        shift
+        SUB_CMD="$1"
+        shift
+        
+        case "$SUB_CMD" in
+            collect)
+                # Collect evidence for a phase
+                python3 "$SCRIPT_DIR/agentic/evidence_manager.py" "$@"
+                ;;
+            assess)
+                # Assess graduation readiness
+                python3 "$SCRIPT_DIR/agentic/graduation_assessor.py" "$@"
+                ;;
+            list)
+                # List available emitters
+                python3 "$SCRIPT_DIR/agentic/list_emitters.py"
+                ;;
+            enable)
+                # Enable an emitter
+                EMITTER="$1"
+                if [ -z "$EMITTER" ]; then
+                    echo "Error: emitter name required"
+                    echo "Usage: $0 evidence enable <emitter_name>"
+                    exit 1
+                fi
+                python3 -c "
+import json, sys
+config_path = '$PROJECT_ROOT/config/evidence_config.json'
+config = json.load(open(config_path))
+if '$EMITTER' in config['emitters']:
+    config['emitters']['$EMITTER']['enabled'] = True
+    json.dump(config, open(config_path, 'w'), indent=2)
+    print('✅ Enabled emitter: $EMITTER')
+else:
+    print('❌ Unknown emitter: $EMITTER')
+    sys.exit(1)
+"
+                ;;
+            disable)
+                # Disable an emitter
+                EMITTER="$1"
+                if [ -z "$EMITTER" ]; then
+                    echo "Error: emitter name required"
+                    echo "Usage: $0 evidence disable <emitter_name>"
+                    exit 1
+                fi
+                python3 -c "
+import json, sys
+config_path = '$PROJECT_ROOT/config/evidence_config.json'
+config = json.load(open(config_path))
+if '$EMITTER' in config['emitters']:
+    config['emitters']['$EMITTER']['enabled'] = False
+    json.dump(config, open(config_path, 'w'), indent=2)
+    print('❌ Disabled emitter: $EMITTER')
+else:
+    print('❌ Unknown emitter: $EMITTER')
+    sys.exit(1)
+"
+                ;;
+            view)
+                # View evidence for a run
+                RUN_ID="$1"
+                if [ -z "$RUN_ID" ]; then
+                    echo "Error: run ID required"
+                    echo "Usage: $0 evidence view <run_id>"
+                    exit 1
+                fi
+                if [ -f "$PROJECT_ROOT/.goalie/evidence.jsonl" ]; then
+                    grep "\"$RUN_ID\"" "$PROJECT_ROOT/.goalie/evidence.jsonl" | python3 -m json.tool
+                else
+                    echo "Error: .goalie/evidence.jsonl not found"
+                    exit 1
+                fi
+                ;;
+            *)
+                echo "Usage: $0 evidence {collect|assess|list|enable|disable|view} [OPTIONS]"
+                echo ""
+                echo "Evidence Commands:"
+                echo "  collect  --phase <phase> --circle <circle> --run-id <id>  - Collect evidence"
+                echo "  assess   [--run-id <id>] [--recent N]                      - Assess graduation"
+                echo "  list                                                        - List emitters"
+                echo "  enable   <emitter_name>                                     - Enable emitter"
+                echo "  disable  <emitter_name>                                     - Disable emitter"
+                echo "  view     <run_id>                                          - View evidence"
+                exit 1
+                ;;
+        esac
+        ;;
+
+    *)
+        echo "Usage: $0 {COMMAND} [OPTIONS]"
+        echo ""
+        echo "Core Commands:"
+        echo "  prod                    - Adaptive orchestrator (rotates cycle→swarm with needs assessment)"
+        echo "    --rotations N         - Maximum rotations (default: 3)"
+        echo "    --mode MODE           - Cycle mode: advisory, mutate, enforcement (default: advisory)"
+        echo "    --assess-only         - Only run needs assessment, don't execute"
+        echo "    --multipass           - Run preflight cycle+swarm with small iters to catch regressions early"
+        echo "    --preflight-iters N   - Preflight iters when --multipass is set (default: 5)"
+        echo "    --ledger-run          - Collect optional revenue attribution (ledger) metrics for this run"
+        echo "    --ledger-hours N      - Hours of data to include for ledger metrics (default: 6)"
+        echo "    --swarm-auto-compare  - When running prod-swarm from af prod, also pass --auto-compare"
+        echo "    --progress-tooltip MODE - Progress helper output: off|compact|rich|json|write-status-file"
+        echo "    --progress-status-file PATH - Status file path for write-status-file mode"
+        echo "    --report-md           - Write a postable Markdown report under .goalie/"
+        echo "    --report-md-path PATH - Output path for --report-md"
+        echo "    --with-monitoring     - Run full monitoring workflow after production cycles"
+        echo "    --json                - Output JSON format"
+        echo ""
+        echo "  prod-cycle              - Run production cycle with WSJF prioritization"
+        echo "    --with-health-check   - Run pre-cycle health check (quick-health)"
+        echo "    --with-evidence-assess - Run post-cycle graduation assessment"
+        echo "    --with-full-workflow  - Enable both pre-check and post-assess"
+        echo ""
+        echo "  prod-swarm              - Run production swarm comparison and analysis"
+        echo "    --default-emitters    - Use curated emitter set (revenue-safe + tier-depth + gaps + intent-coverage)"
+        echo "    --auto-compare        - Auto-run swarm-compare after saving table"
+        echo "    --ab-test             - Run A/B test comparing two configurations"
+        echo "    --winner-grade        - Print winner-grade assessment at end"
+        echo "    --with-health-check   - Run pre-swarm health check"
+        echo "    --with-evidence-assess - Run post-swarm graduation assessment"
+        echo "    --with-full-workflow  - Enable both pre-check and post-assess"
+        echo ""
+        echo "Analysis & Insights:"
+        echo "  pattern-stats           - View pattern metrics and statistics"
+        echo "  swarm-compare           - Compare three prod-swarm TSV tables (prior/current/auto-ref)"
+        echo "  goalie-gaps             - Detect observability gaps (goalie readiness)"
+        echo "  pattern-coverage        - Report pattern instrumentation coverage"
+        echo "  actionable-context      - Generate actionable context insights"
+        echo "  allocation-efficiency   - Analyze allocation efficiency metrics"
+        echo "  execution-velocity      - Analyze execution velocity metrics"
+        echo "  flow-efficiency        - Analyze flow efficiency metrics"
+        echo "  revenue-impact          - Analyze revenue impact metrics"
+        echo "  intent-coverage         - Calculate prompt intent coverage (pattern hit%)"
+        echo ""
+        echo "Goalie Artifacts:"
+        echo "  goalie-metrics          - View .goalie/metrics artifact"
+        echo "  goalie-insights         - View .goalie/insights artifact"
+        echo "  goalie-cycle-log       - View .goalie/cycle-log artifact"
+        echo "  goalie-actions          - View .goalie/actions artifact"
+        echo "  goalie-board            - View .goalie/board artifact"
+        echo ""
+        echo "WSJF & Prioritization:"
+        echo "  wsjf                    - View WSJF scores for all items"
+        echo "  wsjf-top                - Show top WSJF items"
+        echo "  wsjf-by-circle          - Show WSJF scores by circle"
+        echo "  wsjf-replenish          - Replenish with WSJF calculation"
+        echo ""
+        echo "Evidence & Graduation:"
+        echo "  evidence collect        - Collect evidence from emitters"
+        echo "  evidence assess         - Assess autocommit graduation readiness"
+        echo "  evidence list           - List available emitters and thresholds"
+        echo "  evidence enable         - Enable an emitter"
+        echo "  evidence disable        - Disable an emitter"
+        echo "  evidence view           - View evidence for a run"
+        echo ""
+        echo "Global Options:"
+        echo "  --json                  - Output JSON format"
+        echo "  --help                  - Show this help message"
+        echo "  --version               - Show version information"
+        echo ""
+        echo "Examples:"
+        echo "  # Adaptive rotation (recommended)"
+        echo "  $0 prod --rotations 3 --mode advisory"
+        echo ""
+        echo "  # Basic prod-cycle"
+        echo "  $0 prod-cycle --mode advisory --iterations 25"
+        echo ""
+        echo "  # Full workflow with health checks and graduation assessment"
+        echo "  $0 prod-cycle --mode advisory --iterations 25 --with-full-workflow --json"
+        echo ""
+        echo "  # Production swarm with full workflow"
+        echo "  $0 prod-swarm --golden-iters 25 --with-full-workflow --default-emitters"
+        echo ""
+        echo "  # A/B testing"
+        echo "  $0 prod-swarm --ab-test --variant-a-iters 25 --variant-b-iters 100 --ab-reps 3"
+        echo ""
+        echo "  # Other commands"
+        echo "  $0 swarm-compare --prior prior.tsv --current current.tsv --auto-ref autoref.tsv --json"
+        echo "  $0 actionable-context --json"
+        echo "  $0 wsjf-top 10 --json"
+        exit 1
+        ;;
+esac

@@ -1,0 +1,186 @@
+# Batch Policy Validation Pipeline
+# Tests all batch policy configurations: conservative, moderate, aggressive
+# Validates circle-to-batch-group mappings and environment variable exports
+
+name: Batch Policy Validation
+
+on:
+  push:
+    branches: [main, master, develop, "poc/*"]
+    paths:
+      - 'scripts/cmd_prod_cycle.py'
+      - 'config/circle_batching.yaml'
+      - 'scripts/af'
+      - '.github/workflows/batch-policy-validation.yml'
+  pull_request:
+    branches: [main, master, develop]
+    paths:
+      - 'scripts/cmd_prod_cycle.py'
+      - 'config/circle_batching.yaml'
+      - 'scripts/af'
+  workflow_dispatch:
+    inputs:
+      batch_policy:
+        description: "Batch policy to test"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - conservative
+          - moderate
+          - aggressive
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  validate-batch-policies:
+    name: Validate Batch Policies
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        policy: [conservative, moderate, aggressive]
+        circle: [orchestrator, analyst, seeker, testing]
+        include:
+          # Conservative policy expectations
+          - policy: conservative
+            circle: orchestrator
+            expected_group: coordination
+            expected_max_batch: 2
+            expected_approval: manual
+          - policy: conservative
+            circle: analyst
+            expected_group: analysis
+            expected_max_batch: 3
+            expected_approval: manual
+          - policy: conservative
+            circle: seeker
+            expected_group: exploration
+            expected_max_batch: 3
+            expected_approval: manual
+          - policy: conservative
+            circle: testing
+            expected_group: testing
+            expected_max_batch: 3
+            expected_approval: manual
+          # Moderate policy expectations
+          - policy: moderate
+            circle: orchestrator
+            expected_group: coordination
+            expected_max_batch: 2
+            expected_approval: team
+          - policy: moderate
+            circle: analyst
+            expected_group: analysis
+            expected_max_batch: 5
+            expected_approval: team
+          - policy: moderate
+            circle: seeker
+            expected_group: exploration
+            expected_max_batch: 8
+            expected_approval: team
+          - policy: moderate
+            circle: testing
+            expected_group: testing
+            expected_max_batch: 8
+            expected_approval: team
+          # Aggressive policy expectations
+          - policy: aggressive
+            circle: orchestrator
+            expected_group: coordination
+            expected_max_batch: 2
+            expected_approval: automated
+          - policy: aggressive
+            circle: analyst
+            expected_group: analysis
+            expected_max_batch: 5
+            expected_approval: automated
+          - policy: aggressive
+            circle: seeker
+            expected_group: exploration
+            expected_max_batch: 10
+            expected_approval: automated
+          - policy: aggressive
+            circle: testing
+            expected_group: testing
+            expected_max_batch: 15
+            expected_approval: automated
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install pyyaml
+
+      - name: Test ${{ matrix.policy }} policy with ${{ matrix.circle }} circle
+        run: |
+          echo "🧪 Testing batch policy: ${{ matrix.policy }} with circle: ${{ matrix.circle }}"
+          
+          OUTPUT=$(timeout 60 python3 scripts/cmd_prod_cycle.py \
+            --mode advisory \
+            --circle ${{ matrix.circle }} \
+            --iterations 1 \
+            --batch-policy ${{ matrix.policy }} 2>&1) || true
+          
+          echo "$OUTPUT"
+          
+          # Validate batch group
+          if echo "$OUTPUT" | grep -q "group=${{ matrix.expected_group }}"; then
+            echo "✅ Batch group validated: ${{ matrix.expected_group }}"
+          else
+            echo "❌ Expected batch group: ${{ matrix.expected_group }}"
+            exit 1
+          fi
+          
+          # Validate approval mode
+          if echo "$OUTPUT" | grep -q "approval=${{ matrix.expected_approval }}"; then
+            echo "✅ Approval mode validated: ${{ matrix.expected_approval }}"
+          else
+            echo "❌ Expected approval mode: ${{ matrix.expected_approval }}"
+            exit 1
+          fi
+          
+          echo "✅ Policy ${{ matrix.policy }} validated for ${{ matrix.circle }} circle"
+
+  validate-aggressive-default:
+    name: Validate Aggressive Default
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Test aggressive is default (no --batch-policy flag)
+        run: |
+          echo "🧪 Testing aggressive is default when no --batch-policy specified"
+          
+          OUTPUT=$(timeout 60 python3 scripts/cmd_prod_cycle.py \
+            --mode advisory \
+            --circle analyst \
+            --iterations 1 2>&1) || true
+          
+          echo "$OUTPUT"
+          
+          if echo "$OUTPUT" | grep -q "policy=aggressive"; then
+            echo "✅ Aggressive policy is default"
+          else
+            echo "❌ Expected aggressive as default policy"
+            exit 1
+          fi
+

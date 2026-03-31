@@ -1,0 +1,241 @@
+name: Pattern Telemetry Validation
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - '.goalie/pattern_metrics.jsonl'
+      - 'docs/PATTERN_EVENT_SCHEMA.json'
+      - 'scripts/analysis/validate_pattern_metrics.py'
+      - 'tools/federation/governance_agent.ts'
+      - 'tools/federation/retro_coach.ts'
+      - 'scripts/af_pattern_helpers.sh'
+      - 'tests/test_pattern_schema.py'
+      - '.github/workflows/pattern-telemetry-validation.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - '.goalie/pattern_metrics.jsonl'
+      - 'docs/PATTERN_EVENT_SCHEMA.json'
+      - 'scripts/analysis/validate_pattern_metrics.py'
+      - 'tools/federation/governance_agent.ts'
+      - 'tools/federation/retro_coach.ts'
+      - 'scripts/af_pattern_helpers.sh'
+      - 'tests/test_pattern_schema.py'
+      - '.github/workflows/pattern-telemetry-validation.yml'
+
+jobs:
+  validate-schema:
+    name: Validate Pattern Metrics Schema
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install jsonschema pytest
+      
+      - name: Check if pattern metrics file exists
+        id: check-metrics
+        run: |
+          if [ -f ".goalie/pattern_metrics.jsonl" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✓ Pattern metrics file found"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠ Pattern metrics file not found (will skip validation)"
+          fi
+      
+      - name: Validate JSON Schema definition
+        run: |
+          echo "Validating JSON Schema..."
+          python3 -c "
+          import json
+          import sys
+          from jsonschema import Draft202012Validator
+          
+          with open('docs/PATTERN_EVENT_SCHEMA.json', 'r') as f:
+              schema = json.load(f)
+          
+          # Validate schema itself
+          try:
+              Draft202012Validator.check_schema(schema)
+              print('✓ JSON Schema is valid')
+          except Exception as e:
+              print(f'✗ JSON Schema validation failed: {e}')
+              sys.exit(1)
+          "
+      
+      - name: Run pattern metrics validation
+        if: steps.check-metrics.outputs.exists == 'true'
+        run: |
+          echo "Running pattern metrics validation..."
+          python3 scripts/analysis/validate_pattern_metrics.py \
+            --metrics-file .goalie/pattern_metrics.jsonl \
+            --schema-file docs/PATTERN_EVENT_SCHEMA.json \
+            --tag-threshold 0.90 \
+            --json-output .goalie/validation_results.json
+      
+      - name: Check tag coverage threshold
+        if: steps.check-metrics.outputs.exists == 'true'
+        run: |
+          echo "Checking tag coverage..."
+          python3 -c "
+          import json
+          with open('.goalie/validation_results.json', 'r') as f:
+              results = json.load(f)
+          coverage = results['tag_coverage']['coverage_pct']
+          threshold = results['tag_coverage']['threshold_pct']
+          print(f'Tag coverage: {coverage:.1f}%')
+          if coverage < threshold:
+              print(f'✗ Tag coverage {coverage:.1f}% < {threshold:.1f}% threshold')
+              exit(1)
+          else:
+              print(f'✓ Tag coverage {coverage:.1f}% >= {threshold:.1f}% threshold')
+          "
+      
+      - name: Upload validation results
+        if: always() && steps.check-metrics.outputs.exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-results
+          path: .goalie/validation_results.json
+          retention-days: 30
+      
+      - name: Run pytest suite
+        run: |
+          echo "Running pytest suite..."
+          pytest tests/test_pattern_schema.py -v --tb=short
+      
+      - name: Comment PR with validation results
+        if: github.event_name == 'pull_request' && steps.check-metrics.outputs.exists == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const results = JSON.parse(fs.readFileSync('.goalie/validation_results.json', 'utf8'));
+            
+            const status = results.overall_status === 'PASSED' ? '✅' : '❌';
+            const tagCoverage = results.tag_coverage.coverage_pct.toFixed(1);
+            const tagThreshold = results.tag_coverage.threshold_pct.toFixed(1);
+            const tagStatus = results.tag_coverage.passed ? '✅' : '❌';
+            
+            const schemaValid = results.schema_validation.valid;
+            const schemaTotal = results.total_events;
+            const schemaStatus = schemaValid === schemaTotal ? '✅' : '❌';
+            
+            const econScoring = results.economic_scoring.with_scoring;
+            const econStatus = econScoring === schemaTotal ? '✅' : '❌';
+            
+            let tagDist = '';
+            for (const [tag, count] of Object.entries(results.tag_coverage.distribution)) {
+              const pct = ((count / schemaTotal) * 100).toFixed(1);
+              tagDist += `- ${tag}: ${count} events (${pct}%)\n`;
+            }
+            
+            const comment = `## ${status} Pattern Telemetry Validation Results
+            
+            **Total Events:** ${schemaTotal}
+            
+            ### Validation Checks
+            
+            ${schemaStatus} **JSON Schema Validation:** ${schemaValid}/${schemaTotal} events passed
+            ${tagStatus} **Tag Coverage:** ${tagCoverage}% (threshold: ${tagThreshold}%)
+            ${econStatus} **Economic Scoring:** ${econScoring}/${schemaTotal} events have COD/WSJF
+            
+            ### Tag Distribution
+            ${tagDist}
+            
+            ${results.overall_status === 'PASSED' ? '✅ All validations passed!' : '❌ Validation failures detected. See logs for details.'}
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  check-telemetry-coverage:
+    name: Check Telemetry Coverage
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Analyze pattern coverage
+        run: |
+          echo "Analyzing pattern coverage..."
+          
+          # Check which patterns are being emitted
+          if [ -f ".goalie/pattern_metrics.jsonl" ]; then
+            echo "Pattern emissions found:"
+            jq -r '.pattern' .goalie/pattern_metrics.jsonl 2>/dev/null | sort | uniq -c || echo "No valid JSON events"
+            
+            echo ""
+            echo "Tag distribution:"
+            jq -r '.tags[]' .goalie/pattern_metrics.jsonl 2>/dev/null | sort | uniq -c || echo "No tags found"
+            
+            echo ""
+            echo "Circle distribution:"
+            jq -r '.circle' .goalie/pattern_metrics.jsonl 2>/dev/null | sort | uniq -c || echo "No circles found"
+          else
+            echo "⚠ No pattern metrics file found"
+          fi
+      
+      - name: Check for TypeScript telemetry emission
+        run: |
+          echo "Checking TypeScript files for telemetry emission..."
+          
+          # Check governance_agent.ts
+          if grep -q "emitPatternMetric" tools/federation/governance_agent.ts; then
+            echo "✓ governance_agent.ts has telemetry emission"
+          else
+            echo "⚠ governance_agent.ts missing telemetry emission"
+          fi
+          
+          # Check retro_coach.ts
+          if grep -q "emitPatternMetric" tools/federation/retro_coach.ts; then
+            echo "✓ retro_coach.ts has telemetry emission"
+          else
+            echo "⚠ retro_coach.ts missing telemetry emission"
+          fi
+
+  security-scan:
+    name: Security Scan for Exposed Secrets
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Scan for exposed API keys in metrics
+        run: |
+          echo "Scanning for exposed secrets in pattern metrics..."
+          
+          if [ -f ".goalie/pattern_metrics.jsonl" ]; then
+            # Check for common secret patterns
+            if grep -i "sk-ant-" .goalie/pattern_metrics.jsonl; then
+              echo "❌ ANTHROPIC_API_KEY detected in metrics!"
+              exit 1
+            fi
+            
+            if grep -E "AKIA[0-9A-Z]{16}" .goalie/pattern_metrics.jsonl; then
+              echo "❌ AWS_ACCESS_KEY_ID detected in metrics!"
+              exit 1
+            fi
+            
+            echo "✓ No exposed secrets detected"
+          else
+            echo "⚠ No pattern metrics file to scan"
+          fi

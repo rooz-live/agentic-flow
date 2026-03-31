@@ -1,0 +1,121 @@
+# HostBill Billing Platform Deployment
+# Target VM: hostbill (10.20.0.20)
+# SLA: 99.9% availability, <200ms P95 response time
+version: '3.8'
+
+services:
+  hostbill:
+    image: php:8.2-apache
+    container_name: hostbill-app
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DB_HOST=hostbill-mysql
+      - DB_NAME=hostbill
+      - DB_USER=hostbill
+      - DB_PASS=${HOSTBILL_DB_PASSWORD:-SecureDBPass123!}
+      - HOSTBILL_LICENSE=${HOSTBILL_LICENSE_KEY}
+      - REDIS_HOST=hostbill-redis
+      - SMTP_HOST=${SMTP_HOST:-smtp.mailgun.org}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASS=${SMTP_PASS}
+    volumes:
+      - hostbill_data:/var/www/html
+      - hostbill_logs:/var/log/apache2
+      - ./hostbill-config:/etc/hostbill:ro
+    networks:
+      - hostbill-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+    labels:
+      - "com.stx.platform=hostbill"
+      - "com.stx.role=billing"
+      - "com.stx.sla=99.9"
+      - "traefik.enable=true"
+      - "traefik.http.routers.hostbill.rule=Host(`billing.interface.tag.ooo`)"
+      - "traefik.http.routers.hostbill.tls=true"
+
+  hostbill-mysql:
+    image: mysql:8.0
+    container_name: hostbill-mysql
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-RootSecure123!}
+      - MYSQL_DATABASE=hostbill
+      - MYSQL_USER=hostbill
+      - MYSQL_PASSWORD=${HOSTBILL_DB_PASSWORD:-SecureDBPass123!}
+    volumes:
+      - hostbill_mysql_data:/var/lib/mysql
+      - ./mysql-config:/etc/mysql/conf.d:ro
+    networks:
+      - hostbill-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  hostbill-redis:
+    image: redis:7-alpine
+    container_name: hostbill-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - hostbill_redis_data:/data
+    networks:
+      - hostbill-net
+
+  hostbill-cron:
+    image: php:8.2-cli
+    container_name: hostbill-cron
+    restart: unless-stopped
+    command: crond -f -d 8
+    volumes:
+      - hostbill_data:/var/www/html:ro
+      - ./cron/hostbill:/etc/cron.d/hostbill:ro
+    networks:
+      - hostbill-net
+    depends_on:
+      - hostbill
+
+  # Metrics exporter for Prometheus
+  hostbill-exporter:
+    image: nginx/nginx-prometheus-exporter:0.11
+    container_name: hostbill-exporter
+    restart: unless-stopped
+    ports:
+      - "9113:9113"
+    command:
+      - -nginx.scrape-uri=http://hostbill:80/nginx_status
+    networks:
+      - hostbill-net
+    depends_on:
+      - hostbill
+
+networks:
+  hostbill-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/24
+
+volumes:
+  hostbill_data:
+  hostbill_logs:
+  hostbill_mysql_data:
+  hostbill_redis_data:
+

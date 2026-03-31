@@ -1,0 +1,46 @@
+# Foundation trust gate — AgentDB integrity + CSQBM CI covenant (Thread #1)
+# Canonical repo: investing/agentic-flow (superproject at workspace root uses scripts/contract-enforcement-gate.sh separately).
+# Rollback: delete this file or disable the job; set SKIP_AGENTDB_FRESHNESS=1 / CSQBM_CI_MODE=false as needed.
+
+name: Foundation Trust Gate
+
+on:
+  pull_request:
+    branches: [main, master, develop]
+  push:
+    branches: [main, master, develop]
+
+concurrency:
+  group: foundation-trust-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  foundation-trust:
+    name: AgentDB + CSQBM (CI)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    env:
+      CSQBM_CI_MODE: "true"
+      SKIP_AGENTDB_FRESHNESS: "0"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Foundation CI (bootstrap .agentdb/agentdb.sqlite if missing)
+        run: |
+          chmod +x scripts/validate-foundation-ci.sh
+          ./scripts/validate-foundation-ci.sh --strict
+
+      - name: CSQBM covenant (deterministic CI mode)
+        run: |
+          chmod +x scripts/validators/project/check-csqbm.sh
+          ./scripts/validators/project/check-csqbm.sh
+
+      - name: Typecheck + Jest (trust test runner)
+        run: |
+          npm ci
+          npm run typecheck
+          npm run test:jest

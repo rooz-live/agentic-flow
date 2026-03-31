@@ -1,0 +1,256 @@
+# Deployment Configuration for Multi-Tenant Accessible Domains
+# Prioritizes accessible domains over local IP dashboards
+
+deployment:
+  name: agentic-flow-platform
+  version: "1.0.0"
+  environment: production
+
+# Infrastructure endpoints
+infrastructure:
+  starlingx:
+    host: stx-aio-0.corp.interface.tag.ooo
+    ip: 23.92.79.2
+    type: edge-cloud
+    services:
+      - horizon
+      - nova
+      - cinder
+      - neutron
+
+  aws:
+    instance_id: i-097706d9355b9f1b2
+    ip: 54.241.233.105
+    region: us-west-1
+    services:
+      - api-gateway
+      - lambda
+      - rds
+      - s3
+
+# Accessible Multi-Tenant Domains (preferred over local IPs)
+domains:
+  primary:
+    - domain: app.interface.tag.ooo
+      target: goalie-api
+      ssl: true
+      cdn: cloudflare
+      tenant: default
+
+    - domain: enterprise.interface.tag.ooo
+      target: enterprise-api
+      ssl: true
+      tenant: enterprise
+
+  infrastructure_dashboards:
+    - domain: horizon.openstack.interface.tag.ooo
+      target: openstack-horizon
+      ssl: true
+      proxy_to: 23.92.79.2:80
+
+    - domain: starlingx.interface.tag.ooo
+      target: starlingx-dashboard
+      ssl: true
+      proxy_to: 23.92.79.2:8080
+
+  billing:
+    - domain: billing.interface.tag.ooo
+      target: hostbill
+      ssl: true
+      features:
+        - invoicing
+        - provisioning
+        - support-tickets
+
+  community:
+    - domain: forum.interface.tag.ooo
+      target: flarum
+      ssl: true
+
+    - domain: blog.interface.tag.ooo
+      target: wordpress
+      ssl: true
+      cdn: cloudflare
+
+  analytics:
+    - domain: analytics.interface.tag.ooo
+      target: goalie-analytics
+      ssl: true
+
+    - domain: risk.interface.tag.ooo
+      target: risk-analytics
+      ssl: true
+
+  affiliate:
+    - domain: affiliate.interface.tag.ooo
+      target: affiliate-platform
+      ssl: true
+      features:
+        - commission-tracking
+        - referral-codes
+        - payout-management
+
+# Platform Integrations
+integrations:
+  symfony_oro:
+    enabled: true
+    endpoint: https://commerce.interface.tag.ooo/api
+    features:
+      - crm
+      - ecommerce
+      - workflow
+      - affiliate-tracking
+
+  openstack:
+    enabled: true
+    auth_url: https://keystone.interface.tag.ooo:5000/v3
+    region: RegionOne
+    services:
+      compute: nova
+      network: neutron
+      storage: cinder
+      identity: keystone
+
+  starlingx:
+    enabled: true
+    system_controller: stx-aio-0.corp.interface.tag.ooo
+    features:
+      - edge-compute
+      - container-orchestration
+      - distributed-cloud
+
+  hostbill:
+    enabled: true
+    endpoint: https://billing.interface.tag.ooo/api
+    features:
+      - billing
+      - provisioning
+      - automation
+
+  wordpress:
+    enabled: true
+    endpoint: https://blog.interface.tag.ooo/wp-json
+    features:
+      - cms
+      - blog
+      - seo
+
+  flarum:
+    enabled: true
+    endpoint: https://forum.interface.tag.ooo/api
+    features:
+      - forum
+      - discussions
+      - moderation
+
+  # Multi-Domain SSO (RISK-005 Mitigation)
+  identity_provider:
+    enabled: true
+    type: oauth2_oidc
+    endpoint: https://auth.interface.tag.ooo
+    provider: keycloak  # or auth0, custom
+    config_file: config/security/multi_domain_sso.yaml
+    features:
+      - cross_domain_sso
+      - jwt_tokens
+      - pkce_flow
+      - session_management
+    protected_domains:
+      - app.interface.tag.ooo
+      - enterprise.interface.tag.ooo
+      - billing.interface.tag.ooo
+      - forum.interface.tag.ooo
+      - analytics.interface.tag.ooo
+      - risk.interface.tag.ooo
+
+# AI Services
+ai_services:
+  vibethinker:
+    model: WeiboAI/VibeThinker-1.5B
+    endpoint: local
+    max_tokens: 2048
+
+  harbor:
+    orchestration_mode: consensus
+    agent_count: 3
+    timeout: 30
+
+  goose:
+    enabled: true
+    cli: goose
+    config_cmd: goose configure
+
+# Financial Services
+financial:
+  tradingview:
+    enabled: true
+    api_base: https://api.tradingview.com
+
+  finviz:
+    enabled: true
+    api_base: https://finviz.com
+
+  ibkr:
+    enabled: false  # Requires TWS Gateway
+    gateway: https://localhost:5000
+
+# CI/CD Configuration
+cicd:
+  provider: github-actions
+
+  pipelines:
+    - name: build-and-test
+      triggers:
+        - push
+        - pull_request
+      steps:
+        - lint
+        - test
+        - build
+
+    - name: deploy-staging
+      triggers:
+        - push:main
+      environment: staging
+
+    - name: deploy-production
+      triggers:
+        - release
+      environment: production
+      requires_approval: true
+
+# Monitoring
+monitoring:
+  pattern_metrics:
+    file: .goalie/pattern_metrics.jsonl
+    retention_days: 90
+
+  health_checks:
+    interval_seconds: 60
+    endpoints:
+      - /health
+      - /ready
+
+  alerts:
+    slack_webhook: ${SLACK_WEBHOOK_URL}
+    email: ops@interface.tag.ooo
+
+# Budget Configuration
+budget:
+  capex:
+    total: 100000
+    period: annual
+    categories:
+      - infrastructure
+      - licenses
+      - hardware
+
+  opex:
+    total: 50000
+    period: monthly
+    replenishment: automatic
+    categories:
+      - compute
+      - storage
+      - bandwidth
+      - support

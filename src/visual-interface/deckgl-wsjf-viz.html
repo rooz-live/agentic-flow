@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deck.gl WSJF Auto-Select Visualization - Agentic Flow</title>
+    <script src="https://unpkg.com/deck.gl@latest/dist.min.js"></script>
+    <script src="https://unpkg.com/@deck.gl/core@latest/dist.min.js"></script>
+    <script src="https://unpkg.com/@deck.gl/layers@latest/dist.min.js"></script>
+    <script src="https://unpkg.com/@deck.gl/geo-layers@latest/dist.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: #e0e0e0;
+            overflow: hidden;
+        }
+        
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        #deck-canvas {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #control-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(26, 31, 58, 0.95);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            max-width: 350px;
+            z-index: 1000;
+        }
+        
+        #stats-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(26, 31, 58, 0.95);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            min-width: 300px;
+            z-index: 1000;
+        }
+        
+        h2 {
+            margin-top: 0;
+            color: #00d4ff;
+            font-size: 18px;
+            font-weight: 600;
+            border-bottom: 2px solid rgba(0, 212, 255, 0.3);
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+        
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px 0;
+            padding: 8px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+        }
+        
+        .metric-label {
+            color: #8e9aaf;
+            font-size: 13px;
+        }
+        
+        .metric-value {
+            color: #00ff88;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .metric-value.critical {
+            color: #ff4444;
+        }
+        
+        .metric-value.warning {
+            color: #ffaa00;
+        }
+        
+        button {
+            width: 100%;
+            padding: 12px;
+            margin: 8px 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        button:active {
+            transform: translateY(0);
+        }
+        
+        select, input {
+            width: 100%;
+            padding: 10px;
+            margin: 8px 0;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 6px;
+            color: #e0e0e0;
+            font-size: 13px;
+        }
+        
+        label {
+            display: block;
+            color: #8e9aaf;
+            font-size: 12px;
+            margin-top: 12px;
+            margin-bottom: 4px;
+            font-weight: 500;
+        }
+        
+        .legend {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 8px 0;
+            font-size: 12px;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            margin-right: 10px;
+        }
+        
+        #wsjf-score {
+            font-size: 32px;
+            font-weight: 700;
+            color: #00ff88;
+            text-align: center;
+            margin: 15px 0;
+            text-shadow: 0 0 20px rgba(0, 255, 136, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <canvas id="deck-canvas"></canvas>
+        
+        <div id="control-panel">
+            <h2>🎯 WSJF Auto-Select</h2>
+            
+            <label>Visualization Mode</label>
+            <select id="viz-mode">
+                <option value="wsjf">WSJF Priority Matrix</option>
+                <option value="mcp">MCP Method Patterns</option>
+                <option value="roam">ROAM Risk Assessment</option>
+                <option value="swarm">Agent Swarm Network</option>
+            </select>
+            
+            <label>Data Source</label>
+            <select id="data-source">
+                <option value="live">Live MCP Stream</option>
+                <option value="cached">Cached Patterns</option>
+                <option value="demo">Demo Data</option>
+            </select>
+            
+            <label>Time Range</label>
+            <input type="range" id="time-range" min="1" max="168" value="24">
+            <span id="time-label" style="color: #8e9aaf; font-size: 12px;">24 hours</span>
+            
+            <button onclick="autoSelectWSJF()">🎯 Auto-Select Top WSJF</button>
+            <button onclick="resetView()">🔄 Reset View</button>
+            <button onclick="toggleAnimation()">⏯️ Toggle Animation</button>
+            
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #00ff88;"></div>
+                    <span>High WSJF (>80)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ffaa00;"></div>
+                    <span>Medium WSJF (40-80)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ff4444;"></div>
+                    <span>Low WSJF (<40)</span>
+                </div>
+            </div>
+        </div>
+        
+        <div id="stats-panel">
+            <h2>📊 Real-Time Metrics</h2>
+            <div id="wsjf-score">--</div>
+            <div class="metric">
+                <span class="metric-label">Active Patterns</span>
+                <span class="metric-value" id="active-patterns">0</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Avg WSJF Score</span>
+                <span class="metric-value" id="avg-wsjf">0</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Selected Task</span>
+                <span class="metric-value" id="selected-task">None</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">MCP Agents</span>
+                <span class="metric-value" id="mcp-agents">8</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">Frame Rate</span>
+                <span class="metric-value" id="fps">60 FPS</span>
+            </div>
+            <div class="metric">
+                <span class="metric-label">GPU Utilization</span>
+                <span class="metric-value" id="gpu-util">--</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const {DeckGL, ScatterplotLayer, ColumnLayer, TextLayer, PathLayer} = deck;
+        
+        // WSJF calculation: (Business Value + Time Criticality + Risk Reduction) / Job Size
+        function calculateWSJF(businessValue, timeCriticality, riskReduction, jobSize) {
+            return ((businessValue + timeCriticality + riskReduction) / Math.max(jobSize, 1));
+        }
+        
+        // Generate demo WSJF data based on MCP/MPP patterns
+        function generateWSJFData(count = 100) {
+            const patterns = ['security', 'performance', 'feature', 'bugfix', 'refactor', 'test', 'docs', 'infrastructure'];
+            const data = [];
+            
+            for (let i = 0; i < count; i++) {
+                const businessValue = Math.random() * 100;
+                const timeCriticality = Math.random() * 100;
+                const riskReduction = Math.random() * 100;
+                const jobSize = Math.random() * 50 + 10;
+                
+                const wsjf = calculateWSJF(businessValue, timeCriticality, riskReduction, jobSize);
+                
+                data.push({
+                    id: `task-${i}`,
+                    name: `${patterns[i % patterns.length]}-task-${i}`,
+                    position: [
+                        (Math.random() - 0.5) * 200,
+                        (Math.random() - 0.5) * 200,
+                        wsjf * 2
+                    ],
+                    wsjf: wsjf,
+                    businessValue,
+                    timeCriticality,
+                    riskReduction,
+                    jobSize,
+                    pattern: patterns[i % patterns.length],
+                    color: getColorForWSJF(wsjf),
+                    size: Math.log(wsjf + 1) * 5
+                });
+            }
+            
+            return data.sort((a, b) => b.wsjf - a.wsjf);
+        }
+        
+        function getColorForWSJF(wsjf) {
+            if (wsjf >= 80) return [0, 255, 136, 200];      // Green
+            if (wsjf >= 40) return [255, 170, 0, 200];      // Orange
+            return [255, 68, 68, 200];                       // Red
+        }
+        
+        let wsjfData = generateWSJFData(100);
+        let selectedTask = null;
+        let isAnimating = true;
+        let animationTime = 0;
+        
+        // Initialize Deck.gl
+        const deckgl = new DeckGL({
+            canvas: 'deck-canvas',
+            initialViewState: {
+                longitude: 0,
+                latitude: 0,
+                zoom: 3,
+                pitch: 45,
+                bearing: 0
+            },
+            controller: true,
+            layers: []
+        });
+        
+        function updateLayers() {
+            const layers = [
+                new ScatterplotLayer({
+                    id: 'wsjf-scatter',
+                    data: wsjfData,
+                    pickable: true,
+                    opacity: 0.8,
+                    stroked: true,
+                    filled: true,
+                    radiusScale: 6,
+                    radiusMinPixels: 3,
+                    radiusMaxPixels: 30,
+                    lineWidthMinPixels: 1,
+                    getPosition: d => d.position,
+                    getRadius: d => d.size + (isAnimating ? Math.sin(animationTime + d.id.length) * 2 : 0),
+                    getFillColor: d => d.color,
+                    getLineColor: [255, 255, 255, 100],
+                    onClick: ({object}) => selectTask(object),
+                    updateTriggers: {
+                        getRadius: animationTime
+                    }
+                }),
+                
+                new ColumnLayer({
+                    id: 'wsjf-columns',
+                    data: wsjfData.slice(0, 20), // Top 20 only for performance
+                    diskResolution: 12,
+                    radius: 5,
+                    extruded: true,
+                    pickable: true,
+                    elevationScale: 1,
+                    getPosition: d => [d.position[0], d.position[1]],
+                    getFillColor: d => [...d.color.slice(0, 3), 150],
+                    getLineColor: [255, 255, 255, 80],
+                    getElevation: d => d.wsjf * 2,
+                    onClick: ({object}) => selectTask(object)
+                }),
+                
+                new TextLayer({
+                    id: 'wsjf-labels',
+                    data: wsjfData.slice(0, 10), // Top 10 labels
+                    pickable: false,
+                    getPosition: d => [d.position[0], d.position[1], d.position[2] + 20],
+                    getText: d => `#${wsjfData.indexOf(d) + 1}: ${Math.round(d.wsjf)}`,
+                    getSize: 14,
+                    getAngle: 0,
+                    getTextAnchor: 'middle',
+                    getAlignmentBaseline: 'center',
+                    getColor: [255, 255, 255, 255],
+                    background: true,
+                    backgroundPadding: [3, 2]
+                })
+            ];
+            
+            deckgl.setProps({layers});
+        }
+        
+        function selectTask(task) {
+            if (!task) return;
+            
+            selectedTask = task;
+            document.getElementById('wsjf-score').textContent = Math.round(task.wsjf);
+            document.getElementById('selected-task').textContent = task.name;
+            
+            // Highlight selected task
+            wsjfData = wsjfData.map(d => ({
+                ...d,
+                size: d.id === task.id ? d.size * 2 : d.size * 0.8
+            }));
+            
+            updateLayers();
+            
+            console.log('Selected task:', task);
+        }
+        
+        function autoSelectWSJF() {
+            // Auto-select highest WSJF task
+            const topTask = wsjfData[0];
+            selectTask(topTask);
+            
+            // Animate camera to task
+            deckgl.setProps({
+                initialViewState: {
+                    longitude: topTask.position[0] / 100,
+                    latitude: topTask.position[1] / 100,
+                    zoom: 5,
+                    pitch: 60,
+                    bearing: 30,
+                    transitionDuration: 1000,
+                    transitionInterpolator: new deck.FlyToInterpolator()
+                }
+            });
+        }
+        
+        function resetView() {
+            selectedTask = null;
+            document.getElementById('wsjf-score').textContent = '--';
+            document.getElementById('selected-task').textContent = 'None';
+            
+            wsjfData = generateWSJFData(100);
+            
+            deckgl.setProps({
+                initialViewState: {
+                    longitude: 0,
+                    latitude: 0,
+                    zoom: 3,
+                    pitch: 45,
+                    bearing: 0,
+                    transitionDuration: 1000
+                }
+            });
+            
+            updateLayers();
+        }
+        
+        function toggleAnimation() {
+            isAnimating = !isAnimating;
+        }
+        
+        // Animation loop
+        function animate() {
+            if (isAnimating) {
+                animationTime += 0.05;
+                updateLayers();
+            }
+            
+            // Update stats
+            const avgWSJF = wsjfData.reduce((sum, d) => sum + d.wsjf, 0) / wsjfData.length;
+            document.getElementById('active-patterns').textContent = wsjfData.length;
+            document.getElementById('avg-wsjf').textContent = Math.round(avgWSJF);
+            
+            requestAnimationFrame(animate);
+        }
+        
+        // Event listeners
+        document.getElementById('time-range').addEventListener('input', (e) => {
+            const hours = e.target.value;
+            document.getElementById('time-label').textContent = `${hours} hours`;
+        });
+        
+        document.getElementById('viz-mode').addEventListener('change', (e) => {
+            console.log('Visualization mode changed to:', e.target.value);
+            // Could load different data based on mode
+        });
+        
+        // Initialize
+        updateLayers();
+        animate();
+        
+        // WebSocket connection for live MCP data (optional)
+        function connectMCPStream() {
+            try {
+                const ws = new WebSocket('ws://localhost:3001');
+                
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'wsjf_update') {
+                        // Update WSJF data with live MCP metrics
+                        console.log('Live MCP data:', data);
+                    }
+                };
+                
+                ws.onerror = () => {
+                    console.log('MCP stream not available, using demo data');
+                };
+            } catch (e) {
+                console.log('WebSocket not available, using demo data');
+            }
+        }
+        
+        connectMCPStream();
+        
+        console.log('🎯 Deck.gl WSJF Visualization initialized');
+        console.log('📊 Total tasks:', wsjfData.length);
+        console.log('🏆 Top WSJF:', Math.round(wsjfData[0].wsjf));
+    </script>
+</body>
+</html>

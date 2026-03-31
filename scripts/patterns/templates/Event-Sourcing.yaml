@@ -1,0 +1,283 @@
+pattern: Event-Sourcing
+description: Store state changes as immutable event log for audit and replay
+category: governance
+
+definition_of_ready:
+  - criterion: Event schema defined
+    description: Structure of domain events documented
+    validation: Event types and fields specified in schema
+    
+  - criterion: Event store selected
+    description: Technology choice for event persistence
+    validation: Event store configured (EventStoreDB, Kafka, PostgreSQL)
+    
+  - criterion: Projection strategy defined
+    description: How to build read models from events?
+    validation: Projection logic and update strategy documented
+
+definition_of_done:
+  - criterion: Events persisted immutably
+    description: State changes stored as append-only event log
+    validation: Events cannot be modified or deleted
+    command: "pytest tests/test_event_store.py::test_immutability"
+    blocking: true
+    
+  - criterion: Event replay functional
+    description: Can rebuild state from event history
+    validation: State matches after replay from events
+    command: "pytest tests/test_event_sourcing.py::test_replay"
+    blocking: true
+    
+  - criterion: Projections working
+    description: Read models updated from events
+    validation: Projections reflect current state
+    command: "pytest tests/test_projections.py::test_projection_accuracy"
+    blocking: true
+    
+  - criterion: Versioning implemented
+    description: Event schema evolution supported
+    validation: Old events readable after schema changes
+    command: "pytest tests/test_event_versioning.py::test_backward_compatibility"
+    blocking: false
+    
+  - criterion: Audit trail queryable
+    description: Complete history accessible
+    validation: Can query events by aggregate, time, type
+    command: "pytest tests/test_event_queries.py::test_event_history"
+    blocking: false
+
+telemetry:
+  emit_on_event_append: true
+  emit_on_projection_update: true
+  metrics:
+    - events_appended_total
+    - event_store_size_bytes
+    - projection_lag_seconds
+    - replay_duration_seconds
+
+wsjf_guidance:
+  user_value: "High - enables audit trails, debugging, compliance"
+  time_criticality: "Low - foundational but not urgent"
+  risk_reduction: "Very High - eliminates data loss, enables recovery"
+  job_size: "Large 1-2 weeks (paradigm shift)"
+
+core_concepts:
+  event:
+    description: "Immutable fact about something that happened"
+    properties:
+      - event_id: "UUID"
+      - event_type: "UserRegistered, OrderPlaced, etc."
+      - aggregate_id: "Entity ID (user_id, order_id)"
+      - aggregate_version: "Version of aggregate after event"
+      - timestamp: "When event occurred"
+      - data: "Event payload (JSON/Avro)"
+      - metadata: "Correlation ID, causation ID, user context"
+    
+  aggregate:
+    description: "Domain entity that produces events"
+    behavior: "Load events → apply events → produce new events"
+    example: "Order aggregate emits OrderPlaced, OrderShipped events"
+    
+  projection:
+    description: "Read model built from events"
+    behavior: "Listen to events → update view model"
+    example: "User profile view built from UserRegistered, ProfileUpdated events"
+    
+  event_store:
+    description: "Append-only log of all events"
+    guarantees: ["Immutability", "Ordering per aggregate", "Durability"]
+
+event_schema_example:
+  event_type: "OrderPlaced"
+  aggregate_id: "order_123"
+  aggregate_version: 1
+  timestamp: "2025-12-12T08:45:00Z"
+  data:
+    order_id: "order_123"
+    customer_id: "customer_456"
+    items:
+      - product_id: "prod_789"
+        quantity: 2
+        price: 29.99
+    total_amount: 59.98
+  metadata:
+    correlation_id: "req_abc"
+    causation_id: "evt_xyz"
+    user_id: "admin_001"
+
+event_store_options:
+  purpose_built:
+    eventstore: 
+      description: "EventStoreDB - purpose-built event store"
+      pros: "Native event sourcing support, projections, subscriptions"
+      cons: "Additional infrastructure"
+      
+  message_broker:
+    kafka:
+      description: "Apache Kafka - distributed log"
+      pros: "High throughput, mature ecosystem"
+      cons: "Complex operations, eventual consistency"
+      
+  relational_db:
+    postgresql:
+      description: "PostgreSQL with append-only table"
+      pros: "Familiar, ACID guarantees, no new infrastructure"
+      cons: "Not specialized for event sourcing"
+      
+  cloud_native:
+    dynamodb:
+      description: "AWS DynamoDB with streams"
+      pros: "Managed, scalable"
+      cons: "Vendor lock-in, cost at scale"
+
+projection_strategies:
+  synchronous:
+    description: "Update projections immediately after event append"
+    pros: "Simple, consistent"
+    cons: "Slower writes, coupling"
+    
+  asynchronous:
+    description: "Update projections via event subscription"
+    pros: "Fast writes, decoupled"
+    cons: "Eventual consistency, projection lag"
+    
+  catchup:
+    description: "Rebuild projections from event history"
+    pros: "Can recreate any view, fix bugs in projection logic"
+    cons: "Time-consuming for large event stores"
+    
+  snapshot:
+    description: "Periodic aggregate snapshots to speed up replay"
+    pros: "Fast aggregate loading"
+    cons: "Additional storage, complexity"
+
+examples:
+  - title: "E-Commerce Order System with Event Sourcing"
+    aggregates: ["Order", "Payment", "Inventory"]
+    events:
+      - "OrderPlaced"
+      - "PaymentReceived"
+      - "OrderShipped"
+      - "OrderCancelled"
+    projections:
+      - "OrderSummaryView"
+      - "CustomerOrderHistoryView"
+      - "InventoryLevelView"
+    wsjf: 10.0
+    cod: 30
+    size: 3
+    metrics:
+      - events_per_day: 50000
+      - event_store_size: "2.5 GB"
+      - projection_lag_p99: "100 ms"
+      - replay_time_24h: "15 minutes"
+    result: "Success - Complete audit trail, order replay for debugging"
+    
+  - title: "Banking Transaction System with Audit Trail"
+    aggregates: ["Account", "Transaction"]
+    events:
+      - "AccountOpened"
+      - "MoneyDeposited"
+      - "MoneyWithdrawn"
+      - "AccountClosed"
+    projections:
+      - "AccountBalanceView"
+      - "TransactionHistoryView"
+      - "AuditReportView"
+    wsjf: 12.0
+    cod: 36
+    size: 3
+    compliance: "SOX, GDPR audit requirements met"
+    result: "Success - Regulatory compliance, transaction replay for fraud detection"
+
+anti_patterns:
+  event_as_entity:
+    description: "Storing entire entity state in events"
+    consequence: "Bloated events, difficult evolution"
+    mitigation: "Store only deltas (what changed), not full state"
+    
+  mutable_events:
+    description: "Updating or deleting events"
+    consequence: "Lost audit trail, replay inconsistency"
+    mitigation: "Append compensating events instead"
+    
+  no_versioning:
+    description: "No plan for event schema changes"
+    consequence: "Cannot evolve system, stuck with old schemas"
+    mitigation: "Version events, support upcasting"
+    
+  projection_as_source:
+    description: "Using projections as source of truth"
+    consequence: "Data loss if projection deleted"
+    mitigation: "Events are source of truth, projections are disposable"
+
+best_practices:
+  event_naming:
+    convention: "Past tense verb: UserRegistered, OrderShipped"
+    reason: "Events represent facts that already happened"
+    
+  event_granularity:
+    guideline: "One event per business fact"
+    example: "Separate OrderPlaced and PaymentReceived, not OrderCompletedWithPayment"
+    
+  versioning_strategy:
+    - version_field: "Include version in event"
+    - upcasting: "Transform old events to new schema on read"
+    - weak_schema: "Use flexible formats (JSON) for evolution"
+    
+  snapshot_policy:
+    frequency: "Every 100 events per aggregate"
+    storage: "Separate snapshot table/collection"
+    cleanup: "Keep last N snapshots, delete older"
+    
+  idempotency:
+    requirement: "Event handlers must be idempotent"
+    reason: "Events may be replayed during recovery"
+    implementation: "Track processed event IDs"
+
+event_versioning_example:
+  v1_event:
+    event_type: "UserRegistered"
+    version: 1
+    data:
+      user_id: "user_123"
+      email: "user@example.com"
+      
+  v2_event:
+    event_type: "UserRegistered"
+    version: 2
+    data:
+      user_id: "user_123"
+      email: "user@example.com"
+      phone: "+1234567890"  # New field
+      
+  upcasting:
+    description: "Convert v1 to v2 by adding default phone"
+    implementation: "if version == 1: data['phone'] = None"
+
+monitoring:
+  metrics:
+    - event_append_rate
+    - event_store_lag
+    - projection_rebuild_duration
+    - event_replay_errors
+  alerts:
+    - name: "Event Store High Lag"
+      condition: "projection_lag > 10 seconds"
+      severity: "warning"
+    - name: "Event Append Failures"
+      condition: "append_error_rate > 1%"
+      severity: "critical"
+
+revenue_attribution:
+  pattern: Event-Sourcing
+  circles_using:
+    - circle: assessor
+      monthly_cost_savings: 3500
+      reason: "Audit compliance, no additional audit tooling needed"
+    - circle: analyst
+      monthly_cost_savings: 2000
+      reason: "Debugging via event replay, reduced incident resolution time"
+  total_monthly_impact: 5500
+  compliance_benefit: "SOX, GDPR audit trails"
+  debugging_improvement: "70% faster root cause analysis"

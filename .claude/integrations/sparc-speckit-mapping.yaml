@@ -1,0 +1,163 @@
+# SPARC to Spec-kit Command Mapping
+# ==================================
+# Integration layer between claude-flow SPARC methodology and spec-kit framework
+# Reference: https://github.com/ruvnet/spec-kit
+
+metadata:
+  version: "1.0.0"
+  created: "2025-12-31"
+  purpose: "Map SPARC commands to spec-kit equivalents for framework interoperability"
+  mcp_compatibility: "claude-flow@alpha, flow-nexus, agentic-qe"
+
+# =============================================================================
+# SPARC PHASE -> SPEC-KIT MAPPING
+# =============================================================================
+phase_mapping:
+  specification:
+    sparc_command: "npx claude-flow sparc run spec-pseudocode"
+    sparc_mcp: "mcp__claude-flow__sparc_mode { mode: 'spec-pseudocode' }"
+    speckit_equivalent: "spec create --type requirements"
+    speckit_mcp: "mcp__spec-kit__spec_create { type: 'requirements' }"
+    outputs:
+      - "requirements.spec.yaml"
+      - "user-stories.spec.yaml"
+      - "acceptance-criteria.spec.yaml"
+    integration_notes: |
+      SPARC spec-pseudocode combines specification and pseudocode in one phase.
+      spec-kit separates these into distinct operations for finer granularity.
+
+  pseudocode:
+    sparc_command: "npx claude-flow sparc run spec-pseudocode"
+    sparc_mcp: "mcp__claude-flow__sparc_mode { mode: 'spec-pseudocode' }"
+    speckit_equivalent: "spec create --type algorithm"
+    speckit_mcp: "mcp__spec-kit__spec_create { type: 'algorithm' }"
+    outputs:
+      - "algorithm.spec.yaml"
+      - "data-flow.spec.yaml"
+    integration_notes: |
+      spec-kit algorithm specs provide structured pseudocode with
+      complexity annotations and edge case enumeration.
+
+  architecture:
+    sparc_command: "npx claude-flow sparc run architect"
+    sparc_mcp: "mcp__claude-flow__sparc_mode { mode: 'architect' }"
+    speckit_equivalent: "spec create --type architecture"
+    speckit_mcp: "mcp__spec-kit__spec_create { type: 'architecture' }"
+    outputs:
+      - "system-architecture.spec.yaml"
+      - "component-diagram.spec.yaml"
+      - "api-contracts.spec.yaml"
+    patterns:
+      - microservices
+      - event-driven
+      - hexagonal
+      - cqrs
+
+  refinement_tdd:
+    sparc_command: "npx claude-flow sparc tdd"
+    sparc_mcp: "mcp__claude-flow__sparc_mode { mode: 'tdd' }"
+    speckit_equivalent: "spec validate && spec generate --type tests"
+    speckit_mcp: "mcp__spec-kit__validate_and_generate { type: 'tests' }"
+    outputs:
+      - "test-cases.spec.yaml"
+      - "test-coverage-report.json"
+    integration_notes: |
+      SPARC TDD uses London-style outside-in development.
+      spec-kit supports both London and Chicago styles via config.
+
+  completion:
+    sparc_command: "npx claude-flow sparc run integration"
+    sparc_mcp: "mcp__claude-flow__sparc_mode { mode: 'integration' }"
+    speckit_equivalent: "spec integrate --validate"
+    speckit_mcp: "mcp__spec-kit__integrate { validate: true }"
+    outputs:
+      - "integration-report.json"
+      - "deployment-manifest.yaml"
+
+# =============================================================================
+# COMMAND EQUIVALENCE TABLE
+# =============================================================================
+command_mapping:
+  # SPARC Core Commands -> spec-kit
+  - sparc: "npx claude-flow sparc modes"
+    speckit: "spec list-types"
+    description: "List available specification types"
+
+  - sparc: "npx claude-flow sparc info <mode>"
+    speckit: "spec describe <type>"
+    description: "Get details about specific mode/type"
+
+  - sparc: "npx claude-flow sparc batch <modes>"
+    speckit: "spec batch <types> --parallel"
+    description: "Parallel mode execution"
+
+  - sparc: "npx claude-flow sparc pipeline"
+    speckit: "spec workflow --full-pipeline"
+    description: "Execute full pipeline"
+
+  - sparc: "npx claude-flow@alpha hooks pre-task"
+    speckit: "spec hooks before-generate"
+    description: "Pre-execution hooks"
+
+  - sparc: "npx claude-flow@alpha hooks post-task"
+    speckit: "spec hooks after-validate"
+    description: "Post-execution hooks"
+
+# =============================================================================
+# MCP COMPATIBILITY LAYER
+# =============================================================================
+mcp_integration:
+  servers:
+    - name: "claude-flow@alpha"
+      role: "SPARC orchestration"
+      tool_prefix: "mcp__claude-flow__"
+      
+    - name: "spec-kit"
+      role: "Spec generation and validation"
+      tool_prefix: "mcp__spec-kit__"
+      install: "npm install -g @ruvnet/spec-kit"
+
+  bridge_patterns:
+    sparc_to_speckit:
+      trigger: "mcp__claude-flow__sparc_mode"
+      adapter: |
+        // SPARC mode triggers corresponding spec-kit operation
+        const specType = SPARC_TO_SPECKIT_MAP[sparc.mode];
+        await mcp__spec-kit__spec_create({ type: specType, ...sparc.options });
+
+    speckit_to_sparc:
+      trigger: "mcp__spec-kit__spec_create"
+      adapter: |
+        // spec-kit output fed into SPARC memory for context
+        await mcp__claude-flow__memory_usage({
+          action: 'store',
+          key: `spec/${spec.type}/${spec.name}`,
+          value: spec.output
+        });
+
+# =============================================================================
+# CROSS-FRAMEWORK HANDOFF TESTS
+# =============================================================================
+integration_tests:
+  - name: "sparc_to_speckit_spec_phase"
+    description: "Test SPARC spec-pseudocode output feeds spec-kit requirements"
+    steps:
+      - "npx claude-flow sparc run spec-pseudocode 'test feature'"
+      - "spec import --source .goalie/sparc-output.json"
+      - "spec validate requirements"
+    expected: "Spec validation passes with no errors"
+
+  - name: "speckit_to_sparc_tdd"
+    description: "Test spec-kit generated tests work with SPARC TDD"
+    steps:
+      - "spec generate --type tests --output tests/"
+      - "npx claude-flow sparc tdd 'run generated tests'"
+    expected: "SPARC TDD picks up generated test files"
+
+  - name: "bidirectional_memory_sync"
+    description: "Test memory sync between frameworks"
+    steps:
+      - "mcp__claude-flow__memory_usage { action: 'store', key: 'test' }"
+      - "mcp__spec-kit__context_read { source: 'claude-flow' }"
+    expected: "Context available in both frameworks"
+

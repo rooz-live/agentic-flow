@@ -1,0 +1,57 @@
+apiVersion: compliance.openshift.io/v1alpha1
+kind: ComplianceProfile
+metadata:
+  name: ubuntu-22.04-hardening
+spec:
+  title: Ubuntu 22.04 Security Hardening
+  description: CIS Ubuntu 22.04 Benchmark compliance
+
+  rules:
+    - id: UBUNTU-22-001010
+      title: Ensure filesystem permissions are configured
+      severity: high
+      rationale: Proper permissions prevent unauthorized access
+      check:
+        script: |
+          #!/bin/bash
+          # Just check specific critical file for demo
+          if [ -f /etc/shadow ] && [ -w /etc/shadow ]; then exit 1; fi
+          exit 0
+      remediation:
+        script: |
+          #!/bin/bash
+          chmod 640 /etc/shadow
+
+    - id: UBUNTU-22-001020
+      title: Ensure containerd is configured securely
+      severity: critical
+      rationale: Secure container runtime prevents container escapes
+      check:
+        script: |
+          #!/bin/bash
+          # Mock check for demo environment if config doesn't exist yet
+          if [ ! -f /etc/containerd/config.toml ]; then echo "Config missing"; exit 1; fi
+          grep -E "^\s*disable-legacy-registry" /etc/containerd/config.toml
+      remediation:
+        script: |
+          #!/bin/bash
+          mkdir -p /etc/containerd
+          containerd config default > /etc/containerd/config.toml
+          # Simplified remediation for demo
+          sed -i 's/disable-legacy-registry = false/disable-legacy-registry = true/' /etc/containerd/config.toml || true
+          systemctl restart containerd || true
+
+    - id: UBUNTU-22-001030
+      title: Ensure auditd is configured
+      severity: medium
+      rationale: Audit trails provide accountability
+      check:
+        script: |
+          #!/bin/bash
+          systemctl is-active auditd
+      remediation:
+        script: |
+          #!/bin/bash
+          # In test environment, install if missing
+          apt-get install -y auditd
+          systemctl enable --now auditd

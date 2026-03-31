@@ -1,0 +1,67 @@
+/usr/local/lib/python3.13/site-packages/pytest_asyncio/plugin.py:208: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the fixture caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to function scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+....F.                                                                   [100%]
+=================================== FAILURES ===================================
+____ TestIRISProdCycleIntegration.test_production_maturity_all_environments ____
+
+self = <test_iris_prod_cycle_integration.TestIRISProdCycleIntegration object at 0x1100dcef0>
+
+    def test_production_maturity_all_environments(self):
+        """Test that all production environments are monitored."""
+        # Run any IRIS command
+        result = subprocess.run(
+            ['./scripts/af', 'iris-health', '--log-goalie'],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                'AF_ENABLE_IRIS_METRICS': '1',
+                'AF_IRIS_CMD': 'true',
+                'AF_TEST_MODE': '1',
+                'AF_IRIS_STUB': '1',
+            },
+        )
+    
+        assert result.returncode == 0
+    
+        events = get_iris_events()
+        if not events:
+            _write_stub_iris_events()
+            events = get_iris_events()
+        assert len(events) > 0
+    
+        event = events[-1]
+        pm = event['production_maturity']
+    
+        # Infrastructure
+        assert 'starlingx_openstack' in pm
+        assert 'status' in pm['starlingx_openstack']
+        assert 'issues' in pm['starlingx_openstack']
+    
+        # CMS
+        assert 'symfony' in pm['cms_interfaces']
+        assert 'oro' in pm['cms_interfaces']
+        assert 'wordpress' in pm['cms_interfaces']
+        assert 'flarum' in pm['cms_interfaces']
+    
+        # Communication
+        assert 'telnyx' in pm['communication_stack']
+        assert 'plivo' in pm['communication_stack']
+        assert 'sms' in pm['communication_stack']
+        assert 'ivr' in pm['communication_stack']
+        assert 'tts' in pm['communication_stack']
+    
+        # Messaging
+        assert isinstance(pm['messaging_protocols'], list)
+        assert 'smtp' in pm['messaging_protocols']
+        assert 'websocket' in pm['messaging_protocols']
+>       assert 'grpc' in pm['messaging_protocols']
+E       AssertionError: assert 'grpc' in ['smtp', 'websocket']
+
+tests/analysis/test_iris_prod_cycle_integration.py:387: AssertionError
+=========================== short test summary info ============================
+FAILED tests/analysis/test_iris_prod_cycle_integration.py::TestIRISProdCycleIntegration::test_production_maturity_all_environments
+1 failed, 5 passed in 59.84s

@@ -1,0 +1,167 @@
+# DoR/DoD Criteria for Code Search & Doc Query Tools
+# Lean, measurable exit conditions aligned with prod-cycle guardrails
+
+code_search_py:
+  definition_of_ready:
+    - criterion: "Pattern provided (non-empty string or valid regex)"
+      validation: "assert len(pattern) > 0"
+      
+    - criterion: "Root directory exists and is readable"
+      validation: "Path(root_dir).exists() and os.access(root_dir, os.R_OK)"
+      
+    - criterion: "Max depth is reasonable (1-15)"
+      validation: "1 <= max_depth <= 15"
+      
+    - criterion: "File types specified or defaulted"
+      validation: "file_types is None or isinstance(file_types, list)"
+      
+    - criterion: "Performance test baseline exists"
+      validation: "Path('tests/perf/baseline_code_search.json').exists()"
+
+  definition_of_done:
+    performance:
+      - metric: "Search completes in <5s for 1000 files"
+        target: "elapsed_time_ms < 5000"
+        measurement: "result['elapsed_time_ms']"
+        
+      - metric: "Processing rate >100 files/sec with concurrency"
+        target: "processing_rate >= 100"
+        measurement: "result['performance_metrics']['processing_rate_files_per_sec']"
+        
+      - metric: "Rate limiter stabilizes <30s"
+        target: "final_rate >= 200.0"
+        measurement: "result['performance_metrics']['final_rate_limit']"
+
+    quality:
+      - metric: "No false positives in regex mode"
+        target: "all matches contain pattern"
+        validation: "pytest tests/test_code_search_accuracy.py"
+        
+      - metric: "Handles concurrent load without errors"
+        target: "error_rate < 1%"
+        validation: "metrics.files_skipped / metrics.files_processed < 0.01"
+
+    integration:
+      - metric: "JSON output is valid"
+        validation: "json.loads(output) without exception"
+        
+      - metric: "Progress meter works without stderr pollution"
+        validation: "stderr only contains progress, stdout clean JSON"
+
+    coverage:
+      - metric: "Unit test coverage >85%"
+        command: "pytest --cov=scripts.code_search --cov-report=term-missing"
+        target: "coverage >= 85%"
+
+doc_query_py:
+  definition_of_ready:
+    - criterion: "Query string provided (non-empty)"
+      validation: "assert query and len(query.strip()) > 0"
+      
+    - criterion: "Project root exists with .goalie/ directory"
+      validation: "Path(project_root).exists() and (Path(project_root) / '.goalie').exists()"
+      
+    - criterion: "Cache configuration valid"
+      validation: "cache_size_mb > 0 and cache_size_mb <= 500"
+      
+    - criterion: "Performance baseline established"
+      validation: "Path('.goalie/insights_log.jsonl').exists() with >10 entries"
+
+  definition_of_done:
+    performance:
+      - metric: "Query completes in <1s for 372 files"
+        target: "elapsed_time_ms < 1000"
+        measurement: "result['elapsed_time_ms']"
+        critical: true
+        
+      - metric: "Cache hit rate >50% after warmup"
+        target: "cache_hit_rate >= 0.50"
+        measurement: "result['performance_metrics']['cache_hit_rate']"
+        
+      - metric: "Average file read time <3ms"
+        target: "avg_file_read_time_ms < 3.0"
+        measurement: "result['performance_metrics']['avg_file_read_time_ms']"
+
+    relevance:
+      - metric: "Average relevance score >80%"
+        target: "avg_relevance >= 0.80"
+        measurement: "result['avg_relevance']"
+        critical: true
+        
+      - metric: "Exact matches score 0.8-1.0"
+        validation: "All exact matches have relevance >= 0.8"
+        
+      - metric: "Context window includes ±2 lines"
+        validation: "len(match['context']) in [3,4,5]"
+
+    integration:
+      - metric: "Insights logged to .goalie/insights_log.jsonl"
+        validation: "File exists and is valid JSONL"
+        
+      - metric: "WSJF linking functional"
+        validation: "link_to_wsjf() returns True when board exists"
+        
+      - metric: "Action items extraction works"
+        validation: "extract_action_items() finds unchecked checkboxes"
+
+    coverage:
+      - metric: "Unit test coverage >90%"
+        command: "pytest --cov=scripts.doc_query --cov-report=term-missing"
+        target: "coverage >= 90%"
+        
+      - metric: "Integration tests pass"
+        command: "pytest tests/integration/test_doc_query_integration.py"
+
+# Forensic Verification Protocol
+forensic_verification:
+  pre_deployment:
+    - step: "Run baseline performance tests"
+      command: "pytest tests/perf/test_baseline_performance.py -v"
+      exit_criteria: "All performance targets met"
+      
+    - step: "Verify cache behavior under load"
+      command: "pytest tests/perf/test_cache_behavior.py -v"
+      exit_criteria: "Cache hit rate >50%, no memory leaks"
+      
+    - step: "Test concurrent processing"
+      command: "pytest tests/perf/test_concurrent_processing.py -v"
+      exit_criteria: "No race conditions, proper cleanup"
+
+  post_deployment:
+    - step: "Analyze production metrics"
+      command: "python scripts/analyze_insights_log.py --report performance"
+      exit_criteria: "95th percentile <1.5s"
+      
+    - step: "Review error rates"
+      command: "python scripts/analyze_insights_log.py --report errors"
+      exit_criteria: "Error rate <1%"
+
+# Success Criteria Summary
+success_criteria:
+  code_search:
+    - "Performance: <5s for 1000 files, >100 files/sec"
+    - "Quality: Zero false positives in regex mode"
+    - "Integration: Clean JSON output, progress meter"
+    - "Coverage: >85% unit test coverage"
+    
+  doc_query:
+    - "Performance: <1s for 372 files (CRITICAL)"
+    - "Relevance: >80% average score (CRITICAL)"
+    - "Cache: >50% hit rate after warmup"
+    - "Integration: WSJF linking, insights logging"
+    - "Coverage: >90% unit test coverage"
+
+# Exit Conditions for Prod Cycle
+exit_conditions:
+  ready_for_production:
+    - "All DoD metrics met in forensic verification"
+    - "Performance validated under load (>100 queries/hour)"
+    - "Zero critical bugs in backlog"
+    - "Documentation complete and reviewed"
+    - "Retrospective insights analyzed and actioned"
+    
+  ready_for_iteration:
+    - "At least 80% of DoD metrics met"
+    - "No critical bugs"
+    - "Known issues documented with workarounds"
+    - "Performance acceptable for current use cases"

@@ -1,0 +1,73 @@
+# Quick Wins & Actionable Insights
+> Single source of truth for high-velocity improvements sourced from Retro, Governance, and Observation.
+
+## 📥 Inbox (New Insights)
+<!-- Add new insights here. Format: - [ ] Task Description Source:retro|observation|audit (UBV: X, TC: Y, RROE: Z, Size: W) -->
+
+## 🔄 In-Flight (Replenished to Backlogs)
+<!-- Items moved here have been picked up by replenish_circle.sh and exist in role backlogs -->
+- [ ] Implement StarlingX Tyk MCP server for API gateway Source:retro [Trace: FLOW-R-1767100348-386]
+- [ ] Audit OpenStack vs StarlingX 11.0 milestone Source:retro [Trace: FLOW-R-1767100348-663]
+- [ ] Implement StarlingX MCP server for node orchestration Source:retro [Trace: FLOW-R-1767099653-892]
+- [ ] Audit SOXL/SOXS 2026 Portfolio divergence Source:retro (UBV: 10, TC: 5) [Trace: FLOW-R-1767099653-982]
+- [ ] Refactor prod_cycle_swarm_runner.py for better error handling Source:retro [Trace: FLOW-R-1767099653-362]
+- [ ] Verify forensic audit trail generation Source:retro (UBV: 8, TC: 8, RROE: 5, Size: 1) [Trace: FLOW-R-1765413092-638]
+- [ ] **Actionable Insight** Source:retro? (WSJF: Score) [Trace: FLOW-R-1765411970-476]
+- [ ] Integrate promote_to_kanban.py into scripts/af Source:retro (UBV: 3, TC: 3, RROE: 2, Size: 1) [Trace: FLOW-R-1765399605-174]
+- [ ] Implement WSJF sorting for all circles Source:retro (UBV: 8, TC: 5, RROE: 5, Size: 2) [Trace: FLOW-R-1765399605-815]
+- [ ] Automate CoD calculation in replenish script Source:retro (UBV: 5, TC: 3, RROE: 3, Size: 1) [Trace: FLOW-R-1765399605-388]
+- [ ] Verify Holacracy alignment for Circle Leads Source:retro (UBV: 3, TC: 1, RROE: 1, Size: 1) [Trace: FLOW-R-1765399605-606]
+
+## ✅ Completed
+- [x] Initial Prod Cycle Optimization [Status: Done]
+
+## ℹ️  Legend & Schema
+**WSJF Parameters (Fibonacci 1-20):**
+- **UBV**: User-Business Value (Value to customer/business)
+- **TC**: Time Criticality (Decay of value over time)
+- **RROE**: Risk Reduction / Opportunity Enablement
+- **Size**: Job Duration/Effort
+
+**Sources:**
+- `Source:retro`: From team retrospectives
+- `Source:audit`: From automated governance audits
+- `Source:obs`: From observational patterns
+
+---
+
+
+---
+
+## 🌐 Multi-Repo WSJF Rollup
+
+**Generated**: 2026-01-06T07:59:23Z
+**Single Source of Truth** - Aggregated across all repos
+
+### Repo Summary
+
+| Repo | Total | Done | % | HIGH |
+|------|-------|------|---|------|
+
+### Top WSJF Items Across Repos
+
+**Repos with HIGH priority items:**
+- ✅ No HIGH priority items across all repos!
+
+### Execution Priority
+
+1. **NOW**: Complete all HIGH priority items in repos above 0% completion
+2. **NEXT**: Target repos below 40% completion for quick wins
+3. **LATER**: Maintain repos above 80% completion
+
+**Next Review**: Run `./scripts/wsjf/aggregate_wsjf.sh` after each completed item
+
+## 🚀 StarlingX Production Track - Week 1 (Jan 8-14, 2026)
+
+- [ ] STX P1: SSH Probe & Health Check Source:stx-prod (UBV: 10, TC: 8, RROE: 5, Size: 2) [Trace: FLOW-STX-$(date +%s)-001]
+- [ ] STX P2: Inventory & Dependency Mapping Source:stx-prod (UBV: 8, TC: 5, RROE: 4, Size: 3) [Trace: FLOW-STX-$(date +%s)-002]
+- [ ] STX P3: ROAM Risk Assessment Source:stx-prod (UBV: 6, TC: 3, RROE: 3, Size: 2) [Trace: FLOW-STX-$(date +%s)-003]
+
+**Track Selected**: 2026-01-08 22:12 UTC
+**Target**: Device 24460 Production Deployment
+**Plan**: /tmp/stx-production-plan.md
+**Scripts**: scripts/stx-ssh-probe.sh (NEW)

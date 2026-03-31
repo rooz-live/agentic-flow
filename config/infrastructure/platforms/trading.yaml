@@ -1,0 +1,132 @@
+# Trading Platform Deployment
+# Target VM: trading (10.20.0.24)
+# SLA: 99.9% availability, <50ms trade execution latency
+version: '3.8'
+
+services:
+  trading-api:
+    build:
+      context: ./trading
+      dockerfile: Dockerfile.api
+    image: trading-platform:api
+    container_name: trading-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHON_ENV=production
+      - DATABASE_URL=postgresql://trading:${TRADING_DB_PASSWORD:-TradingSecure123!}@trading-postgres:5432/trading
+      - REDIS_URL=redis://trading-redis:6379
+      - TIMESCALE_URL=postgresql://trading:${TRADING_DB_PASSWORD:-TradingSecure123!}@trading-timescale:5432/trading_ts
+      - ALPACA_API_KEY=${ALPACA_API_KEY}
+      - ALPACA_SECRET_KEY=${ALPACA_SECRET_KEY}
+      - POLYGON_API_KEY=${POLYGON_API_KEY}
+      - WEBSOCKET_ENABLED=true
+      - RISK_MANAGEMENT_ENABLED=true
+      - MAX_POSITION_SIZE=${MAX_POSITION_SIZE:-10000}
+    volumes:
+      - trading_logs:/app/logs
+      - trading_models:/app/models
+    networks:
+      - trading-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+    labels:
+      - "com.stx.platform=trading"
+      - "com.stx.role=financial-trading"
+      - "traefik.enable=true"
+      - "traefik.http.routers.trading.rule=Host(`trading.interface.tag.ooo`)"
+
+  trading-websocket:
+    build:
+      context: ./trading
+      dockerfile: Dockerfile.websocket
+    image: trading-platform:websocket
+    container_name: trading-websocket
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      - REDIS_URL=redis://trading-redis:6379
+      - MAX_CONNECTIONS=1000
+    networks:
+      - trading-net
+    depends_on:
+      - trading-redis
+
+  trading-strategy-engine:
+    build:
+      context: ./trading
+      dockerfile: Dockerfile.strategy
+    image: trading-platform:strategy
+    container_name: trading-strategy
+    restart: unless-stopped
+    environment:
+      - DATABASE_URL=postgresql://trading:${TRADING_DB_PASSWORD:-TradingSecure123!}@trading-postgres:5432/trading
+      - REDIS_URL=redis://trading-redis:6379
+      - STRATEGY_EXECUTION_INTERVAL=1000
+    volumes:
+      - trading_models:/app/models
+    networks:
+      - trading-net
+    depends_on:
+      - trading-api
+
+  trading-postgres:
+    image: postgres:15-alpine
+    container_name: trading-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=trading
+      - POSTGRES_PASSWORD=${TRADING_DB_PASSWORD:-TradingSecure123!}
+      - POSTGRES_DB=trading
+    volumes:
+      - trading_postgres_data:/var/lib/postgresql/data
+    networks:
+      - trading-net
+
+  trading-timescale:
+    image: timescale/timescaledb:latest-pg15
+    container_name: trading-timescale
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=trading
+      - POSTGRES_PASSWORD=${TRADING_DB_PASSWORD:-TradingSecure123!}
+      - POSTGRES_DB=trading_ts
+    volumes:
+      - trading_timescale_data:/var/lib/postgresql/data
+    networks:
+      - trading-net
+
+  trading-redis:
+    image: redis:7-alpine
+    container_name: trading-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 1gb --maxmemory-policy volatile-lru
+    volumes:
+      - trading_redis_data:/data
+    networks:
+      - trading-net
+
+networks:
+  trading-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.25.0.0/24
+
+volumes:
+  trading_logs:
+  trading_models:
+  trading_postgres_data:
+  trading_timescale_data:
+  trading_redis_data:
+

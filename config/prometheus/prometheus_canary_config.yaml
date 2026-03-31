@@ -1,0 +1,139 @@
+# Prometheus Configuration for Canary Release Monitoring
+# Ubuntu 22.04 Migration - StarlingX Integration
+# Version: 1.0.0
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: 'production'
+    cluster: 'interface-tag-ooo'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'
+      timeout: 10s
+
+# Rule files
+rule_files:
+  - '/etc/prometheus/rules/canary_alerting_rules.yaml'
+  - '/etc/prometheus/rules/infrastructure_rules.yaml'
+
+# Scrape configurations
+scrape_configs:
+  # Canary backend metrics
+  - job_name: 'canary-backend'
+    static_configs:
+      - targets: ['canary-backend.interface.tag.ooo:9100']
+        labels:
+          backend: 'canary'
+          os: 'ubuntu-22.04'
+    metrics_path: '/metrics'
+    scheme: 'https'
+    tls_config:
+      insecure_skip_verify: false
+
+  # Stable backend metrics
+  - job_name: 'stable-backend'
+    static_configs:
+      - targets: ['stable-backend.interface.tag.ooo:9100']
+        labels:
+          backend: 'stable'
+          os: 'ubuntu-20.04'
+    metrics_path: '/metrics'
+    scheme: 'https'
+
+  # Nginx load balancer metrics
+  - job_name: 'nginx-canary'
+    static_configs:
+      - targets: ['app.interface.tag.ooo:9113']
+    metrics_path: '/metrics'
+
+  # StarlingX infrastructure
+  - job_name: 'starlingx'
+    static_configs:
+      - targets: ['23.92.79.2:9100']
+        labels:
+          host: 'starlingx'
+          environment: 'infrastructure'
+    scheme: 'http'
+    scrape_interval: 30s
+
+  # Ubuntu 22.04 test VM
+  - job_name: 'ubuntu-test-vm'
+    static_configs:
+      - targets: ['192.168.2.2:9100']
+        labels:
+          host: 'ubuntu-test'
+          os: 'ubuntu-22.04'
+          role: 'canary-candidate'
+    scrape_interval: 30s
+    scrape_timeout: 10s
+
+  # containerd metrics (from StarlingX)
+  - job_name: 'containerd'
+    static_configs:
+      - targets: ['23.92.79.2:9323']
+        labels:
+          service: 'containerd'
+    metrics_path: '/v1/metrics'
+
+  # Compliance scanner metrics (custom exporter)
+  - job_name: 'compliance-scanner'
+    static_configs:
+      - targets: ['localhost:9500']
+    metrics_path: '/metrics'
+    scrape_interval: 5m  # Run compliance checks every 5 minutes
+    
+    # Custom metrics pushed by compliance scanner
+    # - canary_compliance_score: Current CIS benchmark score (0-100)
+    # - canary_compliance_scan_status: 1=success, 0=failure
+    # - canary_compliance_rules_passed: Number of rules passed
+    # - canary_compliance_rules_failed: Number of rules failed
+    # - canary_compliance_critical_failures: Number of critical rule failures
+
+# Recording rules for canary metrics
+# (Pre-computed for dashboard efficiency)
+recording_rules:
+  - record: canary:error_rate:5m
+    expr: |
+      sum(rate(http_requests_total{backend="canary", status=~"5.."}[5m]))
+      /
+      sum(rate(http_requests_total{backend="canary"}[5m]))
+
+  - record: canary:latency_p99:5m
+    expr: |
+      histogram_quantile(0.99, 
+        sum(rate(http_request_duration_seconds_bucket{backend="canary"}[5m])) 
+        by (le)
+      )
+
+  - record: canary:latency_p50:5m
+    expr: |
+      histogram_quantile(0.50, 
+        sum(rate(http_request_duration_seconds_bucket{backend="canary"}[5m])) 
+        by (le)
+      )
+
+  - record: canary:traffic_percentage:5m
+    expr: |
+      sum(rate(http_requests_total{backend="canary"}[5m]))
+      /
+      sum(rate(http_requests_total[5m]))
+
+  - record: canary:success_rate:5m
+    expr: |
+      sum(rate(http_requests_total{backend="canary", status=~"2.."}[5m]))
+      /
+      sum(rate(http_requests_total{backend="canary"}[5m]))
+
+# Storage configuration
+storage:
+  tsdb:
+    path: '/prometheus/data'
+    retention.time: 30d
+    retention.size: 50GB
+

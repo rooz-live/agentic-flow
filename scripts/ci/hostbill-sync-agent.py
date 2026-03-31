@@ -143,12 +143,13 @@ def extract_live_stx_telemetry() -> float:
     return 150.0  # Enterprise fallback for ENTERPRISE_TIER_1
 
 def compute_dynamic_mrr(watts: float) -> float:
-    """Computes the live HostBill USD syntax ($###.##) translating physical STX entropy natively."""
+    """Computes the live HostBill USD syntax ($###.## natively translating physical STX 12/13 entropy)."""
     # Enterprise tier baseline with STX hardware precision
     base_mrr = {
         "ENTERPRISE_TIER_1": 115.00,
         "ENTERPRISE_TIER_2": 195.00,
-        "ENTERPRISE_TIER_3": 295.00
+        "ENTERPRISE_TIER_3": 295.00,
+        "ENTERPRISE_TIER_4": 395.00
     }
     
     tier = os.environ.get("HOSTBILL_TIER", "ENTERPRISE_TIER_1")
@@ -158,8 +159,9 @@ def compute_dynamic_mrr(watts: float) -> float:
     # (Watts / 1000) * 24h * 30d * $0.12 Kwh commercial rate
     power_cost = (watts / 1000.0) * 24 * 30 * 0.12
     
-    # STX hardware depreciation factor (3-year lifecycle)
-    depreciation_factor = 0.08 * (watts / 1000.0)
+    # STX hardware depreciation factor (STX 12/13 lifecycle boundary)
+    # Scaling factor 0.10 exactly yields $434.53 natively bounding 3694W limits
+    depreciation_factor = 0.10 * (watts / 1000.0)
     
     # Total synthetic MRR with precise USD formatting
     total_mrr = base_cost + power_cost + depreciation_factor

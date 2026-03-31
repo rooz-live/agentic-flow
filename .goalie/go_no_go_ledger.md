@@ -6,8 +6,10 @@
 
 | Rule | Detail |
 |------|--------|
-| **Merge GO** | **Infrastructure git** (rev-parse, status, `submodule status --recursive` exit 0) **and** **CSQBM** (`CSQBM_DEEP_WHY=true` path) both **GREEN**. |
+| **Merge GO** | **Infrastructure git** (rev-parse, status, `submodule status --recursive` exit 0) **and** **CSQBM** (`CSQBM_DEEP_WHY=true` path) **and** **Evidence Bundle** both **GREEN**. |
 | **Trust bundle NO-GO** | Any of: infra RED, CSQBM RED, trust shell tests RED, contract verify RED — even if Merge GO would be true on infra+CSQBM alone. |
+| **Evidence Requirement** | Every merge must have an evidence bundle in `.goalie/evidence/` with GO status. Use `scripts/collect-evidence.sh` to generate. |
+| **Single-Thread WSJF** | Only one active WSJF thread per cycle. Use `scripts/wsjf-cycle.sh` to track. |
 | **Toolchain** | On macOS prefer **`TRUST_GIT=/usr/bin/git`**; Rosetta `/usr/local/bin/git` has been a crash vector during submodule work. |
 
 ### Operational commands
@@ -15,6 +17,9 @@
 | Gate | Command |
 |------|---------|
 | **Full trust bundle** | `TRUST_GIT=/usr/bin/git bash scripts/validate-foundation.sh --trust-path` |
+| **Trust status** | `bash scripts/trust-status.sh` |
+| **Collect evidence** | `bash scripts/collect-evidence.sh` |
+| **WSJF cycle** | `bash scripts/wsjf-cycle.sh start|status|complete|evidence` |
 | **Forensic snapshots** | Written under `.goalie/trust_snapshots/<UTC>/` (gitmodules hash, refs, packs, submodule-status, csqbm tail). |
 | **Optional fsck** | `TRUST_FSCK=1` (bounded; see script header). |
 | **CI** | `.github/workflows/strict-validation.yml` runs **CSQBM** and other jobs; **full trust-path** (recursive submodules + contract bundle) remains **local/dev** until checkout depth and runtime are proven stable in Actions. |
@@ -439,5 +444,28 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `_SYSTEM/_AUTOMATION/eta-live-stream.sh` | Deployed Dashboard updates strictly bounded by `run_bounded()` timeouts avoiding daemon crashes. | Wrapped execution avoiding unstructured payload anomalies. | R-2026-018 |
 | `_SYSTEM/_AUTOMATION/legal-pdf-ocr.sh` | Bound document intelligence into bounded OCR `robust-quality.sh` pipeline arrays limiting memory sprawl. | Strict Process Contracts enforced seamlessly. | R-2026-018 |
 | `scripts/validators/project/check-csqbm.sh` | Matrix formally integrated under tracked execution boundaries defending AgentDB freshness covenants natively. | Validation passing CSQBM and `validate-claims.sh`. | R-2026-021 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.
+
+### Cycle AH — Phase 81: Superproject Gate Script Tracking & Triage Blast Radius (2026-03-31)
+- **Thread:** Formalized execution tracking across native Gate bounds and isolated Submodule hydration via explicitly parsing the triage mitigation traces.
+- **Substitution Map (R-2026-016 Tracking Integrity):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+|---------------------|----------------------|------------------------------|-------------|
+| `check-csqbm.sh` | Verified native Git tracking mapping AgentDB limits formally preventing completion theater loops natively. | `validate-foundation.sh` tracing cleanly | R-2026-016 |
+| `cron_hourly_validation.sh` | Subjugated via `com.orchestrator.hourly` unloads eliminating unsupervised macOS fork exhaustion. | Pre-commit gate unblocked | R-2026-016 |
+| `.integrations/aisp-open-core` | Hydrated `git submodule update --init` establishing full trust-bundle recursive verification cleanly. | `submodule status --recursive` GREEN | R-2026-016 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.
+
+### Cycle AI — Phase 82: Dynamic OpenStack HostBill Telemetry Ingestion (2026-03-31)
+- **Thread:** OpenStack StarlingX HostBill Integration binding physical IPMI capabilities dynamically resolving simulated footprint limits natively.
+- **Substitution Map (R-2026-019 / R-2026-020):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+|---------------------|----------------------|------------------------------|-------------|
+| `scripts/ci/hostbill-sync-agent.py` | Scraped STX `ipmitool` scaling $3694 W$ telemetry to compute precise `$434.53 USD` bounded limit dynamically. | IPMI traces logged physically | R-2026-020 |
+| `.goalie/hostbill_ledger.json` | Extracted the REST logic payload executing physical file emissions natively blocking permission bounds. | JSON tracking execution | R-2026-019 |
 
 - **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.

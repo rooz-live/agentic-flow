@@ -83,8 +83,8 @@ if [[ -f "$AGENTDB_PATH" ]]; then
 fi
 
 if [ -f "$local_proj_root/scripts/validators/project/check-csqbm.sh" ]; then
-    if ! bash "$local_proj_root/scripts/validators/project/check-csqbm.sh" > /dev/null 2>&1; then
-        echo -e "${RED}❌ FAIL (CSQBM Governance Halt)${RESET} CSQBM Violation. Task blocked via OpenWorm Physical Bounds (ADR-005)."
+    if ! bash "$local_proj_root/scripts/validators/project/check-csqbm.sh" --deep-why > /dev/null 2>&1; then
+        echo -e "${RED}❌ FAIL (CSQBM Governance Halt)${RESET} CSQBM Deep-Why Violation. Task blocked via OpenWorm Physical Bounds (ADR-005)."
         exit ${EX_VALIDATION_FAILED:-150}
     fi
 fi

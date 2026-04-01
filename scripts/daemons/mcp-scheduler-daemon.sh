@@ -29,8 +29,8 @@ echo -e "${YELLOW}[GATE] Verifying CSQBM truth context via ADR-005 bounds...${NC
 if [[ -x scripts/validators/project/check-csqbm.sh ]]; then
      if ! ./scripts/validators/project/check-csqbm.sh --deep-why > /dev/null 2>&1; then
          echo -e "${RED}[HALT] CSQBM Governance Halt. agentdb.db staleness >96h. Execution Topology bypassed.${NC}"
-         python3 scripts/emit_metrics.py --source "mcp-daemon" --signal CSQBM_HALT --value 1.0 \
-              --metadata '{"state": "DAEMON_PULSE_BLOCKED_STALE"}' || true
+         python3 scripts/emit_metrics.py --event-type action --command "mcp_daemon" --target "csqbm_halt" \
+              --cycle-index 0 --log-file .goalie/metrics_log.jsonl || true
          exit 150
      fi
      echo -e "${GREEN}[GATE] CSQBM Deep-Why Validation complete. Hydration confirmed.${NC}"
@@ -39,16 +39,16 @@ else
 fi
 
 # 3. Trigger active Model Router cycles
-if [[ -x scripts/agentic/aqe-model-router.sh ]]; then
+if [[ -x scripts/validators/aqe-model-router.sh ]]; then
      echo -e "${GREEN}[PULSE] Triggering STX AQE Topology...${NC}"
-     ./scripts/agentic/aqe-model-router.sh || echo -e "${RED}[WARNING] Router triggered faults.${NC}"
+     ./scripts/validators/aqe-model-router.sh "telemetry" || echo -e "${RED}[WARNING] Router triggered faults.${NC}"
 else
      echo -e "${YELLOW}[SKIP] AQE router unavailable natively. Bypassing pulse.${NC}"
 fi
 
 # 4. Log Daemon Heartbeat
-python3 scripts/emit_metrics.py --source "mcp-daemon" --signal SATURATION --value 0.1 \
-     --metadata '{"state": "DAEMON_PULSE_NOMINAL"}' || true
+python3 scripts/emit_metrics.py --event-type action --command "mcp_daemon" --target "pulse_nominal" \
+     --cycle-index 0 --log-file .goalie/metrics_log.jsonl || true
 
 echo -e "${GREEN}[SUCCESS] MCP Scheduler successfully cycled physical bounds.${NC}"
 exit 0

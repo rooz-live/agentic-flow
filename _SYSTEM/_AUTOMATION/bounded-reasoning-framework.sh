@@ -41,6 +41,12 @@ create_contract() {
     local contract_file="$CONTRACTS_DIR/${process_id}.json"
     local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
+    # Format dependencies as json array elements
+    local deps_json=""
+    if [[ -n "$dependencies" && "$dependencies" != "none" ]]; then
+        deps_json=\"$(echo "$dependencies" | sed 's/,/","/g')\"
+    fi
+
     cat > "$contract_file" << EOF
 {
   "process_id": "$process_id",
@@ -49,7 +55,7 @@ create_contract() {
   "max_steps": $max_steps,
   "current_step": 0,
   "max_duration_seconds": $max_duration,
-  "dependencies": [$dependencies],
+  "dependencies": [$deps_json],
   "state": "INIT",
   "progress_pct": 0.0,
   "eta_seconds": $max_duration,

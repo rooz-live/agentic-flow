@@ -11,7 +11,7 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
  *
  * Per ADR-001: Web Components with MCP-Native Integration
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 // API Configuration
 const API_BASE = process.env.REACT_APP_COCKPIT_API || 'http://localhost:3030';

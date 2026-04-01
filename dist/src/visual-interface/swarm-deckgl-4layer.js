@@ -15,7 +15,7 @@ import { jsxs as _jsxs, jsx as _jsx } from "react/jsx-runtime";
  * - Performance constraints
  * - User context
  */
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import DeckGL from '@deck.gl/react';
 import { ScatterplotLayer, ArcLayer, HeatmapLayer, PointCloudLayer } from '@deck.gl/layers';
 // @ts-expect-error - Type incompatibility requires refactoring

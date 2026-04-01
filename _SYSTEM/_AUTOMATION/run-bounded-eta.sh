@@ -202,7 +202,7 @@ check_dependency() {
         "port_check")
             # Check if dynamically mapped Dashboard Port or default 8080 is available
             local port="${DASHBOARD_PORT:-8080}"
-            ! lsof -ti:"$port" >/dev/null 2>&1
+            ! lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
             ;;
         "http_server")
             # Check if HTTP server is running dynamically
@@ -238,11 +238,18 @@ start_http_server_bounded() {
     # Change to dashboard directory mapping fallback explicitly
     cd "${DASHBOARD_ROOT:-$HOME/Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL}"
 
-    # Start Python HTTP server natively bound locally or explicitly translated to binding addressing
-    if [[ -n "$bind_address" ]]; then
-        python3 -m http.server "$port" --bind "$bind_address" > /tmp/http-server.log 2>&1 &
+    # Start Vite or Python HTTP server natively bound locally or explicitly translated to binding addressing
+    if [[ -f "package.json" ]] && grep -q '"vite"' "package.json"; then
+        echo "[Dashboard] Vite React framework detected, launching modern dev server" > /tmp/http-server.log
+        vite --host 127.0.0.1 --port "$port" --strictPort >> /tmp/http-server.log 2>&1 &
+        return 0
     else
-        python3 -m http.server "$port" > /tmp/http-server.log 2>&1 &
+        echo "[Dashboard] Static site detected, launching python backend" > /tmp/http-server.log
+        if [[ -n "$bind_address" ]]; then
+            python3 -m http.server "$port" --bind "$bind_address" >> /tmp/http-server.log 2>&1 &
+        else
+            python3 -m http.server "$port" >> /tmp/http-server.log 2>&1 &
+        fi
     fi
     local server_pid=$!
 

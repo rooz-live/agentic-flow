@@ -39,7 +39,7 @@ else
 fi
 
 # Check if port is in use
-if lsof -i:"$PORT" >/dev/null 2>&1; then
+if lsof -tiTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
     echo -e "${GREEN}✅ Port $PORT already in use - server likely running${NC}"
     echo -e "${YELLOW}Public URL: $PUBLIC_URL${NC}"
     exit 0

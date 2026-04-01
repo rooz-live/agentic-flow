@@ -1,6 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 // @ts-nocheck
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import DeckGL from '@deck.gl/react';
 // @ts-expect-error - Type incompatibility requires refactoring
 import { ScatterplotLayer, ArcLayer, PointCloudLayer } from '@deck.gl/layers';

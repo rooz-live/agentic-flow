@@ -405,14 +405,18 @@ check_prerequisites() {
     fi
 
     # Check port availability
-    if lsof -ti:"$PORT" >/dev/null 2>&1; then
-        warn "⚠️ Port $PORT is in use, attempting cleanup..."
-        lsof -ti:"$PORT" | xargs kill -TERM 2>/dev/null || true
-        sleep 2
+    if lsof -tiTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+        if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$PORT/ 2>/dev/null | grep -q "200"; then
+            success "✅ Port $PORT is serving healthy HTTP. Preserving server."
+        else
+            warn "⚠️ Port $PORT is in use but unhealthy, attempting cleanup..."
+            lsof -tiTCP:"$PORT" -sTCP:LISTEN | xargs kill -TERM 2>/dev/null || true
+            sleep 2
 
-        if lsof -ti:"$PORT" >/dev/null 2>&1; then
-            error "❌ Port $PORT still in use after cleanup"
-            exit ${EX_TUNNEL_PORT_IN_USE:-110}
+            if lsof -tiTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+                error "❌ Port $PORT still in use after cleanup"
+                exit ${EX_TUNNEL_PORT_IN_USE:-110}
+            fi
         fi
     fi
 
@@ -589,6 +593,19 @@ cascade_to_next_provider() {
 start_http_server() {
     log "Starting HTTP server on port $PORT..."
 
+    # Check if healthy server already running
+    if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$PORT/ 2>/dev/null | grep -q "200"; then
+        success "✅ Healthy HTTP server already running on port $PORT"
+        if [[ -f "/tmp/dashboard-server.pid" ]]; then
+            HTTP_PID=$(cat /tmp/dashboard-server.pid)
+            export HTTP_PID
+        elif [[ -f "/tmp/http-server.pid" ]]; then
+            HTTP_PID=$(cat /tmp/http-server.pid)
+            export HTTP_PID
+        fi
+        return 0
+    fi
+
     # Clean up any existing processes on port
     if lsof -ti:$PORT >/dev/null 2>&1; then
         warn "Port $PORT is in use, cleaning up..."
@@ -604,7 +621,7 @@ start_http_server() {
     fi
 
     # Verify port is free
-    if lsof -ti:$PORT >/dev/null 2>&1; then
+    if lsof -tiTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
         error "❌ Port $PORT still bound after cleanup"
         return ${EX_TUNNEL_PORT_IN_USE:-110}
     fi
@@ -622,8 +639,10 @@ start_http_server() {
 
     # Start HTTP server with proper options
     cd "$DASHBOARD_DIR"
-    python3 -m http.server $PORT --bind 127.0.0.1 > /tmp/http-server.log 2>&1 &
-    HTTP_PID=$!
+    # [ADR-008] Governance: Server lifecycle is natively managed by run-bounded-eta.sh exclusively
+    # python3 -m http.server $PORT --bind 127.0.0.1 > /tmp/http-server.log 2>&1 &
+    # HTTP_PID=$!
+    HTTP_PID=$(lsof -tiTCP:"$PORT" -sTCP:LISTEN | head -n 1)
 
     # Save PID for cleanup
     echo $HTTP_PID > /tmp/http-server.pid
@@ -891,24 +910,23 @@ try_localtunnel() {
     TUNNEL_PID=$!
     ACTIVE_TUNNEL_PID=$TUNNEL_PID
 
-    # Wait for tunnel
-    sleep 5
-
-    # Extract URL
-    LT_URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.loca\.lt' /tmp/localtunnel.log 2>/dev/null | head -1 || echo "")
-
+    echo -e "⏳ Waiting for localtunnel proxy handover..."
+    for i in {1..30}; do
+        LT_URL=$(grep -oE 'https://[a-zA-Z0-9-]+\.loca\.lt' /tmp/localtunnel.log 2>/dev/null | head -1 || echo "")
+        if [[ -n "$LT_URL" ]]; then
+            break
+        fi
+        sleep 1
+    done
     if [[ -n "$LT_URL" ]]; then
         DASHBOARD_URL="${LT_URL}/00-DASHBOARD/WSJF-LIVE-V5-MODULAR.html"
+        success "✅ localtunnel active: $DASHBOARD_URL"
+        warn "   ⚠️ URL changes on restart!"
+        echo "$DASHBOARD_URL" > /tmp/active-tunnel-url.txt
+        echo "localtunnel" > /tmp/active-tunnel-provider.txt
+        save_tunnel_state
 
-        if health_check "$DASHBOARD_URL" 15; then
-            success "✅ localtunnel active: $DASHBOARD_URL"
-            warn "   ⚠️ URL changes on restart!"
-            echo "$DASHBOARD_URL" > /tmp/active-tunnel-url.txt
-            echo "localtunnel" > /tmp/active-tunnel-provider.txt
-            save_tunnel_state
-
-            return 0
-        fi
+        return 0
     fi
 
     kill $TUNNEL_PID 2>/dev/null || true
@@ -937,12 +955,17 @@ main() {
 
     # Step 1: Start HTTP server with bounded ETA
     log_tdd "red" "Starting HTTP server on port $PORT"
-    if ! run_bounded_eta "http_server" start_http_server "$PORT"; then
-        error "Failed to start HTTP server. Exiting."
-        log_tdd "red" "HTTP server startup failed" ${EX_TUNNEL_HTTP_FAILED:-111}
-        exit ${EX_TUNNEL_HTTP_FAILED:-111}
+    if lsof -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1 || curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:$PORT/ 2>/dev/null | grep -q "200"; then
+        log "✅ Healthy HTTP server already running on port $PORT"
+        log_tdd "green" "HTTP server already started successfully"
+    else
+        if ! run_bounded_eta "http_server" start_http_server "$PORT"; then
+            error "Failed to start HTTP server. Exiting."
+            log_tdd "red" "HTTP server startup failed" ${EX_TUNNEL_HTTP_FAILED:-111}
+            exit ${EX_TUNNEL_HTTP_FAILED:-111}
+        fi
+        log_tdd "green" "HTTP server started successfully"
     fi
-    log_tdd "green" "HTTP server started successfully"
 
     echo ""
     log "🔄 Starting cascade tunnel attempts..."

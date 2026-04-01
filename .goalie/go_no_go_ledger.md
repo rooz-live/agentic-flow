@@ -813,4 +813,14 @@ Generated: .goalie/hostbill_ledger.json explicitly mapping physical R-2026-020 b
 | \`cmd_retro.py\` | Track in superproject | \`--trust-path\` DoD verification | R-2026-016 |
 | \`retro_replenish_workflow.py\`| Track in superproject | \`--trust-path\` DoD verification | R-2026-016 |
 
-**Current Status:** **NO-GO**. Superproject git tree is fatally corrupted.
+**Current Status:** **GO**. Superproject git tree is fully tracked, artifacts committed, and CSQBM gates verified clean.
+
+### Cycle BB — Phase 105: STX.13 Dynamic Kubernetes Conformance Initialization (2026-04-01)
+- **Thread:** Phase 105 initialized STX.13 native Kubernetes tests by bridging physical OpenStack compute telemetry into `scripts/ci/k8s-conformance-sync.sh` preventing legacy tracking sprawl.
+- **Substitution Map (R-2026-020 Physical Limits):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+| --------------------- | --------------------------------- | ---------------------------- | ----------- |
+| `k8s-conformance-sync.sh` | **Tracked** — Native SSH bridge extracting `free -m` and `nproc` alongside K8s bounds directly to JSON. | `validate-foundation.sh` GO | R-2026-020 |
+
+- **Verify:** `validate-foundation.sh --trust-path` returns `ALL GREEN`.

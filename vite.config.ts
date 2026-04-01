@@ -9,9 +9,13 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  optimizeDeps: {
+    include: ['@cosmograph/cosmograph', '@cosmos.gl/graph', 'gl-bench']
+  },
   server: {
     port: 5173,
     strictPort: false,
+    allowedHosts: true,
   },
   build: {
     outDir: 'dist',

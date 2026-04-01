@@ -419,47 +419,22 @@ class AdmissionController:
     Implements intelligent load detection, adaptive throttling, and predictive analysis
     integrated with TypeScript process governor for comprehensive CPU management.
     """
-    def __init__(self, config: AdmissionConfig = None, sensor: SystemLoadSensor = None):
-        if config is None:
-            # Allow env override for threshold
-            env_threshold_str = os.environ.get("AF_ADMISSION_THRESHOLD_PCT")
-            threshold_pct = 80.0
-            if env_threshold_str:
-                try:
-                    threshold_pct = float(env_threshold_str)
-                except ValueError:
-                    pass
-            critical_threshold = float(os.environ.get("AF_CPU_CRITICAL_THRESHOLD", "0.95"))
-            warning_threshold = float(os.environ.get("AF_CPU_WARNING_THRESHOLD", "0.80"))
-            adaptive_enabled = os.environ.get("AF_ADAPTIVE_THROTTLING_ENABLED", "true").lower() != "false"
-            predictive_enabled = os.environ.get("AF_PREDICTIVE_THROTTLING", "false").lower() != "false"
-            
-            try:
-                config = AdmissionConfig(
-                    threshold_pct=threshold_pct,
-                    critical_threshold=critical_threshold,
-                    warning_threshold=warning_threshold,
-                    adaptive_throttling_enabled=adaptive_enabled,
-                    predictive_throttling_enabled=predictive_enabled
-                )
-            except ValueError as e:
-                print(f"[Admission] Warning: Invalid config parameters ({e}). Falling back to safe defaults.")
-                config = AdmissionConfig()
-                
+    def __init__(self, config: AdmissionConfig, sensor: SystemLoadSensor):
         self.config = config
-        self.sensor = sensor if sensor is not None else DefaultSystemLoadSensor()
-        
+        self.sensor = sensor
         self.consecutive_high_load = 0
         self.strike_limit = 2  # 2-strike rule (Retro improvement)
 
         # Enhanced load tracking
-        self.load_history = []
+        self.load_history: List[Dict[str, Any]] = []
         self.max_history_size = 10
         self.adaptive_throttling_level = 1.0
         self.predictive_load_score = 0.5
 
     def _update_load_history(self) -> None:
-        """Update load history for predictive analysis."""
+        """Exercises core mathematical paths cleanly via the injected sensor."""
+        # Use a localized try-except to avoid breaking if the sensor fails dynamically, 
+        # but the business logic paths remain pure and untangled.
         try:
             load_pct, idle_pct = self.sensor.get_load_percentages()
             
@@ -598,7 +573,25 @@ class GovernanceMiddleware:
         self.args = args
         self.project_root = project_root
         self.telemetry = TelemetryLogger(project_root)
-        self.admission = AdmissionController()
+        # Extract parsing logic away from AdmissionController to strictly preserve DI purity
+        try:
+            threshold_pct = float(os.environ.get("AF_ADMISSION_THRESHOLD_PCT", "80.0"))
+            critical_threshold = float(os.environ.get("AF_CPU_CRITICAL_THRESHOLD", "0.95"))
+            warning_threshold = float(os.environ.get("AF_CPU_WARNING_THRESHOLD", "0.80"))
+            adaptive_enabled = os.environ.get("AF_ADAPTIVE_THROTTLING_ENABLED", "true").lower() != "false"
+            predictive_enabled = os.environ.get("AF_PREDICTIVE_THROTTLING", "false").lower() != "false"
+            config = AdmissionConfig(
+                threshold_pct=threshold_pct,
+                critical_threshold=critical_threshold,
+                warning_threshold=warning_threshold,
+                adaptive_throttling_enabled=adaptive_enabled,
+                predictive_throttling_enabled=predictive_enabled
+            )
+        except ValueError as e:
+            print(f"[Admission] Warning: Invalid config parameters ({e}). Falling back to safe defaults.")
+            config = AdmissionConfig()
+            
+        self.admission = AdmissionController(config=config, sensor=DefaultSystemLoadSensor())
         self.run_id = str(uuid.uuid4())
         self.environment = getattr(args, "environment", None)
 

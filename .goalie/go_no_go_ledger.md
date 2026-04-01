@@ -164,6 +164,20 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 - Superproject: removed phantom `[submodule "scripts/whelk-rs"]` from `.gitmodules` (path was not indexed).
 - CSQBM deep-why, DGM test, **validate-email harness** (with `SKIP_ARBITRATION_WINDOW=1` for automated exit-code checks only), contract verify: **GREEN** on last local `--trust-path` run.
 
+### Cycle BE — Phase 104: Submodule Rehydration & Explicit Cleanup (2026-04-01)
+- **Thread:** Phase 104 Scope Split targeting the rehydration of stale Git pointers inside `external/` preserving missing boundaries cleanly minimizing downstream Git drift.
+- **Substitution Map (R-2026-016 Capability Retention):**
+
+| Submodule Target Path | Canonical Replacement / Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+|-----------------------|-----------------------------------|------------------------------|-------------|
+| `external/VisionFlow` | Active Rehydration / Sync. | `git submodule status --recursive` GREEN | R-2026-016 |
+| `external/agentic-drift` | Active Rehydration / Sync. | `git submodule status --recursive` GREEN | R-2026-016 |
+| `external/lionagi-qe-fleet`| Active Rehydration / Sync. | `git submodule status --recursive` GREEN | R-2026-016 |
+| `external/ruvector` | Active Rehydration / Sync. | `git submodule status --recursive` GREEN | R-2026-016 |
+| `external/turbo-flow` | Active Rehydration / Sync. | `git submodule status --recursive` GREEN | R-2026-016 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.
+
 ### Cycle E — Safe Cleanup Pass & Submodule Scope Split (2026-03-30)
 - **Thread:** Phase 34 Formalized "Safe Cleanup Pass" to desprawl deprecated backups and explicitly rehydrate submodules.
 - **Substitution Map (R-2026-016 Explicit Evidence):**

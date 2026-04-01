@@ -43,6 +43,9 @@ echo -e "${BLUE}🚀 Starting HTTP Server...${NC}"
 # Give server a moment to start
 sleep 3
 
+# Map expose-localhost tracking limits cleanly against check-csqbm.sh natively (ADR-007)
+echo "{\"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\", \"event\": \"expose-localhost\", \"status\": \"provisioned\", \"csqbm_target\": \".goalie/metrics_log.jsonl\"}" >> "$PROJECT_ROOT/.goalie/metrics_log.jsonl"
+
 # Start tunnel cascade
 echo -e "${BLUE}🌍 Starting Tunnel Cascade...${NC}"
 "$SCRIPT_DIR/orchestrators/cascade-tunnel.sh" start "$PORT"

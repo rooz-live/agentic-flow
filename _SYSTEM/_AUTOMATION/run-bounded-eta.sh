@@ -11,23 +11,35 @@ source "$SCRIPT_DIR/bounded-reasoning-framework.sh" 2>/dev/null || true
 source "$SCRIPT_DIR/eta-live-stream.sh" 2>/dev/null || true
 source "$SCRIPT_DIR/robust-quality.sh" 2>/dev/null || true
 
+# Provide fallback stubs for progress hooks if missing natively avoiding set -e crashes
+if ! declare -F emit_progress_update >/dev/null 2>&1; then
+    emit_progress_update() { true; }
+fi
+if ! declare -F update_progress >/dev/null 2>&1; then
+    update_progress() { true; }
+fi
+
 # =============================================================================
-# PROCESS CONTRACT DEFINITION
+# PROCESS CONTRACT DEFINITION (macOS Bash 3.2 compliance)
 # Format: max_steps|max_duration_seconds|dependencies|description
 # - max_steps: Max step count before LIMIT (exit 125)
 # - max_duration: Timeout in seconds (exit 124)
 # - dependencies: Comma-separated; must pass before execution (e.g. http_server)
 # - description: Human-readable process name
 # =============================================================================
-declare -A PROCESS_CONTRACTS=(
-    ["http_server"]="5|30|port_check|Start HTTP server on port 8080"
-    ["tailscale_tunnel"]="8|45|http_server|Establish Tailscale funnel"
-    ["ngrok_tunnel"]="10|60|http_server|Establish ngrok tunnel"
-    ["cloudflare_tunnel"]="8|45|http_server|Create Cloudflare tunnel"
-    ["localtunnel_tunnel"]="10|60|http_server|Establish localtunnel"
-    ["health_monitor"]="20|300|tunnel_active|Monitor tunnel health"
-    ["multi_ledger"]="40|180|http_server|Start all 4 ledger tunnels"
-)
+get_process_contract() {
+    local process_name="$1"
+    case "$process_name" in
+        "http_server") echo "5|30|port_check|Start HTTP server on port 8080" ;;
+        "tailscale_tunnel") echo "8|45|http_server|Establish Tailscale funnel" ;;
+        "ngrok_tunnel") echo "10|60|http_server|Establish ngrok tunnel" ;;
+        "cloudflare_tunnel") echo "8|45|http_server|Create Cloudflare tunnel" ;;
+        "localtunnel_tunnel") echo "10|60|http_server|Establish localtunnel" ;;
+        "health_monitor") echo "20|300|tunnel_active|Monitor tunnel health" ;;
+        "multi_ledger") echo "40|180|http_server|Start all 4 ledger tunnels" ;;
+        *) echo "" ;;
+    esac
+}
 
 # =============================================================================
 # RUN_BOUNDED WRAPPER WITH ETA STREAMING
@@ -38,8 +50,8 @@ run_bounded_eta() {
     shift 2
     local args=("$@")
 
-    # Get process contract
-    local contract="${PROCESS_CONTRACTS[$process_name]}"
+    # Get process contract natively bypassing array limitations
+    local contract=$(get_process_contract "$process_name")
     if [[ -z "$contract" ]]; then
         echo "ERROR: No contract found for process: $process_name" >&2
         return 1
@@ -188,12 +200,14 @@ check_dependency() {
 
     case "$dep" in
         "port_check")
-            # Check if port 8080 is available
-            ! lsof -ti:8080 >/dev/null 2>&1
+            # Check if dynamically mapped Dashboard Port or default 8080 is available
+            local port="${DASHBOARD_PORT:-8080}"
+            ! lsof -ti:"$port" >/dev/null 2>&1
             ;;
         "http_server")
-            # Check if HTTP server is running
-            curl -s http://localhost:8080 >/dev/null 2>&1
+            # Check if HTTP server is running dynamically
+            local port="${DASHBOARD_PORT:-8080}"
+            curl -s http://localhost:"$port" >/dev/null 2>&1
             ;;
         "tunnel_active")
             # Check if any tunnel is active
@@ -219,12 +233,17 @@ check_dependency() {
 # =============================================================================
 start_http_server_bounded() {
     local port="${1:-8080}"
+    local bind_address="${2:-}"
 
-    # Change to dashboard directory
-    cd "$HOME/Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL"
+    # Change to dashboard directory mapping fallback explicitly
+    cd "${DASHBOARD_ROOT:-$HOME/Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL}"
 
-    # Start Python HTTP server
-    python3 -m http.server "$port" &
+    # Start Python HTTP server natively bound locally or explicitly translated to binding addressing
+    if [[ -n "$bind_address" ]]; then
+        python3 -m http.server "$port" --bind "$bind_address" > /tmp/http-server.log 2>&1 &
+    else
+        python3 -m http.server "$port" > /tmp/http-server.log 2>&1 &
+    fi
     local server_pid=$!
 
     # Wait for server to be ready
@@ -374,6 +393,7 @@ start_multi_ledger_bounded() {
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     case "${1:-help}" in
         "http_server")
+            export DASHBOARD_PORT="${2:-8080}"
             run_bounded_eta "http_server" start_http_server_bounded "${2:-8080}"
             ;;
         "ngrok")

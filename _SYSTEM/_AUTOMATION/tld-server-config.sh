@@ -5,9 +5,10 @@
 set -euo pipefail
 
 # Load default configuration if exists
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$(dirname "$SCRIPT_DIR/..")" && pwd)"
-CONFIG_FILE="$PROJECT_ROOT/.tld-config"
+# Use local-like scoped variable preventing PROJECT_ROOT pollution on the caller
+TLD_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TLD_PROJECT_ROOT="$(cd "$TLD_SCRIPT_DIR/../.." && pwd)"
+CONFIG_FILE="$TLD_PROJECT_ROOT/.tld-config"
 
 if [[ -f "$CONFIG_FILE" ]]; then
     source "$CONFIG_FILE"
@@ -19,16 +20,6 @@ export DASHBOARD_PORT="${DASHBOARD_PORT:-${DASHBOARD_DEFAULT_PORT:-80}}"
 export DASHBOARD_SSL="${DASHBOARD_SSL:-${DASHBOARD_SSL_ENABLED:-true}}"
 export DASHBOARD_PROTOCOL="${DASHBOARD_PROTOCOL:-https}"
 
-# Alternative domains for different environments
-declare -A DOMAIN_MAPPINGS=(
-    ["prod"]="interface.rooz.live"
-    ["staging"]="staging.interface.rooz.live"
-    ["dev"]="dev.interface.rooz.live"
-    ["gateway"]="pur.tag.vote"
-    ["evidence"]="hab.yo.life"
-    ["process"]="file.720.chat"
-)
-
 # Server configuration
 export SERVER_BIND_ADDRESS="${SERVER_BIND_ADDRESS:-0.0.0.0}"
 export SERVER_WORKERS="${SERVER_WORKERS:-4}"
@@ -37,10 +28,24 @@ export SERVER_ACCESS_LOG="${SERVER_ACCESS_LOG:-/var/log/dashboard-access.log}"
 # Tunnel provider preferences
 export TUNNEL_PROVIDER_PREFERENCE="${TUNNEL_PROVIDER_PREFERENCE:-ngrok,tailscale,cloudflare,localtunnel}"
 
+# Alternative domains for different environments mapping (macOS Bash 3.2 compatible)
+get_domain_for_env() {
+    local env="${1:-prod}"
+    case "$env" in
+        "prod") echo "interface.rooz.live" ;;
+        "staging") echo "staging.interface.rooz.live" ;;
+        "dev") echo "dev.interface.rooz.live" ;;
+        "gateway") echo "pur.tag.vote" ;;
+        "evidence") echo "hab.yo.life" ;;
+        "process") echo "file.720.chat" ;;
+        *) echo "$DASHBOARD_DOMAIN" ;;
+    esac
+}
+
 # Public URL generation
 generate_public_url() {
     local env="${1:-prod}"
-    local domain="${DOMAIN_MAPPINGS[$env]:-$DASHBOARD_DOMAIN}"
+    local domain=$(get_domain_for_env "$env")
     local port="${2:-$DASHBOARD_PORT}"
     
     if [[ "$DASHBOARD_SSL" == "true" ]]; then
@@ -54,9 +59,10 @@ generate_public_url() {
 configure_server() {
     local env="${1:-prod}"
     local port="${2:-8080}"
+    local domain=$(get_domain_for_env "$env")
     
     echo "Configuring server for environment: $env"
-    echo "Domain: ${DOMAIN_MAPPINGS[$env]}"
+    echo "Domain: $domain"
     echo "Public URL: $(generate_public_url $env $port)"
     
     # Export configuration for other scripts
@@ -103,7 +109,7 @@ show_usage() {
     echo "  check               Run pre-flight checks"
     echo "  url <env> <port>    Generate public URL"
     echo ""
-    echo "Environments: ${!DOMAIN_MAPPINGS[*]}"
+    echo "Environments: prod staging dev gateway evidence process"
     echo ""
     echo "Examples:"
     echo "  $0 config prod 80"
@@ -112,22 +118,24 @@ show_usage() {
 }
 
 # Main execution
-case "${1:-config}" in
-    config)
-        configure_server "${2:-prod}" "${3:-80}"
-        ;;
-    check)
-        check_tld_readiness
-        ;;
-    url)
-        generate_public_url "${2:-prod}" "${3:-80}"
-        ;;
-    --help|-h)
-        show_usage
-        ;;
-    *)
-        echo "Unknown command: $1"
-        show_usage
-        exit 1
-        ;;
-esac
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    case "${1:-config}" in
+        config)
+            configure_server "${2:-prod}" "${3:-80}"
+            ;;
+        check)
+            check_tld_readiness
+            ;;
+        url)
+            generate_public_url "${2:-prod}" "${3:-80}"
+            ;;
+        --help|-h)
+            show_usage
+            ;;
+        *)
+            echo "Unknown command: $1"
+            show_usage
+            exit 1
+            ;;
+    esac
+fi

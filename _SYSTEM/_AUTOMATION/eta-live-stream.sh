@@ -24,17 +24,20 @@ MAX_DURATION=300
 DEPENDENCIES="curl,jq"
 DESCRIPTION="ETA Live Streaming Dashboard Telemetry"
 
-# Register the dashboard hook to emit progress
-"$ROBUST_WRAPPER" hook
+# Execute telemetry bounded by process contracts natively only if invoked directly
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    # Register the dashboard hook to emit progress
+    "$ROBUST_WRAPPER" hook
 
-# The actual telemetry stream command
-# Transmitting bounded JSONL metrics securely to the ETA Dashboard 
-# Relies natively on the `timeout_guard` wrapper safely exiting unbounded operations.
-STREAM_CMD="if [ -f .goalie/metrics_log.jsonl ]; then tail -n 10 -f .goalie/metrics_log.jsonl | while read -r line; do echo \"[DBOS-ETA-HOOK] \$line\"; sleep 1; done; else echo 'Missing metrics'; exit 1; fi"
+    # The actual telemetry stream command
+    # Transmitting bounded JSONL metrics securely to the ETA Dashboard 
+    # Relies natively on the `timeout_guard` wrapper safely exiting unbounded operations.
+    STREAM_CMD="if [ -f .goalie/metrics_log.jsonl ]; then tail -n 10 -f .goalie/metrics_log.jsonl | while read -r line; do echo \"[DBOS-ETA-HOOK] \$line\"; sleep 1; done; else echo 'Missing metrics'; exit 1; fi"
 
-# Execute bound by contracts
-echo "Starting bounded ETA live stream..."
-"$ROBUST_WRAPPER" run "$MAX_STEPS" "$MAX_DURATION" "$DEPENDENCIES" "$DESCRIPTION" "$STREAM_CMD"
-EXIT_CODE=$?
+    # Execute bound by contracts
+    echo "Starting bounded ETA live stream..."
+    "$ROBUST_WRAPPER" run "$MAX_STEPS" "$MAX_DURATION" "$DEPENDENCIES" "$DESCRIPTION" "$STREAM_CMD"
+    EXIT_CODE=$?
 
-exit $EXIT_CODE
+    exit $EXIT_CODE
+fi

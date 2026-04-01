@@ -55,9 +55,7 @@ export const SwarmCosmograph = ({ swarmData, width = 800, height = 600, showLabe
         console.log('Agent clicked:', node);
         alert(`Agent: ${node.agent_id}\nRole: ${node.role}\nTasks: ${node.tasks_completed}\nSuccess Rate: ${(node.success_rate * 100).toFixed(1)}%`);
     }, []);
-    return (
-    // @ts-expect-error - Cosmograph type definitions need updating
-    _jsx(CosmographProvider, { nodes: nodes, links: links, children: _jsxs("div", { style: { width, height, position: 'relative' }, children: [_jsx(Cosmograph, { ...{
+    return (_jsx(CosmographProvider, { nodes: nodes, links: links, children: _jsxs("div", { style: { width, height, position: 'relative' }, children: [_jsx(Cosmograph, { ...{
                         nodeColor: (n) => n.color || '#999',
                         nodeSize: (n) => n.size || 5,
                         linkWidth: 2,

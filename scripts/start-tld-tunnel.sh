@@ -40,14 +40,21 @@ echo ""
 echo -e "${BLUE}🚀 Starting HTTP Server...${NC}"
 "$SCRIPT_DIR/quick-start-dashboard.sh" "$ENV" "$PORT"
 
-# Give server a moment to start
-sleep 3
-
+# Give server time to dynamically compile and bind
+echo -e "${YELLOW}⏳ Waiting for Vite Dev Server to bind natively...${NC}"
+for i in {1..15}; do
+    if lsof -tiTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+        echo -e "${GREEN}✅ Dashboard socket acquired!${NC}"
+        break
+    fi
+    sleep 1
+done
 # Map expose-localhost tracking limits cleanly against check-csqbm.sh natively (ADR-007)
 echo "{\"timestamp\": \"$(date -u +"%Y-%m-%dT%H:%M:%SZ")\", \"event\": \"expose-localhost\", \"status\": \"provisioned\", \"csqbm_target\": \".goalie/metrics_log.jsonl\"}" >> "$PROJECT_ROOT/.goalie/metrics_log.jsonl"
 
 # Start tunnel cascade
 echo -e "${BLUE}🌍 Starting Tunnel Cascade...${NC}"
+export DASHBOARD_PORT="$PORT"
 "$SCRIPT_DIR/orchestrators/cascade-tunnel.sh" start "$PORT"
 
 # Show status

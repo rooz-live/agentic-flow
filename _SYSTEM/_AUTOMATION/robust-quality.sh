@@ -95,12 +95,17 @@ collect_quality_metrics() {
         quality_score=$((quality_score + 20))
     fi
 
+    local comp_json="[]"
+    if [[ ${#components[@]} -gt 0 ]]; then
+        comp_json="$(jo -a "${components[@]}")"
+    fi
+
     # Update state
     local temp_file=$(mktemp)
     jq \
         --arg score "$quality_score" \
         --arg status "$(if [[ $exit_code -eq 0 ]]; then echo "passed"; else echo "failed"; fi)" \
-        --argjson components "$(jo -a "${components[@]}")" \
+        --argjson components "$comp_json" \
         '.quality_score = ($score | tonumber) |
          .status = $status |
          .components = $components |

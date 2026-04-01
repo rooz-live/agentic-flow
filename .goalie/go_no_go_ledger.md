@@ -248,6 +248,17 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 - Issue: CNCF compliance evidence needed for hybrid deployments
 - Action: Retrieved existing Sonobuoy results from STX
 - Results: PASSED (2026-03-27 test run)
+
+### Cycle AZ — Phase 99: Superproject Consolidation & Safe Cleanup Pass (2026-04-01)
+- **Thread:** Scope split specifically targeting untracked artifacts (`sonobuoy-results/`) via a safe cleanup pass ensuring `git submodule status` trust anchors never decay natively.
+- **Substitution Map (Safe Cleanup Pass / Scope Split):**
+
+| Remove / Archive Path | Canonical Replacement / Operation | Evidence (Test/Gate/ADR) | ROAM Anchor |
+|-----------------------|-----------------------------------|--------------------------|-------------|
+| `.integrations/aisp-open-core/sonobuoy-results/` | Recursive removal of untracked test results | `git submodule status` GREEN | R-2026-016 |
+| Untracked Gate Scripts Audit | Assessed CSQBM/Metrics gate infrastructure | `git ls-files` TRACED | R-2026-018 |
+
+- **Verify:** `validate-foundation.sh --trust-path` producing zero-drift boundary proofs.
 - Evidence: docs/k8s-conformance/202603272100_sonobuoy_*.tar.gz
 - Blocker: Aggregator access prevented fresh test run
 - Status: Evidence collected, compliance verified

@@ -530,3 +530,14 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `scripts/quick-start-dashboard.sh`, `scripts/start-tld-tunnel.sh` | Retained logic upgrades explicitly migrating from raw loops into precise `$TRUST_GIT` bounds. | Run Contract gates bounded safely. | R-2026-018 |
 
 - **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.
+
+### Cycle AP — Phase 89: Submodule Integrity Diagnostics & Merger Path Restoration (2026-03-31)
+- **Thread:** Extracting corrupt packfiles from `.git/objects/pack/` and re-hydrating missing `.integrations/aisp-open-core` components smoothly enforcing Trust Path integrity properly natively.
+- **Substitution Map:**
+
+| Missing / Archive Path | Canonical Replacement / Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+| ---------------------- | --------------------------------- | ---------------------------- | ----------- |
+| Anomalous `.git/objects/pack` packs | Scanned and successfully extracted via `repair-nested-submodules.sh` to `.git/objects/pack/corrupt_backup_stx13`. | CSQBM / Pre-commit Gate Pass | WSJF-77 |
+| `.integrations/aisp-open-core` | Synchronized via `git submodule update --init --recursive`. | Executing `validate-foundation` completely natively. | R-2026-016 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.

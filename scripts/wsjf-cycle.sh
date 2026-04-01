@@ -41,17 +41,14 @@ start_cycle() {
     local description="$2"
     local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     
-    # Check if there's an active cycle
-    if [[ -f "$CYCLE_FILE" ]]; then
-        local status=$(jq -r '.status // "unknown"' "$CYCLE_FILE" 2>/dev/null || echo "unknown")
-        if [[ "$status" == "ACTIVE" ]]; then
-            echo -e "${RED}❌ Error: Another cycle is already active${NC}"
-            echo -e "Use '$0 status' to see the active cycle"
-            exit 1
-        fi
+    # Try to acquire WSJF lock
+    if ! "$SCRIPT_DIR/wsjf-lock.sh" try-lock "$thread_id: $description"; then
+        echo -e "${RED}❌ Error: Another WSJF thread is already active${NC}"
+        echo -e "${YELLOW}To override: $0 force-start $thread_id \"$description\"${NC}"
+        exit 1
     fi
     
-    # Create cycle file
+    # Create cycle record
     cat > "$CYCLE_FILE" <<EOF
 {
   "thread_id": "$thread_id",
@@ -138,6 +135,9 @@ complete_cycle() {
     
     # Update cycle file
     jq --arg end_time "$timestamp" '.status = "COMPLETE" | .end_time = $end_time' "$CYCLE_FILE" > "${CYCLE_FILE}.tmp" && mv "${CYCLE_FILE}.tmp" "$CYCLE_FILE"
+    
+    # Release WSJF lock
+    "$SCRIPT_DIR/wsjf-lock.sh" unlock
     
     # Move to completed cycles
     local completed_dir="$PROJECT_ROOT/.goalie/completed_cycles"

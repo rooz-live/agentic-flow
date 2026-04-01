@@ -93,8 +93,14 @@ if [[ -f "$AGENTDB" ]]; then
         echo -e "  Last accessed: ${LAST_ACCESS}"
         echo -e "  Age: ${AGE_HOURS} hours"
         
+        # Calculate time until stale
+        HOURS_UNTIL_STALE=$(((HOURS_96 - (NOW - EPOCH)) / 3600))
+        if [[ $HOURS_UNTIL_STALE -gt 0 ]]; then
+            echo -e "  Time until stale: ${GREEN}${HOURS_UNTIL_STALE}h${NC}"
+        fi
+        
         if (( NOW - EPOCH > HOURS_96 )); then
-            echo -e "  Freshness (96h): ${RED}STALE${NC}"
+            echo -e "  Freshness (96h): ${RED}STALE${NC} ⚠"
         elif (( NOW - EPOCH > HOURS_120 )); then
             echo -e "  Freshness (120h): ${YELLOW}WARNING${NC}"
         else
@@ -123,7 +129,22 @@ else
 fi
 echo ""
 
-# 5. Evidence Tracking
+# 5. TypeScript Status
+echo -e "${BLUE}📘 TypeScript Validation Status${NC}"
+if command -v npx >/dev/null 2>&1; then
+    if npx tsc --noEmit >/dev/null 2>&1; then
+        echo -e "  TypeScript: ${GREEN}PASS${NC}"
+    else
+        TS_ERRORS=$(npx tsc --noEmit 2>&1 | grep -c "error TS" || echo "0")
+        echo -e "  TypeScript: ${RED}FAIL${NC} (${TS_ERRORS} errors)"
+        echo -e "  ${YELLOW}⚠ This blocks commits - see errors with: npx tsc --noEmit${NC}"
+    fi
+else
+    echo -e "  TypeScript: ${YELLOW}npx not available${NC}"
+fi
+echo ""
+
+# 6. Evidence Tracking
 echo -e "${BLUE}📊 Evidence Tracking${NC}"
 EVIDENCE_DIR="$PROJECT_ROOT/.goalie/evidence"
 if [[ -d "$EVIDENCE_DIR" ]]; then
@@ -142,7 +163,7 @@ else
 fi
 echo ""
 
-# 6. Overall Status
+# 7. Overall Status
 echo -e "${BLUE}🎯 Overall Trust Status${NC}"
 echo -e "═══════════════════════════════════════════════════════════════"
 
@@ -163,6 +184,11 @@ fi
 if [[ -x "$CSQBM_SCRIPT" ]] && ! CSQBM_CI_MODE=true bash "$CSQBM_SCRIPT" >/dev/null 2>&1; then
     TRUST_STATUS="NO-GO"
     ISSUES+=("CSQBM validation failed")
+fi
+
+if command -v npx >/dev/null 2>&1 && ! npx tsc --noEmit >/dev/null 2>&1; then
+    TRUST_STATUS="NO-GO"
+    ISSUES+=("TypeScript validation failed")
 fi
 
 if [[ "$TRUST_STATUS" == "GO" ]]; then

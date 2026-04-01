@@ -564,3 +564,24 @@ STX Chassis: System Power : on
 STX computed baseline from telemetry: 3400.8W
 STX synthetic footprint: 3400.8W → $409.18/month (Tier: ENTERPRISE_TIER_1)
 ```
+
+### Cycle AR — Phase 91: GitHub Ecosystem Harvest & PRD/ADR Validation (2026-03-31)
+- **Thread:** Generating explicit ROAM extraction limitations evaluating third-party framework capabilities avoiding physical code sprawl.
+- **Substitution Map:**
+
+| External Framework / Target | ROI / Execution Metric | Evidence (Test / Gate / ADR) | ROAM Anchor |
+| --------------------------- | ---------------------- | ---------------------------- | ----------- |
+| Agentic-QE, Anthropic MCP | High ($/hr automation savings) | `.goalie/ecosystem_harvest_ledger.md` | R-2026-022 |
+| STX Telemetry / DBOS Opik | Mid (Golden Signal SRE checks) | ADR-008 boundaries | R-2026-018 |
+
+- **Verify:** CSQBM Gate Pass + `validate-foundation.sh --trust-path`.
+
+---
+
+### Matrix Integrity Validation Output (Cycle AR - Phase 91)
+```text
+Trust bundle: ALL GREEN
+EXIT: 0
+Generated: .goalie/ecosystem_harvest_ledger.md (PRD/ROI bindings)
+Generated: docs/architecture/decisions/008-ecosystem-harvesting-strategy.md (CSQBM/MCP/ADR boundaries)
+```

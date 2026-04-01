@@ -153,9 +153,10 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 
 **Preflight / DoD:** `TRUST_GIT=/usr/bin/git bash scripts/validate-foundation.sh --trust-path` **before** and **after** the cleanup PR; if infra or CSQBM goes RED, **stop** and revert or repair before expanding scope.
 
-### Latest status (2026-03-30)
+### Latest status (2026-03-31)
 
-- **T2:** Superproject `scripts/monitoring/validate-claims.sh` tracked; pre-commit `claims-evidence` no longer masked by `|| true` (use `VALIDATE_CLAIMS_ADVISORY=1` only when intentionally non-blocking).
+- **Cycle BC (Phase 102):** Superproject LFS isolation bounds pruned efficiently eliminating 8.4GB of unreferenced object inflation daily. Strict `.gitignore` boundaries successfully implemented restricting `.agentic_logs/` and `.gemini/` temporary execution states from bloating the object root natively.
+- **Cycle BB (Phase 101):** Superproject `scripts/_AUTOMATION/stx-k8s-prep-matrix.sh` tracked mapping CNCF v1.33 certification loops; `hostbill_ledger.json` generating dynamic STX-12 Tier 1 telemetry natively.
 - Infra: `git submodule status --recursive` **GREEN** (includes nested `external/VisionFlow` `.gitmodules` for `whelk-rs` + `vircadia-world-sdk-ts`; duplicate `scripts/whelk-rs` gitlink removed in VisionFlow).
 - Superproject: removed phantom `[submodule "scripts/whelk-rs"]` from `.gitmodules` (path was not indexed).
 - CSQBM deep-why, DGM test, **validate-email harness** (with `SKIP_ARBITRATION_WINDOW=1` for automated exit-code checks only), contract verify: **GREEN** on last local `--trust-path` run.

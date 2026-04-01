@@ -172,23 +172,23 @@ validate_dates() {
     warnings=$((warnings + 1))
   fi
 
-  # Check 2: March 10 event (must be future)
+  # Check 2: May 10 event (must be future)
   total_checks=$((total_checks + 1))
-  if grep -q "March 10" "$email_file" 2>/dev/null || false; then
-    if is_future_date "2026-03-10"; then
-      log_pass "March 10 correctly referenced as future event"
-      result_keys+=("march_10_future")
-      result_vals+=("PASS|March 10 is future event")
+  if grep -q "May 10" "$email_file" 2>/dev/null || false; then
+    if is_future_date "2026-05-10"; then
+      log_pass "May 10 correctly referenced as future event"
+      result_keys+=("may_10_future")
+      result_vals+=("PASS|May 10 is future event")
       passed_checks=$((passed_checks + 1))
     else
-      log_fail "March 10 referenced but is not future (date logic error)"
-      result_keys+=("march_10_future")
-      result_vals+=("FAIL|March 10 should be future")
+      log_fail "May 10 referenced but is not future (date logic error)"
+      result_keys+=("may_10_future")
+      result_vals+=("FAIL|May 10 should be future")
       confidence=$(echo "$confidence * 0.5" | bc -l)
     fi
   else
-    log_warn "March 10 not mentioned"
-    result_keys+=("march_10_future")
+    log_warn "May 10 not mentioned"
+    result_keys+=("may_10_future")
     result_vals+=("SKIPPED|Not mentioned")
     warnings=$((warnings + 1))
   fi

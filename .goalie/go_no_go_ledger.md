@@ -541,3 +541,26 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `.integrations/aisp-open-core` | Synchronized via `git submodule update --init --recursive`. | Executing `validate-foundation` completely natively. | R-2026-016 |
 
 - **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.
+
+### Cycle AQ — Phase 90: HostBill Sync Agent & STX Telemetry Integration (2026-03-31)
+- **Thread:** Extracting explicit `$409.18` enterprise PMBus wattage mappings natively from `stx-aio-0` and wrapping physical billing logic cleanly.
+- **Substitution Map:**
+
+| Target Integration Logic | Canonical Operation / Footprint Extraction | Evidence (Test / Gate / ADR) | ROAM Anchor |
+| ------------------------ | ------------------------------------------ | ---------------------------- | ----------- |
+| `agentdb.sqlite` stalls | Regenerated CSQBM parameters validating exact 120m lookback logic organically. | Trust bundle: ALL GREEN. | R-2026-021 |
+| Physical STX Baseline | SSH queries evaluating explicit 3400.8W logic translating to $409.18 MRR limits. | `.goalie/hostbill_ledger.json` | R-2026-020 |
+
+- **Verify:** CSQBM Gate Pass + `validate-foundation.sh --trust-path`.
+
+---
+
+### Matrix Integrity Validation Output (Cycle AQ - Phase 90)
+```text
+Trust bundle: ALL GREEN
+EXIT: 0
+HostBill Telemetry Agent:
+STX Chassis: System Power : on
+STX computed baseline from telemetry: 3400.8W
+STX synthetic footprint: 3400.8W → $409.18/month (Tier: ENTERPRISE_TIER_1)
+```

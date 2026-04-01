@@ -824,3 +824,14 @@ Generated: .goalie/hostbill_ledger.json explicitly mapping physical R-2026-020 b
 | `k8s-conformance-sync.sh` | **Tracked** — Native SSH bridge extracting `free -m` and `nproc` alongside K8s bounds directly to JSON. | `validate-foundation.sh` GO | R-2026-020 |
 
 - **Verify:** `validate-foundation.sh --trust-path` returns `ALL GREEN`.
+
+### Cycle BC — Phase 106: Step 0 Safe Cleanup Pass (Dead Weight Deletion)
+- **Thread:** Phase 106 Formalizes explicit Step 0 "Safe Cleanup Pass" to purge disconnected backups and untracked git object bloat natively.
+- **Substitution Map (R-2026-016 Explicit Evidence):**
+
+| Remove / Archive Path | Canonical Replacement / Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+| --------------------- | --------------------------------- | ---------------------------- | ----------- |
+| `.claude.backup.20251210_122153/` | Recursive removal of 92 tracked files | Retained active agents natively | R-2026-016 |
+| `scripts/.af-backups/` & `.bak` files | Deletion of untracked dev backups | N/A (Pure dead weight) | R-2026-016 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.

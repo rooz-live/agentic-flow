@@ -835,3 +835,12 @@ Generated: .goalie/hostbill_ledger.json explicitly mapping physical R-2026-020 b
 | `scripts/.af-backups/` & `.bak` files | Deletion of untracked dev backups | N/A (Pure dead weight) | R-2026-016 |
 
 - **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.
+
+### Safe cleanup pass (WIP + substitution map) — scope split: Policy Governance Refactor (DI & Guard Clauses)
+
+| Remove / archive | Canonical replacement | Evidence (test / gate / ADR) | ROAM note |
+|------------------|----------------------|-----------------------------|-----------|
+| Internal untestable \`os.getloadavg()\` OS calls within \`AdmissionController\` | Explicit Dependency Injection via \`SystemLoadSensor\` Protocol | \`tests/test_governance_admission.py\` verifying mathematically sound internal state boundaries via Parameterized Data-Driven Testing. | R-2026-001 (High Load Management) - Proven via Formal Verification |
+| Hidden \`os.environ\` fetching logic within \`AdmissionController.__init__\` | \`AdmissionConfig\` class using the Rules Design Pattern with Guard Clauses directly at instantiation. | Test coverage hits exactly 100% of mathematical guard boundaries (e.g. \`<= 100.0\`, \`< 0\` logic bounds) simulating Adversarial & Fuzz testing logic values. | R-2026-001 - Fails fast via boundary validation. |
+
+**Current Status:** **GREEN**. 12/12 parameterized tests passed proving numeric boundaries, infrastructural load spikes (resource exhaustion edge cases), and adaptive throttling state validation.

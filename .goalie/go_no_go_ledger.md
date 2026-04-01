@@ -518,3 +518,15 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 - Injected `emit_progress_update` fallback traces directly defending active HTTP daemons securely bypassing missing telemetry cascades natively.
 - Evaluated runtime arrays ensuring port `8085` deployment bindings log gracefully via `robust-quality.sh` executions natively limiting execution drift safely solving `R-2026-018` capability parameters strictly.
 ### [PASS] Phase 87 TLD Dashboard execution integration confirmed cleanly bypassing unstructured daemons seamlessly tracing progress bounds.
+
+### Cycle AO — Phase 88: Active Telemetry Safe Cleanup Pass & STX Pre-Flight (2026-03-31)
+- **Thread:** Executing a strict single-thread WSJF cleanup pass purging raw telemetry JSONL fragments preserving core execution flow and capturing untracked Phase 87 process capabilities smoothly (R-2026-016 Explicit Evidence).
+- **Substitution Map:**
+
+| Remove / Archive Path | Canonical Replacement / Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+| --------------------- | --------------------------------- | ---------------------------- | ----------- |
+| `.goalie/evidence/*`, `.goalie/pattern_metrics*.jsonl` | Scrubbed redundant/ephemeral telemetry dumps from git history. | Capabilities fully retained by actively emitting current metric emitters locally. | R-2026-016 |
+| `.goalie/forensics/aisp-open-core-recovery/` | Eradicated obsolete diagnostic backups resolving git lock matrices explicitly. | Inherits authoritative `.integrations/aisp-open-core` natively tracking capabilities. | R-2026-016 |
+| `scripts/quick-start-dashboard.sh`, `scripts/start-tld-tunnel.sh` | Retained logic upgrades explicitly migrating from raw loops into precise `$TRUST_GIT` bounds. | Run Contract gates bounded safely. | R-2026-018 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.

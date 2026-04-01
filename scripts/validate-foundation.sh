@@ -129,6 +129,16 @@ run_trust_path() {
 
     echo "Infrastructure (git)"
     echo "---------------------"
+    if [ -x "${_PROJECT_ROOT}/scripts/check-infra-health.sh" ]; then
+        if ! bash "${_PROJECT_ROOT}/scripts/check-infra-health.sh" >"${SNAP_DIR}/infra-health.txt" 2>&1; then
+            echo -e "${RED}✗${NC} check-infra-health.sh (Object graph or recursive submodule mapping failed)"
+            cat "${SNAP_DIR}/infra-health.txt" >&2
+            infra_ok=0
+        else
+            echo -e "${GREEN}✓${NC} check-infra-health.sh (Objects and submodules verified native)"
+        fi
+    fi
+
     if ! "$GIT_BIN" -C "${_PROJECT_ROOT}" rev-parse HEAD >/dev/null 2>&1; then
         echo -e "${RED}✗${NC} git rev-parse HEAD"
         infra_ok=0

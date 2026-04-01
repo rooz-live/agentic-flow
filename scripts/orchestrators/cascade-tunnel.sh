@@ -20,7 +20,7 @@ safe_source_optional() {
     set +u
     # shellcheck disable=SC1090
     source "$file_path" 2>/dev/null || true
-    [[ "$had_nounset" -eq 1 ]] && set -u
+    [[ "$had_nounset" -eq 1 ]] && set -u || true
 }
 
 safe_source_optional "$PROJECT_ROOT/scripts/validation-core.sh"

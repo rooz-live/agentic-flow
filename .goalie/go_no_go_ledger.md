@@ -660,3 +660,12 @@ EXIT: 0
 
 Generated: .goalie/hostbill_ledger.json explicitly mapping physical R-2026-020 bounds to billing APIs natively.
 ```
+
+### Phase 96: Ngrok TLD Localhost Persistence (Cycle AW)
+- **Status:** GO
+- **Commit:** pending Phase 96 payload matrix.
+- **Timestamp:** $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+- **Metrics/Telemetry Mapping:**
+  - `expose-localhost` tracking bound against check-csqbm.sh safely bridging Ngrok without corrupting process memory natively.
+  - `start-tld-tunnel.sh` correctly resolving dashboard instances leveraging `.tld-config` seamlessly.
+

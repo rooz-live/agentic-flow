@@ -699,3 +699,15 @@ Generated: .goalie/hostbill_ledger.json explicitly mapping physical R-2026-020 b
   - `expose-localhost` tracking bound against check-csqbm.sh safely bridging Ngrok without corrupting process memory natively.
   - `start-tld-tunnel.sh` correctly resolving dashboard instances leveraging `.tld-config` seamlessly.
 
+### Cycle AX — Phase 97: Superproject Consolidation & Gate Script Tracking (2026-04-01)
+- **Thread:** Phase 97 Execute single-thread WSJF priority auditing untracked load-bearing gate infrastructure and restoring incorrectly purged capability blocks in alignment with R-2026-016.
+- **Substitution Map (R-2026-016 Explicit Evidence):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+| --------------------- | --------------------------------- | ---------------------------- | ----------- |
+| `scripts/cmd_retro.py` | **Retained** — Generates execution checkpoints and ROAM capabilities | Extant functionality locally verified natively | R-2026-016 |
+| `scripts/feedback-loop-analyzer.sh` | **Retained** — Synthesis trace execution loop | Trace loops retained securely avoiding capability drop | R-2026-016 |
+| `scripts/link_metrics_to_retro.sh` | **Retained** — Retro metrics binding pipelines | Binds mapped tracing capabilities securely | R-2026-016 |
+| `check-csqbm.sh` / `emit_metrics.py` | Load-bearing tracking configuration bound in superproject | Verified `git ls-files` TRACED natively | R-2026-016 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.

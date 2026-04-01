@@ -53,7 +53,7 @@ if [[ -x "$PRE_COMMIT" ]]; then
         echo -e "  CSQBM validation: ${YELLOW}Not found in hook${NC}"
     fi
     
-    if grep -q "test-validate-email.sh" "$PRE_COMMIT" 2>/dev/null; then
+    if grep -q "validate-dates.sh" "$PRE_COMMIT" 2>/dev/null; then
         echo -e "  Date Semantics: ${GREEN}Configured${NC}"
     else
         echo -e "  Date Semantics: ${YELLOW}Not found in hook${NC}"

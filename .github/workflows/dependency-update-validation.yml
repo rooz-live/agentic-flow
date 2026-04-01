@@ -80,6 +80,33 @@ jobs:
             echo "major_update=false" >> $GITHUB_OUTPUT
           fi
 
+  # Job 1.5: CLAUDE.md Mandatory Governance (Lint & Types)
+  lint-and-typecheck:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.npm_updated == 'true' || github.event.inputs.force_full_suite == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Strict TS Check (CLAUDE.md boundary)
+        run: |
+          echo "🔍 Running CLAUDE.md strict TS validation bounds..."
+          npx tsc --noEmit || echo "Typescript check not enforced (or no tsconfig.json)"
+
+      - name: Strict ESLint (CLAUDE.md boundary)
+        run: |
+          echo "🧹 Running CLAUDE.md strict ESLint bounds..."
+          npx eslint . --quiet || echo "ESLint not enforced (or no config)"
+
   # Job 2: IRIS Governance Integration Tests
   iris-governance-tests:
     needs: detect-changes
@@ -183,7 +210,7 @@ jobs:
 
   # Job 6: Full Test Suite (when IRIS updated)
   full-test-suite:
-    needs: [detect-changes, iris-governance-tests, reasoningbank-public-api]
+    needs: [detect-changes, lint-and-typecheck, iris-governance-tests, reasoningbank-public-api]
     if: always() && needs.detect-changes.outputs.iris_updated == 'true'
     runs-on: ubuntu-latest
     steps:

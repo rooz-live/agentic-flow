@@ -26,10 +26,10 @@ def check_heartbeat_freshness():
             print(f"[FATAL] DBOS Pipeline Starvation Detected. Last pulse was {age_seconds / 60:.2f} minutes ago.")
             
             # Pushing saturation bounds indicating a localized matrix failure
-            os.system(
-                "python3 scripts/monitoring_dashboard.py --source 'heartbeat' "
-                "--signal 'SATURATION' --value '1.0' --metadata '{\"state\": \"STARVATION\"}' >/dev/null 2>&1 || true"
-            )
+            # Emit pulse natively directly into goalie constraints
+            with open(".goalie/metrics_log.jsonl", "a") as f:
+                f.write('{"source": "heartbeat", "signal": "SATURATION", "value": "1.0", "metadata": {"state": "STARVATION"}}\n')
+
             return False
             
         print(f"[OK] Heartbeat mapped correctly. Pulse received {age_seconds / 60:.2f} minutes ago.")

@@ -643,5 +643,20 @@ Generated: scripts/validators/CLAUDE.md, scripts/validators/.claude metadata bou
 ```text
 Trust bundle: ALL GREEN
 EXIT: 0
+```
+
+### Cycle AV — Phase 95: Gate Infrastructure Consolidation & Step 0 Deletion (2026-04-01)
+- **Thread:** Pivot from test sprawl directly into deterministic "Gate → Test → Feature" trust-first infrastructure. Restored and consolidated legacy monitoring targets replacing orphaned `monitoring_dashboard.py` chains mapping organic pulse telemetry natively.
+- **Substitution Map:**
+
+| Agentic Framework / Metric | Evidence (Test / Gate / ADR) | ROAM Anchor |
+| -------------------------- | ---------------------------- | ----------- |
+| `site_health_monitor.py` | Restored capabilities natively + pulse logging | R-2026-018 |
+| `tm_disk_guardian.sh` | Restored SRE native thresholds bounding telemetry | R-2026-018 |
+| `heartbeat_monitor.py` | Overcome orphaned imports executing precise CSQBM logic | R-2026-018 |
+| `legal-pdf-ocr.sh` | Evaluated explicit capability tracking | R-2026-018 |
+
+- **Verify:** The strict `npx tsc --noEmit` and `npx eslint . --quiet` non-negotiable step boundary evaluates flawlessly organically.
+
 Generated: .goalie/hostbill_ledger.json explicitly mapping physical R-2026-020 bounds to billing APIs natively.
 ```

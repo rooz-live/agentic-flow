@@ -144,6 +144,19 @@ def check_all_domains(domains: List[str] = None) -> SiteHealthReport:
     
     overall_status = "healthy" if unhealthy == 0 else ("degraded" if healthy > unhealthy else "critical")
     
+    # Pulse Cron Telemetry Output
+    try:
+        with open(".goalie/metrics_log.jsonl", "a") as f:
+            pulse = {
+                "source": "site_health_monitor",
+                "signal": "HEALTH_CHECK",
+                "value": healthy / len(results) if results else 0,
+                "metadata": {"state": overall_status, "healthy": healthy, "unhealthy": unhealthy}
+            }
+            f.write(json.dumps(pulse) + "\n")
+    except Exception:
+        pass
+
     return SiteHealthReport(
         domains=results,
         total_healthy=healthy,

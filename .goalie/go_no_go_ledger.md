@@ -129,6 +129,9 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `scripts/feedback-loop-analyzer.sh` | **Retain** — RETRO synthesis loop engine | `--trust-path` DoD verification | R-2026-016 formal mapping |
 | `scripts/link_metrics_to_retro.sh` | **Retain** — Binds causal data traces into retro records | `--trust-path` DoD verification | R-2026-016 formal mapping |
 | `scripts/cmd_retro.py` | **Retain** — Generates execution checkpoints and ROAM synthesis | `--trust-path` DoD verification | R-2026-016 formal mapping |
+| `scripts/ci/test_automated_rca.sh` | **Retain** — Validates RCA threshold + deep-why metric capture | `--trust-path` DoD verification | R-2026-016 formal mapping |
+| `scripts/circles/retro_insights.sh` | **Retain** — Retro-oriented execution surface (aggregator input) | `--trust-path` DoD verification | R-2026-016 formal mapping |
+| `scripts/agentic/retro_replenish_workflow.py` | **Retain** — Retro/replenish orchestration path | `--trust-path` DoD verification | R-2026-016 formal mapping |
 | Superproject pre-commit `claims-evidence` (was missing script + `\|\| true`) | `scripts/monitoring/validate-claims.sh` — bounded check: recent commits with test/coverage success language require an on-disk artifact | Pre-commit GREEN + `./scripts/contract-enforcement-gate.sh verify --advisory` | R-2026-016 capability traceability; R-2026-018 anti–completion-theater |
 
 ### T2 — Superproject validate-claims (hook parity)

@@ -18,6 +18,14 @@ Isolation: Git worktrees per parallel agent.
 - **Current session tasks / active checklist** → Native Tasks
 - **Learned patterns / routing weights / skills** → AgentDB (automatic)
 
+### Code Modification Protocol (NON-NEGOTIABLE)
+1. **Step 0 = Deletion**: Every refactor MUST begin by nuking dead weight (strip dead props, unused exports, orphaned imports, debug logs). Commit this separately before touching business logic. Preserve a clean token budget. Keep phases small (e.g., < 3-5 files) to prevent context compaction mid-task.
+2. **Post-Modification Verification**: After *every* file modification, you MUST run `npx tsc --noEmit` and `npx eslint . --quiet`. You are NOT allowed to claim success until these pass.
+3. **Redefining "Minimum" & "Simple"**: "What would a senior, experienced, perfectionist dev reject in code review? Fix all of it. Don't be lazy." Do not add requirements, but reframe what makes an acceptable response.
+4. **Agent Parallelization & Context Limits**: Force sub-agent deployment for large sets. Batch files into groups of 3-5 and launch them in parallel. Give each its own context window.
+5. **Large File Parsing (>500 LOC)**: Any file over 500 LOC MUST be read in chunks using offset and limit parameters. Never assume a single read captured the full file. Enforce this, or edits against unseen code will cause regressions. If results look suspiciously small, re-run directory by directory. When in doubt, explicitly assume truncation happened.
+6. **Rename & Signature Audits**: On *any* rename or signature change, force separate searches for: direct calls, type references, string literals containing the name, dynamic imports, `require()` calls, re-exports, barrel files, and test mocks. Assume `grep` missed something. Verify manually or eat the regression.
+
 ### Session End
 - File any discovered work as Beads issues: `bd add --type issue "description"`
 - Summarize architectural decisions in Beads: `bd add --type decision "description"`

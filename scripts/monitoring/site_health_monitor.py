@@ -6,14 +6,12 @@ Monitors: app|billing|blog|dev|forum|starlingx.interface.tag.ooo
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import Dict, List, Optional
-from pathlib import Path
 
 @dataclass
 class DomainHealth:

@@ -27,8 +27,11 @@ echo ""
 # Configure TLD settings
 configure_server "$ENV" "$PORT"
 
+# Get domain via posix safe function
+DOMAIN=$(get_domain_for_env "$ENV")
+
 echo -e "${YELLOW}Configuration:${NC}"
-echo "  Domain: ${DOMAIN_MAPPINGS[$ENV]:-$DASHBOARD_DOMAIN}"
+echo "  Domain: $DOMAIN"
 echo "  Public URL: $DASHBOARD_PUBLIC_URL"
 echo "  Bind Address: $SERVER_BIND_ADDRESS"
 echo ""

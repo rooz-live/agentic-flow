@@ -582,6 +582,26 @@ STX synthetic footprint: 3400.8W → $409.18/month (Tier: ENTERPRISE_TIER_1)
 ```text
 Trust bundle: ALL GREEN
 EXIT: 0
-Generated: .goalie/ecosystem_harvest_ledger.md (PRD/ROI bindings)
 Generated: docs/architecture/decisions/008-ecosystem-harvesting-strategy.md (CSQBM/MCP/ADR boundaries)
+```
+
+### Cycle AS — Phase 92: Superproject Gate Script Consolidation (2026-03-31)
+- **Thread:** Extracting explicitly untracked gate scripts natively embedding metrics, governance, and retro orchestration securely preserving the PRD baseline matrix.
+- **Substitution Map:**
+
+| Load-bearing Infrastructure | Execution Trace / Audit Class | Evidence (Test / Gate / ADR) | ROAM Anchor |
+| --------------------------- | ----------------------------- | ---------------------------- | ----------- |
+| `check-csqbm.sh`, `governance.py` | Validates exactly what drives `validate-foundation.sh`. | Pre-commit zero-trust validation | R-2026-018 |
+| `emit_metrics`, retro files | Bounded execution tracking retro matrices securely. | 100% GREEN git path tests | R-2026-016 |
+
+- **Verify:** Pre-Commit Contract Validation + CSQBM + `validate-foundation.sh --trust-path`.
+
+---
+
+### Matrix Integrity Validation Output (Cycle AS - Phase 92)
+```text
+Trust bundle: ALL GREEN
+EXIT: 0
+Generated: check-infra-health.sh
+Staged: .goalie/metrics_log.jsonl, .goalie/rca_findings.md, .goalie/retro_summary.md
 ```

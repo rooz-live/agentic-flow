@@ -1,5 +1,5 @@
 ---
-date: "2026-03-08"
+date: "2026-04-01"
 status: "accepted"
 ---
 
@@ -35,3 +35,9 @@ Per the "Discover/Consolidate THEN Extend" principle, the Swarm boundary dictate
 - **Negative**: TCC permissions remain a known issue requiring terminal approval natively in macOS settings (Exit 126).
 - **Mitigation**: Using `daemon start` MCP servers to bootstrap operations when LaunchAgents are blocked.
 - **CSQBM Boundary Constraint (Governance & Truth Integration)**: DGM logic explicitly requires all background daemons to execute the `check-csqbm.sh --deep-why` matrix natively. Swarms are physically banned from operating asynchronously if the dynamic knowledge graph `agentdb.db` falls into staleness (>96 hours). The $O(1)$ telemetry execution hook ensures no completion theater occurs inside autonomous PI bounds.
+
+### Regenerated System Constraints (Cycle BG Phase 106)
+The following execution boundaries define the operational limits of all unstructured payloads passed functionally to internal gateways (`semantic-validation-gate.sh`) and external cron topologies (`mcp-scheduler-daemon.sh`):
+
+1. **Connectome Topology Limit**: `Maximum Semantic Boundary = 4,000 DBOS Pydantic Tokens (~16,000 Bytes)`. Anything exceeding this triggers an OpenWorm physical threshold exit natively limiting LLM saturation boundaries completely.
+2. **Temporal Truth Validity**: `agentdb.db staleness MAX_AGE = +5760 minutes (96 hours)`. Structural execution MUST halt (`CSQBM_HALT`) dynamically blocking API queries on stale context frameworks.

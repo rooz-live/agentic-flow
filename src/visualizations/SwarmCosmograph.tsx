@@ -95,7 +95,7 @@ export const SwarmCosmograph: React.FC<SwarmCosmographProps> = ({
   }, []);
 
   return (
-    // @ts-expect-error - Cosmograph type definitions need updating
+
     <CosmographProvider nodes={nodes} links={links}>
       <div style={{ width, height, position: 'relative' }}>
         <Cosmograph

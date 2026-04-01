@@ -798,3 +798,19 @@ Generated: .goalie/hostbill_ledger.json explicitly mapping physical R-2026-020 b
 | `turboquant-dgm-loop.py` | **Tracked** — Emits explicit native mappings for local LLM routing cleanly. | Verified Native Execution traces | R-2026-018 |
 
 - **Verify:** Local execution of `validate-foundation.sh --trust-path` returning `ALL GREEN`.
+
+### Safe cleanup pass (WIP + substitution map) — scope split: Superproject Gate Script Tracking
+
+| Remove / archive | Canonical replacement | Evidence (test / gate / ADR) | ROAM note |
+|------------------|----------------------|-----------------------------|-----------|
+| \`check-csqbm.sh\` | Track in superproject | \`--trust-path\` DoD verification | R-2026-016 |
+| \`test_automated_rca.sh\` | Track in superproject | \`--trust-path\` DoD verification | R-2026-016 |
+| \`governance.py\` | Track in superproject | \`--trust-path\` DoD verification | R-2026-016 |
+| \`emit_metrics.py\` | Track in superproject | \`--trust-path\` DoD verification | R-2026-016 |
+| \`feedback-loop-analyzer.sh\`| Track in superproject | \`--trust-path\` DoD verification | R-2026-016 |
+| \`link_metrics_to_retro.sh\` | Track in superproject | \`--trust-path\` DoD verification | R-2026-016 |
+| \`retro_insights.sh\` | Track in superproject | \`--trust-path\` DoD verification | R-2026-016 |
+| \`cmd_retro.py\` | Track in superproject | \`--trust-path\` DoD verification | R-2026-016 |
+| \`retro_replenish_workflow.py\`| Track in superproject | \`--trust-path\` DoD verification | R-2026-016 |
+
+**Current Status:** **NO-GO**. Superproject git tree is fatally corrupted.

@@ -29,6 +29,10 @@ echo "Connecting to $stx_user@$YOLIFE_STX_HOST:$YOLIFE_STX_PORTS utilizing $YOLI
 # Execute physical extraction of K8s node capability targets securely 
 pod_output=$(ssh -i "$YOLIFE_STX_KEY" -p "$YOLIFE_STX_PORTS" -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o IdentitiesOnly=yes "$stx_user@$YOLIFE_STX_HOST" "${cmd_prefix}kubectl get pods -A --no-headers" 2>/dev/null || echo "SSH_FAILURE")
 
+# Extract physical OpenStack StarlingX compute telemetry boundaries
+telemetry_output=$(ssh -i "$YOLIFE_STX_KEY" -p "$YOLIFE_STX_PORTS" -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o IdentitiesOnly=yes "$stx_user@$YOLIFE_STX_HOST" "echo \"CPU:\$(nproc) UPTIME:\$(uptime -p) MEM:\$(free -m | awk '/Mem:/ {print \$3\"/\"\$2\"MB\"}')\"" 2>/dev/null || echo "CPU:unknown UPTIME:unknown MEM:unknown")
+echo "Physical OpenStack telemetry boundary evaluated: $telemetry_output"
+
 if [[ "$pod_output" == "SSH_FAILURE" ]] || [[ "$pod_output" == *"connection refused"* ]]; then
     echo "❌ SSH/K8s integration bounds stalled. Assuming K8s cluster isolation. Firing validation fallback natively."
     pass_target=412
@@ -95,6 +99,7 @@ cat << EOF > .goalie/k8s_conformance.json
     "failed": $fail_target,
     "skipped": 23
   },
+  "openstack_telemetry": "$telemetry_output",
   "status": "$status",
   "api_coverage": 100.0,
   "elizaos_sync_state": "PROVISIONED_K8S_CONFORMANCE"

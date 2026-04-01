@@ -1,5 +1,65 @@
 # TURBOQUANT-DGM Local LLM Loop Template
 
+## Active Index (first-stop map for search/grep/vector routing)
+
+This header is an **active index**: the fastest “where do I look?” map before you burn tokens. Prefer *narrow paths first*, then expand.
+
+### Truth / Trust Gates (the “blocks trust” surface)
+
+- **Contract enforcement (root)**: `scripts/contract-enforcement-gate.sh`
+  - Primary: `./scripts/contract-enforcement-gate.sh verify`
+  - Contains hard gates for: **CSQBM** + **TypeScript typecheck** + **ESLint quiet** (when relevant files changed).
+- **Trust-path repair helper**: `scripts/git/trust-path-repair-agentic-flow-submodule.sh`
+- **Agentic-flow trust bundle**: `investing/agentic-flow/scripts/validate-foundation.sh` (`--trust-path`)
+- **CI strict validation**: `investing/agentic-flow/.github/workflows/strict-validation.yml`
+- **CSQBM (Current-State Query Before Merge)**: `investing/agentic-flow/scripts/validators/project/check-csqbm.sh`
+  - CI deterministic mode: `CSQBM_CI_MODE=true` (uses `.agentdb/agentdb.sqlite`, `sqlite3`)
+  - Local trace mode: scans recent traces + freshness of `.agentdb/agentdb.sqlite`
+- **Date semantics validator (email-oriented)**: `investing/agentic-flow/scripts/validators/semantic/validate-dates.sh`
+- **Validator meta-orchestrator**: `investing/agentic-flow/scripts/compare-all-validators.sh`
+
+### “What fails today that blocks trust?” quick probes
+
+Run these first when trust is in doubt:
+
+```bash
+# Repo integrity / object health
+git fsck --full
+
+# Pre-commit / pre-push hooks (what actually runs)
+pre-commit run --all-files
+
+# Root enforcement bundle (evidence-backed merge loop)
+./scripts/contract-enforcement-gate.sh verify
+
+# Agentic-flow trust path bundle (heavier; produces trust snapshots)
+TRUST_GIT=/usr/bin/git bash investing/agentic-flow/scripts/validate-foundation.sh --trust-path
+```
+
+### High-signal code search starting points
+
+- **Core TS project**: `agentic-flow-core/`
+  - **Lint**: `agentic-flow-core/package.json` (`scripts.lint`)
+  - **Typecheck**: `agentic-flow-core/package.json` (`scripts.typecheck`)
+  - **Tests**: `agentic-flow-core/src/tests/` + `agentic-flow-core/tests/`
+- **Governance / retro / metrics (agentic-flow)**: `investing/agentic-flow/scripts/governance/`, `investing/agentic-flow/scripts/agentic/`, `.goalie/`
+
+### Grep routing (fast path recipes)
+
+```bash
+# Where is CSQBM enforced?
+rg -n "CSQBM|check-csqbm" investing/agentic-flow/scripts scripts/contract-enforcement-gate.sh
+
+# Where is validate-foundation / trust-path referenced?
+rg -n "validate-foundation|trust-path" investing/agentic-flow/scripts scripts
+
+# Where are pre-commit gates defined?
+rg -n "contract-enforcement|roam-staleness|annotation-audit" .pre-commit-config.yaml investing/agentic-flow/.pre-commit-config.yaml
+
+# Where is date validation wired?
+rg -n "validate-dates|DATE-CHECK" investing/agentic-flow/scripts/validators
+```
+
 ## Core Objective
 Continuously generate, evaluate, and self-modify Agentic QE swarm targets mapping the OpenStack HostBill integration bounds accurately.
 

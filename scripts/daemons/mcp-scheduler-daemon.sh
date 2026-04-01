@@ -2,6 +2,8 @@
 # scripts/daemons/mcp-scheduler-daemon.sh
 # @business-context WSJF-52: Triggers active topology checking and structural connectome pruning mapping ADR-005 constraints over STX routing cycles naturally.
 # @adr ADR-005, ADR-006: Defines native loop restrictions preventing execution saturation securely blocking infinite API requests.
+# @constraint DDD-CSQBM: Enforcement of periodic 96-hour stale-verified contexts mathematically blocking LLM memory fragmentation via CSQBM traces.
+# @planned-change R-2026-018: Systemic Attention Fragmentation recovery via Phase 106 cleanup capabilities.
 
 set -euo pipefail
 

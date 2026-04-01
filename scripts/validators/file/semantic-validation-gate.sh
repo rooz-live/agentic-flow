@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════════════════
 # semantic-validation-gate.sh — Semantic Validation (Facts, Not Syntax)
+# @business-context WSJF-42: Evidence bundle generation mapping structural dependencies via Phase 106 Formalization.
+# @adr ADR-005: Swarm Persistence Architecture bounds memory retention and limits dynamic token ceilings.
+# @constraint DDD-CSQBM: Enforcement of periodic 96-hour stale-verified contexts mathematically blocking LLM memory fragmentation via CSQBM traces.
+# @planned-change R-2026-018: Systemic Attention Fragmentation recovery via mapping ADR-005 safely.
 # ═══════════════════════════════════════════════════════════════════════════════
 #
 # DoR: Email file exists, syntax validators passed
@@ -89,7 +93,7 @@ if [ -f "$local_proj_root/scripts/validators/project/check-csqbm.sh" ]; then
     fi
 fi
 
-# Swarm Persistence Bounds Check (Phase 8: DDD-Based Connectome Limits via ADR-008)
+# Swarm Persistence Bounds Check (Phase 8: DDD-Based Connectome Limits via ADR-005)
 # Prevent logic from processing massive monolithic files (longitudinal static sprawl).
 file_size_bytes=$(wc -c < "$EMAIL_FILE" | tr -d ' ')
 

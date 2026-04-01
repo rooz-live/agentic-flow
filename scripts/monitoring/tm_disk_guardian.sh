@@ -46,9 +46,8 @@ if [[ -f "$AGENT_DB" ]]; then
         echo -e "${RED}[FATAL] DBOS Agent database exceeds structural bounds! Threatening local STX IO arrays.${NC}"
         echo -e "${YELLOW}Triggering automated vector cleanup matrix internally.${NC}"
         
-        # Send saturation errors to dbos native metrics limit
-        python3 scripts/monitoring_dashboard.py --source "disk-guardian" --signal SATURATION --value 0.95 \
-            --metadata '{"state": "CRITICAL_BLOAT"}' || true
+        # Emit pulse natively directly into goalie constraints
+        echo '{"source": "disk-guardian", "signal": "SATURATION", "value": 0.95, "metadata": {"state": "CRITICAL_BLOAT"}}' >> .goalie/metrics_log.jsonl
 
         # Forcing fallback matrix (E.g. Vacuuming SQLite)
         if command -v sqlite3 >/dev/null 2>&1; then

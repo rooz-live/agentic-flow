@@ -788,3 +788,13 @@ Generated: .goalie/hostbill_ledger.json explicitly mapping physical R-2026-020 b
 | `go_no_go_ledger.md` | Issued Phase 103 GO Ledger stamp confirming all gate infrastructure tracked and verified bounds. | Ledger update natively | R-2026-018 |
 
 - **Verify:** Local execution of `validate-foundation.sh --trust-path` returning `ALL GREEN`.
+
+### Cycle BA — Phase 104: TurboQuant DGM Baseline Mappings (2026-04-01)
+- **Thread:** Phase 104 Refactored `turboquant-dgm-loop.py` to stop using a mocked `INPUT_STREAM` array and natively ingest the actual `[WSJF: XX]` priorities from `docs/STX_RETRO_AND_BACKLOG.md`.
+- **Substitution Map (R-2026-016 & R-2026-018 Explicit Evidence):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+| --------------------- | --------------------------------- | ---------------------------- | ----------- |
+| `turboquant-dgm-loop.py` | **Tracked** — Emits explicit native mappings for local LLM routing cleanly. | Verified Native Execution traces | R-2026-018 |
+
+- **Verify:** Local execution of `validate-foundation.sh --trust-path` returning `ALL GREEN`.

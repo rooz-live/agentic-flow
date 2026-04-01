@@ -722,3 +722,14 @@ Generated: .goalie/hostbill_ledger.json explicitly mapping physical R-2026-020 b
 | `scripts/repair-nested-submodules.sh` | **Leveraged** — Synchronizes topology indexing natively without risk rules | Resolves `external/VisionFlow` tracked paths | R-2026-022 |
 
 - **Verify:** Local execution of `validate-foundation.sh --trust-path` returning `ALL GREEN`.
+
+### Phase 99: HostBill Financial Pipeline Sync (STX.12 Milestone 2) (2026-04-01)
+- **Thread:** Phase 99 Ingested the StarlingX `ipmitool` hardware baseline over SSH to compute precise `$412.79 USD` synthetic footprint bounding the `ENTERPRISE_TIER_1` node locally.
+- **Substitution Map (R-2026-020 and R-2026-019 Explicit Evidence):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+| --------------------- | --------------------------------- | ---------------------------- | ----------- |
+| `scripts/ci/hostbill-sync-agent.py` | Extracts live `ipmitool` STX chassis constraints via `ubuntu@23.92.79.2` over port 2222. | Native SSH physical bridging | R-2026-020 |
+| `.goalie/hostbill_ledger.json` | Stores synthesized OpenStack footprint mappings ($412.79 USD) evaluating HostBill limits. | JSON API bounds emitted | R-2026-019 |
+
+- **Verify:** Local execution of `validate-foundation.sh --trust-path` returning `ALL GREEN`.

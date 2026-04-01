@@ -119,12 +119,12 @@ elif [[ "$EMAIL_FILE" == *"income"* ]] || [[ "$EMAIL_FILE" == *"job"* ]]; then
 fi
 
 # OpenWorm Contrastive Intelligence Connectome Trace
-echo "[CONNECTOME TRACE] Total Mapped Scalability: $MAX_BYTES bytes (~$DYNAMIC_BASE_TOKENS tokens natively mapped)"
+echo "[CONNECTOME TRACE] Total Mapped Scalability: $MAX_BYTES bytes (~$DYNAMIC_BASE_TOKENS tokens natively mapped) via ADR-005 Governance"
 
 if [[ "$file_size_bytes" -gt "$MAX_BYTES" ]]; then
     echo -e "${RED}❌ FAIL (Memory Bound Exceeded)${RESET} Target footprint exceeds dynamic $DOMAIN_NAME physical bounds ($MAX_BYTES bytes)."
-    echo -e "   ${CYAN}Action Triggered: OpenWorm Taxonomy Threshold Reached. Hardware limits exceeded the allowed connectome memory capacity.${RESET}"
-    echo -e "   ${YELLOW}Constraint (ADR-005): Payloads must fit within the 4000 DBOS Pydantic token ceiling. Shrink unstructured sprawl prior to processing.${RESET}"
+    echo -e "   ${CYAN}Action Triggered: OpenWorm Taxonomy Threshold Reached. Hardware limits exceeded the allowed ADR-005 memory capacity.${RESET}"
+    echo -e "   ${YELLOW}Constraint (ADR-005): Payloads must fit within the 4,000 DBOS Pydantic token ceiling. Shrink unstructured sprawl prior to processing.${RESET}"
     exit $EX_VALIDATION_FAILED
 fi
 

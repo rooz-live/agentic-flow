@@ -22,20 +22,20 @@ if [[ -x scripts/daemons/stx-cold-storage-archiver.sh ]]; then
 fi
 
 # 1. Connectome Pruning (ADR-005)
-echo -e "${YELLOW}[PRUNE] Auditing stale execution telemetry tracking bounds...${NC}"
+echo -e "${YELLOW}[PRUNE] Auditing stale execution telemetry tracking bounds (max 4,000 tokens)...${NC}"
 find .goalie -name "*.jsonl" -type f -mmin +120 -exec rm -f {} \; || true
 find .goalie -name "*.md" -type f -mmin +240 -exec rm -f {} \; || true
 
 # 2. CSQBM Truth Gate (ADR-005 Governance Constraint)
-echo -e "${YELLOW}[GATE] Verifying CSQBM truth context via ADR-005 bounds...${NC}"
+echo -e "${YELLOW}[GATE] Verifying CSQBM truth context natively via ADR-005 bounds (96-hour freshness limits)...${NC}"
 if [[ -x scripts/validators/project/check-csqbm.sh ]]; then
      if ! ./scripts/validators/project/check-csqbm.sh --deep-why > /dev/null 2>&1; then
-         echo -e "${RED}[HALT] CSQBM Governance Halt. agentdb.db staleness >96h. Execution Topology bypassed.${NC}"
+         echo -e "${RED}[CSQBM_HALT] Governance Halt Traced via ADR-005. agentdb.db staleness >96h. Native Execution Topology Bypassed.${NC}"
          python3 scripts/emit_metrics.py --event-type action --command "mcp_daemon" --target "csqbm_halt" \
               --cycle-index 0 --log-file .goalie/metrics_log.jsonl || true
          exit 150
      fi
-     echo -e "${GREEN}[GATE] CSQBM Deep-Why Validation complete. Hydration confirmed.${NC}"
+     echo -e "${GREEN}[GATE] CSQBM Deep-Why Validation complete. Architectural Hydration confirmed.${NC}"
 else
      echo -e "${YELLOW}[WARNING] scripts/validators/project/check-csqbm.sh not found. Assuming risk bypass for legacy reasons...${NC}"
 fi

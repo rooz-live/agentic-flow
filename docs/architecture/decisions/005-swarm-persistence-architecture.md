@@ -41,3 +41,4 @@ The following execution boundaries define the operational limits of all unstruct
 
 1. **Connectome Topology Limit**: `Maximum Semantic Boundary = 4,000 DBOS Pydantic Tokens (~16,000 Bytes)`. Anything exceeding this triggers an OpenWorm physical threshold exit natively limiting LLM saturation boundaries completely.
 2. **Temporal Truth Validity**: `agentdb.db staleness MAX_AGE = +5760 minutes (96 hours)`. Structural execution MUST halt (`CSQBM_HALT`) dynamically blocking API queries on stale context frameworks.
+3. **Test-First Red-Green TDD Convergence**: Every deployment or topology bridge requires 100% evidence-backed execution. `validate-foundation.sh` enforces the zero-trust `CSQBM_HALT` barrier prior to approving Git merge matrices.

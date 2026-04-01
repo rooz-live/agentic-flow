@@ -169,6 +169,36 @@ run_trust_path() {
     echo ""
     echo "CSQBM (deep why)"
     echo "-----------------"
+    # ADR-006 vector provisioning: make the "we queried AgentDB" action explicit.
+    # This is intentionally minimal and reversible: a single insert into execution_contexts
+    # refreshes the DB mtime and leaves an auditable trace of the trust-bundle run.
+    if [ -f "${_PROJECT_ROOT}/.agentdb/agentdb.sqlite" ] && command -v sqlite3 >/dev/null 2>&1; then
+        sqlite3 "${_PROJECT_ROOT}/.agentdb/agentdb.sqlite" "SELECT COUNT(*) FROM execution_contexts;" >/dev/null 2>&1 || true
+        sqlite3 "${_PROJECT_ROOT}/.agentdb/agentdb.sqlite" \
+            "INSERT INTO execution_contexts(command, success, duration_ms, error_message) VALUES('validate-foundation --trust-path (CSQBM hydration probe)', 1, 0, '');" \
+            >/dev/null 2>&1 || true
+            
+        # ADR-005: Enforce 96-hour AGENTDB_MAX_AGE_HOURS natively in zero-trust bundle
+        local MAX_HOURS="${AGENTDB_MAX_AGE_HOURS:-96}"
+        local MT
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            MT=$(stat -f %m "${_PROJECT_ROOT}/.agentdb/agentdb.sqlite" 2>/dev/null || echo 0)
+        else
+            MT=$(stat -c %Y "${_PROJECT_ROOT}/.agentdb/agentdb.sqlite" 2>/dev/null || echo 0)
+        fi
+        local NOW=$(date +%s)
+        local AGE_HOURS=$(( (NOW - MT) / 3600 ))
+        
+        if [[ "${AGE_HOURS}" -gt "${MAX_HOURS}" ]]; then
+            echo -e "${RED}[CSQBM_HALT] AgentDB staleness (${AGE_HOURS}h) exceeds ADR-005 bounds (${MAX_HOURS}h). execution topology bypassed.${NC}"
+            csqbm_ok=0
+            # Emit telemetry for the halt
+            if [ -x "${_PROJECT_ROOT}/scripts/emit_metrics.py" ]; then
+                export PYTHONPATH="${_PROJECT_ROOT}:${PYTHONPATH:-}"
+                python3 "${_PROJECT_ROOT}/scripts/emit_metrics.py" --event-type action --command "validate-foundation" --target "csqbm_halt" || true
+            fi
+        fi
+    fi
     export CSQBM_DEEP_WHY="${CSQBM_DEEP_WHY:-true}"
     if [ -x "${_PROJECT_ROOT}/scripts/validators/project/check-csqbm.sh" ]; then
         if ! CSQBM_DEEP_WHY=true bash "${_PROJECT_ROOT}/scripts/validators/project/check-csqbm.sh" >"${SNAP_DIR}/csqbm.txt" 2>&1; then

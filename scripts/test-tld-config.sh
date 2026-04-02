@@ -25,10 +25,15 @@ else
     echo -e "${RED}❌ .tld-config not found${NC}"
 fi
 
-# Test 2: Check domain mappings
+# Test 2: Check domain mappings via explicit substitution
 echo -e "\n${YELLOW}Test 2: Domain mappings${NC}"
-for env in "${!DOMAIN_MAPPINGS[@]}"; do
-    echo "  $env → ${DOMAIN_MAPPINGS[$env]}"
+for env in prod staging dev gateway evidence process; do
+    domain=$(get_domain_for_env "$env")
+    if [[ -z "$domain" ]]; then
+        echo "  ❌ $env mapping failed (Empty binding)"
+        exit 1
+    fi
+    echo "  $env → $domain"
 done
 
 # Test 3: Generate URLs

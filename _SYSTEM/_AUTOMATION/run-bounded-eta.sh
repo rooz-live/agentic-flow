@@ -37,6 +37,7 @@ get_process_contract() {
         "localtunnel_tunnel") echo "10|60|http_server|Establish localtunnel" ;;
         "health_monitor") echo "20|300|tunnel_active|Monitor tunnel health" ;;
         "multi_ledger") echo "40|180|http_server|Start all 4 ledger tunnels" ;;
+        "eta_stream") echo "100|300|none|ETA Live Streaming Dashboard Telemetry" ;;
         *) echo "" ;;
     esac
 }
@@ -96,8 +97,10 @@ run_bounded_eta() {
     emit_progress_update "$process_id" "INIT" "Starting $process_name" 0 "RUNNING"
     update_progress "$process_id" "Initializing $process_name" 0 "RUNNING"
 
-    # Dependency Injection: Check dependencies
-    if [[ -n "$dependencies" ]] && [[ "$dependencies" != "none" ]]; then
+    # Dependency Injection: Fast Precondition Checker (Early Exit)
+    if [[ -z "${dependencies:-}" ]] || [[ "$dependencies" == "none" ]]; then
+        dependencies="" # Normalized empty state
+    else
         IFS=',' read -ra deps <<< "$dependencies"
         for dep in "${deps[@]}"; do
             step_count=$((step_count + 1))
@@ -239,19 +242,21 @@ start_http_server_bounded() {
     cd "${DASHBOARD_ROOT:-$HOME/Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL}"
 
     # Start Vite or Python HTTP server natively bound locally or explicitly translated to binding addressing
+    local server_pid=""
     if [[ -f "package.json" ]] && grep -q '"vite"' "package.json"; then
         echo "[Dashboard] Vite React framework detected, launching modern dev server" > /tmp/http-server.log
         vite --host 127.0.0.1 --port "$port" --strictPort >> /tmp/http-server.log 2>&1 &
-        return 0
+        server_pid=$!
     else
         echo "[Dashboard] Static site detected, launching python backend" > /tmp/http-server.log
         if [[ -n "$bind_address" ]]; then
             python3 -m http.server "$port" --bind "$bind_address" >> /tmp/http-server.log 2>&1 &
+            server_pid=$!
         else
             python3 -m http.server "$port" >> /tmp/http-server.log 2>&1 &
+            server_pid=$!
         fi
     fi
-    local server_pid=$!
 
     # Wait for server to be ready
     local count=0

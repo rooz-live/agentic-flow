@@ -60,6 +60,15 @@ if [[ ${#CHECK_FILES[@]} -eq 0 ]]; then
   CHECK_FILES+=("${UNTRACKED[@]}")
 fi
 
+# Gracefully exclude temporary sandbox artifacts (e.g. mutation testing) to ensure contract purity
+FILTERED_FILES=()
+for file in "${CHECK_FILES[@]}"; do
+  if [[ -n "$file" ]] && [[ ! "$file" == *".stryker-tmp/"* ]] && [[ ! "$file" == *".tmp/"* ]]; then
+    FILTERED_FILES+=("$file")
+  fi
+done
+CHECK_FILES=("${FILTERED_FILES[@]}")
+
 gate_no_shortcuts() {
   local fail=0
   for file in "${CHECK_FILES[@]}"; do

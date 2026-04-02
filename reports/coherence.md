@@ -1,11 +1,11 @@
 # DDD/TDD/ADR Coherence Validation Report
-**Generated:** 2026-04-02 14:47:17
+**Generated:** 2026-04-02 16:28:54
 **Project:** `/Users/shahroozbhopti/Documents/code/investing/agentic-flow`
-**Files Scanned:** 250
+**Files Scanned:** 254
 **Automation Level:** Level 4 (Fully Auto)
 
 ## ✅ Overall: PASS
-`█████████████████████████████░` **97.5%** (539/553 checks)
+`█████████████████████████████░` **97.1%** (545/561 checks)
 
 ## Layer Health
 
@@ -14,7 +14,7 @@
 | **PRD** | 🟢 93% | 9 | 1 | 9 PRD document(s) found |
 | **ADR** | 🟢 90% | 27 | 3 | 27 ADR document(s) found |
 | **DDD** | 🟢 97% | 34 | 0 | 34 domain file(s) found |
-| **TDD** | 🟢 100% | 180 | 1 | 180 test file(s) found |
+| **TDD** | 🟢 99% | 184 | 3 | 184 test file(s) found |
 
 ## Cross-Layer Coherence
 
@@ -26,7 +26,7 @@
 - ✅ **COH-010** (ddd→prd): 31/31 domain modules have DoR/DoD docstrings (100%)
 - ✅ **COH-006** (ddd→ddd): 12/12 Python packages have __init__.py (100%)
 - ✅ **COH-009** (ddd→ddd): 40/41 Rust domain structs derive Serialize (98%)
-- ✅ **COH-007** (tdd→tdd): 64/65 test files follow naming convention (98%)
+- ✅ **COH-007** (tdd→tdd): 67/68 test files follow naming convention (99%)
 - ✅ **COH-008** (prd→prd): 9/9 PRD documents have measurable success metrics (100%) [9 stray PRD-like file(s) outside docs/prd/]
 
 ### PRD Checks
@@ -339,6 +339,14 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (13 assertions, 6 tests) `tests/e2e/dashboard.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: tunnel.spec.ts `tests/e2e/tunnel.spec.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.8 assertions/test (9 assertions, 5 tests) `tests/e2e/tunnel.spec.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test_governance_admission.py `tests/e2e/unit/test_governance_admission.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.5 assertions/test (3 assertions, 2 tests) `tests/e2e/unit/test_governance_admission.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_pattern_analysis.py `tests/e2e/unit/test_pattern_analysis.py`
+- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.8 assertions/test (5 assertions, 6 tests) `tests/e2e/unit/test_pattern_analysis.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_swarm_comparison.py `tests/e2e/unit/test_swarm_comparison.py`
+- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 3 tests) `tests/e2e/unit/test_swarm_comparison.py`
+- ✅ [INFO] Test file follows naming convention: Correct: portfolio-analyzer.test.ts `tests/e2e/unit/trading/portfolio-analyzer.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.6 assertions/test (29 assertions, 11 tests) `tests/e2e/unit/trading/portfolio-analyzer.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: e2e-mcp-mpp-dimensional.test.ts `tests/e2e-mcp-mpp-dimensional.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.3 assertions/test (47 assertions, 11 tests) `tests/e2e-mcp-mpp-dimensional.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: agentic-flow-federation.test.ts `tests/federation/agentic-flow-federation.test.ts`
@@ -584,9 +592,9 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (28 assertions, 13 tests) `tests/verification/verification-pipeline.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: vscode-extension-mocks.test.ts `tests/vscode-extension/vscode-extension-mocks.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (109 assertions, 31 tests) `tests/vscode-extension/vscode-extension-mocks.test.ts`
-- ✅ [CRITICAL] Unit tests present: 2013 test functions found
-- ✅ [WARNING] Integration tests present: 67 integration test file(s)
-- ✅ [INFO] Total assertion count reasonable: 6283 total assertions across 180 files
+- ✅ [CRITICAL] Unit tests present: 2035 test functions found
+- ✅ [WARNING] Integration tests present: 68 integration test file(s)
+- ✅ [INFO] Total assertion count reasonable: 6320 total assertions across 184 files
 
 ## Recommendations
 
@@ -594,16 +602,18 @@
 -   → [WARNING] ADR has required sections: 3/4 sections (missing: status)
 -   → [WARNING] ADR has required sections: 2/4 sections (missing: status, consequences)
 -   → [WARNING] ADR has required sections: 3/4 sections (missing: consequences)
+-   → [WARNING] Test assertion density ≥ 1.0 per test: 0.8 assertions/test (5 assertions, 6 tests)
+-   → [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 3 tests)
 -   → [WARNING] Test assertion density ≥ 1.0 per test: 0.8 assertions/test (3 assertions, 4 tests)
 
 ## OODA Integration
 
 | Phase | Coherence Action |
 |:------|:-----------------|
-| **Observe** | Scanned 250 files across 4 layers |
-| **Orient** | Health: PRD=93%, ADR=90%, DDD=97%, TDD=100% |
-| **Decide** | Verdict: PASS at 98% |
-| **Act** | 5 recommendations to implement |
+| **Observe** | Scanned 254 files across 4 layers |
+| **Orient** | Health: PRD=93%, ADR=90%, DDD=97%, TDD=99% |
+| **Decide** | Verdict: PASS at 97% |
+| **Act** | 7 recommendations to implement |
 
 ---
-*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-04-02 14:47:17*
+*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-04-02 16:28:54*

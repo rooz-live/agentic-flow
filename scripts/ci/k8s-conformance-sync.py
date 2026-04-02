@@ -59,10 +59,17 @@ class K8sConformanceConfig:
     conformance_profile: str = "starlingx-greenfield-stx.12.0"
     base_skipped_tests: int = 23
     coverage_float: float = 100.0
+    allowed_stx_profiles: Tuple[str, ...] = (
+        "starlingx-greenfield-stx.11.0",
+        "starlingx-greenfield-stx.12.0",
+        "starlingx-greenfield-stx.13.0"
+    )
 
     def __post_init__(self):
         if not self.k8s_version.startswith("v"):
             raise ValueError(f"k8s_version {self.k8s_version} must start with 'v'")
+        if self.conformance_profile not in self.allowed_stx_profiles:
+            raise ValueError(f"conformance_profile {self.conformance_profile} violates strict STX matrix limits. Allowed: {self.allowed_stx_profiles}")
         if self.base_skipped_tests < 0:
             raise ValueError(f"base_skipped_tests {self.base_skipped_tests} cannot be negative.")
         if not (0.0 <= self.coverage_float <= 100.0):

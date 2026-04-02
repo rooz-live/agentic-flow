@@ -106,11 +106,13 @@ collect_quality_metrics() {
         --arg score "$quality_score" \
         --arg status "$(if [[ $exit_code -eq 0 ]]; then echo "passed"; else echo "failed"; fi)" \
         --argjson components "$comp_json" \
+        --arg script_name "$script_name" \
+        --arg exit_code "$exit_code" \
         '.quality_score = ($score | tonumber) |
          .status = $status |
          .components = $components |
          .metrics.script_name = $script_name |
-         .metrics.exit_code = $exit_code |
+         .metrics.exit_code = ($exit_code | tonumber) |
          .metrics.collected_at = now' \
         "$QUALITY_STATE_FILE" > "$temp_file"
     mv "$temp_file" "$QUALITY_STATE_FILE"

@@ -347,7 +347,7 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | Cycle S | `repair-nested-submodules.sh` | Submodule Recursion Fix | GO | 0 |
 | Cycle R | `hostbill-sync-agent.py` | STX 12 Dynamic Metrics | GO | 0 |
 | Cycle P | `.github/strict-validation.yml`| CI Runner Migration     | GO | 0 |
-| Cycle O | `mcp-scheduler-daemon.sh`      | Core Daemon Activation  | GO | 0 |
+| Cycle O | `mcp_scheduler_daemon.py`      | Core Daemon Activation  | GO | 0 |
 | Cycle N | `compare-all-validators.sh`    | Core Gate Unification   | GO | 0 |
 | Cycle M | `email-gate-lean.sh`           | Lean Input Extrication  | GO | 0 |
 

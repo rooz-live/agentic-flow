@@ -77,8 +77,8 @@ if [[ -f "$AGENTDB_PATH" ]]; then
 fi
 
 if [ -f "$PROJECT_ROOT/scripts/validators/project/check-csqbm.sh" ]; then
-    if ! bash "$PROJECT_ROOT/scripts/validators/project/check-csqbm.sh" > /dev/null 2>&1; then
-        [[ "$JSON_OUTPUT" == false ]] && echo -e "${RED}❌ FAIL (CSQBM Governance Halt)${NC} CSQBM Violation. Task blocked via OpenWorm Physical Bounds (ADR-005)."
+    if ! bash "$PROJECT_ROOT/scripts/validators/project/check-csqbm.sh" --deep-why > /dev/null 2>&1; then
+        [[ "$JSON_OUTPUT" == false ]] && echo -e "${RED}❌ FAIL (CSQBM Governance Halt)${NC} CSQBM Deep-Why Violation. Task blocked via TurboQuant-DGM Physical Bounds (ADR-005)."
         exit ${EX_VALIDATION_FAILED:-150}
     fi
 fi

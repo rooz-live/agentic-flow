@@ -81,8 +81,8 @@ run_periodic() {
         fi
 
         if [ -f "$proj_root/scripts/validators/project/check-csqbm.sh" ]; then
-            if ! bash "$proj_root/scripts/validators/project/check-csqbm.sh" > /dev/null 2>&1; then
-                echo "[$(date -u)] CSQBM Governance Halt: CSQBM trace missing. Task $task_name blocked via OpenWorm Physical Bounds (ADR-005)." >> "$log_file"
+            if ! bash "$proj_root/scripts/validators/project/check-csqbm.sh" --deep-why > /dev/null 2>&1; then
+                echo "[$(date -u)] CSQBM Governance Halt: CSQBM Deep-Why Violation. Task $task_name blocked via TurboQuant-DGM Physical Bounds (ADR-005)." >> "$log_file"
                 sleep "$delay_sec"
                 continue
             fi

@@ -29,6 +29,22 @@ select_model() {
     local proj_root="$(cd "$(dirname "$(dirname "$(dirname "${BASH_SOURCE[0]}")")")" && pwd)"
     [ -f "$proj_root/scripts/validation-core.sh" ] && source "$proj_root/scripts/validation-core.sh" || true
 
+    # Enforce agentdb >96h staleness constraint natively (ADR-005)
+    local agentdb_path="$proj_root/agentdb.db"
+    if [ -f "$agentdb_path" ]; then
+        if [[ -n "$(find "$agentdb_path" -mmin +5760 2>/dev/null)" ]]; then
+            echo -e "ROUTING ERROR: CSQBM Governance Halt. agentdb.db staleness >96h. Task blocked via TurboQuant-DGM Physical Bounds (ADR-005)." >&2
+            exit 150
+        fi
+    fi
+
+    if [ -f "$proj_root/scripts/validators/project/check-csqbm.sh" ]; then
+        if ! bash "$proj_root/scripts/validators/project/check-csqbm.sh" --deep-why > /dev/null 2>&1; then
+            echo -e "ROUTING ERROR: CSQBM Deep-Why Violation. Task blocked via TurboQuant-DGM Physical Bounds (ADR-005)." >&2
+            exit 150
+        fi
+    fi
+
     case "$task_type" in
         "deep_analysis"|"architecture"|"core_logic")
             selected_model="$PRIMARY_MODEL"

@@ -134,6 +134,8 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `scripts/agentic/retro_replenish_workflow.py` | **Retain** — Retro/replenish orchestration path | `--trust-path` DoD verification | R-2026-016 formal mapping |
 | `scripts/ci/hostbill-sync-agent.py` | **Retain** — Computes $ USD synthetic bounds bridging STX `ipmitool` physical telemetry securely | `--trust-path` DoD verification | R-2026-019 + R-2026-020 formally mapped |
 | Superproject pre-commit `claims-evidence` (was missing script + `\|\| true`) | `scripts/monitoring/validate-claims.sh` — bounded check: recent commits with test/coverage success language require an on-disk artifact | Pre-commit GREEN + `./scripts/contract-enforcement-gate.sh verify --advisory` | R-2026-016 capability traceability; R-2026-018 anti–completion-theater |
+| `tooling/scripts/wsjf/*` (Superproject Untracked Hub) | Relocate to `agentic-flow/scripts/wsjf/*` natively preserving the WSJFCalculator, TemporalBudgetTracker, and Orchestrator capability matrices without drift. | `--trust-path` verification / Tracked natively in strict limits. | R-2026-016 WSJF Migration mapping. |
+| `tooling/scripts/priority/*` (Superproject Untracked Hub) | Relocate dynamically to `agentic-flow/scripts/priority/*` to retain rotation triggers and AST constraints tightly coupled to the budget loops. | `--trust-path` verification / Tracked natively in strict limits. | R-2026-016 WSJF priority loops. |
 
 ### T2 — Superproject validate-claims (hook parity)
 

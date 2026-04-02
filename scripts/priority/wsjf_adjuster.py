@@ -1,522 +1,531 @@
 #!/usr/bin/env python3
 """
-WSJF (Weighted Shortest Job First) Adjuster for Pattern Analysis
-
-This module provides WSJF enrichment capabilities for pattern analysis,
-including code-fix-proposal pattern detection and 72-hour correlation analysis.
+WSJF Auto-Adjustment
+Calculate and adjust WSJF scores based on provided data
 """
 
-import json
 import os
-import re
 import sys
-from datetime import datetime, timedelta
-from typing import Dict, List, Tuple, Optional, Any
-from collections import defaultdict
-import statistics
+import json
+import argparse
+import logging
+import sqlite3
 import math
+from typing import Dict, Any, List, Optional, Tuple
+from pathlib import Path
+from datetime import datetime, timedelta
 
-# Add the parent directory to the path to import existing modules
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-try:
-    from cmd_wsjf import calculate_wsjf, get_wsjf_config
-    from cmd_pattern_stats import get_pattern_metrics, analyze_patterns
-except ImportError:
-    print("Warning: Could not import existing modules. Using fallback implementations.")
+class WSJFAdjuster:
+    def __init__(self, config_file: str = None):
+        self.script_dir = Path(__file__).parent
+        self.project_root = self.script_dir.parent.parent
+        self.config_file = config_file or (self.script_dir / 'config' / 'wsjf_config.json')
+        self.db_file = self.project_root / '.agentdb' / 'wsjf.sqlite'
+        
+        # Setup logging
+        self.setup_logging()
+        
+        # Load configuration
+        self.config = self.load_config()
+        
+        # Initialize database
+        self.init_database()
+        
+    def setup_logging(self):
+        """Setup logging for WSJF adjuster"""
+        log_dir = self.project_root / 'logs'
+        log_dir.mkdir(exist_ok=True)
+        
+        log_file = log_dir / 'wsjf_adjuster.log'
+        
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            handlers=[
+                logging.FileHandler(log_file),
+                logging.StreamHandler(sys.stdout)
+            ]
+        )
+        
+        self.logger = logging.getLogger('WSJFAdjuster')
+        self.logger.info("WSJF Adjuster initialized")
     
-    def calculate_wsjf(user_business_value, time_criticality, risk_reduction, job_size):
-        """Fallback WSJF calculation"""
-        if job_size == 0:
-            return 0
-        return (user_business_value + time_criticality + risk_reduction) / job_size
+    def load_config(self) -> Dict[str, Any]:
+        """Load WSJF configuration"""
+        try:
+            if self.config_file.exists():
+                with open(self.config_file, 'r') as f:
+                    return json.load(f)
+            else:
+                # Default configuration
+                return self.get_default_config()
+        except Exception as e:
+            self.logger.error(f"Failed to load config: {e}")
+            return self.get_default_config()
     
-    def get_wsjf_config():
-        """Fallback WSJF config"""
+    def get_default_config(self) -> Dict[str, Any]:
+        """Get default WSJF configuration"""
         return {
-            'user_business_value_weight': 1.0,
-            'time_criticality_weight': 1.0,
-            'risk_reduction_weight': 1.0,
-            'job_size_weight': 1.0
+            "cost_of_delay": {
+                "business_value": {
+                    "critical": 1000,
+                    "high": 500,
+                    "medium": 200,
+                    "low": 100
+                },
+                "time_criticality": {
+                    "urgent": 2.0,
+                    "high": 1.5,
+                    "normal": 1.0,
+                    "low": 0.5
+                },
+                "risk_reduction": {
+                    "high": 300,
+                    "medium": 150,
+                    "low": 50
+                }
+            },
+            "job_duration": {
+                "small": 1,
+                    "medium": 2,
+                    "large": 3,
+                    "xlarge": 5
+            },
+            "adjustment_factors": {
+                "real_time_enabled": True,
+                "auto_rebalancing": True,
+                "multi_factor_ranking": True,
+                "historical_accuracy_weight": 0.3,
+                "market_conditions_weight": 0.2
+            },
+            "thresholds": {
+                "min_wsjf": 10,
+                "max_wsjf": 10000,
+                "rebalance_threshold": 0.2,  # 20% change triggers rebalance
+                "update_frequency": 3600  # seconds
+            }
         }
     
-    def get_pattern_metrics():
-        """Fallback pattern metrics"""
-        return []
-    
-    def analyze_patterns(patterns):
-        """Fallback pattern analysis"""
-        return {}
-
-class WSJFEnricher:
-    """WSJF enrichment engine for pattern analysis"""
-    
-    def __init__(self, config_path: Optional[str] = None):
-        """Initialize the WSJF enricher with configuration"""
-        self.config = get_wsjf_config()
-        self.pattern_multipliers = self._load_pattern_multipliers(config_path)
-        self.code_fix_patterns = self._load_code_fix_patterns(config_path)
+    def init_database(self):
+        """Initialize SQLite database for WSJF tracking"""
+        self.db_file.parent.mkdir(exist_ok=True)
         
-    def _load_pattern_multipliers(self, config_path: Optional[str]) -> Dict[str, float]:
-        """Load pattern-specific WSJF multipliers"""
-        default_multipliers = {
-            'code-fix': 1.5,           # Higher priority for code fixes
-            'bug-fix': 1.3,            # High priority for bug fixes
-            'performance-optimization': 1.2,  # Medium-high for performance
-            'security-fix': 1.8,       # Highest priority for security
-            'feature-addition': 1.0,    # Standard priority for features
-            'refactoring': 0.9,        # Lower priority for refactoring
-            'documentation': 0.7,      # Lowest priority for documentation
-            'testing': 0.8,            # Low-medium priority for testing
-            'code-review': 0.6         # Low priority for code review
-        }
+        conn = sqlite3.connect(str(self.db_file))
+        cursor = conn.cursor()
         
-        if config_path and os.path.exists(config_path):
-            try:
-                with open(config_path, 'r') as f:
-                    custom_config = json.load(f)
-                    if 'pattern_multipliers' in custom_config:
-                        default_multipliers.update(custom_config['pattern_multipliers'])
-            except Exception as e:
-                print(f"Warning: Could not load custom config: {e}")
-        
-        return default_multipliers
-    
-    def _load_code_fix_patterns(self, config_path: Optional[str]) -> List[str]:
-        """Load code-fix pattern identifiers"""
-        default_patterns = [
-            'code-fix', 'bug-fix', 'error-fix', 'issue-fix', 'problem-fix',
-            'fix-code', 'fix-bug', 'fix-error', 'fix-issue', 'fix-problem',
-            'code-repair', 'bug-repair', 'error-repair', 'issue-repair',
-            'code-correction', 'bug-correction', 'error-correction'
-        ]
-        
-        if config_path and os.path.exists(config_path):
-            try:
-                with open(config_path, 'r') as f:
-                    custom_config = json.load(f)
-                    if 'code_fix_patterns' in custom_config:
-                        default_patterns.extend(custom_config['code_fix_patterns'])
-            except Exception as e:
-                print(f"Warning: Could not load custom code fix patterns: {e}")
-        
-        return default_patterns
-    
-    def _is_code_fix_pattern(self, pattern_name: str) -> bool:
-        """Check if a pattern is a code-fix pattern"""
-        pattern_lower = pattern_name.lower()
-        return any(code_fix in pattern_lower for code_fix in self.code_fix_patterns)
-    
-    def _get_pattern_multiplier(self, pattern_name: str) -> float:
-        """Get WSJF multiplier for a pattern"""
-        pattern_lower = pattern_name.lower()
-        
-        # Check for exact matches first
-        if pattern_lower in self.pattern_multipliers:
-            return self.pattern_multipliers[pattern_lower]
-        
-        # Check for partial matches
-        for pattern, multiplier in self.pattern_multipliers.items():
-            if pattern in pattern_lower or pattern_lower in pattern:
-                return multiplier
-        
-        return 1.0  # Default multiplier
-    
-    def _assess_severity(self, pattern_name: str, wsjf_score: float) -> str:
-        """Assess severity of a code-fix pattern"""
-        if wsjf_score >= 15:
-            return "high"
-        elif wsjf_score >= 8:
-            return "medium"
-        else:
-            return "low"
-    
-    def _assess_complexity(self, pattern_name: str, depth: int, tags: List[str]) -> str:
-        """Assess complexity of a code-fix pattern"""
-        # Base complexity on depth
-        if depth >= 4:
-            base_complexity = "high"
-        elif depth >= 2:
-            base_complexity = "medium"
-        else:
-            base_complexity = "low"
-        
-        # Adjust based on tags
-        high_complexity_tags = ['security', 'performance', 'integration', 'architecture']
-        medium_complexity_tags = ['ui', 'api', 'database', 'testing']
-        
-        for tag in tags:
-            tag_lower = tag.lower()
-            if tag_lower in high_complexity_tags:
-                return "high"
-            elif tag_lower in medium_complexity_tags and base_complexity == "low":
-                base_complexity = "medium"
-        
-        return base_complexity
-    
-    def enrich_pattern_with_wsjf(self, pattern: Dict[str, Any]) -> Dict[str, Any]:
-        """Enrich a single pattern with WSJF calculations"""
-        # Extract base WSJF components or use defaults
-        user_business_value = pattern.get('user_business_value', 5)
-        time_criticality = pattern.get('time_criticality', 5)
-        risk_reduction = pattern.get('risk_reduction', 5)
-        job_size = pattern.get('job_size', 1)
-        
-        # Calculate base WSJF
-        base_wsjf = calculate_wsjf(user_business_value, time_criticality, risk_reduction, job_size)
-        
-        # Get pattern multiplier
-        pattern_multiplier = self._get_pattern_multiplier(pattern.get('name', ''))
-        
-        # Calculate enriched WSJF
-        enriched_wsjf = base_wsjf * pattern_multiplier
-        
-        # Determine if it's a code-fix pattern
-        is_code_fix = self._is_code_fix_pattern(pattern.get('name', ''))
-        
-        # Assess severity and complexity for code-fix patterns
-        severity = None
-        complexity = None
-        if is_code_fix:
-            severity = self._assess_severity(pattern.get('name', ''), enriched_wsjf)
-            complexity = self._assess_complexity(
-                pattern.get('name', ''),
-                pattern.get('depth', 0),
-                pattern.get('tags', [])
+        # Create tables
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS work_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id TEXT UNIQUE,
+                title TEXT,
+                business_value TEXT,
+                time_criticality TEXT,
+                risk_reduction TEXT,
+                job_duration TEXT,
+                user_business_value REAL,
+                cost_of_delay REAL,
+                job_duration_days REAL,
+                wsjf_score REAL,
+                last_updated TIMESTAMP,
+                status TEXT DEFAULT 'active'
             )
+        ''')
         
-        # Create enriched pattern
-        enriched_pattern = pattern.copy()
-        enriched_pattern.update({
-            'base_wsjf': base_wsjf,
-            'wsjf_multiplier': pattern_multiplier,
-            'enriched_wsjf': enriched_wsjf,
-            'is_code_fix_proposal': is_code_fix,
-            'code_fix_severity': severity,
-            'code_fix_complexity': complexity
-        })
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS wsjf_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_id TEXT,
+                old_wsjf REAL,
+                new_wsjf REAL,
+                adjustment_reason TEXT,
+                timestamp TIMESTAMP
+            )
+        ''')
         
-        return enriched_pattern
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS market_conditions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                condition_type TEXT,
+                impact_factor REAL,
+                timestamp TIMESTAMP
+            )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        
+        self.logger.info("Database initialized")
     
-    def enrich_patterns(self, patterns: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Enrich multiple patterns with WSJF calculations"""
-        return [self.enrich_pattern_with_wsjf(pattern) for pattern in patterns]
+    def calculate_cost_of_delay(self, business_value: str, 
+                            time_criticality: str, 
+                            risk_reduction: str) -> float:
+        """Calculate Cost of Delay (CoD)"""
+        config = self.config["cost_of_delay"]
+        
+        # Base business value
+        bv = config["business_value"].get(business_value.lower(), 100)
+        
+        # Time criticality factor
+        tc_factor = config["time_criticality"].get(time_criticality.lower(), 1.0)
+        
+        # Risk reduction value
+        rr = config["risk_reduction"].get(risk_reduction.lower(), 0)
+        
+        # Calculate CoD
+        cost_of_delay = (bv + rr) * tc_factor
+        
+        self.logger.debug(f"CoD calculation: BV={bv}, TC={tc_factor}, RR={rr}, CoD={cost_of_delay}")
+        return cost_of_delay
     
-    def calculate_correlation(self, patterns: List[Dict[str, Any]]) -> Dict[str, float]:
-        """Calculate correlation between WSJF scores and completion rates"""
-        if len(patterns) < 2:
-            return {"pearson": 0.0, "spearman": 0.0, "sample_size": 0}
+    def calculate_job_duration(self, duration: str) -> float:
+        """Get job duration in days"""
+        return self.config["job_duration"].get(duration.lower(), 1.0)
+    
+    def calculate_wsjf(self, business_value: str, time_criticality: str, 
+                     risk_reduction: str, job_duration: str) -> float:
+        """Calculate WSJF score"""
+        cost_of_delay = self.calculate_cost_of_delay(business_value, time_criticality, risk_reduction)
+        duration = self.calculate_job_duration(job_duration)
         
-        # Extract WSJF scores and completion rates
-        wsjf_scores = []
-        completion_rates = []
+        wsjf_score = cost_of_delay / duration
         
-        for pattern in patterns:
-            wsjf = pattern.get('enriched_wsjf', 0)
-            completion_rate = pattern.get('completion_rate', 0)
-            
-            if wsjf > 0 and completion_rate >= 0:
-                wsjf_scores.append(wsjf)
-                completion_rates.append(completion_rate)
-        
-        if len(wsjf_scores) < 2:
-            return {"pearson": 0.0, "spearman": 0.0, "sample_size": len(wsjf_scores)}
-        
-        # Calculate Pearson correlation
-        pearson = self._calculate_pearson_correlation(wsjf_scores, completion_rates)
-        
-        # Calculate Spearman correlation (rank-based)
-        spearman = self._calculate_spearman_correlation(wsjf_scores, completion_rates)
-        
-        return {
-            "pearson": pearson,
-            "spearman": spearman,
-            "sample_size": len(wsjf_scores)
+        self.logger.debug(f"WSJF calculation: CoD={cost_of_delay}, Duration={duration}, WSJF={wsjf_score}")
+        return wsjf_score
+    
+    def analyze_cost_of_delay_factors(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Perform detailed cost of delay analysis"""
+        analysis = {
+            "total_items": len(items),
+            "cod_distribution": {},
+            "criticality_impact": {},
+            "risk_impact": {},
+            "recommendations": []
         }
-    
-    def _calculate_pearson_correlation(self, x: List[float], y: List[float]) -> float:
-        """Calculate Pearson correlation coefficient"""
-        n = len(x)
-        if n < 2:
-            return 0.0
         
-        mean_x = sum(x) / n
-        mean_y = sum(y) / n
+        # Analyze CoD distribution
+        cod_values = [item["cost_of_delay"] for item in items]
+        if cod_values:
+            analysis["cod_distribution"] = {
+                "min": min(cod_values),
+                "max": max(cod_values),
+                "avg": sum(cod_values) / len(cod_values),
+                "median": self._median(cod_values)
+            }
         
-        sum_xy = sum((x[i] - mean_x) * (y[i] - mean_y) for i in range(n))
-        sum_x2 = sum((x[i] - mean_x) ** 2 for i in range(n))
-        sum_y2 = sum((y[i] - mean_y) ** 2 for i in range(n))
+        # Analyze criticality impact
+        criticality_groups = {}
+        for item in items:
+            crit = item["time_criticality"]
+            if crit not in criticality_groups:
+                criticality_groups[crit] = []
+            criticality_groups[crit].append(item["wsjf_score"])
         
-        if sum_x2 == 0 or sum_y2 == 0:
-            return 0.0
+        for crit, scores in criticality_groups.items():
+            if scores:
+                analysis["criticality_impact"][crit] = {
+                    "count": len(scores),
+                    "avg_wsjf": sum(scores) / len(scores),
+                    "total_wsjf": sum(scores)
+                }
         
-        return sum_xy / math.sqrt(sum_x2 * sum_y2)
-    
-    def _calculate_spearman_correlation(self, x: List[float], y: List[float]) -> float:
-        """Calculate Spearman rank correlation coefficient"""
-        n = len(x)
-        if n < 2:
-            return 0.0
-        
-        # Get ranks
-        x_ranks = self._get_ranks(x)
-        y_ranks = self._get_ranks(y)
-        
-        # Calculate Pearson correlation on ranks
-        return self._calculate_pearson_correlation(x_ranks, y_ranks)
-    
-    def _get_ranks(self, values: List[float]) -> List[float]:
-        """Get ranks of values (handle ties)"""
-        sorted_values = sorted((value, index) for index, value in enumerate(values))
-        ranks = [0] * len(values)
-        
-        i = 0
-        while i < len(sorted_values):
-            # Handle ties
-            tie_values = [sorted_values[i][0]]
-            tie_indices = [sorted_values[i][1]]
-            
-            j = i + 1
-            while j < len(sorted_values) and sorted_values[j][0] == sorted_values[i][0]:
-                tie_values.append(sorted_values[j][0])
-                tie_indices.append(sorted_values[j][1])
-                j += 1
-            
-            # Assign average rank to all tied values
-            avg_rank = (i + 1 + j) / 2
-            for index in tie_indices:
-                ranks[index] = avg_rank
-            
-            i = j
-        
-        return ranks
-    
-    def analyze_72hour_correlation(self, patterns: List[Dict[str, Any]], 
-                                  hours: int = 72) -> Dict[str, Any]:
-        """Analyze correlation over the last N hours"""
-        cutoff_time = datetime.now() - timedelta(hours=hours)
-        
-        # Filter patterns by time
-        recent_patterns = []
-        for pattern in patterns:
-            pattern_time = pattern.get('timestamp')
-            if pattern_time:
-                try:
-                    if isinstance(pattern_time, str):
-                        pattern_time = datetime.fromisoformat(pattern_time.replace('Z', '+00:00'))
-                    elif isinstance(pattern_time, (int, float)):
-                        pattern_time = datetime.fromtimestamp(pattern_time)
-                    
-                    if pattern_time >= cutoff_time:
-                        recent_patterns.append(pattern)
-                except (ValueError, TypeError):
-                    # Skip patterns with invalid timestamps
-                    continue
-        
-        # Calculate correlation for recent patterns
-        correlation = self.calculate_correlation(recent_patterns)
-        
-        # Analyze trends by pattern type
-        pattern_type_correlations = {}
-        pattern_types = set(p.get('pattern_type', 'unknown') for p in recent_patterns)
-        
-        for pattern_type in pattern_types:
-            type_patterns = [p for p in recent_patterns if p.get('pattern_type') == pattern_type]
-            if len(type_patterns) >= 2:
-                pattern_type_correlations[pattern_type] = self.calculate_correlation(type_patterns)
-        
-        # Analyze code-fix patterns specifically
-        code_fix_patterns = [p for p in recent_patterns if p.get('is_code_fix_proposal', False)]
-        code_fix_correlation = self.calculate_correlation(code_fix_patterns)
-        
-        return {
-            'timeframe_hours': hours,
-            'total_patterns': len(patterns),
-            'recent_patterns': len(recent_patterns),
-            'overall_correlation': correlation,
-            'pattern_type_correlations': pattern_type_correlations,
-            'code_fix_correlation': code_fix_correlation,
-            'analysis_timestamp': datetime.now().isoformat()
-        }
-    
-    def generate_recommendations(self, patterns: List[Dict[str, Any]], 
-                               correlation_analysis: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Generate recommendations based on WSJF and correlation analysis"""
-        recommendations = []
-        
-        # High-priority code-fix patterns
-        code_fix_patterns = [p for p in patterns if p.get('is_code_fix_proposal', False)]
-        high_priority_code_fixes = [
-            p for p in code_fix_patterns 
-            if p.get('code_fix_severity') == 'high' or p.get('enriched_wsjf', 0) > 15
-        ]
-        
-        if high_priority_code_fixes:
-            recommendations.append({
-                'type': 'high_priority_code_fixes',
-                'priority': 'high',
-                'title': f'Address {len(high_priority_code_fixes)} High-Priority Code-Fix Patterns',
-                'description': 'Focus on high-severity code-fix patterns with high WSJF scores',
-                'patterns': [p.get('name', 'Unknown') for p in high_priority_code_fixes[:5]],
-                'actionable': True
+        # Generate recommendations
+        high_cod_items = [item for item in items if item["cost_of_delay"] > 500]
+        if high_cod_items:
+            analysis["recommendations"].append({
+                "type": "high_cod_priority",
+                "message": f"{len(high_cod_items)} items with high Cost of Delay need immediate attention",
+                "items": [item["item_id"] for item in high_cod_items]
             })
         
-        # Low WSJF, high completion patterns
-        low_wsjf_high_completion = [
-            p for p in patterns 
-            if p.get('enriched_wsjf', 0) < 5 and p.get('completion_rate', 0) > 0.8
-        ]
+        return analysis
+    
+    def _median(self, values: List[float]) -> float:
+        """Calculate median value"""
+        sorted_values = sorted(values)
+        n = len(sorted_values)
         
-        if low_wsjf_high_completion:
-            recommendations.append({
-                'type': 'low_wsjf_high_completion',
-                'priority': 'medium',
-                'title': f'Review {len(low_wsjf_high_completion)} Low-WSJF, High-Completion Patterns',
-                'description': 'These patterns complete successfully but have low WSJF scores - consider if they need higher priority',
-                'patterns': [p.get('name', 'Unknown') for p in low_wsjf_high_completion[:5]],
-                'actionable': True
-            })
+        if n == 0:
+            return 0
+        elif n % 2 == 1:
+            return sorted_values[n // 2]
+        else:
+            return (sorted_values[n // 2 - 1] + sorted_values[n // 2]) / 2
+    
+    def auto_rebalance_scores(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Automatically rebalance WSJF scores based on market conditions"""
+        if not self.config["adjustment_factors"]["auto_rebalancing"]:
+            return {"rebalanced": False, "reason": "auto_rebalancing_disabled"}
         
-        # Correlation-based recommendations
-        overall_corr = correlation_analysis.get('overall_correlation', {}).get('pearson', 0)
-        if abs(overall_corr) > 0.5:
-            direction = "positive" if overall_corr > 0 else "negative"
-            recommendations.append({
-                'type': 'correlation_insight',
-                'priority': 'medium',
-                'title': f'Strong {direction.capitalize()} WSJF-Completion Correlation ({overall_corr:.2f})',
-                'description': f'{"Higher" if overall_corr > 0 else "Lower"} WSJF scores correlate with {"higher" if overall_corr > 0 else "lower"} completion rates',
-                'actionable': False
-            })
+        # Get current market conditions
+        market_impact = self._get_market_conditions_impact()
         
-        # Pattern-specific recommendations
-        pattern_type_corrs = correlation_analysis.get('pattern_type_correlations', {})
-        for pattern_type, corr_data in pattern_type_corrs.items():
-            pearson = corr_data.get('pearson', 0)
-            if abs(pearson) > 0.7:
-                direction = "positive" if pearson > 0 else "negative"
-                recommendations.append({
-                    'type': 'pattern_type_correlation',
-                    'priority': 'low',
-                    'title': f'{pattern_type.title()} Patterns: Strong {direction.capitalize()} Correlation ({pearson:.2f})',
-                    'description': f'Consider {"prioritizing" if pearson > 0 else "reviewing"} {pattern_type} patterns based on WSJF scores',
-                    'actionable': True
+        rebalanced_items = []
+        for item in items:
+            original_wsjf = item["wsjf_score"]
+            
+            # Apply market conditions adjustment
+            adjusted_wsjf = original_wsjf * market_impact
+            
+            # Apply historical accuracy adjustment
+            if self.config["adjustment_factors"]["multi_factor_ranking"]:
+                accuracy_factor = self._get_historical_accuracy_factor(item["item_id"])
+                adjusted_wsjf *= accuracy_factor
+            
+            # Check if rebalance is significant
+            change_threshold = self.config["thresholds"]["rebalance_threshold"]
+            relative_change = abs(adjusted_wsjf - original_wsjf) / original_wsjf
+            
+            if relative_change > change_threshold:
+                rebalanced_items.append({
+                    "item_id": item["item_id"],
+                    "original_wsjf": original_wsjf,
+                    "adjusted_wsjf": adjusted_wsjf,
+                    "relative_change": relative_change,
+                    "market_impact": market_impact,
+                    "accuracy_factor": accuracy_factor if self.config["adjustment_factors"]["multi_factor_ranking"] else 1.0
                 })
         
-        return recommendations
-
-
-def load_pattern_metrics_from_file(file_path: str) -> List[Dict[str, Any]]:
-    """Load pattern metrics from a JSONL file"""
-    patterns = []
+        result = {
+            "rebalanced": len(rebalanced_items) > 0,
+            "items_rebalanced": len(rebalanced_items),
+            "rebalancing_details": rebalanced_items,
+            "market_impact_factor": market_impact,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        self.logger.info(f"Auto-rebalancing completed: {len(rebalanced_items)} items adjusted")
+        return result
     
-    if not os.path.exists(file_path):
-        print(f"Warning: Pattern metrics file not found: {file_path}")
-        return patterns
+    def _get_market_conditions_impact(self) -> float:
+        """Get current market conditions impact factor"""
+        conn = sqlite3.connect(str(self.db_file))
+        cursor = conn.cursor()
+        
+        # Get latest market conditions
+        cursor.execute('''
+            SELECT impact_factor FROM market_conditions
+            ORDER BY timestamp DESC
+            LIMIT 1
+        ''')
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return result[0]
+        else:
+            # Default market conditions
+            return 1.0
     
-    try:
-        with open(file_path, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        pattern = json.loads(line)
-                        patterns.append(pattern)
-                    except json.JSONDecodeError:
-                        continue
-    except Exception as e:
-        print(f"Error reading pattern metrics file: {e}")
+    def _get_historical_accuracy_factor(self, item_id: str) -> float:
+        """Get historical accuracy factor for an item"""
+        # Placeholder implementation - would use historical data
+        # For now, return default factor
+        return 1.0
     
-    return patterns
-
+    def real_time_adjustment(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Perform real-time WSJF adjustments"""
+        if not self.config["adjustment_factors"]["real_time_enabled"]:
+            return {"adjusted": False, "reason": "real_time_disabled"}
+        
+        current_time = datetime.now()
+        adjustments = []
+        
+        for item in items:
+            # Check if item needs real-time adjustment
+            last_updated = datetime.fromisoformat(item["last_updated"]) if item.get("last_updated") else current_time
+            age_hours = (current_time - last_updated).total_seconds() / 3600
+            
+            # Adjust for aging items
+            if age_hours > 24:  # Older than 24 hours
+                aging_factor = 1 + (age_hours / 168)  # Increase by 1% per week
+                adjusted_wsjf = item["wsjf_score"] * aging_factor
+                
+                adjustments.append({
+                    "item_id": item["item_id"],
+                    "adjustment_type": "aging",
+                    "factor": aging_factor,
+                    "original_wsjf": item["wsjf_score"],
+                    "adjusted_wsjf": adjusted_wsjf,
+                    "age_hours": age_hours
+                })
+        
+        result = {
+            "adjusted": len(adjustments) > 0,
+            "adjustments": adjustments,
+            "timestamp": current_time.isoformat()
+        }
+        
+        self.logger.info(f"Real-time adjustment completed: {len(adjustments)} items adjusted")
+        return result
+    
+    def multi_factor_ranking(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Apply multi-factor ranking to items"""
+        if not self.config["adjustment_factors"]["multi_factor_ranking"]:
+            return {"ranked": False, "reason": "multi_factor_disabled"}
+        
+        ranked_items = []
+        for item in items:
+            base_score = item["wsjf_score"]
+            
+            # Apply multiple factors
+            factors = {
+                "historical_accuracy": self._get_historical_accuracy_factor(item["item_id"]),
+                "market_conditions": self._get_market_conditions_impact(),
+                "business_value_weight": 1.0,
+                "urgency_boost": 1.0
+            }
+            
+            # Calculate weighted score
+            config = self.config["adjustment_factors"]
+            weighted_score = base_score
+            
+            # Apply historical accuracy weight
+            if config["historical_accuracy_weight"] > 0:
+                weighted_score *= (1 + (factors["historical_accuracy"] - 1) * config["historical_accuracy_weight"])
+            
+            # Apply market conditions weight
+            if config["market_conditions_weight"] > 0:
+                weighted_score *= (1 + (factors["market_conditions"] - 1) * config["market_conditions_weight"])
+            
+            ranked_items.append({
+                "item_id": item["item_id"],
+                "base_wsjf": base_score,
+                "weighted_score": weighted_score,
+                "factors": factors,
+                "rank_change": weighted_score - base_score
+            })
+        
+        # Sort by weighted score
+        ranked_items.sort(key=lambda x: x["weighted_score"], reverse=True)
+        
+        result = {
+            "ranked": True,
+            "items": ranked_items,
+            "ranking_factors": {
+                "historical_accuracy_weight": config["historical_accuracy_weight"],
+                "market_conditions_weight": config["market_conditions_weight"]
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        self.logger.info(f"Multi-factor ranking completed: {len(ranked_items)} items ranked")
+        return result
+    
+    def run_adjustment_cycle(self, real_time: bool = False, 
+                          cost_of_delay_analysis: bool = False,
+                          auto_rebalancing: bool = False,
+                          multi_factor_ranking: bool = False) -> Dict[str, Any]:
+        """Run complete WSJF adjustment cycle"""
+        self.logger.info("Starting WSJF adjustment cycle...")
+        
+        # Get current work items
+        conn = sqlite3.connect(str(self.db_file))
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT * FROM work_items WHERE status = 'active'
+        ''')
+        
+        items = []
+        for row in cursor.fetchall():
+            items.append({
+                "item_id": row[1],
+                "title": row[2],
+                "business_value": row[3],
+                "time_criticality": row[4],
+                "risk_reduction": row[5],
+                "job_duration": row[6],
+                "wsjf_score": row[10],
+                "last_updated": row[11]
+            })
+        
+        conn.close()
+        
+        result = {
+            "items_processed": len(items),
+            "real_time_result": None,
+            "cod_analysis_result": None,
+            "rebalancing_result": None,
+            "ranking_result": None,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Apply requested adjustments
+        if real_time:
+            real_time_result = self.real_time_adjustment(items)
+            result["real_time_result"] = real_time_result
+        
+        if cost_of_delay_analysis:
+            cod_analysis = self.analyze_cost_of_delay_factors(items)
+            result["cod_analysis_result"] = cod_analysis
+        
+        if auto_rebalancing:
+            rebalancing_result = self.auto_rebalance_scores(items)
+            result["rebalancing_result"] = rebalancing_result
+        
+        if multi_factor_ranking:
+            ranking_result = self.multi_factor_ranking(items)
+            result["ranking_result"] = ranking_result
+        
+        self.logger.info("WSJF adjustment cycle completed")
+        return result
 
 def main():
-    """Main function for WSJF enrichment and analysis"""
-    import argparse
+    """Main entry point"""
+    parser = argparse.ArgumentParser(
+        description='WSJF Auto-Adjustment',
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     
-    parser = argparse.ArgumentParser(description='WSJF Enrichment for Pattern Analysis')
-    parser.add_argument('--input', '-i', default='.goalie/pattern_metrics.jsonl',
-                        help='Input pattern metrics file (default: .goalie/pattern_metrics.jsonl)')
-    parser.add_argument('--output', '-o', default='.goalie/wsjf_enriched_patterns.json',
-                        help='Output file for enriched patterns (default: .goalie/wsjf_enriched_patterns.json)')
-    parser.add_argument('--config', '-c', help='Configuration file for WSJF multipliers')
-    parser.add_argument('--hours', type=int, default=72,
-                        help='Time window for correlation analysis in hours (default: 72)')
+    parser.add_argument('--config', 
+                       help='Configuration file path')
+    parser.add_argument('--real-time', action='store_true',
+                       help='Enable real-time adjustments')
+    parser.add_argument('--cost-of-delay-analysis', action='store_true',
+                       help='Perform cost of delay analysis')
+    parser.add_argument('--auto-rebalancing', action='store_true',
+                       help='Enable automatic score rebalancing')
+    parser.add_argument('--multi-factor-ranking', action='store_true',
+                       help='Apply multi-factor ranking')
     parser.add_argument('--json', action='store_true',
-                        help='Output results in JSON format')
+                       help='Output results in JSON format')
+    parser.add_argument('--verbose', action='store_true',
+                       help='Enable verbose logging')
     
     args = parser.parse_args()
     
-    # Initialize WSJF enricher
-    enricher = WSJFEnricher(args.config)
+    # Create WSJF adjuster instance
+    adjuster = WSJFAdjuster(config_file=args.config)
     
-    # Load pattern metrics
-    patterns = load_pattern_metrics_from_file(args.input)
-    if not patterns:
-        print("No patterns found for analysis")
-        return 1
+    # Run adjustment cycle with specified options
+    result = adjuster.run_adjustment_cycle(
+        real_time=args.real_time,
+        cost_of_delay_analysis=args.cost_of_delay_analysis,
+        auto_rebalancing=args.auto_rebalancing,
+        multi_factor_ranking=args.multi_factor_ranking
+    )
     
-    # Enrich patterns with WSJF
-    enriched_patterns = enricher.enrich_patterns(patterns)
-    
-    # Perform 72-hour correlation analysis
-    correlation_analysis = enricher.analyze_72hour_correlation(enriched_patterns, args.hours)
-    
-    # Generate recommendations
-    recommendations = enricher.generate_recommendations(enriched_patterns, correlation_analysis)
-    
-    # Prepare results
-    results = {
-        'analysis_timestamp': datetime.now().isoformat(),
-        'input_file': args.input,
-        'timeframe_hours': args.hours,
-        'total_patterns': len(patterns),
-        'correlation_analysis': correlation_analysis,
-        'recommendations': recommendations,
-        'patterns': enriched_patterns
-    }
-    
-    # Save results
-    try:
-        with open(args.output, 'w') as f:
-            json.dump(results, f, indent=2)
-        print(f"Results saved to: {args.output}")
-    except Exception as e:
-        print(f"Error saving results: {e}")
-    
-    # Output results
     if args.json:
-        print(json.dumps(results, indent=2))
+        print(json.dumps(result, indent=2))
     else:
-        print(f"\nWSJF Enrichment Analysis Results")
-        print(f"=================================")
-        print(f"Total Patterns: {len(patterns)}")
-        print(f"Time Window: {args.hours} hours")
+        print("WSJF Adjustment Results:")
+        print(f"Items Processed: {result['items_processed']}")
         
-        corr = correlation_analysis.get('overall_correlation', {})
-        print(f"Overall WSJF-Completion Correlation: {corr.get('pearson', 0):.3f}")
+        if result["real_time_result"]:
+            print(f"Real-time Adjustments: {len(result['real_time_result']['adjustments'])}")
         
-        code_fix_corr = correlation_analysis.get('code_fix_correlation', {})
-        print(f"Code-Fix Pattern Correlation: {code_fix_corr.get('pearson', 0):.3f}")
+        if result["cod_analysis_result"]:
+            print(f"CoD Analysis: {result['cod_analysis_result']['total_items']} items analyzed")
         
-        print(f"\nRecommendations:")
-        for i, rec in enumerate(recommendations, 1):
-            print(f"{i}. {rec['title']}")
-            print(f"   Priority: {rec['priority']}")
-            print(f"   {rec['description']}")
+        if result["rebalancing_result"]:
+            print(f"Rebalanced Items: {result['rebalancing_result']['items_rebalanced']}")
         
-        # Summary statistics
-        code_fix_count = sum(1 for p in enriched_patterns if p.get('is_code_fix_proposal', False))
-        high_severity_count = sum(1 for p in enriched_patterns if p.get('code_fix_severity') == 'high')
-        
-        print(f"\nCode-Fix Pattern Summary:")
-        print(f"Total Code-Fix Patterns: {code_fix_count}")
-        print(f"High Severity: {high_severity_count}")
-        print(f"Medium Severity: {sum(1 for p in enriched_patterns if p.get('code_fix_severity') == 'medium')}")
-        print(f"Low Severity: {sum(1 for p in enriched_patterns if p.get('code_fix_severity') == 'low')}")
+        if result["ranking_result"]:
+            print(f"Ranked Items: {len(result['ranking_result']['items'])}")
     
-    return 0
-
+    sys.exit(0)
 
 if __name__ == '__main__':
-    sys.exit(main())
+    main()

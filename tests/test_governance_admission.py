@@ -15,7 +15,7 @@ from scripts.policy.governance import (
     AdmissionController, 
     AdmissionConfig, 
     SystemLoadSensor,
-    DefaultSystemLoadSensor
+    OSLoadSensor
 )
 
 class MockSensor:
@@ -150,7 +150,7 @@ def test_real_sensor_integration():
     Tests the real production path without any mocking.
     """
     config = AdmissionConfig()
-    real_sensor = DefaultSystemLoadSensor()
+    real_sensor = OSLoadSensor()
     controller = AdmissionController(config, real_sensor)
     
     # This test exercises the actual os.getloadavg() path

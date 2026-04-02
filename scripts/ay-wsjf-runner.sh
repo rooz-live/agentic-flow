@@ -20,6 +20,12 @@ MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+if [[ -f "$PROJECT_ROOT/_SYSTEM/_AUTOMATION/run-bounded-eta.sh" ]]; then
+    _OLD_SCRIPT_DIR="$SCRIPT_DIR"
+    source "$PROJECT_ROOT/_SYSTEM/_AUTOMATION/run-bounded-eta.sh" 2>/dev/null || true
+    SCRIPT_DIR="$_OLD_SCRIPT_DIR"
+fi
+
 log() { echo -e "${GREEN}[✓]${NC} $*"; }
 warn() { echo -e "${YELLOW}[⚠]${NC} $*"; }
 error() { echo -e "${RED}[✗]${NC} $*"; }
@@ -509,11 +515,35 @@ SQL
 # Balance Command
 cmd_balance() {
   local n=${1:-10}
+  local pressure_level=${2:-50}
   
-  phase "Balancing Circles ($n ceremonies)"
+  phase "Balancing Circles ($n ceremonies, Pressure: $pressure_level%)"
   echo
+
+  # Adjust weights based on pressure
+  local pressure_multiplier
+  if (( pressure_level >= PRESSURE_HIGH )); then
+    pressure_multiplier=1.5
+    warn "High pressure detected - increasing orchestrator and assessor weights"
+    CIRCLE_WEIGHTS["orchestrator"]=0.25
+    CIRCLE_WEIGHTS["assessor"]=0.25
+  elif (( pressure_level >= PRESSURE_MEDIUM )); then
+    pressure_multiplier=1.2
+  else
+    pressure_multiplier=1.0
+  fi
   
-  balance_circles "$n"
+  # Adjust all circle weights proportionally
+  for circle in "${!CIRCLE_WEIGHTS[@]}"; do
+    local base_weight=${CIRCLE_WEIGHTS[$circle]}
+    CIRCLE_WEIGHTS[$circle]=$(echo "scale=3; $base_weight * $pressure_multiplier" | bc 2>/dev/null || echo "$base_weight")
+  done
+  
+  if declare -F run_bounded_eta >/dev/null; then
+    run_bounded_eta "wsjf_balance" "balance_circles" "$n"
+  else
+    balance_circles "$n"
+  fi
   
   echo
   "$SCRIPT_DIR/ay-yo-integrate.sh" dashboard
@@ -524,7 +554,34 @@ cmd_baseline() {
   phase "Building Learning Baseline"
   echo
   
-  build_baseline
+  local metric_file="wsjf_baseline_$(date +%Y%m%d).json"
+  log "Recording systemic pressure state to $metric_file"
+  
+  local cpu_pressure=$(top -l 1 | grep "CPU usage" | awk '{print $3}' | sed 's/%//' || echo "50")
+  local memory_free_pct=$(memory_pressure | grep "System-wide memory free percentage:" | awk '{print $5}' | sed 's/%//' || echo "50")
+  local mem_pressure_pct=$((100 - memory_free_pct))
+  local overall_pressure=$(echo "scale=0; ($cpu_pressure + $mem_pressure_pct) / 2" | bc 2>/dev/null || echo "50")
+  
+  cat > "$metric_file" << EOF
+{
+  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "ceremony": "baseline",
+  "metrics": {
+    "cpu_pressure": $cpu_pressure,
+    "memory_pressure": $mem_pressure_pct,
+    "overall_pressure": $overall_pressure,
+    "baseline_iterations": $BASELINE_ITERATIONS,
+    "baseline_depth": $BASELINE_DEPTH
+  },
+  "circle_allocations": $(declare -p CIRCLE_WEIGHTS | sed 's/declare -A //')
+}
+EOF
+
+  if declare -F run_bounded_eta >/dev/null; then
+    run_bounded_eta "wsjf_baseline" "build_baseline"
+  else
+    build_baseline
+  fi
   
   echo
   "$SCRIPT_DIR/ay-yo-continuous-improvement.sh" analyze
@@ -617,72 +674,6 @@ cmd_status() {
   fi
 }
 
-# Balance ceremony - distribute work across circles
-cmd_balance() {
-  local total_capacity=${1:-100}
-  local pressure_level=${2:-50}
-  
-  phase "BALANCE Ceremony"
-  log "Total capacity: $total_capacity, Pressure: $pressure_level%"
-  
-  # Adjust weights based on pressure
-  local pressure_multiplier
-  if (( pressure_level >= PRESSURE_HIGH )); then
-    pressure_multiplier=1.5
-    warn "High pressure detected - increasing orchestrator and assessor weights"
-    CIRCLE_WEIGHTS["orchestrator"]=0.25
-    CIRCLE_WEIGHTS["assessor"]=0.25
-  elif (( pressure_level >= PRESSURE_MEDIUM )); then
-    pressure_multiplier=1.2
-  else
-    pressure_multiplier=1.0
-  fi
-  
-  # Calculate allocations
-  for circle in "${!CIRCLE_WEIGHTS[@]}"; do
-    local base_weight=${CIRCLE_WEIGHTS[$circle]}
-    local adjusted_weight=$(echo "scale=3; $base_weight * $pressure_multiplier" | bc)
-    local allocation=$(echo "scale=0; $total_capacity * $adjusted_weight" | bc)
-    
-    log "Circle $circle: ${base_weight} → ${adjusted_weight} (weight), $allocation units allocated"
-  done
-}
-
-# Baseline ceremony - establish performance baselines
-cmd_baseline() {
-  local metric_file=${1:-"wsjf_baseline_$(date +%Y%m%d).json"}
-  
-  phase "BASELINE Ceremony"
-  log "Recording to $metric_file"
-  
-  # System pressure assessment
-  local cpu_pressure=$(top -l 1 | grep "CPU usage" | awk '{print $3}' | sed 's/%//')
-  
-  # Normalize memory pressure organically preventing numeric overflow
-  local memory_free_pct=$(memory_pressure | grep "System-wide memory free percentage:" | awk '{print $5}' | sed 's/%//' || echo "50")
-  local mem_pressure_pct=$((100 - memory_free_pct))
-  
-  # Overall pressure score
-  local overall_pressure=$(echo "scale=0; ($cpu_pressure + $mem_pressure_pct) / 2" | bc)
-  
-  # Create baseline record
-  cat > "$metric_file" << EOF
-{
-  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-  "ceremony": "baseline",
-  "metrics": {
-    "cpu_pressure": $cpu_pressure,
-    "memory_pressure": $mem_pressure_pct,
-    "overall_pressure": $overall_pressure,
-    "baseline_iterations": $BASELINE_ITERATIONS,
-    "baseline_depth": $BASELINE_DEPTH
-  },
-  "circle_allocations": $(declare -p CIRCLE_WEIGHTS | sed 's/declare -A //')
-}
-EOF
-  
-  log "Baseline recorded - Overall pressure: $overall_pressure%"
-}
 
 # Structural audit of untracked files
 cmd_audit() {

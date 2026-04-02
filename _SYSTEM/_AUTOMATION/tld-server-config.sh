@@ -76,21 +76,17 @@ check_tld_readiness() {
     echo "Checking TLD readiness..."
     
     # Early Exit: Domain resolution precondition bound
-    if command -v dig >/dev/null 2>&1; then
-        echo "Checking domain resolution for $DASHBOARD_DOMAIN..."
-        if [[ -z "$(dig +short "$DASHBOARD_DOMAIN" 2>/dev/null)" ]]; then
-            echo "❌ ERROR: Domain $DASHBOARD_DOMAIN is not resolving. Blocked via Early Exit." >&2
-            exit 1
-        fi
+    if ! command -v dig >/dev/null 2>&1; then
+        echo "⚠️ Dependency missing: dig. Continuing without domain resolution validation."
+    elif [[ -z "$(dig +short "$DASHBOARD_DOMAIN" 2>/dev/null)" ]]; then
+        echo "❌ ERROR: Domain $DASHBOARD_DOMAIN is not resolving. Blocked via Early Exit." >&2
+        return 1
     fi
     
     # Early Exit: SSL certificates precondition bound
-    if [[ "$DASHBOARD_SSL" == "true" ]]; then
-        echo "SSL enabled - checking certificates..."
-        if [[ ! -d "/etc/letsencrypt/live/$DASHBOARD_DOMAIN" ]]; then
-            echo "❌ ERROR: SSL certificates absent at /etc/letsencrypt/live/$DASHBOARD_DOMAIN. Blocked via Early Exit." >&2
-            exit 1
-        fi
+    if [[ "$DASHBOARD_SSL" == "true" && ! -d "/etc/letsencrypt/live/$DASHBOARD_DOMAIN" ]]; then
+        echo "❌ ERROR: SSL certificates absent at /etc/letsencrypt/live/$DASHBOARD_DOMAIN. Blocked via Early Exit." >&2
+        return 1
     fi
     
     # Early Exit: Port availability precondition bound

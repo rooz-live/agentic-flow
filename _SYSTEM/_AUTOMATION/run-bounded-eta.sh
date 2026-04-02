@@ -38,6 +38,8 @@ get_process_contract() {
         "health_monitor") echo "20|300|tunnel_active|Monitor tunnel health" ;;
         "multi_ledger") echo "40|180|http_server|Start all 4 ledger tunnels" ;;
         "eta_stream") echo "100|300|none|ETA Live Streaming Dashboard Telemetry" ;;
+        "wsjf_balance") echo "100|180|none|WSJF Balance Circle Workload" ;;
+        "wsjf_baseline") echo "150|300|none|WSJF Baseline Construction" ;;
         *) echo "" ;;
     esac
 }
@@ -74,7 +76,7 @@ run_bounded_eta() {
     # CSQBM Governance Constraint: Check execution validity prior to firing the live stream
     local proj_root="$(cd "$SCRIPT_DIR/../.." && pwd)"
     if [[ -x "$proj_root/scripts/validators/project/check-csqbm.sh" ]]; then
-        ALLOW_CSQBM_BYPASS="${ALLOW_CSQBM_BYPASS:-true}" bash "$proj_root/scripts/validators/project/check-csqbm.sh" --deep-why >/dev/null 2>&1 || {
+        ALLOW_CSQBM_BYPASS="false" bash "$proj_root/scripts/validators/project/check-csqbm.sh" --deep-why >/dev/null 2>&1 || {
             echo "ERROR: CSQBM Governance Failure. System operation halted to preserve interior truth boundaries." >&2
             return 100
         }

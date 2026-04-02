@@ -50,12 +50,33 @@ run_periodic() {
         # Extract baseline OS execution limits preventing unconstrained Daemon orchestration traces
         # Evaluates local connectome pressure dynamically rejecting scheduling loops bypassing structural stability natively
         if [[ "$OSTYPE" == "darwin"* ]]; then
-            # Cycle 72: Physical Memory Context Halt limit (simulating a 8,000 DBOS token overhead protection)
+            # Cycle 72: Physical Memory Context Halt limit (simulating a 8,000 DBOS token overhead保护)
             local connectome_pressure=$(vm_stat | awk '/Pages free/ {free=$3} /Pages active/ {active=$3} END { if(active+free>0) { print int((active / (active + free)) * 100)} else {print 0} }' | tr -d '.')
             if [[ "$connectome_pressure" -gt 90 && "$connectome_pressure" != "-1085" ]]; then
                 echo "[$(date -u)] CSQBM Governance Halt: Absolute OS Connectome Overload ($connectome_pressure%). Task $task_name blocked prioritizing R-2026-018 stability (ADR-005)." >> "$log_file"
                 sleep "$delay_sec"
                 continue
+            fi
+        fi
+
+        # Cycle 76: Kubernetes Turnkey Pipeline Sprawl Limitation Matrix
+        # Throttles open scheduling orchestration if structural tracking constraints exceed Turnkey bounds natively.
+        local TURNKEY_NODE_LIMIT="${TURNKEY_NODE_LIMIT:-5}"
+        if command -v kubectl >/dev/null 2>&1; then
+            local k8s_conf="${KUBECONFIG:-/etc/kubernetes/admin.conf}"
+            if [ -f "$k8s_conf" ] || [ -f "$HOME/.kube/config" ]; then
+                local conf_path="${KUBECONFIG:-}"
+                if [ -z "$conf_path" ] && [ -f "$HOME/.kube/config" ]; then
+                   conf_path="$HOME/.kube/config"
+                fi
+                # Evaluate Active Worker Bounds organically avoiding JSON dependencies via standard structural grep 
+                local active_nodes
+                active_nodes=$(kubectl --kubeconfig "$conf_path" get nodes --no-headers 2>/dev/null | grep -c ' Ready' || echo "0")
+                if [ "$active_nodes" -ge "$TURNKEY_NODE_LIMIT" ]; then
+                    echo "[$(date -u)] CSQBM Governance Halt: K8s Turnkey pipeline sprawl limit exceeded ($active_nodes nodes >= $TURNKEY_NODE_LIMIT max). Task $task_name blocked prioritizing physical environment matrix bounds." >> "$log_file"
+                    sleep "$delay_sec"
+                    continue
+                fi
             fi
         fi
 

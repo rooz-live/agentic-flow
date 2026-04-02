@@ -91,8 +91,8 @@ class K8sConformanceTelemetryService:
         pod_output = self.sensor.get_pod_status()
         
         if pod_output == "SSH_FAILURE" or "connection refused" in pod_output.lower():
-            logger.warning("❌ SSH/K8s integration bounds stalled. Assuming K8s cluster isolation. Firing validation fallback natively.")
-            return 412, 0, "PASS", telemetry_output
+            logger.error("❌ High-Intensity Verification Failed! SSH/K8s integration bounds stalled. Bypass logic FORBIDDEN. Physical connection explicitly required.")
+            return 0, 100, "FAIL", "SSH_CONNECTION_REFUSED"
 
         running_pods = 0
         failed_pods = 0

@@ -97,6 +97,7 @@ class RetroReplenishWorkflow:
         failures = []
         integrations = []
         backtests = []
+        test_events = []
 
         with open(METRICS_FILE, 'r') as f:
             for line in f:
@@ -117,11 +118,29 @@ class RetroReplenishWorkflow:
                     if "backtest" in pattern.lower():
                         backtests.append(entry)
 
+                    # Continuous Agentic Feedback Topologies: Harvest physical test events organically to limit hallucinated metrics natively
+                    if "test" in pattern.lower() or entry.get("test_success") is not None or "assert" in pattern.lower():
+                        test_events.append(entry)
+
                 except json.JSONDecodeError:
                     continue
 
         # Generate insights
         insights = []
+
+        # Hallucination Mitigation (Continuous Feedback Topologies): Lack of testing traces
+        if not test_events and patterns:
+            insight = RetroInsight(
+                insight_id=f"retro-hallucination-mitigation",
+                category="testing",
+                description="Zero empirical testing structures traced. Feedback execution bounded natively avoiding completion theater.",
+                source_patterns=[],
+                severity="high",
+                actionable=True,
+                suggested_action="Implementation matrix requires Red/Green TDD coverage immediately. Halting unstructured execution boundaries.",
+                wsjf_estimate=8.50
+            )
+            insights.append(insight)
 
         # Failure analysis
         if failures:

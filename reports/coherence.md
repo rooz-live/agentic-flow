@@ -1,11 +1,11 @@
 # DDD/TDD/ADR Coherence Validation Report
-**Generated:** 2026-04-01 20:46:21
+**Generated:** 2026-04-02 09:36:58
 **Project:** `/Users/shahroozbhopti/Documents/code/investing/agentic-flow`
-**Files Scanned:** 241
+**Files Scanned:** 247
 **Automation Level:** Level 4 (Fully Auto)
 
 ## ✅ Overall: PASS
-`█████████████████████████████░` **97.6%** (522/535 checks)
+`█████████████████████████████░` **97.6%** (534/547 checks)
 
 ## Layer Health
 
@@ -14,7 +14,7 @@
 | **PRD** | 🟢 93% | 9 | 1 | 9 PRD document(s) found |
 | **ADR** | 🟢 90% | 27 | 3 | 27 ADR document(s) found |
 | **DDD** | 🟢 97% | 34 | 0 | 34 domain file(s) found |
-| **TDD** | 🟢 100% | 171 | 0 | 171 test file(s) found |
+| **TDD** | 🟢 100% | 177 | 0 | 177 test file(s) found |
 
 ## Cross-Layer Coherence
 
@@ -26,7 +26,7 @@
 - ✅ **COH-010** (ddd→prd): 31/31 domain modules have DoR/DoD docstrings (100%)
 - ✅ **COH-006** (ddd→ddd): 12/12 Python packages have __init__.py (100%)
 - ✅ **COH-009** (ddd→ddd): 40/41 Rust domain structs derive Serialize (98%)
-- ✅ **COH-007** (tdd→tdd): 58/58 test files follow naming convention (100%)
+- ✅ **COH-007** (tdd→tdd): 61/62 test files follow naming convention (98%)
 - ✅ **COH-008** (prd→prd): 9/9 PRD documents have measurable success metrics (100%) [9 stray PRD-like file(s) outside docs/prd/]
 
 ### PRD Checks
@@ -333,10 +333,12 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (20 assertions, 9 tests) `tests/dashboard.spec.js`
 - ✅ [INFO] Test file follows naming convention: Correct: test_aggregate_roots.py `tests/domain/test_aggregate_roots.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (74 assertions, 34 tests) `tests/domain/test_aggregate_roots.py`
+- ✅ [INFO] Test file follows naming convention: Correct: basic.spec.ts `tests/e2e/basic.spec.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.7 assertions/test (5 assertions, 3 tests) `tests/e2e/basic.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: dashboard.spec.ts `tests/e2e/dashboard.spec.ts`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.7 assertions/test (30 assertions, 11 tests) `tests/e2e/dashboard.spec.ts`
-- ✅ [INFO] Test file follows naming convention: Correct: quic-workflow.test.ts `tests/e2e/quic-workflow.test.ts`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.7 assertions/test (67 assertions, 18 tests) `tests/e2e/quic-workflow.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (13 assertions, 6 tests) `tests/e2e/dashboard.spec.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: tunnel.spec.ts `tests/e2e/tunnel.spec.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.4 assertions/test (7 assertions, 5 tests) `tests/e2e/tunnel.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: e2e-mcp-mpp-dimensional.test.ts `tests/e2e-mcp-mpp-dimensional.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.3 assertions/test (47 assertions, 11 tests) `tests/e2e-mcp-mpp-dimensional.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: agentic-flow-federation.test.ts `tests/federation/agentic-flow-federation.test.ts`
@@ -447,6 +449,8 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 6.5 assertions/test (13 assertions, 2 tests) `tests/policy/test_governance_iris_integration.py`
 - ✅ [INFO] Test file follows naming convention: Correct: patient-queue.test.ts `tests/providers/patient-queue.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.8 assertions/test (15 assertions, 4 tests) `tests/providers/patient-queue.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: quic-workflow.test.ts `tests/quic-workflow.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.7 assertions/test (67 assertions, 18 tests) `tests/quic-workflow.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: emergency-detector.test.ts `tests/routing/emergency-detector.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (8 assertions, 4 tests) `tests/routing/emergency-detector.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: multi_tenant_navigation.test.ts `tests/routing/multi_tenant_navigation.test.ts`
@@ -459,6 +463,8 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.9 assertions/test (43 assertions, 15 tests) `tests/safety/hallucination-detection.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: security-validation.test.ts `tests/safety/security-validation.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.7 assertions/test (32 assertions, 19 tests) `tests/safety/security-validation.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: test-governance-admission.py `tests/scripts/test-governance-admission.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.7 assertions/test (19 assertions, 7 tests) `tests/scripts/test-governance-admission.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_ipmitool_integration.py `tests/stx/test_ipmitool_integration.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.7 assertions/test (8 assertions, 3 tests) `tests/stx/test_ipmitool_integration.py`
 - ✅ [INFO] Test file follows naming convention: Correct: offhost_syslog_drift_monitor.test.ts `tests/telemetry/offhost_syslog_drift_monitor.test.ts`
@@ -482,6 +488,12 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.3 assertions/test (33 assertions, 10 tests) `tests/test_dt_schema.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_governance_admission.py `tests/test_governance_admission.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.3 assertions/test (4 assertions, 3 tests) `tests/test_governance_admission.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_governance_capabilities.py `tests/test_governance_capabilities.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (8 assertions, 2 tests) `tests/test_governance_capabilities.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_governance_deltas.py `tests/test_governance_deltas.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.7 assertions/test (5 assertions, 3 tests) `tests/test_governance_deltas.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_governance_middleware.py `tests/test_governance_middleware.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.3 assertions/test (14 assertions, 6 tests) `tests/test_governance_middleware.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_guardrails.py `tests/test_guardrails.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (57 assertions, 29 tests) `tests/test_guardrails.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_hivelocity_device_manager.py `tests/test_hivelocity_device_manager.py`
@@ -566,9 +578,9 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (28 assertions, 13 tests) `tests/verification/verification-pipeline.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: vscode-extension-mocks.test.ts `tests/vscode-extension/vscode-extension-mocks.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (109 assertions, 31 tests) `tests/vscode-extension/vscode-extension-mocks.test.ts`
-- ✅ [CRITICAL] Unit tests present: 1976 test functions found
-- ✅ [WARNING] Integration tests present: 62 integration test file(s)
-- ✅ [INFO] Total assertion count reasonable: 6203 total assertions across 171 files
+- ✅ [CRITICAL] Unit tests present: 1997 test functions found
+- ✅ [WARNING] Integration tests present: 65 integration test file(s)
+- ✅ [INFO] Total assertion count reasonable: 6244 total assertions across 177 files
 
 ## Recommendations
 
@@ -581,10 +593,10 @@
 
 | Phase | Coherence Action |
 |:------|:-----------------|
-| **Observe** | Scanned 241 files across 4 layers |
+| **Observe** | Scanned 247 files across 4 layers |
 | **Orient** | Health: PRD=93%, ADR=90%, DDD=97%, TDD=100% |
 | **Decide** | Verdict: PASS at 98% |
 | **Act** | 4 recommendations to implement |
 
 ---
-*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-04-01 20:46:21*
+*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-04-02 09:36:58*

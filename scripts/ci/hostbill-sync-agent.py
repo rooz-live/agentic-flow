@@ -9,23 +9,17 @@ into the HostBill API trace structures mapped via WSJF-ranked actions natively.
 import json
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 import subprocess
+from dataclasses import dataclass
 from pydantic import BaseModel, ConfigDict, Field
-from typing import List, Optional
+from typing import List, Optional, Protocol, Tuple
 import re
 import os
 import requests
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("hostbill-sync")
-
-# STX SSH Configuration (from environment natively mapped to YOLIFE credentials bounds or defaults)
-stx_host = os.environ.get("YOLIFE_STX_HOST", os.environ.get("STX_HOST", "localhost"))
-stx_user = os.environ.get("YOLIFE_STX_USER", os.environ.get("STX_USER", "root"))
-stx_key = os.environ.get("YOLIFE_STX_KEY", os.environ.get("STX_KEY", "/dev/null"))
-ports_env = os.environ.get("YOLIFE_STX_PORTS", os.environ.get("STX_PORT", "22"))
-stx_port = int(ports_env.split(",")[0]) if ports_env else 22
 
 # Pydantic Structural Arrays
 class PriorityTLD(BaseModel):
@@ -60,48 +54,79 @@ class HostBillTelemetry(BaseModel):
     elizaos_sync_state: str = Field(default="PENDING", description="Sync to ElizaOS billing bounds")
     anthropic_financial_affinity: str = Field(default="OPTIMIZED", description="Claude for Financial Services integration traces")
 
-def extract_live_stx_telemetry() -> float:
-    """Extract STX ipmitool baseline power metrics for synthetic MRR calculation."""
-    # Try direct ipmitool reading first (production mode)
-    
-    base_ssh = [
-        "ssh", "-i", stx_key, "-p", str(stx_port),
-        "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5", "-o", "IdentitiesOnly=yes",
-        f"{stx_user}@{stx_host}"
-    ]
-    
-    cmd_prefix = "" if stx_user == "root" else "sudo "
-    
-    computed_wattage_proxy = 0.0
-    baseline_watts = 0.0
-    
-    try:
-        # First check chassis bounds natively resolving dynamic hardware conditions
-        chassis_cmd = base_ssh + [f"{cmd_prefix}ipmitool chassis status"]
-        chassis_result = subprocess.run(chassis_cmd, capture_output=True, text=True, timeout=10)
-        
-        power_overload = False
-        if chassis_result.returncode == 0:
-            for line in chassis_result.stdout.split('\n'):
+class STXSensor(Protocol):
+    """Dependency Injection: Defines how we extract physical sensor limits, allowing pure testing matrices."""
+    def get_chassis_status(self) -> str: ...
+    def get_sensor_list(self) -> str: ...
+
+class SSHSTXSensor:
+    def __init__(self, host: str, user: str, key: str, port: int):
+        self.host = host
+        self.user = user
+        self.key = key
+        self.port = port
+        self.cmd_prefix = "" if self.user == "root" else "sudo "
+        self.base_ssh = [
+            "ssh", "-i", self.key, "-p", str(self.port),
+            "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=5", "-o", "IdentitiesOnly=yes",
+            f"{self.user}@{self.host}"
+        ]
+
+    def get_chassis_status(self) -> str:
+        cmd = self.base_ssh + [f"{self.cmd_prefix}ipmitool chassis status"]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        res.check_returncode()
+        return res.stdout
+
+    def get_sensor_list(self) -> str:
+        cmd = self.base_ssh + [f"{self.cmd_prefix}ipmitool sensor list"]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        res.check_returncode()
+        return res.stdout
+
+@dataclass(frozen=True)
+class HostBillConfig:
+    """Rules Design Pattern & Guard Clauses: Validates boundary semantics identically to AdmissionController."""
+    billing_tier: str = "ENTERPRISE_TIER_1"
+    base_cost: float = 115.00
+    power_rate_kwh: float = 0.12
+    depreciation_scale: float = 0.10
+
+    def __post_init__(self):
+        # Boundary & Edge Case Guard Clauses
+        if self.base_cost < 0:
+            raise ValueError(f"base_cost {self.base_cost} cannot be negative.")
+        if self.power_rate_kwh < 0:
+            raise ValueError(f"power_rate_kwh {self.power_rate_kwh} cannot be negative.")
+        if not (0.0 <= self.depreciation_scale <= 1.0):
+            raise ValueError(f"depreciation_scale {self.depreciation_scale} must be between 0.0 and 1.0")
+
+class HostBillTelemetryService:
+    def __init__(self, config: HostBillConfig, sensor: STXSensor):
+        self.config = config
+        self.sensor = sensor
+
+    def extract_live_stx_telemetry(self) -> float:
+        """Extract STX ipmitool baseline power using injected sensor without OS bypass stubs."""
+        baseline_watts = 150.0  # Fallback boundary default
+
+        try:
+            power_overload = False
+            raw_chassis = self.sensor.get_chassis_status()
+            for line in raw_chassis.split('\n'):
                 if 'Power Overload' in line and 'true' in line.lower():
                     power_overload = True
                     logger.critical("STX IPIMTOOL CHECK: Native Power Overload detected!")
                 elif 'System Power' in line:
                     logger.info(f"STX Chassis: {line.strip()}")
-        else:
-            logger.warning(f"Failed to extract chassis status: {chassis_result.stderr}")
-            
-        # Second, extract detailed sensor constraints
-        sensor_cmd = base_ssh + [f"{cmd_prefix}ipmitool sensor list"]
-        sensor_result = subprocess.run(sensor_cmd, capture_output=True, text=True, timeout=10)
-        
-        if sensor_result.returncode == 0:
+
+            raw_sensors = self.sensor.get_sensor_list()
             power_sum = 0.0
             f_sum = 0.0
             temp_count = 0
             avg_temp = 0.0
-            
-            for line in sensor_result.stdout.split('\n'):
+
+            for line in raw_sensors.split('\n'):
                 if 'Watts' in line and 'ok' in line:
                     parts = line.split('|')
                     if len(parts) > 1:
@@ -119,57 +144,47 @@ def extract_live_stx_telemetry() -> float:
                         c_temp = float(re.sub(r'[^\d.]', '', parts[1].strip()))
                         avg_temp += c_temp
                         temp_count += 1
-            
-            # Bound calculation with power overload logic padding
+
             if power_sum > 0:
                 baseline_watts = power_sum
                 logger.info(f"STX baseline power from IPMI: {baseline_watts}W")
             else:
+                computed_wattage_proxy = 0.0
                 if temp_count > 0:
                     avg_temp = avg_temp / temp_count
                     computed_wattage_proxy = 85.0 + (avg_temp - 25.0) * 2.5
                 if f_sum > 0:
                     computed_wattage_proxy += (f_sum / 100.0) * 15.0
-                baseline_watts = computed_wattage_proxy
-                logger.info(f"STX computed baseline from telemetry: {baseline_watts}W")
-            
-            # Incorporate baseline chassis condition bounding limits
-            if power_overload:
-                baseline_watts += 100.0 # Synthetic threshold buffer penalization mapping
-            
-            return baseline_watts
-    except Exception as e:
-        logger.warning(f"Failed to extract dynamic STX PMBus/Sensor metrics via SSH: {e}. Using enterprise baseline.")
-    
-    return 150.0  # Enterprise fallback for ENTERPRISE_TIER_1
+                if computed_wattage_proxy > 0:
+                    baseline_watts = computed_wattage_proxy
+                    logger.info(f"STX computed baseline from telemetry: {baseline_watts}W")
 
-def compute_dynamic_mrr(watts: float) -> float:
-    """Computes the live HostBill USD syntax ($###.## natively translating physical STX 12/13 entropy)."""
-    # Enterprise tier baseline with STX hardware precision
-    base_mrr = {
-        "ENTERPRISE_TIER_1": 115.00,
-        "ENTERPRISE_TIER_2": 195.00,
-        "ENTERPRISE_TIER_3": 295.00,
-        "ENTERPRISE_TIER_4": 395.00
-    }
-    
-    tier = os.environ.get("HOSTBILL_TIER", "ENTERPRISE_TIER_1")
-    base_cost = base_mrr.get(tier, 115.00)
-    
-    # Power cost calculation with STX precision
-    # (Watts / 1000) * 24h * 30d * $0.12 Kwh commercial rate
-    power_cost = (watts / 1000.0) * 24 * 30 * 0.12
-    
-    # STX hardware depreciation factor (STX 12/13 lifecycle boundary)
-    # Scaling factor 0.10 exactly yields $434.53 natively bounding 3694W limits
-    depreciation_factor = 0.10 * (watts / 1000.0)
-    
-    # Total synthetic MRR with precise USD formatting
-    total_mrr = base_cost + power_cost + depreciation_factor
-    
-    logger.info(f"STX synthetic footprint: {watts}W → ${total_mrr:.2f}/month (Tier: {tier})")
-    
-    return round(total_mrr, 2)
+            if power_overload:
+                baseline_watts += 100.0  # Synthetic threshold buffer penalization mapping
+
+            return baseline_watts
+        except Exception as e:
+            logger.warning(f"Failed to extract dynamic STX PMBus/Sensor metrics: {e}. Using enterprise baseline.")
+            return baseline_watts
+
+    def compute_dynamic_mrr(self, watts: float) -> float:
+        """Computes the live HostBill USD syntax mathematically via config constants."""
+        if watts < 0:
+            raise ValueError(f"Energy footprint boundary cannot be negative: {watts}")
+
+        # Power cost calculation with STX precision
+        # (Watts / 1000) * 24h * 30d * power rate commercial rate
+        power_cost = (watts / 1000.0) * 24 * 30 * self.config.power_rate_kwh
+        
+        # STX hardware depreciation factor (STX 12/13 lifecycle boundary)
+        depreciation_factor = self.config.depreciation_scale * (watts / 1000.0)
+        
+        # Total synthetic MRR with precise USD formatting
+        total_mrr = self.config.base_cost + power_cost + depreciation_factor
+        
+        logger.info(f"STX synthetic footprint: {watts}W → ${total_mrr:.2f}/month (Tier: {self.config.billing_tier})")
+        return round(total_mrr, 2)
+
 
 def extract_node_telemetry(metrics_file: Path) -> List[NodeConsumption]:
     """Parse instantaneous node states natively resolving API metrics dynamically."""
@@ -253,7 +268,6 @@ def push_to_hostbill_api(telemetry_data: HostBillTelemetry, test_mode: bool = Tr
 
 try:
     from pydantic_ai import Agent
-    import os
     PYDANTIC_AI_AVAILABLE = "GEMINI_API_KEY" in os.environ or "OPENAI_API_KEY" in os.environ
 except ImportError:
     PYDANTIC_AI_AVAILABLE = False
@@ -273,16 +287,39 @@ def sync_hostbill_pipeline():
             logger.warning("CSQBM gate execution timed out. Proceeding dynamically to prevent CI pipeline block.")
         except subprocess.CalledProcessError as e:
             logger.warning(f"CSQBM gate returned non-zero bounding code. Error Trace: {e}")
-        
+            
     metrics_path = project_root / ".goalie" / "metrics_log.jsonl"
     nodes = extract_node_telemetry(metrics_path)
     
-    from datetime import timezone
     current_utc = datetime.now(timezone.utc).isoformat() + "Z"
     
-    # Ingest Live Physical Bound constraints natively
-    live_watts = extract_live_stx_telemetry()
-    dynamic_mrr_value = compute_dynamic_mrr(live_watts)
+    # Setup Dependency Injection Environment Logic cleanly
+    stx_host = os.environ.get("YOLIFE_STX_HOST", os.environ.get("STX_HOST", "localhost"))
+    stx_user = os.environ.get("YOLIFE_STX_USER", os.environ.get("STX_USER", "root"))
+    stx_key = os.environ.get("YOLIFE_STX_KEY", os.environ.get("STX_KEY", "/dev/null"))
+    ports_env = os.environ.get("YOLIFE_STX_PORTS", os.environ.get("STX_PORT", "22"))
+    stx_port = int(ports_env.split(",")[0]) if ports_env else 22
+
+    tier = os.environ.get("HOSTBILL_TIER", "ENTERPRISE_TIER_1")
+    base_mrr_map = {
+        "ENTERPRISE_TIER_1": 115.00,
+        "ENTERPRISE_TIER_2": 195.00,
+        "ENTERPRISE_TIER_3": 295.00,
+        "ENTERPRISE_TIER_4": 395.00
+    }
+    
+    config = HostBillConfig(
+        billing_tier=tier,
+        base_cost=base_mrr_map.get(tier, 115.00),
+        power_rate_kwh=0.12,
+        depreciation_scale=0.10
+    )
+    sensor = SSHSTXSensor(host=stx_host, user=stx_user, key=stx_key, port=stx_port)
+    service = HostBillTelemetryService(config=config, sensor=sensor)
+    
+    # Ingest Live Physical Bound constraints natively utilizing Service
+    live_watts = service.extract_live_stx_telemetry()
+    dynamic_mrr_value = service.compute_dynamic_mrr(live_watts)
     
     tlds = [
         PriorityTLD(domain_name="yo.life", ddd_context="AI Governance Ceremonials", wsjf_score=95, k8s_zone="stx-aio-0"),
@@ -309,7 +346,7 @@ def sync_hostbill_pipeline():
         telemetry.timestamp_utc = current_utc
         telemetry.priority_tlds = tlds
         telemetry.url_metrics = URLShortenerMetric(short_domain="yo.life", active_links=1042)
-        telemetry.synthetic_billing = SyntheticBilling(billing_tier="ENTERPRISE_TIER_1", synthetic_mrr_usd=dynamic_mrr_value)
+        telemetry.synthetic_billing = SyntheticBilling(billing_tier=config.billing_tier, synthetic_mrr_usd=dynamic_mrr_value)
         telemetry.elizaos_sync_state = "BOUNDS_EVALUATED_DYNAMIC_STX_12"
         telemetry.anthropic_financial_affinity = "AFFILIATE_STRUCTURAL_BINDING_ACTIVE"
         telemetry.active_apps = ["HostBill URL Shortener", "STX 13 Milestone Map", "ElizaOS Pipeline"]
@@ -321,7 +358,7 @@ def sync_hostbill_pipeline():
             priority_tlds=tlds,
             active_apps=["HostBill URL Shortener", "STX 12 Dynamic Integration", "ElizaOS Pipeline"],
             url_metrics=URLShortenerMetric(short_domain="yo.life", active_links=1042),
-            synthetic_billing=SyntheticBilling(billing_tier="ENTERPRISE_TIER_1", synthetic_mrr_usd=dynamic_mrr_value),
+            synthetic_billing=SyntheticBilling(billing_tier=config.billing_tier, synthetic_mrr_usd=dynamic_mrr_value),
             elizaos_sync_state="BOUNDS_EVALUATED",
             anthropic_financial_affinity="AFFILIATE_STRUCTURAL_BINDING_ACTIVE"
         )

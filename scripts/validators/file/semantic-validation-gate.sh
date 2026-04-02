@@ -93,11 +93,11 @@ if [ -f "$local_proj_root/scripts/validators/project/check-csqbm.sh" ]; then
     fi
 fi
 
-# Swarm Persistence Bounds Check (Phase 8: DDD-Based Connectome Limits via ADR-005)
+# Swarm Persistence Bounds Check (Cycle 72 Orchestrator: DDD-Based Connectome Limits via ADR-005)
 # Prevent logic from processing massive monolithic files (longitudinal static sprawl).
 file_size_bytes=$(wc -c < "$EMAIL_FILE" | tr -d ' ')
 
-# Determine DDD token limit dynamically based on node hardware (Phase 140 / CSQBM TurboQuant-DGM Matrix)
+# Determine DDD token limit dynamically based on node hardware (Cycle 72 / CSQBM TurboQuant-DGM Matrix)
 if command -v compute_dynamic_token_ceiling >/dev/null 2>&1; then
     DYNAMIC_BASE_TOKENS=$(compute_dynamic_token_ceiling)
 else

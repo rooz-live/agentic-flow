@@ -36,10 +36,11 @@ Per the "Discover/Consolidate THEN Extend" principle, the Swarm boundary dictate
 - **Mitigation**: Using `daemon start` MCP servers to bootstrap operations when LaunchAgents are blocked.
 - **CSQBM Boundary Constraint (Governance & Truth Integration)**: DGM logic explicitly requires all background daemons to execute the `check-csqbm.sh --deep-why` matrix natively. Swarms are physically banned from operating asynchronously if the dynamic knowledge graph `agentdb.db` falls into staleness (>96 hours). The $O(1)$ telemetry execution hook ensures no completion theater occurs inside autonomous PI bounds.
 
-### Regenerated System Constraints (Cycle 140 / CSQBM TurboQuant-DGM Matrix)
+### Regenerated System Constraints (Cycle 72 Orchestrator / CSQBM TurboQuant-DGM Matrix)
 The following execution boundaries define the operational limits of all unstructured payloads passed functionally to internal gateways (`semantic-validation-gate.sh`) and external cron topologies (`mcp-scheduler-daemon.sh`):
 
-1. **TurboQuant Connectome Topology Limit**: `Maximum Semantic Boundary = 8,000 DBOS Pydantic Tokens` Base configuration mapped recursively scaling strictly up to `32,000` via Orchestration contexts ONLY (`docs/TURBOQUANT-DGM-METRICS-2026-04-02.md`). Anything exceeding this triggers an OpenWorm physical threshold exit natively limiting LLM saturation boundaries completely.
+1. **TurboQuant Connectome Topology Limit**: `Maximum Semantic Boundary = 4,000 DBOS Pydantic Tokens (Baseline) -> 8,000 (Expanded)`. Base configuration mapped recursively scaling strictly up to `32,000` via Orchestration contexts ONLY (`scripts/config/chunking-config.json`). Anything exceeding this triggers an OpenWorm physical threshold exit natively limiting LLM saturation boundaries completely.
 2. **Temporal Truth Validity**: `agentdb.db staleness MAX_AGE = +5760 minutes (96 hours)`. Structural execution MUST halt dynamically (`CSQBM_HALT`) blocking API queries on stale context frameworks.
-3. **Discover/Consolidate THEN Extend**: Email logic extraction maps memory natively evaluating Discovery parameters strictly before executing mapping operations limiting unverified data sweeps organically executing natively.
-4. **Test-First Red-Green TDD Convergence**: Every deployment or topology bridge requires 100% evidence-backed execution natively mapped via Dependency Injections inherently bypassing mock wrappers explicitly (`check-csqbm.sh --deep-why`).
+3. **Daemon Sub-Routine Check**: MCP Background tasks physically intercept and bind active OS capability memory traces organically BEFORE initiating payload triggers avoiding unconstrained loop drift locally.
+4. **Discover/Consolidate THEN Extend**: Email logic extraction maps memory natively evaluating Discovery parameters strictly before executing mapping operations limiting unverified data sweeps organically executing natively.
+5. **Test-First Red-Green TDD Convergence**: Every deployment or topology bridge requires 100% evidence-backed execution natively mapped via Dependency Injections inherently bypassing mock wrappers explicitly (`check-csqbm.sh --deep-why`).

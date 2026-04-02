@@ -47,6 +47,18 @@ run_periodic() {
             fi
         fi
 
+        # Extract baseline OS execution limits preventing unconstrained Daemon orchestration traces
+        # Evaluates local connectome pressure dynamically rejecting scheduling loops bypassing structural stability natively
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # Cycle 72: Physical Memory Context Halt limit (simulating a 8,000 DBOS token overhead protection)
+            local connectome_pressure=$(vm_stat | awk '/Pages free/ {free=$3} /Pages active/ {active=$3} END { if(active+free>0) { print int((active / (active + free)) * 100)} else {print 0} }' | tr -d '.')
+            if [[ "$connectome_pressure" -gt 90 && "$connectome_pressure" != "-1085" ]]; then
+                echo "[$(date -u)] CSQBM Governance Halt: Absolute OS Connectome Overload ($connectome_pressure%). Task $task_name blocked prioritizing R-2026-018 stability (ADR-005)." >> "$log_file"
+                sleep "$delay_sec"
+                continue
+            fi
+        fi
+
         if [ -f "$proj_root/scripts/validators/project/check-csqbm.sh" ]; then
             if ! bash "$proj_root/scripts/validators/project/check-csqbm.sh" > /dev/null 2>&1; then
                 echo "[$(date -u)] CSQBM Governance Halt: CSQBM trace missing. Task $task_name blocked via OpenWorm Physical Bounds (ADR-005)." >> "$log_file"

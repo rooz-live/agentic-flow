@@ -1,10 +1,40 @@
 import { test, expect } from '@playwright/test';
+import * as fs from 'fs';
+import * as path from 'path';
+
+/**
+ * Dynamic URL Discovery - Dependency Injection Pattern
+ * Reads tunnel URL from environment or state registry
+ */
+function getTunnelUrl(): string {
+  // Primary: Environment variable (for CI/CD)
+  if (process.env.BASE_URL) {
+    return process.env.BASE_URL;
+  }
+  
+  // Secondary: Read from tunnel state registry
+  try {
+    const tunnelStatePath = path.join(process.cwd(), 'reports/tunnel-state-registry.json');
+    if (fs.existsSync(tunnelStatePath)) {
+      const tunnelState = JSON.parse(fs.readFileSync(tunnelStatePath, 'utf8'));
+      if (tunnelState.url) {
+        console.log(`Using tunnel URL from registry: ${tunnelState.url}`);
+        return tunnelState.url;
+      }
+    }
+  } catch (error) {
+    console.warn(`Failed to read tunnel state: ${error}`);
+  }
+  
+  // Fallback: Default URL (for documentation)
+  return 'https://violet-oranges-glow.loca.lt';
+}
 
 /**
  * LocalTunnel E2E Tests
  * 
- * Tests the localtunnel functionality to ensure violet-oranges-glow.loca.lt
- * displays correctly. Follows red-green-refactor TDD principles.
+ * Tests the localtunnel functionality using dynamic URL discovery.
+ * Follows red-green-refactor TDD principles with no bypass logic.
  */
 test.describe('LocalTunnel Integration', () => {
   test.beforeEach(async ({ page }) => {
@@ -12,9 +42,9 @@ test.describe('LocalTunnel Integration', () => {
     test.setTimeout(60000);
   });
 
-  test('should load dashboard through localtunnel', async ({ page }) => {
-    // This test validates the specific URL mentioned in the issue
-    const tunnelUrl = process.env.BASE_URL || 'https://violet-oranges-glow.loca.lt';
+  test('should load dashboard through tunnel', async ({ page }) => {
+    // Dependency Injection: Get URL dynamically
+    const tunnelUrl = getTunnelUrl();
     
     console.log(`Testing tunnel URL: ${tunnelUrl}`);
     
@@ -33,23 +63,23 @@ test.describe('LocalTunnel Integration', () => {
     // Check if page loads without errors
     await expect(page.locator('body')).toBeVisible();
     
-    // Look for key dashboard elements (adjust selectors based on actual UI)
-    // These are common dashboard elements - update based on actual implementation
+    // Look for key dashboard elements
     const title = await page.title();
     console.log(`Page title: ${title}`);
     expect(title).not.toBe('');
     
-    // Check for any error messages that might indicate tunnel failure
-    const errorSelectors = [
+    // Structural: Check for tunnel-specific failure modes without bypassing
+    const errorIndicators = [
       'text=502 Bad Gateway',
       'text=Service Unavailable',
       'text=Connection refused',
       'text=tunnel not found',
       '[data-testid="error"]',
-      '.error-message'
+      '.error-message',
+      'text=loca.lt/error'  // LocalTunnel error page
     ];
     
-    for (const selector of errorSelectors) {
+    for (const selector of errorIndicators) {
       const errorElement = page.locator(selector);
       if (await errorElement.isVisible()) {
         console.log(`Found error element: ${selector}`);
@@ -61,13 +91,14 @@ test.describe('LocalTunnel Integration', () => {
         test.fail(`Tunnel error detected: ${selector}`);
       }
     }
+    
+    // Verify we're on the correct domain
+    expect(page.url()).toContain('loca.lt');
   });
 
   test('should handle WebSocket connections through tunnel', async ({ page }) => {
-    // Test real-time features that depend on WebSocket
-    const tunnelUrl = process.env.BASE_URL || 'https://violet-oranges-glow.loca.lt';
-    
-    // Listen for WebSocket connections
+    // Dependency Injection: Get URL dynamically
+    const tunnelUrl = getTunnelUrl();
     const wsConnections: any[] = [];
     page.on('websocket', ws => {
       wsConnections.push(ws.url);
@@ -85,8 +116,8 @@ test.describe('LocalTunnel Integration', () => {
   });
 
   test('should maintain session state across tunnel', async ({ page }) => {
-    // Test that user sessions persist correctly through the tunnel
-    const tunnelUrl = process.env.BASE_URL || 'https://violet-oranges-glow.loca.lt';
+    // Dependency Injection: Get URL dynamically
+    const tunnelUrl = getTunnelUrl();
     
     await page.goto(tunnelUrl, { waitUntil: 'networkidle' });
     
@@ -121,8 +152,8 @@ test.describe('LocalTunnel Integration', () => {
   });
 
   test('should handle network instability gracefully', async ({ page }) => {
-    // Simulate poor network conditions
-    const tunnelUrl = process.env.BASE_URL || 'https://violet-oranges-glow.loca.lt';
+    // Dependency Injection: Get URL dynamically
+    const tunnelUrl = getTunnelUrl();
     
     // Create a new context with slow network
     const context = await page.browser().newContext({
@@ -166,8 +197,8 @@ test.describe('LocalTunnel Integration', () => {
   });
 
   test('should display correctly on mobile through tunnel', async ({ page }) => {
-    // Test mobile viewport through tunnel
-    const tunnelUrl = process.env.BASE_URL || 'https://violet-oranges-glow.loca.lt';
+    // Dependency Injection: Get URL dynamically
+    const tunnelUrl = getTunnelUrl();
     
     // Set mobile viewport
     await page.setViewportSize({ width: 375, height: 667 }); // iPhone SE

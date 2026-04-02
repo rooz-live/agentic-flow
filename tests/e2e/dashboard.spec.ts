@@ -1,8 +1,14 @@
 import { test, expect } from '@playwright/test';
 
-// Skip until Playwright is properly configured in the project
-test.describe.skip('Agentic Flow Dashboard', () => {
+/**
+ * Dashboard E2E Tests
+ * 
+ * Tests core dashboard functionality following red-green-refactor TDD
+ * Tests actual production paths without mocking
+ */
+test.describe('Agentic Flow Dashboard', () => {
   test.beforeEach(async ({ page }) => {
+    test.setTimeout(30000);
     await page.goto('/');
   });
 

@@ -211,7 +211,8 @@ run_trust_path() {
     fi
     export CSQBM_DEEP_WHY="${CSQBM_DEEP_WHY:-true}"
     if [ -x "${_PROJECT_ROOT}/scripts/validators/project/check-csqbm.sh" ]; then
-        if ! CSQBM_DEEP_WHY=true bash "${_PROJECT_ROOT}/scripts/validators/project/check-csqbm.sh" >"${SNAP_DIR}/csqbm.txt" 2>&1; then
+        # Deterministic CSQBM for trust bundle: avoid IDE log archaeology.
+        if ! CSQBM_CI_MODE=true CSQBM_DEEP_WHY=true bash "${_PROJECT_ROOT}/scripts/validators/project/check-csqbm.sh" >"${SNAP_DIR}/csqbm.txt" 2>&1; then
             echo -e "${RED}✗${NC} check-csqbm.sh"
             tail -60 "${SNAP_DIR}/csqbm.txt" >&2
             csqbm_ok=0

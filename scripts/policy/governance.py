@@ -42,7 +42,9 @@ argparse.ArgumentParser.parse_args = parse_known_args_wrapper
 
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Protocol, Tuple
+import random
+from dataclasses import dataclass
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -381,24 +383,62 @@ class TelemetryLogger:
             f.write(json.dumps(metric))
 
 
+class SystemLoadSensor(Protocol):
+    """Dependency Injection: Defines how we read system load, allowing test injections."""
+    def get_load_percentages(self) -> Tuple[float, float]:
+        """Returns (load_pct, idle_pct)"""
+        ...
+
+class OSLoadSensor:
+    """Production implementation of SystemLoadSensor using os environment."""
+    def get_load_percentages(self) -> Tuple[float, float]:
+        try:
+            load1, _, _ = os.getloadavg()
+            cpu_count = os.cpu_count() or 1
+            load_pct = min((load1 / cpu_count) * 100.0, 100.0)
+            idle_pct = max(0.0, 100.0 - load_pct)
+            return (load_pct, idle_pct)
+        except Exception as e:
+            print(f"[OSLoadSensor] Hardware/OS read failure: {e}")
+            return (50.0, 50.0)
+
+@dataclass(frozen=True)
+class AdmissionConfig:
+    """Rules Design Pattern & Guard Clauses: Validates boundaries immediately upon creation."""
+    threshold_pct: float = 80.0
+    backoff_sec: int = 30
+    critical_threshold: float = 0.95
+    warning_threshold: float = 0.80
+    adaptive_throttling_enabled: bool = True
+    predictive_throttling_enabled: bool = False
+
+    def __post_init__(self):
+        # Boundary & Edge Case Guard Clauses (No more silent exception swallowing)
+        if not (0.0 <= self.threshold_pct <= 100.0):
+            raise ValueError(f"threshold_pct {self.threshold_pct} must be between 0.0 and 100.0")
+        if self.backoff_sec < 0:
+            raise ValueError("backoff_sec cannot be negative")
+        if not (0.0 <= self.critical_threshold <= 2.0):
+            pass # allow system scale > 1.0 occasionally
+        if self.warning_threshold < 0.0:
+            raise ValueError("warning_threshold cannot be negative")
+
 class AdmissionController:
     """
     Enhanced Proactive Admission Control for High System Load (R-001).
     Implements intelligent load detection, adaptive throttling, and predictive analysis
-    integrated with TypeScript process governor for comprehensive CPU management.
+    built explicitly using Dependency Injection avoiding bypass logic boundaries.
     """
-    def __init__(self, threshold_pct: float = 80.0, backoff_sec: int = 30):
-        # Allow env override for threshold
-        env_threshold = os.environ.get("AF_ADMISSION_THRESHOLD_PCT")
-        if env_threshold:
-            try:
-                self.threshold_pct = float(env_threshold)
-            except ValueError:
-                self.threshold_pct = threshold_pct
-        else:
-            self.threshold_pct = threshold_pct
-            
-        self.backoff_sec = backoff_sec
+    def __init__(self, config: AdmissionConfig, sensor: SystemLoadSensor):
+        self.config = config
+        self.sensor = sensor
+        self.threshold_pct = config.threshold_pct
+        self.backoff_sec = config.backoff_sec
+        self.critical_threshold = config.critical_threshold
+        self.warning_threshold = config.warning_threshold
+        self.adaptive_throttling_enabled = config.adaptive_throttling_enabled
+        self.predictive_throttling_enabled = config.predictive_throttling_enabled
+
         self.consecutive_high_load = 0
         self.strike_limit = 2  # 2-strike rule (Retro improvement)
         
@@ -407,33 +447,24 @@ class AdmissionController:
         self.max_history_size = 10
         self.adaptive_throttling_level = 1.0
         self.predictive_load_score = 0.5
-        
-        # Configuration from environment
-        self.critical_threshold = float(os.environ.get("AF_CPU_CRITICAL_THRESHOLD", "0.95"))
-        self.warning_threshold = float(os.environ.get("AF_CPU_WARNING_THRESHOLD", "0.80"))
-        self.adaptive_throttling_enabled = os.environ.get("AF_ADAPTIVE_THROTTLING_ENABLED", "true").lower() != "false"
-        self.predictive_throttling_enabled = os.environ.get("AF_PREDICTIVE_THROTTLING", "false").lower() != "false"
 
     def _update_load_history(self) -> None:
         """Update load history for predictive analysis."""
-        try:
-            load1, _, _ = os.getloadavg()
-            cpu_count = os.cpu_count() or 1
-            load_pct = min((load1 / cpu_count) * 100, 100)  # Cap at 100%
-            idle_pct = max(0, 100 - load_pct)
-            
-            entry = {
-                "timestamp": time.time(),
-                "cpu_load": load_pct,
-                "idle_percentage": idle_pct,
-            }
-            
-            self.load_history.append(entry)
-            if len(self.load_history) > self.max_history_size:
-                self.load_history.pop(0)
-                
-        except Exception as e:
-            print(f"[Admission] Warning: Failed to update load history: {e}")
+        load_pct, idle_pct = self.sensor.get_load_percentages()
+        
+        # Natural branch coverage without needing to mock `os.getloadavg()`
+        clamped_load = max(0.0, min(load_pct, 100.0))
+        clamped_idle = max(0.0, min(idle_pct, 100.0))
+        
+        entry = {
+            "timestamp": time.time(),
+            "cpu_load": clamped_load,
+            "idle_percentage": clamped_idle,
+        }
+        
+        self.load_history.append(entry)
+        if len(self.load_history) > self.max_history_size:
+            self.load_history.pop(0)
 
     def _calculate_predictive_score(self) -> float:
         """Calculate predictive load score based on trends."""
@@ -491,51 +522,44 @@ class AdmissionController:
         self.adaptive_throttling_level = self._calculate_adaptive_throttling()
         self.predictive_load_score = self._calculate_predictive_score()
         
-        try:
-            # Get 1-minute load average
-            load1, _, _ = os.getloadavg()
-            cpu_count = os.cpu_count() or 1
-            load_pct = min((load1 / cpu_count) * 100, 100)  # Cap at 100%
+        # Extract sensor load purely from history for logic branching avoiding os read
+        load_pct = self.load_history[-1]["cpu_load"] if self.load_history else 0.0
 
-            # Predictive load check (if enabled)
-            if self.predictive_throttling_enabled:
-                if self.predictive_load_score > self.critical_threshold:
-                    adaptive_delay = self._get_adaptive_delay() * 2
-                    print(f"[Admission] Predictive high load detected (score: {self.predictive_load_score:.2f}). Adaptive delay: {adaptive_delay}ms")
-                    time.sleep(adaptive_delay / 1000)  # Convert to seconds
-                    return False
-
-            # Multi-tier CPU load response with adaptive delays
-            if load_pct > (self.critical_threshold * 100):
-                adaptive_delay = self._get_adaptive_delay()
-                jitter = random.random() * 0.1  # 10% jitter
-                backoff_with_jitter = adaptive_delay * (1 + jitter)
-                
-                print(f"[Admission] Critical system load ({load_pct:.1f}%). Adaptive backoff: {backoff_with_jitter:.0f}ms")
-                time.sleep(backoff_with_jitter / 1000)
-                self.consecutive_high_load += 1
-                return False
-                
-            elif load_pct > (self.warning_threshold * 100):
-                adaptive_delay = self._get_adaptive_delay()
-                print(f"[Admission] High system load ({load_pct:.1f}%). Adaptive delay: {adaptive_delay}ms")
-                time.sleep(adaptive_delay / 1000)
-                self.consecutive_high_load += 1
-                return False
-                
-            elif load_pct > self.threshold_pct:
-                adaptive_delay = self._get_adaptive_delay()
-                print(f"[Admission] Moderate system load ({load_pct:.1f}%). Adaptive delay: {adaptive_delay}ms")
-                time.sleep(adaptive_delay / 1000)
+        # Predictive load check (if enabled)
+        if self.predictive_throttling_enabled:
+            if self.predictive_load_score > self.critical_threshold:
+                adaptive_delay = self._get_adaptive_delay() * 2
+                print(f"[Admission] Predictive high load detected (score: {self.predictive_load_score:.2f}). Adaptive delay: {adaptive_delay}ms")
+                time.sleep(adaptive_delay / 1000)  # Convert to seconds
                 return False
 
-            # Reset backoff on healthy load
-            self.consecutive_high_load = 0
-            return True
+        # Multi-tier CPU load response with adaptive delays
+        if load_pct > (self.critical_threshold * 100):
+            adaptive_delay = self._get_adaptive_delay()
+            jitter = random.random() * 0.1  # 10% jitter
+            backoff_with_jitter = adaptive_delay * (1 + jitter)
+            
+            print(f"[Admission] Critical system load ({load_pct:.1f}%). Adaptive backoff: {backoff_with_jitter:.0f}ms")
+            time.sleep(backoff_with_jitter / 1000)
+            self.consecutive_high_load += 1
+            return False
+            
+        elif load_pct > (self.warning_threshold * 100):
+            adaptive_delay = self._get_adaptive_delay()
+            print(f"[Admission] High system load ({load_pct:.1f}%). Adaptive delay: {adaptive_delay}ms")
+            time.sleep(adaptive_delay / 1000)
+            self.consecutive_high_load += 1
+            return False
+            
+        elif load_pct > self.threshold_pct:
+            adaptive_delay = self._get_adaptive_delay()
+            print(f"[Admission] Moderate system load ({load_pct:.1f}%). Adaptive delay: {adaptive_delay}ms")
+            time.sleep(adaptive_delay / 1000)
+            return False
 
-        except Exception as e:
-            print(f"[Admission] Warning: Failed to check load: {e}")
-            return True
+        # Reset backoff on healthy load
+        self.consecutive_high_load = 0
+        return True
 
     def get_metrics(self) -> dict:
         """Get current admission controller metrics for monitoring."""
@@ -555,7 +579,21 @@ class GovernanceMiddleware:
         self.args = args
         self.project_root = project_root
         self.telemetry = TelemetryLogger(project_root)
-        self.admission = AdmissionController()
+        
+        env_threshold = os.environ.get("AF_ADMISSION_THRESHOLD_PCT", "80.0")
+        try:
+            threshold_pct = float(env_threshold)
+        except ValueError:
+            threshold_pct = 80.0
+            
+        config = AdmissionConfig(
+            threshold_pct=threshold_pct,
+            critical_threshold=float(os.environ.get("AF_CPU_CRITICAL_THRESHOLD", "0.95")),
+            warning_threshold=float(os.environ.get("AF_CPU_WARNING_THRESHOLD", "0.80")),
+            adaptive_throttling_enabled=os.environ.get("AF_ADAPTIVE_THROTTLING_ENABLED", "true").lower() != "false",
+            predictive_throttling_enabled=os.environ.get("AF_PREDICTIVE_THROTTLING", "false").lower() != "false"
+        )
+        self.admission = AdmissionController(config=config, sensor=OSLoadSensor())
         self.run_id = str(uuid.uuid4())
         self.environment = getattr(args, "environment", None)
 

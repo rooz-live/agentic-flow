@@ -139,6 +139,15 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `tooling/scripts/monitoring/*` (Superproject Untracked Hub) | Relocate cleanly to `agentic-flow/scripts/monitoring/*` ensuring validation gates like `validate-claims.sh` and `agentdb_monitor.py` retain full integrity paths natively. | `--trust-path` verification / Tracked natively in strict limits. | R-2026-016 Monitoring Governance loops. |
 | `tooling/scripts/validation/*` (Superproject Untracked Hub) | Relocate cleanly to `agentic-flow/scripts/validation/*` enabling the deep base validators (`security_validator.py`, etc.) to run correctly under the submodule boundary context. | `--trust-path` verification / Tracked natively in strict limits. | R-2026-016 Validation execution engine. |
 | `tooling/scripts/observability/*` (Superproject Untracked Hub) | Relocate cleanly to `agentic-flow/scripts/observability/*` maintaining the hyperbolic gap detection capability arrays dynamically. | `--trust-path` verification / Tracked natively in strict limits. | R-2026-016 Observability telemetry loops. |
+| `/code/scripts/policy/governance.py` | Bind canonically to `agentic-flow/scripts/policy/governance.py` | `--trust-path` verification / Deep-Why Constraints Mapping | R-2026-016 |
+| `/code/scripts/validators/project/check-csqbm.sh` | Bind canonically to `agentic-flow/scripts/validators/project/check-csqbm.sh` | `--trust-path` verification / AgentDB Freshness Execution | R-2026-016 |
+| `/code/scripts/emit_metrics.py` | Bind canonically to `agentic-flow/scripts/emit_metrics.py` | `--trust-path` verification / Metrics Bound Anchoring | R-2026-016 |
+| `/code/scripts/ci/test_automated_rca.sh` | Bind canonically to `agentic-flow/scripts/ci/test_automated_rca.sh` | `--trust-path` verification / RCA Baseline Telemetry Limits | R-2026-016 |
+| `/code/scripts/agentic/retro_replenish_workflow.py` | Bind canonically to `agentic-flow/scripts/agentic/retro_replenish_workflow.py` | `--trust-path` verification / Retro Replenish Arrays | R-2026-016 |
+| `/code/scripts/circles/retro_insights.sh` | Bind canonically to `agentic-flow/scripts/circles/retro_insights.sh` | `--trust-path` verification / Retro Synthesis HitL | R-2026-016 |
+| `/code/scripts/cmd_retro.py` | Bind canonically to `agentic-flow/scripts/cmd_retro.py` | `--trust-path` verification / Execute Checkpoints | R-2026-016 |
+| `/code/scripts/link_metrics_to_retro.sh` | Bind canonically to `agentic-flow/scripts/link_metrics_to_retro.sh` | `--trust-path` verification / Retro Causal Sync Bounds | R-2026-016 |
+| `/code/scripts/feedback-loop-analyzer.sh` | Bind canonically to `agentic-flow/scripts/feedback-loop-analyzer.sh` | `--trust-path` verification / Execute Synthesis Arrays | R-2026-016 |
 
 ### T2 — Superproject validate-claims (hook parity)
 

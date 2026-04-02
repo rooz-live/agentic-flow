@@ -19,7 +19,7 @@ export default defineConfig({
   ],
   
   use: {
-    baseURL: process.env.BASE_URL || 'http://localhost:3000',
+    baseURL: process.env.BASE_URL || 'http://localhost:3030',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -61,8 +61,8 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'npm run dashboard:start',
-    url: 'http://localhost:3000',
+    command: 'node scripts/monitoring/dashboard_server.js --port=3030',
+    url: 'http://localhost:3030',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
   },

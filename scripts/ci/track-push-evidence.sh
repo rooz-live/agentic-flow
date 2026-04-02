@@ -82,14 +82,37 @@ echo "  Error: $(jq -r '.superproject.error' "$EVIDENCE_FILE")"
 AHEAD_COUNT=$(jq -r '.submodule.push_status.ahead' "$EVIDENCE_FILE")
 if [[ "$AHEAD_COUNT" != "0" ]]; then
     echo -e "\n${YELLOW}🔄 Dry-run push:${NC}"
-    if git push --dry-run origin "$(git branch --show-current)" 2>/dev/null; then
+    if DRY_RUN_OUTPUT=$(git push --dry-run origin "$(git branch --show-current)" 2>&1); then
         echo -e "  ${GREEN}✓ Dry-run successful${NC}"
-        jq '.submodule.push_status.dry_run_success = true' "$EVIDENCE_FILE" > "$EVIDENCE_FILE.tmp" && mv "$EVIDENCE_FILE.tmp" "$EVIDENCE_FILE"
+        jq --arg dry_run_output "$DRY_RUN_OUTPUT" '.submodule.push_status.dry_run_success = true | .submodule.push_status.dry_run_output = $dry_run_output' "$EVIDENCE_FILE" > "$EVIDENCE_FILE.tmp" && mv "$EVIDENCE_FILE.tmp" "$EVIDENCE_FILE"
+        
+        # Capture push preview
+        echo -e "\n${YELLOW}📋 Push preview:${NC}"
+        git log --oneline origin/$(git branch --show-current)..HEAD | while read commit; do
+            echo "  - $commit"
+        done
+        
+        # Store preview in evidence
+        git log --oneline origin/$(git branch --show-current)..HEAD > "$EVIDENCE_DIR/push_preview_$TIMESTAMP.txt"
+        jq --arg preview_file "push_preview_$TIMESTAMP.txt" '.submodule.push_status.preview_file = $preview_file' "$EVIDENCE_FILE" > "$EVIDENCE_FILE.tmp" && mv "$EVIDENCE_FILE.tmp" "$EVIDENCE_FILE"
     else
         echo -e "  ${RED}✗ Dry-run failed${NC}"
-        jq '.submodule.push_status.dry_run_success = false' "$EVIDENCE_FILE" > "$EVIDENCE_FILE.tmp" && mv "$EVIDENCE_FILE.tmp" "$EVIDENCE_FILE"
+        echo "  Error: $DRY_RUN_OUTPUT"
+        jq --arg dry_run_output "$DRY_RUN_OUTPUT" '.submodule.push_status.dry_run_success = false | .submodule.push_status.dry_run_output = $dry_run_output' "$EVIDENCE_FILE" > "$EVIDENCE_FILE.tmp" && mv "$EVIDENCE_FILE.tmp" "$EVIDENCE_FILE"
     fi
 fi
+
+# Generate push readiness score
+CLEAN_STATUS=$(jq -r '.submodule.status.clean' "$EVIDENCE_FILE")
+CSQBM_STATUS=$(jq -r '.trust_gates.csqbm' "$EVIDENCE_FILE" | grep -o "PASS\|FAIL" || echo "FAIL")
+DRY_RUN_STATUS=$(jq -r '.submodule.push_status.dry_run_success // "unknown"' "$EVIDENCE_FILE")
+
+READINESS_SCORE=0
+if [[ "$CLEAN_STATUS" == "true" ]]; then ((READINESS_SCORE++)); fi
+if [[ "$CSQBM_STATUS" == "PASS" ]]; then ((READINESS_SCORE++)); fi
+if [[ "$DRY_RUN_STATUS" == "true" ]]; then ((READINESS_SCORE++)); fi
+
+jq --argjson readiness "$READINESS_SCORE" '.submodule.push_status.readiness_score = $readiness' "$EVIDENCE_FILE" > "$EVIDENCE_FILE.tmp" && mv "$EVIDENCE_FILE.tmp" "$EVIDENCE_FILE"
 
 # Link latest evidence
 ln -sf "push_$TIMESTAMP.json" "$EVIDENCE_DIR/push_latest.json"

@@ -979,3 +979,16 @@ Follows R-2026-016 rules. The following untracked superproject artifacts are que
 | Untracked Traces | Audited remaining load-bearing scripts isolating boundaries securely explicitly wrapping execution paths locally strictly. | Git index mapping bounds. | R-2026-016 |
 
 - **Verify:** Execution natively logs trace `ALL GREEN` validating DGM constraint mappings.
+
+### Cycle 68 — Superproject Consolidation & Gate Script Tracking (2026-04-02)
+- **Thread:** Formalize execution tracking to anchor the superproject trust spine, rehydrate the missing `.github` core loops, and map execution limits against load-bearing gate infrastructure bounds.
+- **Substitution Map (R-2026-018 & R-2026-016 Explicit Evidence):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+|---------------------|----------------------|------------------------------|-------------|
+| \`/investing/.git\` Superproject Root | Re-initialized structurally corrupt grid wiping dangling loose objects safely. | \`git status -sb\` passes natively. | R-2026-016 |
+| \`investing/.github/\` | Rehydrated CI workflows ensuring CI pipeline triggers unblocked resolving dead links securely. | Git tracking restored securely | R-2026-016 |
+| \`tooling/ui-orchestration/*\` | Wiped untracked nested structures eliminating corrupted submodule hooks structurally resolving graphing traces safely. | Recursion cleanly dropped. | R-2026-018 |
+| \`investing/agentic-flow/\` Gate Scripts | Explicitly tracked internal load-bearing scripts natively binding validation matrices against the superproject CI directly. | Traces mapped securely via embedded repo limits natively. | R-2026-018 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + \`validate-foundation.sh --trust-path\`.

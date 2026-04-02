@@ -471,8 +471,27 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `enhanced_monitoring_dashboard.py` | Canonical `site_health_monitor.py` | `.github/workflows/` and `.gitlab-ci.yml` routing to canonical | R-2026-016 |
 | `scripts/agentic/enhanced_monitoring_dashboard.py` | Canonical `site_health_monitor.py` | CI pipelines bound natively | R-2026-016 |
 | `heartbeat_monitor.py` | Capability transferred to `hitl-audit-safeguard.sh --pulse` | Pulse/cron metric execution natively | R-2026-016 |
+| `scripts/monitoring/enhanced_monitoring_dashboard.py` | Canonical `site_health_monitor.py` | CI pipelines bound natively | R-2026-016 |
 | `scripts/_SYSTEM/_AUTOMATION/eta-live-stream.sh` | Attention Fragmentation Eradication | Removed unproven non-critical pipeline | R-2026-018 |
 | `scripts/_SYSTEM/_AUTOMATION/legal-pdf-ocr.sh` | Attention Fragmentation Eradication | Removed unproven non-critical pipeline | R-2026-018 |
+
+### Cycle 70: Superproject Gate Script Tracking Consolidation (2026-04-02)
+- **Thread:** Cycle 70 Formalized execution tracking across native Gate bounds and validating trace tracking limits within `agentic-flow`.
+- **Substitution Map (R-2026-018 / R-2026-016 Gate Script Tracking):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+|---------------------|----------------------|------------------------------|-------------|
+| `scripts/validators/project/check-csqbm.sh` | Deep-why capable truth boundary validation gate (CSQBM). | Execution via Pre-commit Gate | R-2026-018 |
+| `scripts/ci/test_automated_rca.sh` | Strongest RCA signal source (`rca.dt_consecutive_failures`) metrics limit | `test_automated_rca.sh` PASS | R-2026-018 |
+| `scripts/policy/governance.py` | Governance testing gates natively avoiding `# pragma` bypass logic | `validate-foundation.sh` | R-2026-018 |
+| `scripts/emit_metrics.py` | Central telemetry emitter for Retro RCA execution fields natively. | `metrics_log.jsonl` traces | R-2026-018 |
+| `scripts/feedback-loop-analyzer.sh` | Retrospective analytics targeting flow friction boundaries. | `validate-claims.sh` log binds | R-2026-018 |
+| `scripts/link_metrics_to_retro.sh` | Ties retro execution items cleanly to measurable matrices natively. | Governance Retro loop PASS | R-2026-018 |
+| `scripts/circles/retro_insights.sh` | Retro insight aggregation constraint. | `--trust-path` verification | R-2026-016 |
+| `scripts/cmd_retro.py` | SRE retro approvals and execution checkpoints natively. | CLI/UI metric capture | R-2026-018 |
+| `scripts/agentic/retro_replenish_workflow.py` | SRE retro approvals and replenishment orchestration flow. | `--trust-path` verification | R-2026-018 |
+
+- **Verify:** Pre-Commit Contract Validation + CSQBM + `validate-foundation.sh --trust-path`.
 
 - **Verify:** Execution is tracked securely by committing `git rm` against the boundary constraints prior to triggering `validate-foundation.sh --trust-path`.
 

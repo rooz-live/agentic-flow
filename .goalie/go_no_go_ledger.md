@@ -838,6 +838,16 @@ Generated: .goalie/hostbill_ledger.json explicitly mapping physical R-2026-020 b
 
 - **Verify:** Local execution of `validate-foundation.sh --trust-path` returning `ALL GREEN`.
 
+### Cycle 124 — Phase 124: Superproject Consolidation — Gate Script Tracking
+- **Thread:** Phase 124 Validated superproject and recursive submodule Git tracking capability boundaries via a full native "Gate Script Tracking" pass bounding 9 root-level untracked logic scripts securely.
+- **Substitution Map (R-2026-016 Explicit Evidence):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+|--------------------|----------------------|------------------------------|-------------|
+| Superproject untracked modules (`cmd_prod_cycle.py`, etc) | Evaluated, mapped, and tracked legacy root scripts preventing NO-GO index logic collapse. | Native index tracking matrix | R-2026-016 |
+
+- **Verify:** Local execution of `validate-foundation.sh --trust-path` returning `ALL GREEN`.
+
 ### Safe cleanup pass (WIP + substitution map) — scope split: Superproject Gate Script Tracking
 
 | Remove / archive | Canonical replacement | Evidence (test / gate / ADR) | ROAM note |
@@ -928,3 +938,14 @@ Follows R-2026-016 rules. The following untracked superproject artifacts are que
 **Action:** Investigated and resolved nested submodule ghost locks mapping `.integrations/aisp-open-core` via `git submodule sync` and `git submodule update --init`.
 **Bound Constraints:** R-2026-016 Explicit Superproject consolidation replacing untracked scripts directly within `investing/agentic-flow` boundaries securely.
 **Gate Status:** **GREEN**. Infrastructure health correctly detached from superproject git corruption enforcing Zero Trust Merge Path mapping correctly.
+
+### Safe cleanup pass (WIP + substitution map) — scope split: Next Cleanup Candidate List (Phase 125)
+Follows R-2026-016 rules. The following untracked superproject artifacts are queued for formal substitution mapping and deletion:
+
+| Remove / archive (Paths only) | Canonical replacement | Evidence (test / gate / ADR) | ROAM note |
+|-------------------------------|----------------------|-----------------------------|-----------|
+| `/.goalie/telemetry*.jsonl` (Superproject root telemetry bloat) | Replaced natively by `investing/agentic-flow/.goalie/metrics_log.jsonl` | File boundary enforcement | R-2026-016 |
+| `/.goalie/test_metrics*.jsonl` (Superproject root test spans) | Replaced natively by submodule traces | File boundary enforcement | R-2026-016 |
+| `/.goalie/insights*.jsonl` (Superproject root insights)       | Inherited directly through submodule loop synthesis | File boundary enforcement | R-2026-016 |
+| `/*.json` (Superproject configuration sprawl `.agent-reliability-*`, etc) | Consolidated via native Swarm execution parameters within `investing/agentic-flow/` | Git Object Health Check | R-2026-016 |
+| `/scripts/*` (Legacy untracked superproject wrapper loops) | Fully isolated gate architecture bounds inside the submodule tree | File boundary enforcement | R-2026-016 |

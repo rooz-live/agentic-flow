@@ -182,6 +182,7 @@ def test_admission_logic_mutant_resistance():
     
     # Mutant: Changing strike limit would be caught
     for _ in range(3):
+        controller.sensor = MockSensor(85.0, 15.0)  # Above warning threshold
         controller._update_load_history()
         controller.check_admission()
     assert controller.consecutive_high_load >= 2

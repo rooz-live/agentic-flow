@@ -827,6 +827,17 @@ Generated: .goalie/hostbill_ledger.json explicitly mapping physical R-2026-020 b
 
 - **Verify:** Local execution of `validate-foundation.sh --trust-path` returning `ALL GREEN`.
 
+### Cycle 123 — Phase 123: Dynamic OpenStack HostBill Telemetry Baseline Ingestion
+- **Thread:** Phase 123 Ingested the StarlingX `ipmitool` hardware baseline over SSH to compute precise `$418.16 USD` synthetic footprint bounding the `ENTERPRISE_TIER_1` node locally.
+- **Substitution Map (R-2026-020 and R-2026-019 Explicit Evidence):**
+
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+|--------------------|----------------------|------------------------------|-------------|
+| `scripts/ci/hostbill-sync-agent.py` | Extracts live `ipmitool` STX chassis constraints via `ubuntu@23.92.79.2` over port 2222. | Native SSH physical bridging | R-2026-020 |
+| `.goalie/hostbill_ledger.json` | Stores synthesized OpenStack footprint mappings ($418.16 USD) evaluating HostBill limits. | JSON API bounds emitted | R-2026-019 |
+
+- **Verify:** Local execution of `validate-foundation.sh --trust-path` returning `ALL GREEN`.
+
 ### Safe cleanup pass (WIP + substitution map) — scope split: Superproject Gate Script Tracking
 
 | Remove / archive | Canonical replacement | Evidence (test / gate / ADR) | ROAM note |

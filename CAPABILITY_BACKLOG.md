@@ -190,10 +190,10 @@
 4. ✅ Workflow WSJF Prioritization - CI updated
 
 ### Next Cycle Candidates:
-1. Agentic QE Fleet initialization
-2. GitNexus embedding refresh
-3. ElizaOS billing integration
-4. Risk analytics soft launch
+1. Meta-Prioritization: Prompt Re-sorting & WSJF Reindex (Complete)
+2. GitNexus analyze workflow (Iterative/Incremental)
+3. MPP/TDD Specification-Driven Development Alignment
+4. UI Component Evolution & Live TLD Tuning
 
 ---
 

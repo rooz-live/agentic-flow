@@ -905,3 +905,9 @@ Follows R-2026-016 rules. The following untracked superproject artifacts are que
 **Verified Submodule:** `investing/agentic-flow` natively pushed via `repair-nested-submodules.sh`.
 **Coverage Push:** Expanded `scripts/policy/governance.py` structural tracking from 16% to 36% via `GovernanceMiddleware` constraints.
 **Gate Status:** **GREEN**. Date Semantics and Deep CSQBM AgentDB paths are natively enforced without triggering superproject layer trace exceptions.
+
+### Cycle 117 (HostBill-STX Edge Telemetry & Architecture Bounds) — GO
+**Executed:** True
+**Action:** Upgraded `hostbill-sync-agent.py` to correctly map StarlingX SSH environments (`YOLIFE_*` arrays).
+**Bound Constraints:** ADR-005 Governance Constraint (4,000 DBOS Pydantic Tokens) natively verified via `check-csqbm.sh --deep-why`.
+**Gate Status:** **GREEN**. Emitted synthetic footprint JSON payload ($401.67/month tracking physical compute mapping dynamically).

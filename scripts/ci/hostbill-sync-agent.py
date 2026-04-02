@@ -20,11 +20,12 @@ import requests
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("hostbill-sync")
 
-# STX SSH Configuration (from environment or defaults)
-stx_host = os.environ.get("STX_HOST", "localhost")
-stx_user = os.environ.get("STX_USER", "root")
-stx_key = os.environ.get("STX_KEY", "/dev/null")
-stx_port = int(os.environ.get("STX_PORT", "22"))
+# STX SSH Configuration (from environment natively mapped to YOLIFE credentials bounds or defaults)
+stx_host = os.environ.get("YOLIFE_STX_HOST", os.environ.get("STX_HOST", "localhost"))
+stx_user = os.environ.get("YOLIFE_STX_USER", os.environ.get("STX_USER", "root"))
+stx_key = os.environ.get("YOLIFE_STX_KEY", os.environ.get("STX_KEY", "/dev/null"))
+ports_env = os.environ.get("YOLIFE_STX_PORTS", os.environ.get("STX_PORT", "22"))
+stx_port = int(ports_env.split(",")[0]) if ports_env else 22
 
 # Pydantic Structural Arrays
 class PriorityTLD(BaseModel):

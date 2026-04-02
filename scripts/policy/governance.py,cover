@@ -1,0 +1,2064 @@
+  #!/usr/bin/env python3
+> """
+> Governance Middleware for Agentic Flow Production Maturity.
+  
+> @business-context WSJF-1
+> @adr ADR-005
+> @constraint R-2026-016
+> @planned-change R-2026-018
+  
+> Implements the 8 Governance Patterns:
+> 1. Safe Degrade
+> 2. Circle Risk Focus
+> 3. Autocommit Shadow
+> 4. Guardrail Lock
+> 5. Failure Strategy
+> 6. Iteration Budget
+> 7. Observability First
+> 8. Depth Ladder
+  
+> This script orchestrates the 'prod-cycle' execution loop, invoking `af` commands
+> as necessary and maintaining system state and telemetry.
+> """
+  
+> import os
+> import sys
+> import json
+> import time
+> import uuid
+> import subprocess
+> import argparse
+> import yaml
+  
+  # Monkey-patch argparse to allow unknown args (e.g. --environment)
+  # This is required because governance.py is often called with extra flags
+  # that are intended for the underlying scripts it orchestrates.
+> original_parse_args = argparse.ArgumentParser.parse_args
+  
+> def parse_known_args_wrapper(self, args=None, namespace=None):
+!     return self.parse_known_args(args, namespace)[0]
+  
+> argparse.ArgumentParser.parse_args = parse_known_args_wrapper
+  
+> from datetime import datetime, timezone, timedelta
+> from pathlib import Path
+> from dataclasses import dataclass
+> from typing import Dict, Any, List, Optional, Protocol, Tuple
+> import random
+  
+  
+> SCRIPT_DIR = Path(__file__).resolve().parent
+> if str(SCRIPT_DIR) not in sys.path:
+>     sys.path.append(str(SCRIPT_DIR))
+> AGENTIC_DIR = SCRIPT_DIR.parent / "agentic"
+> if AGENTIC_DIR.exists() and str(AGENTIC_DIR) not in sys.path:
+>     sys.path.append(str(AGENTIC_DIR))
+  
+> from pattern_logging_helper import (  # type: ignore  # pylint: disable=import-error
+>     build_pattern_event as helper_build_pattern_event,
+>     log_pattern_event as helper_log_pattern_event,
+> )
+  
+  # Constants
+> DEFAULT_ITERATIONS = 100
+> DEFAULT_DEPTH = 3
+> CIRCLES = [
+>     "analyst", "assessor", "innovator",
+>     "intuitive", "orchestrator", "seeker"
+> ]
+> SAFE_DEGRADE_THRESHOLD_SCORE = 50
+> SAFE_DEGRADE_THRESHOLD_INCIDENTS = 8
+  
+  # SAFLA Delta Evaluation Weights (α coefficients)
+  # See: https://github.com/ruvnet/SAFLA
+> SAFLA_WEIGHTS = {
+>     "performance": 0.30,  # α₁: Reward per token efficiency
+>     "efficiency": 0.30,   # α₂: Throughput per resource
+>     "stability": 0.20,    # α₃: 1 - divergence score
+>     "capability": 0.20,   # α₄: New capabilities ratio
+> }
+  
+  # Delta improvement threshold: only apply changes if Δ_total > threshold
+  # PROD-003: Tuned from 0.05 to 0.10 based on observed delta distribution
+  # Data: 87% of deltas exceed 0.05, mean=0.19, range=-0.4 to 0.79
+  # The 0.10 threshold provides better discrimination for governance adjustments
+> DELTA_IMPROVEMENT_THRESHOLD = 0.10
+  
+  # Capability tracking baseline for SAFLA evaluation (PROD-004)
+  # Defines known capability categories for delta calculation
+> CAPABILITY_CATEGORIES = [
+>     "circles",       # Active circles (analyst, assessor, innovator, etc.)
+>     "patterns",      # Detected governance patterns
+>     "telemetry",     # Telemetry event types being logged
+>     "adjustments",   # Parameter adjustment types available
+> ]
+> BASELINE_TOTAL_CAPABILITIES = len(CAPABILITY_CATEGORIES) * 6  # 4 categories × 6 items each
+  
+  # Depth-ladder oscillation detection constants (PROD-002)
+  # Detect when depth values oscillate without meaningful improvement
+> OSCILLATION_WINDOW = 6  # Number of recent iterations to analyze for oscillation
+> OSCILLATION_THRESHOLD = 3  # Minimum direction changes to trigger oscillation detection
+> OSCILLATION_HYSTERESIS = 2  # Iterations to wait before allowing another depth change after oscillation
+  
+  
+> def calculate_delta_improvement(current_metrics: Dict[str, Any], previous_metrics: Dict[str, Any]) -> float:
+>     """
+>     Calculate improvement delta using SAFLA's delta evaluation formula.
+  
+>     Formula: Δ_total = α₁×Δ_performance + α₂×Δ_efficiency + α₃×Δ_stability + α₄×Δ_capability
+  
+>     Where:
+>     - Δ_performance = (current_reward - previous_reward) / tokens_used
+>     - Δ_efficiency = (current_throughput - previous_throughput) / resource_used
+>     - Δ_stability = 1 - divergence_score
+>     - Δ_capability = new_capabilities / total_capabilities
+  
+>     Args:
+>         current_metrics: Current cycle metrics (reward, tokens_used, throughput, etc.)
+>         previous_metrics: Previous cycle metrics for comparison
+  
+>     Returns:
+>         float: Delta improvement score in range [-1, 1], positive = improvement
+>     """
+      # Extract metrics with safe defaults
+>     current_reward = current_metrics.get("reward", 0.0)
+>     previous_reward = previous_metrics.get("reward", 0.0)
+>     tokens_used = max(current_metrics.get("tokens_used", 1), 1)
+  
+>     current_throughput = current_metrics.get("throughput", 0.0)
+>     previous_throughput = previous_metrics.get("throughput", 0.0)
+>     resource_used = max(current_metrics.get("resource_used", 1), 1)
+  
+>     divergence_score = current_metrics.get("divergence_score", 0.0)
+>     new_capabilities = current_metrics.get("new_capabilities", 0)
+>     total_capabilities = max(current_metrics.get("total_capabilities", 1), 1)
+  
+      # Calculate individual delta components
+>     delta_performance = (current_reward - previous_reward) / tokens_used
+>     delta_efficiency = (current_throughput - previous_throughput) / resource_used
+>     delta_stability = 1.0 - min(max(divergence_score, 0.0), 1.0)
+>     delta_capability = new_capabilities / total_capabilities
+  
+      # Apply SAFLA weights
+>     delta_total = (
+>         SAFLA_WEIGHTS["performance"] * delta_performance +
+>         SAFLA_WEIGHTS["efficiency"] * delta_efficiency +
+>         SAFLA_WEIGHTS["stability"] * delta_stability +
+>         SAFLA_WEIGHTS["capability"] * delta_capability
+>     )
+  
+      # Clamp to [-1, 1] range for normalization
+>     return max(min(delta_total, 1.0), -1.0)
+  
+  
+> def detect_depth_oscillation(depth_history: List[int]) -> Dict[str, Any]:
+>     """
+>     Detect depth-ladder oscillation pattern (PROD-002).
+  
+>     Oscillation occurs when depth values repeatedly change direction without
+>     achieving meaningful improvement (e.g., 4→5→4→5→4→5 indicates thrashing).
+  
+>     Args:
+>         depth_history: List of recent depth values (most recent last)
+  
+>     Returns:
+>         Dict with:
+>         - oscillating: bool - True if oscillation detected
+>         - direction_changes: int - Number of direction reversals
+>         - pattern: str - Description of detected pattern
+>         - suggested_depth: int - Recommended stable depth value
+>     """
+>     if len(depth_history) < OSCILLATION_WINDOW:
+>         return {
+>             "oscillating": False,
+>             "direction_changes": 0,
+>             "pattern": "insufficient-data",
+>             "suggested_depth": depth_history[-1] if depth_history else DEFAULT_DEPTH,
+>         }
+  
+      # Analyze last OSCILLATION_WINDOW entries
+>     recent = depth_history[-OSCILLATION_WINDOW:]
+>     direction_changes = 0
+>     last_direction = 0  # 0=none, 1=up, -1=down
+  
+>     for i in range(1, len(recent)):
+>         diff = recent[i] - recent[i - 1]
+>         if diff > 0:
+>             current_direction = 1
+>         elif diff < 0:
+>             current_direction = -1
+>         else:
+>             continue  # No change
+  
+>         if last_direction != 0 and current_direction != last_direction:
+>             direction_changes += 1
+>         last_direction = current_direction
+  
+      # Detect oscillation if direction changes exceed threshold
+>     oscillating = direction_changes >= OSCILLATION_THRESHOLD
+  
+      # Calculate suggested stable depth (median of oscillating values)
+>     if oscillating:
+>         unique_depths = sorted(set(recent))
+          # Use median as stable depth to avoid extremes
+>         suggested_depth = unique_depths[len(unique_depths) // 2]
+>         pattern = f"oscillation-{direction_changes}x-in-{OSCILLATION_WINDOW}"
+>     else:
+>         suggested_depth = recent[-1]
+>         pattern = "stable"
+  
+>     return {
+>         "oscillating": oscillating,
+>         "direction_changes": direction_changes,
+>         "pattern": pattern,
+>         "suggested_depth": suggested_depth,
+>         "recent_depths": recent,
+>     }
+  
+  
+> def count_observed_capabilities(project_root: Path, state: Dict[str, Any]) -> Dict[str, Any]:
+>     """
+>     Count observed capabilities for SAFLA delta evaluation (PROD-004).
+  
+>     Tracks actual capabilities in use rather than using static defaults:
+>     - Circles: Number of circles that have been active
+>     - Patterns: Unique governance patterns detected
+>     - Telemetry: Types of telemetry events being logged
+>     - Adjustments: Types of parameter adjustments made
+  
+>     Returns:
+>         Dict with new_capabilities, total_capabilities, and breakdown
+>     """
+>     goalie_dir = project_root / ".goalie"
+>     pattern_log = goalie_dir / "pattern_metrics.jsonl"
+  
+      # Track unique items observed
+>     observed_circles: set = set()
+>     observed_patterns: set = set()
+>     observed_events: set = set()
+>     observed_adjustments: set = set()
+  
+      # Parse pattern_metrics.jsonl for observed capabilities
+>     if pattern_log.exists():
+>         try:
+>             with open(pattern_log, "r") as f:
+>                 for line in f:
+>                     try:
+>                         event = json.loads(line.strip())
+                          # Track circles
+>                         if circle := event.get("circle"):
+>                             observed_circles.add(circle)
+                          # Track patterns
+>                         if pattern := event.get("detected_pattern"):
+!                             observed_patterns.add(pattern)
+>                         elif pattern := event.get("pattern"):
+>                             observed_patterns.add(pattern)
+                          # Track adjustment types
+>                         if adjustment := event.get("adjustment"):
+>                             observed_adjustments.add(adjustment)
+                          # Track event types
+>                         if event_type := event.get("event_type"):
+>                             observed_events.add(event_type)
+>                     except json.JSONDecodeError:
+>                         continue
+!         except Exception:
+!             pass
+  
+      # Also count from governance_state
+>     depth_ladder = state.get("depth_ladder", {})
+>     circle_rotation = state.get("circle_rotation", {})
+  
+      # Circles from rotation tracking
+>     for circle in circle_rotation.get("negative_delta_counts", {}).keys():
+>         observed_circles.add(circle)
+>     for circle in circle_rotation.get("skipped_circles", []):
+!         observed_circles.add(circle)
+  
+      # Calculate totals
+>     total_circles = len(observed_circles)
+>     total_patterns = len(observed_patterns)
+>     total_events = len(observed_events)
+>     total_adjustments = len(observed_adjustments)
+  
+      # New capabilities = sum of observed capabilities
+>     new_capabilities = total_circles + total_patterns + total_events + total_adjustments
+  
+      # Use baseline or observed max, whichever is higher
+>     total_capabilities = max(BASELINE_TOTAL_CAPABILITIES, new_capabilities)
+  
+>     return {
+>         "new_capabilities": new_capabilities,
+>         "total_capabilities": total_capabilities,
+>         "breakdown": {
+>             "circles": total_circles,
+>             "patterns": total_patterns,
+>             "telemetry_events": total_events,
+>             "adjustments": total_adjustments,
+>         },
+>         "observed": {
+>             "circles": list(observed_circles),
+>             "patterns": list(observed_patterns),
+>             "telemetry_events": list(observed_events),
+>             "adjustments": list(observed_adjustments),
+>         },
+>     }
+  
+  
+> class TelemetryLogger:
+>     """Handles 'Observability First' pattern logging."""
+  
+>     def __init__(self, project_root: Path):
+>         self.goalie_dir = project_root / ".goalie"
+>         self.goalie_dir.mkdir(parents=True, exist_ok=True)
+>         self.metrics_log = self.goalie_dir / "metrics_log.jsonl"
+>         self.pattern_log = self.goalie_dir / "pattern_metrics.jsonl"
+>         self.test_log = self.goalie_dir / "test_results.jsonl"
+  
+          # Initialize state attributes
+>         self.current_depth = DEFAULT_DEPTH
+>         self.active_circle = None
+>         self.run_id = f"run-{int(time.time())}"
+>         self.current_iteration = 0
+  
+>     def log_pattern_event(self, event: Dict[str, Any]) -> None:
+>         """Log a governance pattern event via shared helper."""
+!         pattern = event.get("pattern")
+!         if not pattern:
+!             return
+  
+!         gate = event.get("gate")
+!         circle = event.get("circle") or self.active_circle or "unknown"
+!         depth = event.get("depth", self.current_depth)
+!         mode = event.get("mode", "advisory")
+!         behavioral_type = event.get("behavioral_type", "observability")
+!         tags = event.get("tags") or [f"pattern:{pattern}"]
+  
+!         run_id = event.get("run_id") or self.run_id
+!         iteration = event.get("iteration", self.current_iteration)
+  
+!         pattern_state = event.get("pattern_state", {})
+!         workload = event.get("workload")
+  
+!         metadata: Dict[str, Any] = {}
+!         preserved_keys = {
+!             "pattern",
+!             "circle",
+!             "depth",
+!             "mode",
+!             "behavioral_type",
+!             "gate",
+!             "tags",
+!             "pattern_state",
+!             "workload",
+!             "run",
+!             "run_id",
+!             "iteration",
+!         }
+!         for key, value in event.items():
+!             if key not in preserved_keys:
+!                 metadata[key] = value
+  
+!         helper_event = helper_build_pattern_event(
+!             pattern=pattern,
+!             circle=circle,
+!             depth=depth,
+!             gate=gate,
+!             mode=mode,
+!             behavioral_type=behavioral_type,
+!             tags=tags,
+!             pattern_state=pattern_state,
+!             workload=workload,
+!             run_id=run_id,
+!             iteration=iteration,
+!             metadata=metadata if metadata else None,
+!         )
+!         helper_log_pattern_event(helper_event, mirror_metrics=True)
+  
+>     def log_metric(self, metric: Dict[str, Any]):
+>         """Log a quantitative metric."""
+!         if "timestamp" not in metric:
+!             now = datetime.now(timezone.utc)
+!             metric["timestamp"] = now.isoformat().replace("+00:00", "Z")
+  
+!         with open(self.metrics_log, "a") as f:
+!             f.write(json.dumps(metric))
+  
+  
+> class SystemLoadSensor(Protocol):
+>     """Dependency Injection: Defines how we read system load, allowing test injections."""
+-     def get_load_percentages(self) -> Tuple[float, float]: ...
+  
+> class DefaultSystemLoadSensor:
+>     def get_load_percentages(self) -> Tuple[float, float]:
+!         load1, _, _ = os.getloadavg()
+!         cpu_count = os.cpu_count() or 1
+!         load_pct = (load1 / cpu_count) * 100.0
+!         idle_pct = 100.0 - load_pct
+!         return load_pct, idle_pct
+  
+> @dataclass(frozen=True)
+> class AdmissionConfig:
+>     """Rules Design Pattern & Guard Clauses: Validates boundaries immediately upon creation."""
+>     threshold_pct: float = 80.0
+>     backoff_sec: int = 30
+>     critical_threshold: float = 0.95
+>     warning_threshold: float = 0.80
+>     adaptive_throttling_enabled: bool = True
+>     predictive_throttling_enabled: bool = False
+  
+>     def __post_init__(self):
+          # Boundary & Edge Case Guard Clauses (No more silent exception swallowing)
+>         if not (0.0 <= self.threshold_pct <= 100.0):
+>             raise ValueError(f"threshold_pct {self.threshold_pct} must be between 0.0 and 100.0")
+>         if self.backoff_sec < 0:
+>             raise ValueError("backoff_sec cannot be negative")
+  
+> class AdmissionController:
+>     """
+>     Enhanced Proactive Admission Control for High System Load (R-001).
+>     Implements intelligent load detection, adaptive throttling, and predictive analysis
+>     integrated with TypeScript process governor for comprehensive CPU management.
+>     """
+>     def __init__(self, config: AdmissionConfig, sensor: SystemLoadSensor):
+>         self.config = config
+>         self.sensor = sensor
+>         self.consecutive_high_load = 0
+>         self.strike_limit = 2  # 2-strike rule (Retro improvement)
+  
+          # Enhanced load tracking
+>         self.load_history: List[Dict[str, Any]] = []
+>         self.max_history_size = 10
+>         self.adaptive_throttling_level = 1.0
+>         self.predictive_load_score = 0.5
+  
+>     def _update_load_history(self) -> None:
+>         """Exercises core mathematical paths cleanly via the injected sensor."""
+>         load_pct, idle_pct = self.sensor.get_load_percentages()
+          
+          # Natural branch coverage without needing to mock `os.getloadavg()`
+>         clamped_load = max(0.0, min(load_pct, 100.0))
+>         clamped_idle = max(0.0, min(idle_pct, 100.0))
+  
+>         entry = {
+>             "timestamp": time.time(),
+>             "cpu_load": clamped_load,
+>             "idle_percentage": clamped_idle,
+>         }
+  
+>         self.load_history.append(entry)
+>         if len(self.load_history) > self.max_history_size:
+!             self.load_history.pop(0)
+  
+>     def _calculate_predictive_score(self) -> float:
+>         """Calculate predictive load score based on trends."""
+>         if len(self.load_history) < 3:
+>             return 0.5  # Default medium load
+  
+          # Calculate trend based on recent history
+!         recent = self.load_history[-3:]
+!         load_trend = recent[2]["cpu_load"] - recent[0]["cpu_load"]
+  
+          # Predictive score: 0 = low load expected, 1 = high load expected
+!         trend_score = max(0.0, min(1.0, load_trend / 100.0))
+!         current_load_score = self.load_history[-1]["cpu_load"] / 100.0 if self.load_history else 0.5
+  
+          # Weight current load more heavily than trend
+!         return current_load_score * 0.7 + trend_score * 0.3
+  
+>     def _calculate_adaptive_throttling(self) -> float:
+>         """Calculate adaptive throttling level based on system load."""
+>         if not self.config.adaptive_throttling_enabled:
+!             return 1.0
+  
+>         current_load = self.load_history[-1]["cpu_load"] / 100.0 if self.load_history else 0.5
+>         predictive_score = self._calculate_predictive_score()
+  
+          # Combine current and predictive load for throttling decision
+>         combined_load = max(current_load, predictive_score)
+  
+          # Calculate throttling level: 1.0 = no throttling, 0.1 = maximum throttling
+>         throttling_level = 1.0
+  
+>         if combined_load > self.config.critical_threshold:
+>             throttling_level = 0.1  # Severe throttling
+>         elif combined_load > self.config.warning_threshold:
+>             throttling_level = 0.3  # Moderate throttling
+>         elif combined_load > (self.config.threshold_pct / 100.0):
+!             throttling_level = 0.6  # Light throttling
+  
+>         return throttling_level
+  
+>     def _get_adaptive_delay(self) -> int:
+>         """Get adaptive delay based on throttling level."""
+>         base_delay = 200  # AF_BACKOFF_MIN_MS equivalent
+>         return int(base_delay * (1.0 - self.adaptive_throttling_level))
+  
+>     def check_admission(self) -> bool:
+>         """
+>         Enhanced admission control with intelligent CPU load detection and adaptive throttling.
+>         Returns True if admitted, False if rejected (should wait).
+>         """
+          # Update load history for predictive analysis
+>         self._update_load_history()
+  
+          # Calculate adaptive throttling level
+>         self.adaptive_throttling_level = self._calculate_adaptive_throttling()
+>         self.predictive_load_score = self._calculate_predictive_score()
+  
+>         load_pct, _ = self.sensor.get_load_percentages()
+>         load_pct = min(max(load_pct, 0.0), 100.0)
+  
+          # Predictive load check (if enabled)
+>         if self.config.predictive_throttling_enabled:
+!             if self.predictive_load_score > self.config.critical_threshold:
+!                 adaptive_delay = self._get_adaptive_delay() * 2
+!                 print(f"[Admission] Predictive high load detected (score: {self.predictive_load_score:.2f}). Adaptive delay: {adaptive_delay}ms")
+!                 time.sleep(adaptive_delay / 1000.0)  # Convert to seconds
+!                 return False
+  
+          # Multi-tier CPU load response with adaptive delays
+>         if load_pct > (self.config.critical_threshold * 100.0):
+>             adaptive_delay = self._get_adaptive_delay()
+>             jitter = random.random() * 0.1  # 10% jitter
+>             backoff_with_jitter = adaptive_delay * (1.0 + jitter)
+  
+>             print(f"[Admission] Critical system load ({load_pct:.1f}%). Adaptive backoff: {backoff_with_jitter:.0f}ms")
+>             time.sleep(backoff_with_jitter / 1000.0)
+>             self.consecutive_high_load += 1
+>             return False
+  
+>         elif load_pct > (self.config.warning_threshold * 100.0):
+>             adaptive_delay = self._get_adaptive_delay()
+>             print(f"[Admission] High system load ({load_pct:.1f}%). Adaptive delay: {adaptive_delay}ms")
+>             time.sleep(adaptive_delay / 1000.0)
+>             self.consecutive_high_load += 1
+>             return False
+  
+>         elif load_pct > self.config.threshold_pct:
+!             adaptive_delay = self._get_adaptive_delay()
+!             print(f"[Admission] Moderate system load ({load_pct:.1f}%). Adaptive delay: {adaptive_delay}ms")
+!             time.sleep(adaptive_delay / 1000.0)
+!             return False
+  
+          # Reset backoff on healthy load
+>         self.consecutive_high_load = 0
+>         return True
+  
+>     def get_metrics(self) -> dict:
+>         """Get current admission controller metrics for monitoring."""
+!         return {
+!             "consecutive_high_load": self.consecutive_high_load,
+!             "adaptive_throttling_level": self.adaptive_throttling_level,
+!             "predictive_load_score": self.predictive_load_score,
+!             "load_history_size": len(self.load_history),
+!             "threshold_pct": self.threshold_pct,
+!             "critical_threshold": self.critical_threshold,
+!             "warning_threshold": self.warning_threshold,
+!         }
+  
+  
+> class GovernanceMiddleware:
+>     def __init__(self, args: argparse.Namespace, project_root: Path):
+>         self.args = args
+>         self.project_root = project_root
+>         self.telemetry = TelemetryLogger(project_root)
+          # Extract parsing logic away from AdmissionController to strictly preserve DI purity
+>         threshold_pct = float(os.environ.get("AF_ADMISSION_THRESHOLD_PCT", "80.0"))
+>         critical_threshold = float(os.environ.get("AF_CPU_CRITICAL_THRESHOLD", "0.95"))
+>         warning_threshold = float(os.environ.get("AF_CPU_WARNING_THRESHOLD", "0.80"))
+>         adaptive_enabled = os.environ.get("AF_ADAPTIVE_THROTTLING_ENABLED", "true").lower() != "false"
+>         predictive_enabled = os.environ.get("AF_PREDICTIVE_THROTTLING", "false").lower() != "false"
+>         config = AdmissionConfig(
+>             threshold_pct=threshold_pct,
+>             critical_threshold=critical_threshold,
+>             warning_threshold=warning_threshold,
+>             adaptive_throttling_enabled=adaptive_enabled,
+>             predictive_throttling_enabled=predictive_enabled
+>         )
+              
+>         self.admission = AdmissionController(config=config, sensor=DefaultSystemLoadSensor())
+>         self.run_id = str(uuid.uuid4())
+>         self.environment = getattr(args, "environment", None)
+  
+          # State
+>         self.current_iteration = 1
+>         self.max_iterations = args.iterations
+>         self.extensions_used = 0
+>         self.max_extensions = 3
+>         self.is_safe = True
+>         self.safe_degrade_reason = "none"
+>         self.active_circle = args.circle
+>         self.current_depth = args.depth
+  
+          # Pattern metrics (fed into AF_PC_* env vars for shell logger)
+>         self.safe_degrade_triggers = 0
+>         self.safe_degrade_actions: list[str] = []
+>         self.safe_degrade_recovery_cycles: list[int] = []
+>         self.safe_degrade_active_since: Optional[int] = None
+  
+>         self.autocommit_shadow_override = 0
+>         self.autocommit_runs = 0
+  
+>         self.circle_risk_roam_delta = 0
+  
+>         self.last_failure_strategy_mode = "none"
+>         self.last_failure_strategy_abort_at = 0
+>         self.last_failure_strategy_reason = "none"
+  
+>         self.guardrail_lock_enforced = 0
+>         self.guardrail_lock_requests = 0
+>         self.guardrail_lock_health = "unknown"
+  
+>         self.observability_metrics_written = 0
+>         self.observability_missing_signals = 0
+>         self.observability_suggestions = 0
+  
+          # Minimal RCA state (per run)
+>         self.dt_consecutive_failures = 0
+>         self.retro_coach_consecutive_nonzero = 0
+>         self.emit_metrics_retry_attempts = 0
+>         self.iterations_without_progress = 0
+>         self.safe_degrade_error_count = 0
+>         self.vsix_telemetry_gap_count = 0
+>         self.safe_degrade_recent_incidents_10m = 0
+  
+>         self.current_avg_score: float = 100.0
+>         self.avg_score_samples: int = 0
+  
+>         self.progress_log_path = self.project_root / ".goalie" / "prod_cycle_progress.log"
+  
+>     def log_progress(self) -> None:
+>         """Emit a lightweight progress line for long prod-cycle runs."""
+  
+>         message = (
+>             f"[prod-cycle] run {self.run_id} cycle {self.current_iteration}/"
+>             f"{self.max_iterations} circle={self.active_circle or 'unknown'} "
+>             f"depth={self.current_depth} safe={self.is_safe}"
+>         )
+>         print(message)
+  
+>         try:
+>             self.progress_log_path.parent.mkdir(parents=True, exist_ok=True)
+>             timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+>             with self.progress_log_path.open("a", encoding="utf-8") as handle:
+>                 handle.write(f"{timestamp} {message}\n")
+!         except Exception:
+              # Progress logging must never break prod-cycle
+!             pass
+  
+>     def update_rca_counters(self, status: str):
+>         """Update RCA counters based on cycle status."""
+>         if status == "failure":
+>             self.iterations_without_progress += 1
+>             self.dt_consecutive_failures += 1
+              # If we are in safe degrade mode and failing, increment the error count
+>             if self.safe_degrade_triggers > 0:
+>                 self.safe_degrade_error_count += 1
+>         else:
+              # Reset progress counter on success
+>             self.iterations_without_progress = 0
+>             self.dt_consecutive_failures = 0
+  
+          # VSIX Telemetry Gap Logic
+          # Check if pattern_metrics.jsonl has been modified recently (e.g. last 5 minutes)
+          # This assumes VSIX or some other process is writing to it.
+          # If not, increment gap count.
+>         pattern_log = self.project_root / ".goalie" / "pattern_metrics.jsonl"
+>         is_fresh = False
+>         if pattern_log.exists():
+>             try:
+>                 mtime = pattern_log.stat().st_mtime
+>                 if time.time() - mtime < 300:  # 5 minutes
+>                     is_fresh = True
+!             except Exception:
+!                 pass
+  
+>         if not is_fresh:
+>             self.vsix_telemetry_gap_count += 1
+>         else:
+>             self.vsix_telemetry_gap_count = 0
+  
+>     def trigger_rca_if_needed(self, exit_code: int, status: str):
+>         """
+>         Evaluates failure state and triggers automated RCA event if thresholds are met.
+>         Called inside run_cmd_full_cycle() after subprocess execution.
+>         """
+          # Define thresholds
+>         RCA_CONSECUTIVE_FAILURE_THRESHOLD = 3
+>         RCA_STAGNATION_THRESHOLD = 3
+>         RCA_SAFE_DEGRADE_OVERUSE_THRESHOLD = 3
+  
+>         rca_triggered = False
+>         reason = "none"
+>         initial_why = "none"
+>         methods = []
+>         patterns = []
+  
+          # Heuristic 1: Persistent Failure Loop
+>         if self.dt_consecutive_failures >= RCA_CONSECUTIVE_FAILURE_THRESHOLD:
+>             rca_triggered = True
+>             reason = "persistent_failure_loop"
+>             initial_why = f"Cycle failed {self.dt_consecutive_failures} times in a row (exit code {exit_code})."
+>             methods = ["5-whys", "timeline-analysis"]
+>             patterns = ["ml-training-guardrail", "iteration-budget"]
+  
+          # Heuristic 2: Stagnation (No Progress)
+>         elif self.iterations_without_progress >= RCA_STAGNATION_THRESHOLD:
+!             rca_triggered = True
+!             reason = "stagnation"
+!             initial_why = f"No progress detected for {self.iterations_without_progress} iterations."
+!             methods = ["5-whys", "value-stream-mapping"]
+!             patterns = ["governance-review", "circle-risk-focus"]
+  
+          # Heuristic 3: Safe Degrade Overuse
+>         elif self.safe_degrade_error_count >= RCA_SAFE_DEGRADE_OVERUSE_THRESHOLD:
+!             rca_triggered = True
+!             reason = "safe_degrade_overuse"
+!             initial_why = f"Safe degrade triggered {self.safe_degrade_error_count} times with errors."
+!             methods = ["5-whys", "fishbone"]
+!             patterns = ["safe-degrade", "iteration-budget"]
+  
+>         if rca_triggered:
+>             self._emit_rca_event(reason, initial_why, methods, patterns, exit_code)
+  
+>     def _emit_rca_event(self, reason: str, initial_why: str, methods: List[str], patterns: List[str], exit_code: int):
+>         """Helper to emit the actual retro_coach_run event."""
+>         emit_script = Path(__file__).resolve().parent.parent / "emit_metrics.py"
+>         metrics_log_path = self.project_root / ".goalie/metrics_log.jsonl"
+  
+>         cmd = [
+>             "python3", str(emit_script),
+>             "--event-type", "retro_coach_run",
+>             "--run-id", self.run_id,
+>             "--cycle-index", str(self.current_iteration),
+>             "--retro-exit-code", str(exit_code),
+>             "--log-file", str(metrics_log_path)
+>         ]
+  
+>         for m in methods:
+>             cmd.extend(["--retro-method", m])
+>         for p in patterns:
+>             cmd.extend(["--retro-design-pattern", p])
+  
+>         cmd.extend(["--retro-rca-why", initial_why])
+>         cmd.extend(["--retro-event-prototype", reason])
+  
+>         try:
+>             subprocess.run(cmd, check=False)
+>             print(f"\n[Governance] 🕵️ AUTOMATED RCA TRIGGERED: {reason}")
+>             print(f"[Governance] Context: {initial_why}")
+!         except Exception as e:
+!             print(f"[Governance] Failed to emit RCA event: {e}")
+  
+>     def _write_preflight_snapshot(self, context: Dict[str, Any]) -> None:
+>         """Persist a compact JSON snapshot of the guardrail state before iteration loop.
+  
+>         This is written once per run to .goalie/preflight_<run_id>.json so that
+>         we can later reconstruct what the system believed about itself at
+>         pre-flight time (incidents window, scores, autocommit flags, paths).
+>         """
+!         try:
+!             goalie_dir = self.project_root / ".goalie"
+!             goalie_dir.mkdir(parents=True, exist_ok=True)
+!             snapshot_path = goalie_dir / f"preflight_{self.run_id}.json"
+!             base_payload: Dict[str, Any] = {
+!                 "run_id": self.run_id,
+!                 "iteration": self.current_iteration,
+!                 "circle": self.active_circle,
+!                 "depth": self.current_depth,
+!                 "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+!                 "project_root": str(self.project_root),
+!                 "goalie_dir": str(goalie_dir),
+!             }
+!             base_payload.update(context)
+!             with snapshot_path.open("w", encoding="utf-8") as f:
+!                 json.dump(base_payload, f, ensure_ascii=False, indent=2)
+!         except Exception:
+              # Best-effort only; failures here must not break prod-cycle.
+!             pass
+  
+>     def check_safe_degrade(self) -> bool:
+>         """
+>         Pattern 1: Safe Degrade
+>         Prevents automated actions when system is stressed or risky.
+>         """
+!         incidents_file = self.project_root / "logs/governor_incidents.jsonl"
+!         recent_incidents = 0
+!         incident_tail: List[str] = []
+!         if incidents_file.exists():
+              # Time-window based filtering: count system_overload incidents in the last 10 minutes.
+!             try:
+!                 now = datetime.now(timezone.utc)
+!                 window = timedelta(minutes=10)
+!                 cutoff = now - window
+  
+!                 with open(incidents_file, "r") as f:
+                      # Read a reasonable tail; older entries are ignored via timestamp anyway.
+!                     lines = f.readlines()[-200:]
+  
+!                 incident_tail = [ln.strip() for ln in lines[-5:]]
+  
+!                 recent_incidents = 0
+!                 for line in lines:
+!                     stripped = line.strip()
+!                     if not stripped:
+!                         continue
+!                     try:
+!                         data = json.loads(stripped)
+!                     except json.JSONDecodeError:
+!                         continue
+  
+!                     reason = data.get("reason", "")
+!                     ts_str = data.get("timestamp")
+!                     if "system_overload" not in reason or not ts_str:
+!                         continue
+  
+!                     try:
+!                         ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+!                     except ValueError:
+!                         continue
+  
+!                     if ts >= cutoff:
+!                         recent_incidents += 1
+!             except Exception:
+!                 recent_incidents = 0
+  
+          # Persist recent incident count for downstream RCA metrics
+!         self.safe_degrade_recent_incidents_10m = recent_incidents
+  
+!         metrics_file = self.project_root / ".goalie/metrics_log.jsonl"
+!         avg_score_from_metrics: Optional[float] = None
+!         if metrics_file.exists():
+!             try:
+!                 with open(metrics_file, "r") as f:
+                      # Only consider a recent window for performance and relevance
+!                     lines = f.readlines()[-200:]
+  
+                  # First pass: prefer samples for the current run_id
+!                 for line in lines:
+!                     try:
+!                         data = json.loads(line)
+!                     except Exception:
+!                         continue
+!                     if data.get("run_id") != self.run_id:
+!                         continue
+!                     if "average_score" in data:
+!                         avg_score_from_metrics = data["average_score"]
+!                         break
+  
+                  # If we have no samples for this run, fall back to any recent samples
+!                 if avg_score_from_metrics is None:
+!                     for line in lines:
+!                         try:
+!                             data = json.loads(line)
+!                         except Exception:
+!                             continue
+!                         if "average_score" in data:
+!                             avg_score_from_metrics = data["average_score"]
+!                             break
+!             except Exception:
+!                 avg_score_from_metrics = None
+  
+!         if isinstance(avg_score_from_metrics, (int, float)):
+!             self.current_avg_score = float(avg_score_from_metrics)
+  
+!         avg_score = self.current_avg_score
+  
+          # Require a minimal baseline of score samples before enforcing the score guard.
+          # This prevents cold-start runs or sparse metrics from being blocked solely due
+          # to avg_score=0.0.
+!         has_metrics_baseline = avg_score_from_metrics is not None
+!         has_score_baseline = self.avg_score_samples >= 5 or has_metrics_baseline
+  
+          # Allow relaxing the score-based guard via env in dev/lab mode while keeping
+          # incident-based blocking intact.
+!         relax_score_guard = os.environ.get("AF_PROD_RELAX_SCORE_GUARD", "0") == "1"
+  
+!         is_unsafe_load = recent_incidents > SAFE_DEGRADE_THRESHOLD_INCIDENTS
+!         is_unsafe_score = (not relax_score_guard) and has_score_baseline and avg_score < SAFE_DEGRADE_THRESHOLD_SCORE
+  
+!         previously_active = self.safe_degrade_active_since is not None
+  
+!         if is_unsafe_load:
+!             self.safe_degrade_reason = f"high_system_load_incidents_{recent_incidents}"
+!             self.is_safe = False
+!         elif is_unsafe_score:
+!             self.safe_degrade_reason = f"low_risk_score_{avg_score}"
+!             self.is_safe = False
+!         else:
+!             self.safe_degrade_reason = "none"
+!             self.is_safe = True
+  
+!         if not self.is_safe:
+!             if not previously_active:
+!                 self.safe_degrade_active_since = self.current_iteration
+!             self.safe_degrade_triggers += 1
+!             self.safe_degrade_actions.append(self.safe_degrade_reason)
+!         elif previously_active and self.safe_degrade_active_since is not None:
+!             recovery = max(0, self.current_iteration - self.safe_degrade_active_since)
+!             self.safe_degrade_recovery_cycles.append(recovery)
+!             self.safe_degrade_active_since = None
+  
+          # Log event with explicit guardrail inputs for traceability
+!         self.telemetry.log_pattern_event({
+!             "run": "prod-cycle",
+!             "iteration": self.current_iteration,
+!             "circle": self.active_circle if self.active_circle else "pre-flight",
+!             "depth": self.current_depth,
+!             "pattern": "safe-degrade",
+!             "mode": "enforce",
+!             "mutation": not self.is_safe,
+!             "gate": "system-risk",
+!             "reason": self.safe_degrade_reason,
+!             "action": "disable-autocommit" if not self.is_safe else "allow-autocommit",
+!             "recent_incidents": recent_incidents,
+!             "incident_threshold": SAFE_DEGRADE_THRESHOLD_INCIDENTS,
+!             "average_score": avg_score,
+!             "score_threshold": SAFE_DEGRADE_THRESHOLD_SCORE,
+!             "incident_tail": incident_tail,
+!         })
+  
+          # Log guardrail-lock pattern event (schema v1.0 compliant)
+!         self.guardrail_lock_enforced = 1 if not self.is_safe else 0
+!         self.guardrail_lock_health = "degraded" if not self.is_safe else "healthy"
+!         self.telemetry.log_pattern_event({
+!             "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+!             "run": "prod-cycle",
+!             "run_id": self.run_id,
+!             "iteration": self.current_iteration,
+!             "circle": self.active_circle if self.active_circle else "orchestrator",
+!             "depth": self.current_depth,
+!             "pattern": "guardrail-lock",
+!             "mode": "enforcement" if not self.is_safe else "advisory",
+!             "mutation": not self.is_safe,
+!             "gate": "health",
+!             "framework": "",
+!             "scheduler": "",
+!             "tags": ["HPC"],
+!             "economic": {"cod": 5000.0 if not self.is_safe else 0.0, "wsjf_score": 5000.0 if not self.is_safe else 0.0},
+!             "enforced": self.guardrail_lock_enforced,
+!             "health_state": self.guardrail_lock_health,
+!             "user_requests": self.guardrail_lock_requests,
+!             "lock_reason": self.safe_degrade_reason,
+!         })
+  
+          # Increment observability metrics
+!         self.observability_metrics_written += 2  # safe-degrade + guardrail-lock
+  
+!         return self.is_safe
+  
+>     def determine_circle_focus(self):
+>         """
+>         Pattern 2: Circle Risk Focus
+>         Rotate focus or prioritize specific circle.
+>         """
+!         if self.args.circle:
+!             self.active_circle = self.args.circle
+!             mode = "fixed"
+!         elif self.args.rotate_circles:
+              # Round-robin
+!             idx = (self.current_iteration - 1) % len(CIRCLES)
+!             self.active_circle = CIRCLES[idx]
+!             mode = "rotate"
+!         else:
+!             self.active_circle = CIRCLES[0]
+!             mode = "default"
+  
+!         self.update_circle_roam_delta()
+  
+          # TODO: Implement Risk-Aware priority query here in future
+  
+          # Schema v1.0 compliant circle-risk-focus event
+!         self.telemetry.log_pattern_event({
+!             "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+!             "run": "prod-cycle",
+!             "run_id": self.run_id,
+!             "iteration": self.current_iteration,
+!             "circle": self.active_circle,
+!             "depth": self.current_depth,
+!             "pattern": "circle-risk-focus",
+!             "mode": "advisory",
+!             "mutation": False,
+!             "gate": "focus",
+!             "framework": "",
+!             "scheduler": "",
+!             "tags": [],
+!             "economic": {"cod": abs(self.circle_risk_roam_delta) * 10, "wsjf_score": abs(self.circle_risk_roam_delta)},
+!             "top_owner": self.active_circle,
+!             "extra_iterations": self.extensions_used,
+!             "roam_reduction": int(self.circle_risk_roam_delta),
+!         })
+!         self.observability_metrics_written += 1
+  
+>     def calculate_depth_ladder(self):
+>         """
+>         Pattern 8: Depth Ladder
+>         Adjust depth based on circle/risk.
+>         """
+!         base_depth = self.args.depth
+  
+!         if self.active_circle == "orchestrator":
+!             self.current_depth = base_depth + 1
+!         elif self.active_circle == "innovator":
+!             self.current_depth = base_depth
+!         elif self.active_circle == "assessor":
+!             self.current_depth = base_depth + 2
+!         else:
+!             self.current_depth = base_depth
+  
+!         self.telemetry.log_pattern_event({
+!             "run": "prod-cycle",
+!             "iteration": self.current_iteration,
+!             "circle": self.active_circle,
+!             "depth": self.current_depth,
+!             "pattern": "depth-ladder",
+!             "mode": "mutate",
+!             "mutation": self.current_depth != base_depth,
+!             "gate": "calibration",
+!             "reason": f"circle-{self.active_circle}",
+!             "action": f"set-depth-{self.current_depth}"
+!         })
+  
+>     def check_iteration_budget(self) -> bool:
+>         """
+>         Pattern 6: Iteration Budget
+>         Dynamic extension logic.
+>         """
+          # Check if we are at the limit
+!         if self.current_iteration > self.max_iterations:
+              # Check if we should extend
+              # Logic: If we are unsafe (autocommit disabled) but unfinished, maybe extend?
+              # Simplified: If unsafe, we might not have committed, so extend to try to finish cleanly?
+              # Design says: "If cycle completes successfully but 'unfinished business' remains... extend"
+  
+              # For this implementation, if we were forced to disable autocommit, we extend
+!             if not self.is_safe and self.extensions_used < self.max_extensions:
+!                 self.max_iterations += 1
+!                 self.extensions_used += 1
+  
+                  # Schema v1.0 compliant iteration-budget event
+!                 self.telemetry.log_pattern_event({
+!                     "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+!                     "run": "prod-cycle",
+!                     "run_id": self.run_id,
+!                     "iteration": self.current_iteration,
+!                     "circle": self.active_circle,
+!                     "depth": self.current_depth,
+!                     "pattern": "iteration-budget",
+!                     "mode": "enforcement",
+!                     "mutation": True,
+!                     "gate": "health",
+!                     "framework": "",
+!                     "scheduler": "",
+!                     "tags": [],
+!                     "economic": {"cod": 100.0, "wsjf_score": 50.0},
+!                     "requested": self.max_iterations - self.extensions_used,
+!                     "enforced": self.max_iterations,
+!                     "remaining": max(0, self.max_iterations - self.current_iteration),
+!                     "consumed": self.current_iteration,
+!                     "autocommit_runs": self.autocommit_runs,
+!                 })
+!                 self.observability_metrics_written += 1
+!                 return True # Continue
+!             else:
+!                 return False # Stop
+  
+!         return True # Continue
+  
+>     def _emit_metrics_event(self, args: List[str]):
+!         try:
+!             subprocess.run(args, check=False)
+!             self.observability_metrics_written += 1
+!         except Exception as exc:
+!             print(f"[Governance] Failed to emit metrics: {exc}")
+  
+>     def update_circle_roam_delta(self):
+!         cycle_log = self.project_root / ".goalie" / "cycle_log.jsonl"
+!         if not cycle_log.exists() or not self.active_circle:
+!             self.circle_risk_roam_delta = 0
+!             return
+  
+!         try:
+!             scores: List[float] = []
+!             with open(cycle_log, "r") as f:
+!                 for line in f:
+!                     line = line.strip()
+!                     if not line:
+!                         continue
+!                     try:
+!                         data = json.loads(line)
+!                     except json.JSONDecodeError:
+!                         continue
+!                     if data.get("circle") != self.active_circle:
+!                         continue
+!                     score = data.get("roam_score")
+!                     if isinstance(score, (int, float)):
+!                         scores.append(float(score))
+!             if len(scores) >= 2:
+!                 self.circle_risk_roam_delta = scores[-1] - scores[-2]
+!             else:
+!                 self.circle_risk_roam_delta = 0
+!         except Exception as exc:
+!             print(f"[Governance] Failed to compute ROAM delta: {exc}")
+!             self.circle_risk_roam_delta = 0
+  
+>     def export_env_metrics(self, env: Dict[str, str]):
+!         env["AF_PC_SAFE_DEGRADE_TRIGGERS"] = str(self.safe_degrade_triggers)
+!         env["AF_PC_SAFE_DEGRADE_ACTIONS"] = json.dumps(self.safe_degrade_actions[-10:])
+!         env["AF_PC_SAFE_DEGRADE_RECOVERY_CYCLES"] = json.dumps(self.safe_degrade_recovery_cycles[-10:])
+!         env["AF_PC_SAFE_DEGRADE_REASON"] = self.safe_degrade_reason
+  
+!         env["AF_PC_AUTOCOMMIT_RUNS"] = str(self.autocommit_runs)
+!         env["AF_PC_AUTOCOMMIT_SHADOW_MANUAL_OVERRIDE"] = str(self.autocommit_shadow_override)
+  
+!         env["AF_PC_CIRCLE_RISK_FOCUS_TOP_OWNER"] = self.active_circle or "unknown"
+!         env["AF_PC_CIRCLE_RISK_FOCUS_EXTRA_ITERATIONS"] = str(self.extensions_used)
+!         env["AF_PC_CIRCLE_RISK_FOCUS_ROAM_REDUCTION"] = str(self.circle_risk_roam_delta)
+  
+!         env["AF_PC_GUARDRAIL_LOCK_ENFORCED"] = str(self.guardrail_lock_enforced)
+!         env["AF_PC_GUARDRAIL_LOCK_HEALTH_STATE"] = self.guardrail_lock_health
+!         env["AF_PC_GUARDRAIL_LOCK_USER_REQUESTS"] = str(self.guardrail_lock_requests)
+  
+!         env["AF_PC_FAILURE_STRATEGY_MODE"] = self.last_failure_strategy_mode
+!         env["AF_PC_FAILURE_STRATEGY_ABORT_AT"] = str(self.last_failure_strategy_abort_at)
+!         env["AF_PC_FAILURE_STRATEGY_DEGRADE_REASON"] = self.last_failure_strategy_reason
+  
+!         env["AF_PC_ITERATION_BUDGET_ENFORCED"] = str(self.current_iteration)
+  
+!         env["AF_PC_OBSERVABILITY_METRICS_WRITTEN"] = str(self.observability_metrics_written)
+!         env["AF_PC_OBSERVABILITY_MISSING_SIGNALS"] = str(self.observability_missing_signals)
+!         env["AF_PC_OBSERVABILITY_SUGGESTION_MADE"] = str(self.observability_suggestions)
+  
+!         risk_distribution = {self.active_circle or "unknown": self.circle_risk_roam_delta}
+!         env["AF_PC_RISK_DISTRIBUTION"] = json.dumps(risk_distribution)
+!         env["AF_PC_CURRENT_RISK_SCORE"] = f"{self.current_avg_score:.3f}"
+!         env["AF_PC_RECENT_LOAD_INCIDENTS"] = str(self.safe_degrade_recent_incidents_10m)
+!         env["AF_PC_MAX_ITER"] = str(self.max_iterations)
+!         env["AF_PC_REQUESTED_ITERATIONS"] = str(self.max_iterations)
+  
+>     def load_governance_state(self) -> Dict[str, Any]:
+>         """Load persisted governance state from governance_state.json."""
+!         state_file = self.project_root / ".goalie" / "governance_state.json"
+!         if state_file.exists():
+!             try:
+!                 with open(state_file, "r") as f:
+!                     return json.load(f)
+!             except (json.JSONDecodeError, IOError):
+!                 pass
+  
+          # Default state with schema version
+!         return {
+!             "version": "1.1",
+!             "schema": {
+!                 "description": "Governance state for prod-cycle self-tuning",
+!                 "patterns": ["depth-ladder", "circle-rotation", "iteration-budget", "safe-degrade"],
+!                 "delta_evaluation": "SAFLA-weighted",
+!             },
+!             "depth_ladder": {"base_depth": DEFAULT_DEPTH},
+!             "circle_rotation": {"skipped_circles": [], "negative_delta_counts": {}},
+!             "iteration_budget": {"max_iterations": DEFAULT_ITERATIONS, "extensions_history": []},
+!             "safe_degrade": {"incident_threshold": SAFE_DEGRADE_THRESHOLD_INCIDENTS},
+!             "delta_history": [],
+!             "last_updated": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+!         }
+  
+>     def save_governance_state(self, state: Dict[str, Any]):
+>         """Persist governance state to governance_state.json."""
+!         state_file = self.project_root / ".goalie" / "governance_state.json"
+!         state["last_updated"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+          # Ensure version is always present
+!         if "version" not in state:
+!             state["version"] = "1.1"
+!         with open(state_file, "w") as f:
+!             json.dump(state, f, indent=2)
+  
+>     def adjust_parameters_from_retro(self):
+>         """
+>         Self-tune governance parameters based on retro feedback with SAFLA delta evaluation.
+  
+>         Adjustments:
+>         1. Depth Ladder: If circle shows stagnation, reduce depth by 1 (min: 2)
+>         2. Circle Rotation: If circle ROAM delta is negative for 3+ iterations, skip in next rotation
+>         3. Iteration Budget: If extensions_used > 2 in last 5 runs, increase max_iterations by 10%
+>         4. Safe Degrade Threshold: If safe_degrade_error_count > 5, increase incident threshold by 2
+  
+>         SAFLA Integration:
+>         - Calculate delta improvement before applying parameter changes
+>         - Only apply changes if Δ_total > DELTA_IMPROVEMENT_THRESHOLD
+>         - Track delta_history in governance_state.json for trend analysis
+>         - Emit governance_delta_evaluation events to metrics_log.jsonl
+  
+>         All adjustments are logged to pattern_metrics.jsonl with mutation=true for auditability.
+>         """
+!         state = self.load_governance_state()
+!         adjustments_made = 0
+!         timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+  
+          # Build current metrics snapshot for SAFLA delta evaluation
+          # Calculate throughput: successful iterations / total iterations
+          # Note: iterations_without_progress is reset to 0 on success, incremented on failure
+!         successful_iterations = self.current_iteration - self.iterations_without_progress
+!         throughput = successful_iterations / max(self.current_iteration, 1)
+  
+          # PROD-004: Dynamic capability tracking instead of static defaults
+!         capability_info = count_observed_capabilities(self.project_root, state)
+  
+!         current_metrics = {
+!             "reward": self.current_avg_score / 100.0,  # Normalize to [0, 1]
+!             "tokens_used": max(self.current_iteration, 1),
+!             "throughput": throughput,
+!             "resource_used": self.extensions_used + 1,
+!             "divergence_score": self.safe_degrade_error_count / 10.0,  # Normalize
+              # PROD-004: Use observed capabilities instead of adjustments_made
+!             "new_capabilities": capability_info["new_capabilities"],
+!             "total_capabilities": capability_info["total_capabilities"],
+!             "capability_breakdown": capability_info["breakdown"],
+!         }
+  
+          # Load previous metrics from delta_history (or use defaults)
+!         delta_history = state.get("delta_history", [])
+!         if delta_history:
+!             previous_metrics = delta_history[-1].get("metrics", {})
+!         else:
+!             previous_metrics = {
+!                 "reward": 0.5,
+!                 "tokens_used": 1,
+!                 "throughput": 0.5,
+!                 "resource_used": 1,
+!                 "divergence_score": 0.0,
+!                 "new_capabilities": 0,
+!                 "total_capabilities": BASELINE_TOTAL_CAPABILITIES,
+!             }
+  
+          # 1. Depth Ladder adjustment: Check for stagnation
+!         pattern_log = self.project_root / ".goalie" / "pattern_metrics.jsonl"
+!         stagnation_count = 0
+!         if pattern_log.exists():
+!             with open(pattern_log, "r") as f:
+!                 for line in f:
+!                     try:
+!                         event = json.loads(line.strip())
+!                         if event.get("detected_pattern") == "circle-stagnation":
+!                             stagnation_count += 1
+!                     except json.JSONDecodeError:
+!                         continue
+  
+!         current_depth = state.get("depth_ladder", {}).get("base_depth", DEFAULT_DEPTH)
+  
+          # PROD-002: Depth-Ladder Oscillation Detection
+          # Check for oscillation before allowing any depth changes
+!         depth_history = state.get("depth_ladder", {}).get("depth_history", [])
+!         depth_history.append(current_depth)
+          # Keep history bounded to 2x window for analysis
+!         depth_history = depth_history[-(OSCILLATION_WINDOW * 2):]
+!         state.setdefault("depth_ladder", {})["depth_history"] = depth_history
+  
+!         oscillation_result = detect_depth_oscillation(depth_history)
+!         last_oscillation_iter = state.get("depth_ladder", {}).get(
+!             "last_oscillation_adjustment_iter", -OSCILLATION_HYSTERESIS - 1
+!         )
+!         hysteresis_elapsed = (
+!             self.current_iteration - last_oscillation_iter
+!         ) >= OSCILLATION_HYSTERESIS
+  
+          # Log oscillation detection event regardless of action
+!         if oscillation_result["oscillating"]:
+!             self.telemetry.log_pattern_event({
+!                 "run": "governance-tuning",
+!                 "run_id": self.run_id,
+!                 "iteration": self.current_iteration,
+!                 "pattern": "depth-oscillation",
+!                 "detected_pattern": "depth-oscillation",
+!                 "mutation": False,
+!                 "oscillation": oscillation_result,
+!                 "hysteresis_elapsed": hysteresis_elapsed,
+!                 "gate": "oscillation-detection",
+!                 "reason": oscillation_result["pattern"],
+!                 "action": "detect-oscillation",
+!             })
+  
+          # Handle oscillation: stabilize depth if oscillation detected and hysteresis allows
+!         if oscillation_result["oscillating"] and hysteresis_elapsed:
+!             suggested = oscillation_result["suggested_depth"]
+!             if suggested != current_depth:
+!                 old_depth = current_depth
+!                 state["depth_ladder"]["base_depth"] = suggested
+!                 state["depth_ladder"]["last_oscillation_adjustment_iter"] = (
+!                     self.current_iteration
+!                 )
+!                 self.current_depth = suggested
+  
+!                 self.telemetry.log_pattern_event({
+!                     "run": "governance-tuning",
+!                     "run_id": self.run_id,
+!                     "iteration": self.current_iteration,
+!                     "pattern": "governance-tuning",
+!                     "detected_pattern": "depth-oscillation",
+!                     "mutation": True,
+!                     "reason": "oscillation-stabilization",
+!                     "adjustment": "depth-ladder-oscillation",
+!                     "old_value": old_depth,
+!                     "new_value": suggested,
+!                     "trigger": f"oscillation={oscillation_result['pattern']}",
+!                     "oscillation_details": oscillation_result,
+!                 })
+!                 adjustments_made += 1
+!                 print(
+!                     f"[Governance] Oscillation detected: Stabilizing depth "
+!                     f"{old_depth} → {suggested} (pattern: {oscillation_result['pattern']})"
+!                 )
+!         elif stagnation_count >= 3 and current_depth > 2 and not oscillation_result["oscillating"]:
+              # Original stagnation logic - only if NOT oscillating
+!             new_depth = current_depth - 1
+!             old_depth = current_depth
+!             state["depth_ladder"]["base_depth"] = new_depth
+!             self.current_depth = new_depth
+  
+!             self.telemetry.log_pattern_event({
+!                 "run": "governance-tuning",
+!                 "run_id": self.run_id,
+!                 "iteration": self.current_iteration,
+!                 "pattern": "governance-tuning",
+!                 "mutation": True,
+!                 "reason": "retro-feedback",
+!                 "adjustment": "depth-ladder",
+!                 "old_value": old_depth,
+!                 "new_value": new_depth,
+!                 "trigger": f"stagnation_count={stagnation_count}",
+!             })
+!             adjustments_made += 1
+!             print(f"[Governance] Tuning: Reduced depth {old_depth} → {new_depth} (stagnation detected)")
+  
+          # 2. Circle Rotation adjustment: Track negative ROAM deltas
+!         negative_counts = state.get("circle_rotation", {}).get("negative_delta_counts", {})
+!         if self.active_circle and self.circle_risk_roam_delta < 0:
+!             negative_counts[self.active_circle] = negative_counts.get(self.active_circle, 0) + 1
+!             state["circle_rotation"]["negative_delta_counts"] = negative_counts
+  
+              # Skip circle if negative for 3+ iterations
+!             if negative_counts.get(self.active_circle, 0) >= 3:
+!                 skipped = state["circle_rotation"].get("skipped_circles", [])
+!                 if self.active_circle not in skipped:
+!                     skipped.append(self.active_circle)
+!                     state["circle_rotation"]["skipped_circles"] = skipped
+  
+!                     self.telemetry.log_pattern_event({
+!                         "run": "governance-tuning",
+!                         "run_id": self.run_id,
+!                         "iteration": self.current_iteration,
+!                         "pattern": "governance-tuning",
+!                         "mutation": True,
+!                         "reason": "retro-feedback",
+!                         "adjustment": "circle-rotation-skip",
+!                         "old_value": None,
+!                         "new_value": self.active_circle,
+!                         "trigger": f"negative_roam_delta_count={negative_counts[self.active_circle]}",
+!                     })
+!                     adjustments_made += 1
+!                     print(f"[Governance] Tuning: Skipping circle '{self.active_circle}' (negative ROAM delta 3+ times)")
+  
+          # 3. Iteration Budget adjustment
+!         extensions_history = state.get("iteration_budget", {}).get("extensions_history", [])
+!         extensions_history.append(self.extensions_used)
+!         extensions_history = extensions_history[-5:]  # Keep last 5
+!         state["iteration_budget"]["extensions_history"] = extensions_history
+  
+!         recent_extensions = sum(extensions_history)
+!         current_max = state.get("iteration_budget", {}).get("max_iterations", DEFAULT_ITERATIONS)
+!         if recent_extensions > 10:  # More than 2 per run average over 5 runs
+!             new_max = int(current_max * 1.1)
+!             old_max = current_max
+!             state["iteration_budget"]["max_iterations"] = new_max
+  
+!             self.telemetry.log_pattern_event({
+!                 "run": "governance-tuning",
+!                 "run_id": self.run_id,
+!                 "iteration": self.current_iteration,
+!                 "pattern": "governance-tuning",
+!                 "mutation": True,
+!                 "reason": "retro-feedback",
+!                 "adjustment": "iteration-budget",
+!                 "old_value": old_max,
+!                 "new_value": new_max,
+!                 "trigger": f"recent_extensions_sum={recent_extensions}",
+!             })
+!             adjustments_made += 1
+!             print(f"[Governance] Tuning: Increased iteration budget {old_max} → {new_max} (extensions overused)")
+  
+          # 4. Safe Degrade threshold adjustment
+!         current_threshold = state.get("safe_degrade", {}).get("incident_threshold", SAFE_DEGRADE_THRESHOLD_INCIDENTS)
+!         if self.safe_degrade_error_count >= 5:
+!             new_threshold = current_threshold + 2
+!             old_threshold = current_threshold
+!             state["safe_degrade"]["incident_threshold"] = new_threshold
+  
+!             self.telemetry.log_pattern_event({
+!                 "run": "governance-tuning",
+!                 "run_id": self.run_id,
+!                 "iteration": self.current_iteration,
+!                 "pattern": "governance-tuning",
+!                 "mutation": True,
+!                 "reason": "retro-feedback",
+!                 "adjustment": "safe-degrade-threshold",
+!                 "old_value": old_threshold,
+!                 "new_value": new_threshold,
+!                 "trigger": f"safe_degrade_error_count={self.safe_degrade_error_count}",
+!             })
+!             adjustments_made += 1
+!             print(f"[Governance] Tuning: Increased safe-degrade threshold {old_threshold} → {new_threshold}")
+  
+          # PROD-004: Update capability count to include adjustments made this iteration
+          # This combines observed capabilities with new adjustments for delta calculation
+!         current_metrics["adjustments_this_iteration"] = adjustments_made
+!         current_metrics["new_capabilities"] += adjustments_made
+  
+          # SAFLA Delta Evaluation: Calculate improvement before saving
+!         delta_improvement = calculate_delta_improvement(current_metrics, previous_metrics)
+  
+          # Emit governance_delta_evaluation event to metrics_log.jsonl
+!         delta_event = {
+!             "event_type": "governance_delta_evaluation",
+!             "run_id": self.run_id,
+!             "iteration": self.current_iteration,
+!             "timestamp": timestamp,
+!             "delta_total": delta_improvement,
+!             "delta_threshold": DELTA_IMPROVEMENT_THRESHOLD,
+!             "above_threshold": delta_improvement > DELTA_IMPROVEMENT_THRESHOLD,
+!             "adjustments_proposed": adjustments_made,
+!             "current_metrics": current_metrics,
+!             "previous_metrics": previous_metrics,
+!             "safla_weights": SAFLA_WEIGHTS,
+!         }
+!         self.telemetry.log_metric(delta_event)
+  
+          # Log delta evaluation result
+!         if delta_improvement > DELTA_IMPROVEMENT_THRESHOLD:
+!             print(f"[Governance] SAFLA Δ={delta_improvement:.4f} > threshold={DELTA_IMPROVEMENT_THRESHOLD} ✓")
+!         else:
+!             print(f"[Governance] SAFLA Δ={delta_improvement:.4f} ≤ threshold={DELTA_IMPROVEMENT_THRESHOLD}")
+  
+          # Track delta_history in governance_state.json
+!         delta_entry = {
+!             "timestamp": timestamp,
+!             "run_id": self.run_id,
+!             "iteration": self.current_iteration,
+!             "delta_total": delta_improvement,
+!             "adjustments_made": adjustments_made,
+!             "metrics": current_metrics,
+!         }
+!         delta_history.append(delta_entry)
+          # Keep last 50 entries to prevent unbounded growth
+!         state["delta_history"] = delta_history[-50:]
+  
+          # Save updated state
+!         self.save_governance_state(state)
+  
+!         if adjustments_made > 0:
+!             print(f"[Governance] Made {adjustments_made} parameter adjustment(s)")
+  
+!         return adjustments_made
+  
+>     def run_iris_checks(self) -> None:
+>         """Invoke IRIS health/evaluate commands after each full-cycle iteration.
+  
+>         IRIS failures must never abort prod-cycle; they are logged as warnings.
+>         """
+!         af_script = Path(__file__).resolve().parent.parent / "af"
+!         if af_script.exists():
+!             base_cmd = [str(af_script)]
+!         else:
+!             base_cmd = ["af"]
+  
+!         env = os.environ.copy()
+!         env["AF_RUN_ID"] = self.run_id
+!         env["AF_RUN_KIND"] = "prod-cycle"
+!         env["AF_RUN_ITERATION"] = str(self.current_iteration)
+!         env["AF_CIRCLE"] = self.active_circle
+!         env["AF_DEPTH_LEVEL"] = str(self.current_depth)
+!         if self.environment:
+!             env["AF_IRIS_ENVIRONMENT"] = self.environment
+!             env["AF_ENVIRONMENT"] = self.environment
+  
+!         commands = [
+!             base_cmd + ["iris-health", "--log-goalie"],
+!             base_cmd + ["iris-evaluate", "--log-goalie"],
+!         ]
+  
+!         for cmd in commands:
+!             try:
+!                 print(f"[Governance] Running IRIS hook: {' '.join(cmd)}")
+!                 subprocess.run(cmd, env=env, check=False)
+!             except Exception as exc:
+!                 print(f"[Governance] IRIS hook failed but was ignored: {exc}")
+  
+>     def run_governance_agent(self) -> None:
+>         """Run governance agent for policy enforcement and recommendations.
+          
+>         Integrates governance agent TypeScript module to perform policy checks,
+>         generate recommendations, and emit governance-review pattern events.
+>         """
+!         gov_agent_script = self.project_root / "tools" / "federation" / "governance_agent.ts"
+!         if not gov_agent_script.exists():
+              # Gracefully skip if governance agent not available
+!             return
+  
+!         goalie_dir = self.project_root / ".goalie"
+!         env = os.environ.copy()
+!         env["AF_CIRCLE"] = self.active_circle or "governance"
+!         env["AF_DEPTH_LEVEL"] = str(self.current_depth)
+!         env["AF_RUN_ID"] = self.run_id
+!         env["AF_RUN_ITERATION"] = str(self.current_iteration)
+!         env["AF_PROD_CYCLE_MODE"] = "advisory" if self.args.dry_run else "enforcement"
+!         env["AF_CONTEXT"] = "prod-cycle"
+  
+          # Run governance agent with JSON output and prod-cycle context
+!         cmd = ["npx", "tsx", str(gov_agent_script), "--goalie-dir", str(goalie_dir), "--json", "--prod-cycle"]
+          
+!         print(f"[Governance] Running governance agent...")
+!         try:
+!             result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=60, check=False)
+              
+!             if result.returncode == 0 and result.stdout.strip():
+                  # Parse JSON output
+!                 try:
+!                     gov_data = json.loads(result.stdout)
+                      
+                      # Extract key metrics from governance agent output
+!                     policies_checked = len(gov_data.get("policies", []))
+!                     violations_found = len(gov_data.get("violations", []))
+!                     recommendations = len(gov_data.get("recommendations", []))
+!                     wsjf_priorities = len(gov_data.get("wsjfPriorities", []))
+                      
+                      # Emit governance-review pattern event (schema v1.0 compliant)
+!                     self.telemetry.log_pattern_event({
+!                         "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+!                         "run": "prod-cycle",
+!                         "run_id": self.run_id,
+!                         "iteration": self.current_iteration,
+!                         "circle": "governance",
+!                         "depth": 0,
+!                         "pattern": "governance-review",
+!                         "mode": "enforcement" if not self.args.dry_run else "advisory",
+!                         "behavioral_type": "enforcement",
+!                         "mutation": False,
+!                         "gate": "governance",
+!                         "framework": "",
+!                         "scheduler": "",
+!                         "tags": ["Federation"],
+!                         "economic": {
+!                             "cod": violations_found * 100.0, 
+!                             "wsjf_score": wsjf_priorities * 10.0 if wsjf_priorities else 0.0
+!                         },
+!                         "reason": "policy-enforcement-check",
+!                         "action": "review-complete",
+!                         "prod_mode": env["AF_PROD_CYCLE_MODE"],
+!                         "metrics": {
+!                             "policies_checked": policies_checked,
+!                             "violations_found": violations_found,
+!                             "recommendations": recommendations,
+!                             "wsjf_priorities": wsjf_priorities,
+!                             "auto_fixes_applied": 0,  # Reserved for future code fix proposal implementation
+!                         },
+!                     })
+                      
+!                     print(
+!                         f"[Governance] Policy enforcement: {policies_checked} policies checked, "
+!                         f"{violations_found} violations, {recommendations} recommendations"
+!                     )
+                      
+                      # Persist governance agent output for downstream consumers
+!                     gov_output_path = goalie_dir / f"governance_output_{self.run_id}_{self.current_iteration}.json"
+!                     with open(gov_output_path, "w") as f:
+!                         json.dump(gov_data, f, indent=2)
+                      
+!                 except json.JSONDecodeError as e:
+!                     print(f"[Governance] Warning: governance agent output was not valid JSON: {e}")
+!             elif result.returncode != 0:
+!                 print(f"[Governance] Warning: governance agent exited with code {result.returncode}")
+!                 if result.stderr:
+!                     print(f"[Governance] Governance agent stderr: {result.stderr[:200]}")
+                      
+!         except subprocess.TimeoutExpired:
+!             print("[Governance] Warning: governance agent timed out after 60s")
+!         except FileNotFoundError:
+!             print("[Governance] Warning: npx or tsx not found, skipping governance agent")
+!         except Exception as e:
+!             print(f"[Governance] Warning: governance agent failed: {e}")
+  
+>     def run_cmd_full_cycle(self):
+>         """
+>         Executes the `af full-cycle 1` command with appropriate environment variables.
+>         Handles Pattern 3 (Autocommit Shadow), Pattern 4 (Guardrail Lock), Pattern 5 (Failure Strategy).
+>         """
+  
+          # Setup Environment
+!         env = os.environ.copy()
+!         env["AF_RUN_ID"] = self.run_id
+!         env["AF_RUN_KIND"] = "prod-cycle"
+!         env["AF_RUN_ITERATION"] = str(self.current_iteration)
+!         env["AF_CIRCLE"] = self.active_circle
+!         env["AF_DEPTH_LEVEL"] = str(self.current_depth)
+!         if self.environment:
+!             env["AF_IRIS_ENVIRONMENT"] = self.environment
+!             env["AF_ENVIRONMENT"] = self.environment
+  
+          # Pattern 3: Autocommit Shadow
+!         if self.args.dry_run:
+!             env["AF_PROD_SHADOW_MODE"] = "1"
+  
+              # Log autocommit-shadow telemetry
+!             self.telemetry.log_pattern_event({
+!                 "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+!                 "run": "prod-cycle",
+!                 "run_id": self.run_id,
+!                 "iteration": self.current_iteration,
+!                 "circle": self.active_circle,
+!                 "depth": self.current_depth,
+!                 "pattern": "autocommit-shadow",
+!                 "mode": "shadow",
+!                 "mutation": False,
+!                 "gate": "commit",
+!                 "framework": "",
+!                 "scheduler": "",
+!                 "tags": ["Governance"],
+!                 "economic": {"cod": 0.0, "wsjf_score": 0.0},
+!                 "reason": "dry-run-enabled",
+!                 "action": "suppress-commit",
+!             })
+!             self.observability_metrics_written += 1
+  
+              # In shadow mode, we might want to disable actual commits in af or rely on af to handle shadow flag
+              # The design says: "If enabled, cmd_commit prints ... but does not run git commit"
+              # We pass this down via ENV.
+  
+          # Handle Autocommit Flag based on Safe Degrade
+!         if self.is_safe and self.args.autocommit and not self.args.dry_run:
+!             env["AF_FULL_CYCLE_AUTOCOMMIT"] = "1"
+!             env["AF_ALLOW_CODE_AUTOCOMMIT"] = "1"
+!         else:
+!             env["AF_FULL_CYCLE_AUTOCOMMIT"] = "0"
+!             env["AF_ALLOW_CODE_AUTOCOMMIT"] = "0"
+  
+!         self.observability_missing_signals = 0 if (self.project_root / ".goalie" / "pattern_metrics.jsonl").exists() else 1
+!         self.observability_suggestions = 1 if self.observability_missing_signals else 0
+  
+!         self.export_env_metrics(env)
+  
+          # Execute
+          # Calculate af script path relative to this script
+          # This script: .../scripts/policy/governance.py
+          # af script: .../scripts/af
+!         af_script = Path(__file__).resolve().parent.parent / "af"
+  
+!         if af_script.exists():
+!             cmd = [str(af_script), "full-cycle", "1"]
+!         else:
+              # Fallback to PATH or assume 'af' is available
+!             cmd = ["af", "full-cycle", "1"]
+  
+!         print(f"\n[Governance] Running Cycle {self.current_iteration}/{self.max_iterations} | Circle: {self.active_circle} | Depth: {self.current_depth} | Safe: {self.is_safe}")
+  
+          # Emit 'Action' Metric
+!         emit_script = (
+!             Path(__file__).resolve().parent.parent / "emit_metrics.py"
+!         )
+!         metrics_log_path = self.project_root / ".goalie/metrics_log.jsonl"
+  
+          # Pre-action emit
+!         self._emit_metrics_event([
+!             "python3", str(emit_script),
+!             "--event-type", "action",
+!             "--run-id", self.run_id,
+!             "--cycle-index", str(self.current_iteration),
+!             "--command", "full-cycle",
+!             "--target", str(self.current_iteration),
+!             "--log-file", str(metrics_log_path)
+!         ])
+  
+!         start_time = time.time()
+!         return_code = 0
+!         try:
+              # Pattern 5: Failure Strategy - Retry Logic could be wrapped here
+              # Design says: "Retry: If af test fails... retry once."
+              # But af full-cycle calls af test. We can't easily intercept just the test part unless we break down full-cycle.
+              # For now, we run full-cycle. If it fails (return code != 0), we log it.
+  
+!             subprocess.run(cmd, env=env, check=True)
+!             status = "success"
+!         except subprocess.CalledProcessError as e:
+!             status = "failure"
+!             return_code = e.returncode
+!             print(f"[Governance] Cycle failed with exit code {e.returncode}")
+  
+              # Treat full-cycle failure as a dt_dataset_build failure for RCA seed purposes.
+!             self.dt_consecutive_failures += 1
+  
+              # Pattern 5: Failure Strategy - Abort on critical failure?
+              # For MVP, we log and continue to next iteration unless it's catastrophic.
+!             self.telemetry.log_pattern_event({
+!                 "run": "prod-cycle",
+!                 "iteration": self.current_iteration,
+!                 "circle": self.active_circle,
+!                 "depth": self.current_depth,
+!                 "pattern": "failure-strategy",
+!                 "mode": "enforce",
+!                 "behavioral_type": "advisory",
+!                 "mutation": False,
+!                 "gate": "cycle-execution",
+!                 "reason": f"exit-code-{e.returncode}",
+!                 "action": "log-failure"
+!             })
+  
+!         self.update_rca_counters(status)
+!         self.trigger_rca_if_needed(return_code, status)
+  
+!         if status == "success":
+              # Reset simple RCA counters when the cycle succeeds.
+!             self.dt_consecutive_failures = 0
+              # iterations_without_progress is handled in update_rca_counters
+  
+!         duration = time.time() - start_time
+!         duration_ms = int(duration * 1000)
+  
+          # Composite reward components
+          # success_term: +1 for success, -1 for failure, 0 otherwise
+!         success_term = 1.0 if status == "success" else -1.0
+  
+          # duration_term: shorter durations are better; normalize by simple heuristic
+          # Map duration_ms into roughly [-1, 1] using a soft scale around 60s
+!         scale_ms = 60000.0
+!         dur_norm = max(min(1.0 - (duration_ms / scale_ms), 1.0), -1.0)
+!         duration_term = dur_norm
+  
+          # roam_term: future hook for ROAM/risk reduction; currently derived from
+          # change in governor risk score when available (placeholder 0.0 here).
+!         roam_term = 0.0
+  
+!         reward_value = (
+!             1.0 * float(success_term)
+!             + 0.2 * float(duration_term)
+!             + 0.3 * float(roam_term)
+!         )
+  
+          # Emit 'Reward' Metric with composite reward schema
+!         self._emit_metrics_event([
+!             "python3", str(emit_script),
+!             "--event-type", "reward",
+!             "--run-id", self.run_id,
+!             "--cycle-index", str(self.current_iteration),
+!             "--duration-ms", str(duration_ms),
+!             "--status", status,
+!             "--reward-success-term", str(success_term),
+!             "--reward-duration-term", str(duration_term),
+!             "--reward-roam-term", str(roam_term),
+!             "--log-file", str(metrics_log_path)
+!         ])
+  
+          # Log Cycle Metrics via emit_metrics.py (State Event)
+!         state_args = [
+!             "python3", str(emit_script),
+!             "--event-type", "state",
+!             "--run-id", self.run_id,
+!             "--cycle-index", str(self.current_iteration),
+!             "--circle", self.active_circle,
+!             "--depth", str(self.current_depth),
+!             "--safe-degrade-triggers", str(self.safe_degrade_triggers),
+!             "--safe-degrade-actions", json.dumps(self.safe_degrade_actions[-10:]),
+!             "--safe-degrade-recovery-cycles", json.dumps(self.safe_degrade_recovery_cycles[-10:]),
+!             "--circle-risk-focus-top-owner", self.active_circle,
+!             "--circle-risk-focus-extra-iterations", str(self.extensions_used),
+!             "--circle-risk-focus-roam-reduction", str(self.circle_risk_roam_delta),
+!             "--autocommit-shadow-manual-override", str(self.autocommit_shadow_override),
+!             "--guardrail-lock-enforced", str(self.guardrail_lock_enforced),
+!             "--guardrail-lock-health-state", self.guardrail_lock_health,
+!             "--guardrail-lock-user-requests", str(self.guardrail_lock_requests),
+!             "--failure-strategy-mode", "degrade-and-continue" if status == "failure" else self.last_failure_strategy_mode,
+!             "--failure-strategy-abort-iteration-at", str(self.current_iteration if status == "failure" else self.last_failure_strategy_abort_at),
+!             "--failure-strategy-degrade-reason", f"exit-code-{return_code}" if status == "failure" else self.last_failure_strategy_reason,
+!             "--iteration-budget-requested", str(self.max_iterations),
+!             "--iteration-budget-enforced", str(self.current_iteration),
+!             "--iteration-budget-autocommit-runs", str(self.autocommit_runs),
+!             "--observability-first-metrics-written", str(self.observability_metrics_written),
+!             "--observability-first-missing-signals", str(self.observability_missing_signals),
+!             "--observability-first-suggestion-made", str(self.observability_suggestions),
+!             "--dt-consecutive-failures", str(self.dt_consecutive_failures),
+!             "--dt-consecutive-failures-threshold-reached", "1" if self.dt_consecutive_failures >= 3 else "0",
+!             "--retro-coach-consecutive-nonzero", str(self.retro_coach_consecutive_nonzero),
+!             "--retro-coach-consecutive-nonzero-threshold-reached", "1" if self.retro_coach_consecutive_nonzero >= 2 else "0",
+!             "--emit-metrics-retry-attempts", str(self.emit_metrics_retry_attempts),
+!             "--emit-metrics-retry-burst-threshold-reached", "1" if self.emit_metrics_retry_attempts >= 5 else "0",
+!             "--iterations-without-progress", str(self.iterations_without_progress),
+!             "--prod-cycle-stagnation-threshold-reached", "1" if self.iterations_without_progress >= 2 else "0",
+!             "--safe-degrade-error-count", str(self.safe_degrade_error_count),
+!             "--safe-degrade-overuse-flag", "1" if self.safe_degrade_error_count >= 3 else "0",
+!             "--errors-by-circle", json.dumps({}),
+!             "--errors-by-pattern", json.dumps({}),
+!             "--retro-coach-exit-code-histogram", json.dumps({}),
+!             "--vsix-telemetry-gap-count", str(self.vsix_telemetry_gap_count),
+!             "--vsix-telemetry-gap-threshold-reached", "1" if self.vsix_telemetry_gap_count >= 2 else "0",
+!             "--rca-safe-degrade-recent-incidents-10m", str(self.safe_degrade_recent_incidents_10m),
+!             "--risk-score", f"{self.current_avg_score:.3f}",
+!             "--average-score", f"{self.current_avg_score:.3f}",
+!             "--recent-incidents", str(self.safe_degrade_recent_incidents_10m),
+!             "--log-file", str(metrics_log_path)
+!         ]
+!         self._emit_metrics_event(state_args)
+!         self.record_score_sample(reward_value)
+  
+          # Emit DT-compatible training record (Phase 2: Decision Transformer Integration)
+!         self._emit_dt_training_record(reward_value, status, duration_ms)
+  
+>     def _emit_dt_training_record(self, reward_value: float, status: str, duration_ms: int):
+>         """Emit a structured JSON log line for Decision Transformer training.
+  
+>         Format follows DT state-action-reward tuple requirements:
+>         - timestamp: ISO8601
+>         - cycle_id: prod-cycle-N
+>         - patterns: aggregated pattern metrics
+>         - iteration_budget: allocation state
+>         - wip_violations: count
+>         - roam_risk_delta: trend indicator
+>         """
+!         dt_log_path = self.project_root / ".goalie" / "dt_training_data_live.jsonl"
+!         timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+  
+!         dt_record = {
+!             "timestamp": timestamp,
+!             "cycle_id": f"prod-cycle-{self.current_iteration}",
+!             "run_id": self.run_id,
+!             "status": status,
+!             "reward": reward_value,
+!             "duration_ms": duration_ms,
+!             "patterns": {
+!                 "depth-ladder": {
+!                     "triggers": self.depth_ladder_triggers if hasattr(self, 'depth_ladder_triggers') else 0,
+!                     "depth_reached": self.current_depth
+!                 },
+!                 "safe-degrade": {
+!                     "triggers": self.safe_degrade_triggers,
+!                     "fallback_used": self.safe_degrade_actions[-1] if self.safe_degrade_actions else None
+!                 },
+!                 "circle-risk-focus": {
+!                     "high_risk_tasks": self.extensions_used,
+!                     "active_circle": self.active_circle
+!                 },
+!                 "autocommit_shadow": {
+!                     "cycles_before_confidence": getattr(self, 'autocommit_shadow_confidence_cycles', 0),
+!                     "candidates": getattr(self, 'autocommit_shadow_candidates', 0)
+!                 }
+!             },
+!             "iteration_budget": {
+!                 "allocated": self.max_iterations,
+!                 "consumed": self.current_iteration,
+!                 "remaining": self.max_iterations - self.current_iteration
+!             },
+!             "wip_violations": getattr(self, 'wip_violations', 0),
+!             "roam_risk_delta": self.circle_risk_roam_delta,
+!             "governor_health": {
+!                 "status": self.guardrail_lock_health,
+!                 "risk_score": self.current_avg_score,
+!                 "throttle_active": getattr(self, 'throttle_active', False)
+!             }
+!         }
+  
+!         try:
+!             with open(dt_log_path, "a") as f:
+!                 f.write(json.dumps(dt_record) + "\n")
+!         except Exception:
+              # DT logging should never break prod-cycle
+!             pass
+  
+>     def record_score_sample(self, reward_value: float):
+!         normalized = max(0.0, min(100.0, reward_value * 100.0))
+!         self.avg_score_samples += 1
+!         if self.avg_score_samples == 1:
+!             self.current_avg_score = normalized
+!             return
+  
+!         smoothing = 0.35
+!         self.current_avg_score = (
+!             (1.0 - smoothing) * self.current_avg_score + smoothing * normalized
+!         )
+  
+>     def run(self):
+!         print(f"Starting Prod-Cycle (Run ID: {self.run_id})")
+  
+          # Persist last_run_id for downstream tools (e.g., run_dossier helper)
+!         try:
+!             goalie_dir = self.project_root / ".goalie"
+!             goalie_dir.mkdir(parents=True, exist_ok=True)
+!             last_run_path = goalie_dir / "last_run_id"
+!             last_run_path.write_text(self.run_id + "\n", encoding="utf-8")
+!         except Exception:
+              # Best-effort only; must not break prod-cycle
+!             pass
+  
+          # Strict Pre-Flight Gate for PI Sync
+!         if not self.args.force:
+!             self.check_safe_degrade()
+!             if not self.is_safe:
+                  # Best-effort pre-flight snapshot for blocked runs
+!                 self._write_preflight_snapshot({
+!                     "safe_degrade_reason": self.safe_degrade_reason,
+!                     "safe_degrade_triggers": self.safe_degrade_triggers,
+!                     "safe_degrade_actions": self.safe_degrade_actions[-10:],
+!                     "guardrail": "safe-degrade",
+!                     "incident_threshold": SAFE_DEGRADE_THRESHOLD_INCIDENTS,
+!                     "score_threshold": SAFE_DEGRADE_THRESHOLD_SCORE,
+!                 })
+!                 print(f"[Governance] CRITICAL: System Health Check FAILED ({self.safe_degrade_reason}).")
+!                 print("[Governance] Execution BLOCKED for PI Sync stability.")
+!                 print("[Governance] Exiting before iteration loop; reason=" + self.safe_degrade_reason)
+!                 print("[Governance] Use --force to override (NOT RECOMMENDED).")
+  
+                  # Optional: generate a run dossier for investigations if enabled
+!                 if os.environ.get("AF_PROD_DOSSIER") == "1":
+!                     try:
+!                         subprocess.run(
+!                             [
+!                                 sys.executable,
+!                                 str(self.project_root / "scripts/analysis/run_dossier.py"),
+!                                 "--run-id",
+!                                 self.run_id,
+!                                 "--summary",
+!                                 "--output",
+!                                 str(goalie_dir / f"run_dossier_{self.run_id}.json"),
+!                             ],
+!                             check=False,
+!                         )
+!                     except Exception:
+                          # Best-effort only
+!                         pass
+!                 sys.exit(1)
+!             print("[Governance] System Health Check: GREEN")
+  
+!         print(
+!             f"[Governance] Starting iteration loop | iterations={self.max_iterations} "
+!             f"| start_circle={self.active_circle} | force={self.args.force}"
+!         )
+  
+!         while self.check_iteration_budget():
+              # R-001: Proactive Admission Control
+!             if not self.admission.check_admission():
+!                 continue
+  
+!             print(
+!                 f"[Governance] Iteration {self.current_iteration}/{self.max_iterations} "
+!                 f"| safe={self.is_safe} | circle={self.active_circle or 'unknown'}"
+!             )
+              # Pre-flight checks
+!             self.check_safe_degrade()
+!             self.determine_circle_focus()
+!             self.calculate_depth_ladder()
+  
+              # Lightweight telemetry for long-running batches
+!             self.log_progress()
+  
+              # Execute
+!             self.run_cmd_full_cycle()
+!             self.run_iris_checks()
+  
+              # Run governance agent for policy enforcement and recommendations
+!             self.run_governance_agent()
+  
+              # Self-tune governance parameters based on retro feedback
+              # This implements closed-loop production maturity adjustment
+!             self.adjust_parameters_from_retro()
+  
+              # Log observability-first event (schema v1.0) for this iteration
+!             self.telemetry.log_pattern_event({
+!                 "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+!                 "run": "prod-cycle",
+!                 "run_id": self.run_id,
+!                 "iteration": self.current_iteration,
+!                 "circle": self.active_circle if self.active_circle else "orchestrator",
+!                 "depth": self.current_depth,
+!                 "pattern": "observability-first",
+!                 "mode": "advisory",
+!                 "mutation": False,
+!                 "gate": "health",
+!                 "framework": "",
+!                 "scheduler": "",
+!                 "tags": ["Federation"],
+!                 "economic": {"cod": 0.0, "wsjf_score": 0.0},
+!                 "metrics_written": self.observability_metrics_written,
+!                 "missing_signals": self.observability_missing_signals,
+!                 "suggestion_made": self.observability_suggestions,
+!             })
+  
+              # Increment
+!             self.current_iteration += 1
+  
+!         print("Prod-Cycle Complete.")
+!         self.telemetry.log_metric({
+!              "run_id": self.run_id,
+!              "event": "completion",
+!              "total_iterations": self.current_iteration - 1,
+!              "extensions_used": self.extensions_used
+!         })
+  
+          # Optional: generate a run dossier for completed runs if enabled
+!         if os.environ.get("AF_PROD_DOSSIER") == "1":
+!             try:
+!                 goalie_dir = self.project_root / ".goalie"
+!                 subprocess.run(
+!                     [
+!                         sys.executable,
+!                         str(self.project_root / "scripts/analysis/run_dossier.py"),
+!                         "--run-id",
+!                         self.run_id,
+!                         "--summary",
+!                         "--output",
+!                         str(goalie_dir / f"run_dossier_{self.run_id}.json"),
+!                     ],
+!                     check=False,
+!                 )
+!             except Exception:
+                  # Best-effort only
+!                 pass
+  
+> def main():
+!     parser = argparse.ArgumentParser(description="Agentic Flow Governance Middleware")
+!     parser.add_argument("--iterations", type=int, default=DEFAULT_ITERATIONS, help="Number of cycles")
+!     parser.add_argument("--depth", type=int, default=DEFAULT_DEPTH, help="Base depth level")
+!     parser.add_argument("--circle", type=str, help="Focus on specific circle")
+!     parser.add_argument("--rotate-circles", action="store_true", default=True, help="Enable circle rotation")
+!     parser.add_argument("--no-rotate-circles", action="store_false", dest="rotate_circles")
+!     parser.add_argument("--autocommit", action="store_true", default=True, help="Enable autocommit")
+!     parser.add_argument("--no-autocommit", action="store_false", dest="autocommit")
+!     parser.add_argument("--dry-run", "--shadow", action="store_true", help="Shadow mode (no commits)")
+!     parser.add_argument("--force", action="store_true", help="Bypass pre-flight checks")
+!     parser.add_argument("--environment", type=str, help="Logical environment name (e.g. prod, staging)")
+  
+      # Handle env var overrides
+!     if os.environ.get("AF_PROD_ITERATIONS"):
+!         sys.argv.append(f"--iterations={os.environ['AF_PROD_ITERATIONS']}")
+!     if os.environ.get("AF_PROD_DEPTH"):
+!         sys.argv.append(f"--depth={os.environ['AF_PROD_DEPTH']}")
+!     if os.environ.get("AF_PROD_CIRCLE"):
+!         sys.argv.append(f"--circle={os.environ['AF_PROD_CIRCLE']}")
+!     if os.environ.get("AF_PROD_AUTOCOMMIT") == "0":
+!         sys.argv.append("--no-autocommit")
+!     if os.environ.get("AF_PROD_SHADOW_MODE") == "1":
+!         sys.argv.append("--dry-run")
+  
+!     args, unknown = parser.parse_known_args()
+  
+      # Find project root by searching for .goalie
+!     script_path = Path(__file__).resolve()
+!     project_root = script_path.parent
+  
+      # Search upwards for .goalie
+!     while project_root != project_root.parent:
+!         if (project_root / ".goalie").exists():
+!             break
+!         project_root = project_root.parent
+!     else:
+          # Fallback to CWD if not found
+!         project_root = Path(os.getcwd())
+  
+!     middleware = GovernanceMiddleware(args, project_root)
+!     middleware.run()
+  
+> if __name__ == "__main__":
+!     main()

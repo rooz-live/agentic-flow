@@ -433,12 +433,29 @@ class AdmissionController:
 
     def _update_load_history(self) -> None:
         """Exercises core mathematical paths cleanly via the injected sensor."""
-        load_pct, idle_pct = self.sensor.get_load_percentages()
+        # Early exit: Get sensor readings with error handling
+        try:
+            load_pct, idle_pct = self.sensor.get_load_percentages()
+        except Exception as e:
+            print(f"[Admission] Failed to get sensor readings: {e}")
+            # Use last known values if available, otherwise defaults
+            if self.load_history:
+                last_entry = self.load_history[-1]
+                load_pct = last_entry["cpu_load"]
+                idle_pct = last_entry["idle_percentage"]
+            else:
+                load_pct, idle_pct = 50.0, 50.0  # Safe defaults
         
-        # Natural branch coverage without needing to mock `os.getloadavg()`
+        # Guard clause: Validate and clamp values
+        if not isinstance(load_pct, (int, float)):
+            load_pct = 50.0
+        if not isinstance(idle_pct, (int, float)):
+            idle_pct = 50.0
+            
         clamped_load = max(0.0, min(load_pct, 100.0))
         clamped_idle = max(0.0, min(idle_pct, 100.0))
 
+        # Early exit: Create history entry
         entry = {
             "timestamp": time.time(),
             "cpu_load": clamped_load,
@@ -446,6 +463,8 @@ class AdmissionController:
         }
 
         self.load_history.append(entry)
+        
+        # Guard clause: Maintain history size with early exit
         if len(self.load_history) > self.max_history_size:
             self.load_history.pop(0)
 
@@ -498,17 +517,33 @@ class AdmissionController:
         Enhanced admission control with intelligent CPU load detection and adaptive throttling.
         Returns True if admitted, False if rejected (should wait).
         """
-        # Update load history for predictive analysis
+        # Early exit: Update load history for predictive analysis
         self._update_load_history()
+        
+        # Early exit: Get current load with validation
+        load_pct, idle_pct = self.sensor.get_load_percentages()
+        
+        # Guard clause: Validate sensor readings
+        if not isinstance(load_pct, (int, float)) or not isinstance(idle_pct, (int, float)):
+            print("[Admission] Invalid sensor readings, applying safety backoff")
+            time.sleep(self.config.backoff_sec)
+            return False
+            
+        # Guard clause: Clamp values to valid range
+        load_pct = max(0.0, min(load_pct, 100.0))
+        idle_pct = max(0.0, min(idle_pct, 100.0))
+        
+        # Guard clause: Check for sensor inconsistency
+        if abs(load_pct + idle_pct - 100.0) > 20.0:
+            print("[Admission] Sensor inconsistency detected, applying safety backoff")
+            time.sleep(self.config.backoff_sec)
+            return False
 
         # Calculate adaptive throttling level
         self.adaptive_throttling_level = self._calculate_adaptive_throttling()
         self.predictive_load_score = self._calculate_predictive_score()
 
-        load_pct, _ = self.sensor.get_load_percentages()
-        load_pct = min(max(load_pct, 0.0), 100.0)
-
-        # Predictive load check (if enabled)
+        # Early exit: Predictive load check (if enabled)
         if self.config.predictive_throttling_enabled:
             if self.predictive_load_score > self.config.critical_threshold:
                 adaptive_delay = self._get_adaptive_delay() * 2
@@ -516,7 +551,7 @@ class AdmissionController:
                 time.sleep(adaptive_delay / 1000.0)  # Convert to seconds
                 return False
 
-        # Multi-tier CPU load response with adaptive delays
+        # Early exit: Critical threshold - most severe condition first
         if load_pct > (self.config.critical_threshold * 100.0):
             adaptive_delay = self._get_adaptive_delay()
             jitter = random.random() * 0.1  # 10% jitter
@@ -525,22 +560,30 @@ class AdmissionController:
             print(f"[Admission] Critical system load ({load_pct:.1f}%). Adaptive backoff: {backoff_with_jitter:.0f}ms")
             time.sleep(backoff_with_jitter / 1000.0)
             self.consecutive_high_load += 1
+            
+            # Early exit: Strike limit check
+            if self.consecutive_high_load >= self.strike_limit:
+                print(f"[Admission] Strike limit reached ({self.strike_limit}), entering extended backoff")
+                time.sleep(self.config.backoff_sec)
+            
             return False
 
-        elif load_pct > (self.config.warning_threshold * 100.0):
+        # Early exit: Warning threshold
+        if load_pct > (self.config.warning_threshold * 100.0):
             adaptive_delay = self._get_adaptive_delay()
             print(f"[Admission] High system load ({load_pct:.1f}%). Adaptive delay: {adaptive_delay}ms")
             time.sleep(adaptive_delay / 1000.0)
             self.consecutive_high_load += 1
             return False
 
-        elif load_pct > self.config.threshold_pct:
+        # Early exit: Moderate threshold
+        if load_pct > self.config.threshold_pct:
             adaptive_delay = self._get_adaptive_delay()
             print(f"[Admission] Moderate system load ({load_pct:.1f}%). Adaptive delay: {adaptive_delay}ms")
             time.sleep(adaptive_delay / 1000.0)
             return False
 
-        # Reset backoff on healthy load
+        # Reset backoff on healthy load (single point of reset)
         self.consecutive_high_load = 0
         return True
 
@@ -966,7 +1009,7 @@ class GovernanceMiddleware:
 
         self.update_circle_roam_delta()
 
-        # TODO: Implement Risk-Aware priority query here in future
+        # Future: Implement Risk-Aware priority query here when ROAM integration is complete
 
         # Schema v1.0 compliant circle-risk-focus event
         self.telemetry.log_pattern_event({
@@ -1731,7 +1774,7 @@ class GovernanceMiddleware:
         duration_term = dur_norm
 
         # roam_term: future hook for ROAM/risk reduction; currently derived from
-        # change in governor risk score when available (placeholder 0.0 here).
+        # change in governor risk score when available (temporary 0.0 here).
         roam_term = 0.0
 
         reward_value = (

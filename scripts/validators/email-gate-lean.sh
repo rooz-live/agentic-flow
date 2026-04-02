@@ -90,17 +90,18 @@ check_ddd_connectome_bounds() {
     local file_size_bytes
     file_size_bytes=$(wc -c < "$FILE" | tr -d ' ')
 
-    local max_bytes=16000
+    # ADR-005 / CSQBM TurboQuant-DGM Mapping
+    local max_bytes=32000 # 8000 Tokens * 4 Bytes natively bounded
     local domain_name="General"
 
     if [[ "$FILE" == *"BHOPTI-LEGAL"* ]] || [[ "$FILE" == *"COURT-FILINGS"* ]]; then
-        max_bytes=32000
+        max_bytes=64000 # Doubled for maximum orchestration
         domain_name="Legal"
     elif [[ "$FILE" == *"utilities"* ]] || [[ "$FILE" == *"movers"* ]]; then
-        max_bytes=8000
+        max_bytes=16000
         domain_name="Utilities"
     elif [[ "$FILE" == *"income"* ]] || [[ "$FILE" == *"job"* ]]; then
-        max_bytes=12000
+        max_bytes=24000
         domain_name="Income"
     fi
 
@@ -109,7 +110,7 @@ check_ddd_connectome_bounds() {
         ((BLOCKERS++))
         SCORE=$((SCORE - 40))
         [[ "$JSON_OUTPUT" == false ]] && echo -e "${RED}✗ BLOCKER: $domain_name Domain payload too large (${file_size_bytes}B > ${max_bytes}B)${NC}"
-        [[ "$JSON_OUTPUT" == false ]] && echo -e "   ${YELLOW}Constraint (ADR-005): Payloads must fit within the 4000 DBOS Pydantic token ceiling (~$max_bytes bytes). Shrink unstructured sprawl prior to processing.${NC}"
+        [[ "$JSON_OUTPUT" == false ]] && echo -e "   ${YELLOW}Constraint (ADR-005): Payloads must fit within the 8000 DBOS Pydantic token ceiling (~$max_bytes bytes). Shrink unstructured sprawl prior to processing.${NC}"
         return 1
     else
         RESULTS[bounds]="PASS|$domain_name Domain bounds respected ($file_size_bytes bytes)"

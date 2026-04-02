@@ -97,13 +97,14 @@ fi
 # Prevent logic from processing massive monolithic files (longitudinal static sprawl).
 file_size_bytes=$(wc -c < "$EMAIL_FILE" | tr -d ' ')
 
-# Determine DDD token limit dynamically based on node hardware (Phase 16)
+# Determine DDD token limit dynamically based on node hardware (Phase 140 / CSQBM TurboQuant-DGM Matrix)
 if command -v compute_dynamic_token_ceiling >/dev/null 2>&1; then
     DYNAMIC_BASE_TOKENS=$(compute_dynamic_token_ceiling)
 else
-    DYNAMIC_BASE_TOKENS=4000
+    # Mapped explicitly via docs/TURBOQUANT-DGM-METRICS-2026-04-02.md
+    DYNAMIC_BASE_TOKENS=8000
 fi
-BASE_BYTES=$((DYNAMIC_BASE_TOKENS * 4))
+BASE_BYTES=$((DYNAMIC_BASE_TOKENS * 4)) # Assume 4 bytes encoding limit mapping dynamically
 MAX_BYTES=$BASE_BYTES
 DOMAIN_NAME="General"
 

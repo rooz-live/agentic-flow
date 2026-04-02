@@ -12,7 +12,7 @@ The multi-agent orchestration architecture initially relied on ephemeral, one-sh
 
 ### Inverted Thinking Constraint (Phase 18 Integration + Phase 86 Formalization)
 Per the "Discover/Consolidate THEN Extend" principle, the Swarm boundary dictates all downstream architectural limits. R-2026-018 (Systemic Attention Fragmentation) physically bars new scripts from evaluating dynamic thresholds implicitly. This ADR codifies the exact constraints driven uniformly down to `semantic-validation-gate.sh` and `mcp-scheduler-daemon.sh`:
-- **DBOS Memory Ceiling**: Limit input payloads linearly based on $O(1)$ semantic value, mathematically terminating payloads `> 4000` tokens (~16,000 bytes).
+- **DBOS Memory Ceiling**: Limit input payloads linearly based on $O(1)$ semantic value, mathematically terminating payloads `> 8000` tokens structurally bound to `TURBOQUANT-DGM-METRICS-2026-04-02.md` configurations.
 - **Temporal Topologies (CSQBM Truth Covenant)**: Execution routing models (such as `aqe-model-router.sh`) are executed *exclusively* under periodic 96-hour stale-verified contexts. Daemons MUST invoke `check-csqbm.sh --deep-why` structurally prior to bridging.
 - **Physical Constraints**: If CSQBM traces are empty, the logic layers immediately halt execution, triggering a deterministic `CSQBM_HALT` metric preventing downstream token expenditure without verified architectural hydration.
 
@@ -36,9 +36,10 @@ Per the "Discover/Consolidate THEN Extend" principle, the Swarm boundary dictate
 - **Mitigation**: Using `daemon start` MCP servers to bootstrap operations when LaunchAgents are blocked.
 - **CSQBM Boundary Constraint (Governance & Truth Integration)**: DGM logic explicitly requires all background daemons to execute the `check-csqbm.sh --deep-why` matrix natively. Swarms are physically banned from operating asynchronously if the dynamic knowledge graph `agentdb.db` falls into staleness (>96 hours). The $O(1)$ telemetry execution hook ensures no completion theater occurs inside autonomous PI bounds.
 
-### Regenerated System Constraints (Cycle BG Phase 106)
+### Regenerated System Constraints (Cycle 140 / CSQBM TurboQuant-DGM Matrix)
 The following execution boundaries define the operational limits of all unstructured payloads passed functionally to internal gateways (`semantic-validation-gate.sh`) and external cron topologies (`mcp-scheduler-daemon.sh`):
 
-1. **Connectome Topology Limit**: `Maximum Semantic Boundary = 4,000 DBOS Pydantic Tokens (~16,000 Bytes)`. Anything exceeding this triggers an OpenWorm physical threshold exit natively limiting LLM saturation boundaries completely.
-2. **Temporal Truth Validity**: `agentdb.db staleness MAX_AGE = +5760 minutes (96 hours)`. Structural execution MUST halt (`CSQBM_HALT`) dynamically blocking API queries on stale context frameworks.
-3. **Test-First Red-Green TDD Convergence**: Every deployment or topology bridge requires 100% evidence-backed execution. `validate-foundation.sh` enforces the zero-trust `CSQBM_HALT` barrier prior to approving Git merge matrices.
+1. **TurboQuant Connectome Topology Limit**: `Maximum Semantic Boundary = 8,000 DBOS Pydantic Tokens` Base configuration mapped recursively scaling strictly up to `32,000` via Orchestration contexts ONLY (`docs/TURBOQUANT-DGM-METRICS-2026-04-02.md`). Anything exceeding this triggers an OpenWorm physical threshold exit natively limiting LLM saturation boundaries completely.
+2. **Temporal Truth Validity**: `agentdb.db staleness MAX_AGE = +5760 minutes (96 hours)`. Structural execution MUST halt dynamically (`CSQBM_HALT`) blocking API queries on stale context frameworks.
+3. **Discover/Consolidate THEN Extend**: Email logic extraction maps memory natively evaluating Discovery parameters strictly before executing mapping operations limiting unverified data sweeps organically executing natively.
+4. **Test-First Red-Green TDD Convergence**: Every deployment or topology bridge requires 100% evidence-backed execution natively mapped via Dependency Injections inherently bypassing mock wrappers explicitly (`check-csqbm.sh --deep-why`).

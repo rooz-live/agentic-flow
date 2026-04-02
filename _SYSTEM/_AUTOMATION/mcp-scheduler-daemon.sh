@@ -25,11 +25,14 @@ run_periodic() {
         local proj_root="$(cd "$(dirname "$(dirname "$(dirname "${BASH_SOURCE[0]}")")")" && pwd)"
         [ -f "$proj_root/scripts/validation-core.sh" ] && source "$proj_root/scripts/validation-core.sh" || true
 
-        # Enforce agentdb >96h staleness constraint natively
+        # Enforce agentdb >96h staleness constraint natively (ADR-005)
         local agentdb_path="$proj_root/agentdb.db"
         if [ ! -f "$agentdb_path" ] && [ -f "$proj_root/../../agentdb.db" ]; then
             agentdb_path="$proj_root/../../agentdb.db"
         fi
+
+        # Extract strict bounds documented in docs/architecture/decisions/005-swarm-persistence-architecture.md
+        local ADR_005_MAX_STALENESS_SEC=345600 # 96 hours * 60 mins * 60 secs
 
         if [ -f "$agentdb_path" ]; then
             if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -37,8 +40,8 @@ run_periodic() {
             else
                 local file_age=$(( $(date +%s) - $(stat -c %Y "$agentdb_path") ))
             fi
-            if [ "$file_age" -gt 345600 ]; then
-                echo "[$(date -u)] CSQBM Governance Halt: agentdb.db staleness >96h ($file_age seconds). Task $task_name blocked via OpenWorm Physical Bounds (ADR-005)." >> "$log_file"
+            if [ "$file_age" -gt "$ADR_005_MAX_STALENESS_SEC" ]; then
+                echo "[$(date -u)] CSQBM Governance Halt: agentdb.db staleness >96h ($file_age seconds). Task $task_name blocked via TurboQuant-DGM Physical Bounds (ADR-005)." >> "$log_file"
                 sleep "$delay_sec"
                 continue
             fi

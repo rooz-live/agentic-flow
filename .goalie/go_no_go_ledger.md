@@ -99,6 +99,16 @@ Telemetry anchors (consume, do not treat as logic): `.goalie/rca_findings.md`, `
 
 Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work so merges stay reviewable and ROAM stays honest.
 
+| Path to Remove/Archive | Replacement/Target Path (Submodule) | Evidence/Checklist DoD | ROAM Line |
+|-------------------------|--------------------------------------|-----------------------|-----------|
+| `superproject/scripts` | `agentic-flow/scripts` | CSQBM / check-infra-health.sh GREEN | R-2026-016 |
+| `legacy-superproject/reports` | `agentic-flow/reports` | No capability loss | R-2026-016 |
+
+**WSJF/WIP/ROAM rules:**
+1. Delete ONLY with mapped substitution.
+2. Maintain WIP Limit of ONE active cleanup thread.
+3. Trust-path BEFORE/AFTER trace must remain GREEN.
+
 | Dimension | Rule |
 |-----------|------|
 | **ROAM** | **R-2026-016** (capability-loss on delete/archive). No path removal until a **substitution row** exists: *what replaces the capability* (test, script, doc, or “explicitly retired with HITL sign-off”). |

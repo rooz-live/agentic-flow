@@ -75,29 +75,32 @@ configure_server() {
 check_tld_readiness() {
     echo "Checking TLD readiness..."
     
-    # Check domain resolution
+    # Early Exit: Domain resolution precondition bound
     if command -v dig >/dev/null 2>&1; then
         echo "Checking domain resolution for $DASHBOARD_DOMAIN..."
-        dig +short "$DASHBOARD_DOMAIN" || echo "⚠️ Domain not resolving"
-    fi
-    
-    # Check SSL certificates
-    if [[ "$DASHBOARD_SSL" == "true" ]]; then
-        echo "SSL enabled - checking certificates..."
-        if [[ -d "/etc/letsencrypt/live/$DASHBOARD_DOMAIN" ]]; then
-            echo "✅ SSL certificates found"
-        else
-            echo "⚠️ SSL certificates not found at /etc/letsencrypt/live/$DASHBOARD_DOMAIN"
+        if [[ -z "$(dig +short "$DASHBOARD_DOMAIN" 2>/dev/null)" ]]; then
+            echo "❌ ERROR: Domain $DASHBOARD_DOMAIN is not resolving. Blocked via Early Exit." >&2
+            exit 1
         fi
     fi
     
-    # Check port availability
+    # Early Exit: SSL certificates precondition bound
+    if [[ "$DASHBOARD_SSL" == "true" ]]; then
+        echo "SSL enabled - checking certificates..."
+        if [[ ! -d "/etc/letsencrypt/live/$DASHBOARD_DOMAIN" ]]; then
+            echo "❌ ERROR: SSL certificates absent at /etc/letsencrypt/live/$DASHBOARD_DOMAIN. Blocked via Early Exit." >&2
+            exit 1
+        fi
+    fi
+    
+    # Early Exit: Port availability precondition bound
     echo "Checking port $DASHBOARD_PORT..."
     if lsof -i:"$DASHBOARD_PORT" >/dev/null 2>&1; then
-        echo "⚠️ Port $DASHBOARD_PORT already in use"
-    else
-        echo "✅ Port $DASHBOARD_PORT is available"
+        echo "❌ ERROR: Port $DASHBOARD_PORT is already in use. Blocked via Early Exit." >&2
+        exit 1
     fi
+    
+    echo "✅ All physical TLD preconditions evaluated gracefully!"
 }
 
 # Usage info

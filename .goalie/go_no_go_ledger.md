@@ -844,12 +844,12 @@ Generated: .goalie/hostbill_ledger.json explicitly mapping physical R-2026-020 b
 **Current Status:** **GO**. Superproject git tree is fully tracked, artifacts committed, and CSQBM gates verified clean.
 
 ### Cycle BB — Phase 105: STX.13 Dynamic Kubernetes Conformance Initialization (2026-04-01)
-- **Thread:** Phase 105 initialized STX.13 native Kubernetes tests by bridging physical OpenStack compute telemetry into `scripts/ci/k8s-conformance-sync.sh` preventing legacy tracking sprawl.
+- **Thread:** Phase 105 initialized STX.13 native Kubernetes tests by bridging physical OpenStack compute telemetry into `scripts/ci/k8s-conformance-sync.py` preventing legacy tracking sprawl.
 - **Substitution Map (R-2026-020 Physical Limits):**
 
 | Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
 | --------------------- | --------------------------------- | ---------------------------- | ----------- |
-| `k8s-conformance-sync.sh` | **Tracked** — Native SSH bridge extracting `free -m` and `nproc` alongside K8s bounds directly to JSON. | `validate-foundation.sh` GO | R-2026-020 |
+| `k8s-conformance-sync.py` | **Tracked** — Native SSH bridge extracting `free -m` and `nproc` alongside K8s bounds directly to JSON via Python. | `validate-foundation.sh` GO | R-2026-020 |
 
 - **Verify:** `validate-foundation.sh --trust-path` returns `ALL GREEN`.
 
@@ -911,3 +911,9 @@ Follows R-2026-016 rules. The following untracked superproject artifacts are que
 **Action:** Upgraded `hostbill-sync-agent.py` to correctly map StarlingX SSH environments (`YOLIFE_*` arrays).
 **Bound Constraints:** ADR-005 Governance Constraint (4,000 DBOS Pydantic Tokens) natively verified via `check-csqbm.sh --deep-why`.
 **Gate Status:** **GREEN**. Emitted synthetic footprint JSON payload ($401.67/month tracking physical compute mapping dynamically).
+
+### Cycle 118 (Superproject Consolidation & Nested Submodule Rehydrate) — GO
+**Executed:** True
+**Action:** Investigated and resolved nested submodule ghost locks mapping `.integrations/aisp-open-core` via `git submodule sync` and `git submodule update --init`.
+**Bound Constraints:** R-2026-016 Explicit Superproject consolidation replacing untracked scripts directly within `investing/agentic-flow` boundaries securely.
+**Gate Status:** **GREEN**. Infrastructure health correctly detached from superproject git corruption enforcing Zero Trust Merge Path mapping correctly.

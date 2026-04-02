@@ -76,18 +76,22 @@ def test_consecutive_load_tracking():
     sensor = MockSensor(85.0, 15.0)  # Above threshold
     controller = AdmissionController(config, sensor)
     
-    # First high load event
-    controller._update_load_history()
+    # The consecutive_high_load is only updated in check_admission(), not _update_load_history()
+    # This test now correctly exercises the actual production path
+    result = controller.check_admission()  # Should reject due to high load
+    assert not result  # Should return False for rejection
     assert controller.consecutive_high_load == 1
     
     # Second high load event
-    controller._update_load_history()
+    result = controller.check_admission()
+    assert not result
     assert controller.consecutive_high_load == 2
     
     # Low load event should reset
     sensor.load = 70.0
     sensor.idle = 30.0
-    controller._update_load_history()
+    result = controller.check_admission()
+    assert result  # Should return True for admission
     assert controller.consecutive_high_load == 0
 
 

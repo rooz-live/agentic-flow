@@ -11,12 +11,6 @@ last_optimized: 2025-12-02
 dependencies: []
 quick_reference_card: true
 tags: [visual, regression, screenshot, pixel-diff, percy, playwright, responsive]
-trust_tier: 3
-validation:
-  schema_path: schemas/output.json
-  validator_path: scripts/validate-config.json
-  eval_path: evals/visual-testing-advanced.yaml
-
 ---
 
 # Advanced Visual Testing

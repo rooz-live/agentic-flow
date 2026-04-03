@@ -11,10 +11,6 @@ last_optimized: 2025-12-02
 dependencies: []
 quick_reference_card: true
 tags: [pact, agents, fleet, coordination, autonomous, foundational]
-trust_tier: 1
-validation:
-  schema_path: schemas/output.json
-
 ---
 
 # Agentic Quality Engineering
@@ -130,7 +126,7 @@ aqe/coordination/*  - Cross-agent state
 **1. Store data to persistent memory:**
 ```javascript
 // Store test plan decisions (persisted to .agentic-qe/memory.db)
-mcp__agentic-qe__memory_store({
+mcp__agentic_qe__memory_store({
   key: "aqe/test-plan/pr-123",
   namespace: "aqe/test-plan",
   value: {
@@ -148,7 +144,7 @@ mcp__agentic-qe__memory_store({
 **2. Retrieve prior learnings before task:**
 ```javascript
 // Query patterns before starting test generation
-const priorData = await mcp__agentic-qe__memory_retrieve({
+const priorData = await mcp__agentic_qe__memory_retrieve({
   key: "aqe/learning/patterns/test-generation/*",
   namespace: "aqe/learning",
   includeMetadata: true
@@ -162,7 +158,7 @@ if (priorData.success) {
 
 **3. Store coverage analysis results:**
 ```javascript
-mcp__agentic-qe__memory_store({
+mcp__agentic_qe__memory_store({
   key: "aqe/coverage/auth-module",
   namespace: "aqe/coverage",
   value: {
@@ -183,7 +179,7 @@ For coordinated multi-agent tasks, use the STATUS → PROGRESS → COMPLETE patt
 
 ```javascript
 // PHASE 1: STATUS - Task starting
-mcp__agentic-qe__memory_store({
+mcp__agentic_qe__memory_store({
   key: "aqe/coordination/task-123/status",
   namespace: "aqe/coordination",
   value: { status: "running", agent: "qe-test-generator", startTime: Date.now() },
@@ -191,7 +187,7 @@ mcp__agentic-qe__memory_store({
 })
 
 // PHASE 2: PROGRESS - Intermediate updates
-mcp__agentic-qe__memory_store({
+mcp__agentic_qe__memory_store({
   key: "aqe/coordination/task-123/progress",
   namespace: "aqe/coordination",
   value: { progress: 50, action: "generating-unit-tests", testsGenerated: 25 },
@@ -199,7 +195,7 @@ mcp__agentic-qe__memory_store({
 })
 
 // PHASE 3: COMPLETE - Task finished
-mcp__agentic-qe__memory_store({
+mcp__agentic_qe__memory_store({
   key: "aqe/coordination/task-123/complete",
   namespace: "aqe/coordination",
   value: {

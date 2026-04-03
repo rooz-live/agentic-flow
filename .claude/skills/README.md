@@ -4,16 +4,16 @@ This directory contains Quality Engineering skills managed by Agentic QE.
 
 ## Summary
 
-- **Total QE Skills**: 78
-- **V2 Methodology Skills**: 63
-- **V3 Domain Skills**: 15
+- **Total QE Skills**: 76
+- **V2 Methodology Skills**: 64
+- **V3 Domain Skills**: 12
 - **Platform Skills**: 33 (Claude Flow managed)
 - **Validation Infrastructure**: ✅ Installed
 
 > **Note**: Platform skills (agentdb, github, flow-nexus, etc.) are managed by claude-flow.
 > Only QE-specific skills are installed/updated by `aqe init`.
 
-## V2 Methodology Skills (63)
+## V2 Methodology Skills (64)
 
 Version-agnostic quality engineering best practices from the QE community.
 
@@ -76,27 +76,25 @@ Version-agnostic quality engineering best practices from the QE community.
 - **test-idea-rewriting**: Transform passive
 - **test-reporting-analytics**: Advanced test reporting, quality dashboards, predictive analytics, trend analysis, and executive reporting for QE metrics. Use when communicating quality status, tracking trends, or making data-driven decisions.
 - **testability-scoring**: AI-powered testability assessment using 10 principles of intrinsic testability with Playwright and optional Vibium integration. Evaluates web applications against Observability, Controllability, Algorithmic Simplicity, Transparency, Stability, Explainability, Unbugginess, Smallness, Decomposability, and Similarity. Use when assessing software testability, evaluating test readiness, identifying testability improvements, or generating testability reports.
+- **ui-ux-pro-max**: UI/UX design intelligence. 50 styles, 21 palettes, 50 font pairings, 20 charts, 9 stacks (React, Next.js, Vue, Svelte, SwiftUI, React Native, Flutter, Tailwind, shadcn/ui). Actions: plan, build, create, design, implement, review, fix, improve, optimize, enhance, refactor, check UI/UX code. Projects: website, landing page, dashboard, admin panel, e-commerce, SaaS, portfolio, blog, mobile app, .html, .tsx, .vue, .svelte. Elements: button, modal, navbar, sidebar, card, table, form, chart. Styles: glassmorphism, claymorphism, minimalism, brutalism, neumorphism, bento grid, dark mode, responsive, skeuomorphism, flat design. Topics: color palette, accessibility, animation, layout, typography, font pairing, spacing, hover, shadow, gradient. Integrations: shadcn/ui MCP for component search and examples.
 - **verification-quality**: Comprehensive truth scoring, code quality verification, and automatic rollback system with 0.95 accuracy threshold for ensuring high-quality agent outputs and codebase reliability.
 - **visual-testing-advanced**: Advanced visual regression testing with pixel-perfect comparison, AI-powered diff analysis, responsive design validation, and cross-browser visual consistency. Use when detecting UI regressions, validating designs, or ensuring visual consistency.
 - **wms-testing-patterns**: Warehouse Management System testing patterns for inventory operations, pick/pack/ship workflows, wave management, EDI X12/EDIFACT compliance, RF/barcode scanning, and WMS-ERP integration. Use when testing WMS platforms (Blue Yonder, Manhattan, SAP EWM).
 - **xp-practices**: Apply XP practices including pair programming, ensemble programming, continuous integration, and sustainable pace. Use when implementing agile development practices, improving team collaboration, or adopting technical excellence practices.
 
-## V3 Domain Skills (15)
+## V3 Domain Skills (12)
 
 V3-specific implementation guides for the 12 DDD bounded contexts.
 
-- **aqe-v2-v3-migration**: Migrate Agentic QE projects from v2 to v3 with zero data loss
 - **pentest-validation**: Orchestrate security finding validation through graduated exploitation. 4-phase pipeline: recon (SAST/DAST), analysis (code review), validation (exploit proof), report (No Exploit, No Report gate). Eliminates false positives by proving exploitability.
 - **qe-chaos-resilience**: Chaos engineering and resilience testing including fault injection, load testing, and system recovery validation.
 - **qe-code-intelligence**: Knowledge graph-based code understanding with semantic search and 80% token reduction through intelligent context retrieval.
-- **qe-contract-testing**: Consumer-driven contract testing for APIs including REST, GraphQL, and event-driven systems with schema validation.
 - **qe-coverage-analysis**: O(log n) sublinear coverage gap detection with risk-weighted analysis and intelligent test prioritization.
 - **qe-defect-intelligence**: AI-powered defect prediction, pattern learning, and root cause analysis for proactive quality management.
 - **qe-iterative-loop**: Quality Engineering iteration loops for autonomous test improvement, coverage achievement, and quality gate compliance. Use when tests need to pass, coverage targets must be met, quality gates require compliance, or flaky tests need stabilization. Integrates with AQE v3 fleet agents for coordinated quality iteration.
 - **qe-learning-optimization**: Transfer learning, metrics optimization, and continuous improvement for AI-powered QE agents.
 - **qe-quality-assessment**: Comprehensive quality gates, metrics analysis, and deployment readiness assessment for continuous quality assurance.
 - **qe-requirements-validation**: Requirements traceability, acceptance criteria validation, and BDD scenario management for complete requirements coverage.
-- **qe-security-compliance**: Security auditing, vulnerability scanning, and compliance validation for OWASP, SOC2, GDPR, and other standards.
 - **qe-test-execution**: Parallel test execution orchestration with intelligent scheduling, retry logic, and comprehensive result aggregation.
 - **qe-test-generation**: AI-powered test generation using pattern recognition, code analysis, and intelligent test synthesis for comprehensive test coverage.
 - **qe-visual-accessibility**: Visual regression testing, responsive design validation, and WCAG accessibility compliance testing.
@@ -152,4 +150,4 @@ See `.validation/README.md` for usage instructions.
 
 ---
 
-*Generated by AQE v3 init on 2026-03-03T20:06:58.561Z*
+*Generated by AQE v3 init on 2026-04-03T02:45:11.599Z*

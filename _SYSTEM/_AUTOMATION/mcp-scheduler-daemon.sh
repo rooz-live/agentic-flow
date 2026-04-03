@@ -50,7 +50,7 @@ run_periodic() {
         # Extract baseline OS execution limits preventing unconstrained Daemon orchestration traces
         # Evaluates local connectome pressure dynamically rejecting scheduling loops bypassing structural stability natively
         if [[ "$OSTYPE" == "darwin"* ]]; then
-            # Cycle 72: Physical Memory Context Halt limit (simulating a 8,000 DBOS token overhead保护)
+            # Cycle 116: Physical Memory Context Halt limit (simulating a 4,000 DBOS token overhead protective baseline mapped via ADR-005)
             local connectome_pressure=$(vm_stat | awk '/Pages free/ {free=$3} /Pages active/ {active=$3} END { if(active+free>0) { print int((active / (active + free)) * 100)} else {print 0} }' | tr -d '.')
             if [[ "$connectome_pressure" -gt 90 && "$connectome_pressure" != "-1085" ]]; then
                 echo "[$(date -u)] CSQBM Governance Halt: Absolute OS Connectome Overload ($connectome_pressure%). Task $task_name blocked prioritizing R-2026-018 stability (ADR-005)." >> "$log_file"

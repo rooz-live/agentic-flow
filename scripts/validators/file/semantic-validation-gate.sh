@@ -102,7 +102,7 @@ if command -v compute_dynamic_token_ceiling >/dev/null 2>&1; then
     DYNAMIC_BASE_TOKENS=$(compute_dynamic_token_ceiling)
 else
     # Mapped explicitly via docs/TURBOQUANT-DGM-METRICS-2026-04-02.md
-    DYNAMIC_BASE_TOKENS=8000
+    DYNAMIC_BASE_TOKENS=4000 # TurboQuant-DGM 4,000 DBOS Pydantic Token Baseline (ADR-005)
 fi
 BASE_BYTES=$((DYNAMIC_BASE_TOKENS * 4)) # Assume 4 bytes encoding limit mapping dynamically
 MAX_BYTES=$BASE_BYTES

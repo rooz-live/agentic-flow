@@ -43,8 +43,8 @@ module.exports = {
   
   // Plugin configuration
   plugins: [
-    require('@stryker-mutator/jest-runner'),
-    require('@stryker-mutator/javascript-mutator')
+    '@stryker-mutator/jest-runner',
+    '@stryker-mutator/instrumenter'
   ],
   
   // Ignore specific patterns that would cause false positives

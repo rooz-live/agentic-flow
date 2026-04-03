@@ -2,13 +2,50 @@
 
 Configuration: [`.pre-commit-config.yaml`](../.pre-commit-config.yaml)
 
-## Hook 1: `annotation-audit`
+## Hook parity (trust gates)
 
-- **Entry:** `bash scripts/validators/project/contract-enforcement-gate.sh audit`
-- **Blocks when:** the audit script exits non-zero (annotation / contract rules).
-- **Scope:** repo-wide policy for that gate, not per-file staged filtering in the hook definition (`pass_filenames: false`, `always_run: true`).
+**Single implementation:** [`scripts/hooks/run-commit-gates.sh`](../scripts/hooks/run-commit-gates.sh)
 
-## Hook 2: `shellcheck-and-eml-validate`
+Both of these must stay aligned:
+
+| Mechanism | What runs |
+|-----------|-----------|
+| **`pre-commit` (framework)** | Local hooks in `.pre-commit-config.yaml` call `run-commit-gates.sh` with subcommands `dates`, `csqbm`, `audit` (three separate hook IDs for granular `pre-commit run <id>`). |
+| **`core.hooksPath=.git-hooks`** | [`.git-hooks/pre-commit`](../.git-hooks/pre-commit) runs `run-commit-gates.sh all` **first** (step 0/6), then secrets, lint, pytest, DoD, break-glass. |
+
+**Order (`.git-hooks`):** trust gates fail-fast before secret scanning and tests.
+
+### Subcommands
+
+| Subcommand | Behavior |
+|------------|----------|
+| `dates` | `validate-dates.sh --file` (default fixture: `tests/fixtures/perfect-pass-dates.txt`; override with `VALIDATES_DATES_FIXTURE`). |
+| `csqbm` | `CSQBM_CI_MODE=true`, `CSQBM_DEEP_WHY=true`, optional hydration insert into `.agentdb/agentdb.sqlite`, then `check-csqbm.sh` (deterministic CI path — no IDE log archaeology). |
+| `audit` | `contract-enforcement-gate.sh audit` |
+| `all` | `dates` → `csqbm` → `audit` (unless `COMMIT_GATES_FAST=1`, which skips `audit`). |
+
+### Environment variables
+
+| Variable | Effect |
+|----------|--------|
+| `SKIP_COMMIT_GATES=1` | Skips gates with a warning — **break-glass only**; document in ROAM / ledger. |
+| `COMMIT_GATES_FAST=1` | For `all` only: skip annotation audit (still runs dates + CSQBM). |
+| `VALIDATES_DATES_FIXTURE` | Alternate path for the date fixture file. |
+| `CSQBM_DEEP_WHY` | Passed through (default `true` in script) for parity with trust bundle. |
+
+### Break-glass
+
+`git commit --no-verify` bypasses **all** hooks (including trust gates). Not recommended; ledger policy treats this as explicit risk.
+
+---
+
+## Hook 1–3 (framework names): `semantic-date-alignment`, `deep-foundation-evidence-audit`, `annotation-audit`
+
+- **Entry:** `bash scripts/hooks/run-commit-gates.sh` with `dates`, `csqbm`, or `audit`.
+- **Blocks when:** the underlying validator exits non-zero.
+- **Scope:** `pass_filenames: false`, `always_run: true` — not limited to staged paths for these three gates.
+
+## Hook 4: `shellcheck-and-eml-validate`
 
 - **Entry:** [`scripts/hooks/pre-commit-staged-validation.sh`](../scripts/hooks/pre-commit-staged-validation.sh)
 - **Blocks when:**
@@ -28,7 +65,7 @@ Configuration: [`.pre-commit-config.yaml`](../.pre-commit-config.yaml)
 
 ## Latency
 
-Sub-second is **possible** for tiny diffs; not guaranteed. Cost = shellcheck + optional validate-email + optional three test scripts.
+Sub-second is **possible** for tiny diffs; not guaranteed. Cost = trust gates (dates + AgentDB CSQBM + contract audit) + shellcheck + optional validate-email + optional three test scripts.
 
 ## Optional: shellcheck error counts
 

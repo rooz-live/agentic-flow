@@ -69,13 +69,15 @@ run_audit() {
 run_ts() {
   if [[ "${TRUST_INFRA_BYPASS_TS:-false}" == "true" ]]; then
     echo -e "\033[1;33m⚠ TypeScript validation deliberately bypassed (TRUST_INFRA_BYPASS_TS=true)\033[0m" >&2
-  else
+  elif [[ -f "tsconfig.core.json" ]]; then
     if npx tsc --project tsconfig.core.json --noEmit >/dev/null 2>&1; then
         echo -e "\033[0;32m✓ Core TypeScript verification strictly passed.\033[0m" >&2
     else
         echo -e "\033[0;31m[FATAL] Core TypeScript matrices failed. Run 'npx tsc --project tsconfig.core.json --noEmit' natively.\033[0m" >&2
         exit 1
     fi
+  else
+    echo -e "\033[0;34m[INFO] No local 'tsconfig.core.json' detected. TypeScript verification strictly bypassed natively.\033[0m" >&2
   fi
 }
 

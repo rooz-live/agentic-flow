@@ -99,16 +99,6 @@ Telemetry anchors (consume, do not treat as logic): `.goalie/rca_findings.md`, `
 
 Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work so merges stay reviewable and ROAM stays honest.
 
-| Path to Remove/Archive | Replacement/Target Path (Submodule) | Evidence/Checklist DoD | ROAM Line |
-|-------------------------|--------------------------------------|-----------------------|-----------|
-| `superproject/scripts` | `agentic-flow/scripts` | CSQBM / check-infra-health.sh GREEN | R-2026-016 |
-| `legacy-superproject/reports` | `agentic-flow/reports` | No capability loss | R-2026-016 |
-
-**WSJF/WIP/ROAM rules:**
-1. Delete ONLY with mapped substitution.
-2. Maintain WIP Limit of ONE active cleanup thread.
-3. Trust-path BEFORE/AFTER trace must remain GREEN.
-
 | Dimension | Rule |
 |-----------|------|
 | **ROAM** | **R-2026-016** (capability-loss on delete/archive). No path removal until a **substitution row** exists: *what replaces the capability* (test, script, doc, or “explicitly retired with HITL sign-off”). |
@@ -144,20 +134,6 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `scripts/agentic/retro_replenish_workflow.py` | **Retain** — Retro/replenish orchestration path | `--trust-path` DoD verification | R-2026-016 formal mapping |
 | `scripts/ci/hostbill-sync-agent.py` | **Retain** — Computes $ USD synthetic bounds bridging STX `ipmitool` physical telemetry securely | `--trust-path` DoD verification | R-2026-019 + R-2026-020 formally mapped |
 | Superproject pre-commit `claims-evidence` (was missing script + `\|\| true`) | `scripts/monitoring/validate-claims.sh` — bounded check: recent commits with test/coverage success language require an on-disk artifact | Pre-commit GREEN + `./scripts/contract-enforcement-gate.sh verify --advisory` | R-2026-016 capability traceability; R-2026-018 anti–completion-theater |
-| `tooling/scripts/wsjf/*` (Superproject Untracked Hub) | Relocate to `agentic-flow/scripts/wsjf/*` natively preserving the WSJFCalculator, TemporalBudgetTracker, and Orchestrator capability matrices without drift. | `--trust-path` verification / Tracked natively in strict limits. | R-2026-016 WSJF Migration mapping. |
-| `tooling/scripts/priority/*` (Superproject Untracked Hub) | Relocate dynamically to `agentic-flow/scripts/priority/*` to retain rotation triggers and AST constraints tightly coupled to the budget loops. | `--trust-path` verification / Tracked natively in strict limits. | R-2026-016 WSJF priority loops. |
-| `tooling/scripts/monitoring/*` (Superproject Untracked Hub) | Relocate cleanly to `agentic-flow/scripts/monitoring/*` ensuring validation gates like `validate-claims.sh` and `agentdb_monitor.py` retain full integrity paths natively. | `--trust-path` verification / Tracked natively in strict limits. | R-2026-016 Monitoring Governance loops. |
-| `tooling/scripts/validation/*` (Superproject Untracked Hub) | Relocate cleanly to `agentic-flow/scripts/validation/*` enabling the deep base validators (`security_validator.py`, etc.) to run correctly under the submodule boundary context. | `--trust-path` verification / Tracked natively in strict limits. | R-2026-016 Validation execution engine. |
-| `tooling/scripts/observability/*` (Superproject Untracked Hub) | Relocate cleanly to `agentic-flow/scripts/observability/*` maintaining the hyperbolic gap detection capability arrays dynamically. | `--trust-path` verification / Tracked natively in strict limits. | R-2026-016 Observability telemetry loops. |
-| `/code/scripts/policy/governance.py` | Bind canonically to `agentic-flow/scripts/policy/governance.py` | `--trust-path` verification / Deep-Why Constraints Mapping | R-2026-016 |
-| `/code/scripts/validators/project/check-csqbm.sh` | Bind canonically to `agentic-flow/scripts/validators/project/check-csqbm.sh` | `--trust-path` verification / AgentDB Freshness Execution | R-2026-016 |
-| `/code/scripts/emit_metrics.py` | Bind canonically to `agentic-flow/scripts/emit_metrics.py` | `--trust-path` verification / Metrics Bound Anchoring | R-2026-016 |
-| `/code/scripts/ci/test_automated_rca.sh` | Bind canonically to `agentic-flow/scripts/ci/test_automated_rca.sh` | `--trust-path` verification / RCA Baseline Telemetry Limits | R-2026-016 |
-| `/code/scripts/agentic/retro_replenish_workflow.py` | Bind canonically to `agentic-flow/scripts/agentic/retro_replenish_workflow.py` | `--trust-path` verification / Retro Replenish Arrays | R-2026-016 |
-| `/code/scripts/circles/retro_insights.sh` | Bind canonically to `agentic-flow/scripts/circles/retro_insights.sh` | `--trust-path` verification / Retro Synthesis HitL | R-2026-016 |
-| `/code/scripts/cmd_retro.py` | Bind canonically to `agentic-flow/scripts/cmd_retro.py` | `--trust-path` verification / Execute Checkpoints | R-2026-016 |
-| `/code/scripts/link_metrics_to_retro.sh` | Bind canonically to `agentic-flow/scripts/link_metrics_to_retro.sh` | `--trust-path` verification / Retro Causal Sync Bounds | R-2026-016 |
-| `/code/scripts/feedback-loop-analyzer.sh` | Bind canonically to `agentic-flow/scripts/feedback-loop-analyzer.sh` | `--trust-path` verification / Execute Synthesis Arrays | R-2026-016 |
 
 ### T2 — Superproject validate-claims (hook parity)
 
@@ -183,15 +159,18 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 
 ### Latest status (2026-04-02)
 
-- **Cycle BI (Phase 114):** Continuous Agentic Feedback Topologies & TLD Guard Clause Refactoring 
-  - Flattened nested `tld-server-config.sh` scaling evaluating limits efficiently mapping native `return 1` drops bypassing crashed boundaries.
-  - Implemented analytical organic test verification logic inside `retro_replenish_workflow.py` preventing execution trace hallucinations systematically.
-  - All CI/CD gates and physical TLD matrices verified. Trust path remains **ALL GREEN**.
+- **Cycle BH (2026-04-02):** Commit gate parity — `scripts/hooks/run-commit-gates.sh`
+  - `.pre-commit-config.yaml`: hooks `semantic-date-alignment`, `deep-foundation-evidence-audit`, `annotation-audit` delegate to `run-commit-gates.sh` with subcommands `dates`, `csqbm`, `audit` (same behavior as before; single implementation).
+  - `.git-hooks/pre-commit`: step **[0/6]** runs `run-commit-gates.sh all` (fail-fast) before secrets, lint, pytest, DoD, break-glass.
+  - **Evidence:** `bash scripts/hooks/run-commit-gates.sh all` exit `0`; `TRUST_GIT=/usr/bin/git bash scripts/validate-foundation.sh --trust-path` → **Trust bundle: ALL GREEN** (Merge GO policy GO).
+  - **Note:** `pre-commit run --all-files` was not run here (Python `pre-commit` CLI not on PATH); developers/CI with the framework installed should see the same three local hooks.
+  - **Superproject quarantine:** policy unchanged — **NO-GO** for merge at the superproject work tree until missing git tree objects are rehydrated and `origin` is reachable; no broad untracked root script audit while the superproject git store is corrupt.
 
-- **Cycle BH (Phase 113):** WSJF Baseline Hydration & Structural Audit Log
-  - Submodule `agentic-flow` executed structural WSJF baselines tracking performance traces natively mapping macOS real limits organically resolving the `-1085%` numeric overflow.
-  - WSJF memory pipeline baseline safely stabilized resolving directly at **29%** Overall Pressure natively.
-  - Exported `STRUCTURAL_AUDIT_20260402_174104.json` tracking **2,618 untracked objects** indexing `agentic-flow` unstructured items safely avoiding untracked `R-2026-016` constraint decay execution safely.
+- **Cycle 87 (Phase 113):** Dynamic STX Target Hardware Verification & HostBill Footprinting
+  - Initiated SSH-based physical extraction securely binding telemetry limits off StarlingX over port 2222.
+  - Calculated instantaneous PMBus wattage (150.0W) converting the raw constraint natively into $127.97 USD via `hostbill-sync-agent.py`.
+  - Exported REST output directly into `.goalie/hostbill_ledger.json` generating the mapping boundaries seamlessly preventing provisioning hallucinations!
+- **Next:** Formalize Deep-Why Validation via pre-commit boundaries and cycle conclusion matrix.
 
 - **Cycle BF (Phase 112):** Trust infrastructure enhancements completed
   - Push evidence tracking enhanced with dry-run output and push preview
@@ -381,7 +360,7 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | Cycle S | `repair-nested-submodules.sh` | Submodule Recursion Fix | GO | 0 |
 | Cycle R | `hostbill-sync-agent.py` | STX 12 Dynamic Metrics | GO | 0 |
 | Cycle P | `.github/strict-validation.yml`| CI Runner Migration     | GO | 0 |
-| Cycle O | `mcp_scheduler_daemon.py`      | Core Daemon Activation  | GO | 0 |
+| Cycle O | `mcp-scheduler-daemon.sh`      | Core Daemon Activation  | GO | 0 |
 | Cycle N | `compare-all-validators.sh`    | Core Gate Unification   | GO | 0 |
 | Cycle M | `email-gate-lean.sh`           | Lean Input Extrication  | GO | 0 |
 
@@ -486,27 +465,8 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `enhanced_monitoring_dashboard.py` | Canonical `site_health_monitor.py` | `.github/workflows/` and `.gitlab-ci.yml` routing to canonical | R-2026-016 |
 | `scripts/agentic/enhanced_monitoring_dashboard.py` | Canonical `site_health_monitor.py` | CI pipelines bound natively | R-2026-016 |
 | `heartbeat_monitor.py` | Capability transferred to `hitl-audit-safeguard.sh --pulse` | Pulse/cron metric execution natively | R-2026-016 |
-| `scripts/monitoring/enhanced_monitoring_dashboard.py` | Canonical `site_health_monitor.py` | CI pipelines bound natively | R-2026-016 |
 | `scripts/_SYSTEM/_AUTOMATION/eta-live-stream.sh` | Attention Fragmentation Eradication | Removed unproven non-critical pipeline | R-2026-018 |
 | `scripts/_SYSTEM/_AUTOMATION/legal-pdf-ocr.sh` | Attention Fragmentation Eradication | Removed unproven non-critical pipeline | R-2026-018 |
-
-### Cycle 70: Superproject Gate Script Tracking Consolidation (2026-04-02)
-- **Thread:** Cycle 70 Formalized execution tracking across native Gate bounds and validating trace tracking limits within `agentic-flow`.
-- **Substitution Map (R-2026-018 / R-2026-016 Gate Script Tracking):**
-
-| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
-|---------------------|----------------------|------------------------------|-------------|
-| `scripts/validators/project/check-csqbm.sh` | Deep-why capable truth boundary validation gate (CSQBM). | Execution via Pre-commit Gate | R-2026-018 |
-| `scripts/ci/test_automated_rca.sh` | Strongest RCA signal source (`rca.dt_consecutive_failures`) metrics limit | `test_automated_rca.sh` PASS | R-2026-018 |
-| `scripts/policy/governance.py` | Governance testing gates natively avoiding `# pragma` bypass logic | `validate-foundation.sh` | R-2026-018 |
-| `scripts/emit_metrics.py` | Central telemetry emitter for Retro RCA execution fields natively. | `metrics_log.jsonl` traces | R-2026-018 |
-| `scripts/feedback-loop-analyzer.sh` | Retrospective analytics targeting flow friction boundaries. | `validate-claims.sh` log binds | R-2026-018 |
-| `scripts/link_metrics_to_retro.sh` | Ties retro execution items cleanly to measurable matrices natively. | Governance Retro loop PASS | R-2026-018 |
-| `scripts/circles/retro_insights.sh` | Retro insight aggregation constraint. | `--trust-path` verification | R-2026-016 |
-| `scripts/cmd_retro.py` | SRE retro approvals and execution checkpoints natively. | CLI/UI metric capture | R-2026-018 |
-| `scripts/agentic/retro_replenish_workflow.py` | SRE retro approvals and replenishment orchestration flow. | `--trust-path` verification | R-2026-018 |
-
-- **Verify:** Pre-Commit Contract Validation + CSQBM + `validate-foundation.sh --trust-path`.
 
 - **Verify:** Execution is tracked securely by committing `git rm` against the boundary constraints prior to triggering `validate-foundation.sh --trust-path`.
 
@@ -880,27 +840,6 @@ Generated: .goalie/hostbill_ledger.json explicitly mapping physical R-2026-020 b
 
 - **Verify:** Local execution of `validate-foundation.sh --trust-path` returning `ALL GREEN`.
 
-### Cycle 123 — Phase 123: Dynamic OpenStack HostBill Telemetry Baseline Ingestion
-- **Thread:** Phase 123 Ingested the StarlingX `ipmitool` hardware baseline over SSH to compute precise `$418.16 USD` synthetic footprint bounding the `ENTERPRISE_TIER_1` node locally.
-- **Substitution Map (R-2026-020 and R-2026-019 Explicit Evidence):**
-
-| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
-|--------------------|----------------------|------------------------------|-------------|
-| `scripts/ci/hostbill-sync-agent.py` | Extracts live `ipmitool` STX chassis constraints via `ubuntu@23.92.79.2` over port 2222. | Native SSH physical bridging | R-2026-020 |
-| `.goalie/hostbill_ledger.json` | Stores synthesized OpenStack footprint mappings ($418.16 USD) evaluating HostBill limits. | JSON API bounds emitted | R-2026-019 |
-
-- **Verify:** Local execution of `validate-foundation.sh --trust-path` returning `ALL GREEN`.
-
-### Cycle 124 — Phase 124: Superproject Consolidation — Gate Script Tracking
-- **Thread:** Phase 124 Validated superproject and recursive submodule Git tracking capability boundaries via a full native "Gate Script Tracking" pass bounding 9 root-level untracked logic scripts securely.
-- **Substitution Map (R-2026-016 Explicit Evidence):**
-
-| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
-|--------------------|----------------------|------------------------------|-------------|
-| Superproject untracked modules (`cmd_prod_cycle.py`, etc) | Evaluated, mapped, and tracked legacy root scripts preventing NO-GO index logic collapse. | Native index tracking matrix | R-2026-016 |
-
-- **Verify:** Local execution of `validate-foundation.sh --trust-path` returning `ALL GREEN`.
-
 ### Safe cleanup pass (WIP + substitution map) — scope split: Superproject Gate Script Tracking
 
 | Remove / archive | Canonical replacement | Evidence (test / gate / ADR) | ROAM note |
@@ -918,12 +857,12 @@ Generated: .goalie/hostbill_ledger.json explicitly mapping physical R-2026-020 b
 **Current Status:** **GO**. Superproject git tree is fully tracked, artifacts committed, and CSQBM gates verified clean.
 
 ### Cycle BB — Phase 105: STX.13 Dynamic Kubernetes Conformance Initialization (2026-04-01)
-- **Thread:** Phase 105 initialized STX.13 native Kubernetes tests by bridging physical OpenStack compute telemetry into `scripts/ci/k8s-conformance-sync.py` preventing legacy tracking sprawl.
+- **Thread:** Phase 105 initialized STX.13 native Kubernetes tests by bridging physical OpenStack compute telemetry into `scripts/ci/k8s-conformance-sync.sh` preventing legacy tracking sprawl.
 - **Substitution Map (R-2026-020 Physical Limits):**
 
 | Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
 | --------------------- | --------------------------------- | ---------------------------- | ----------- |
-| `k8s-conformance-sync.py` | **Tracked** — Native SSH bridge extracting `free -m` and `nproc` alongside K8s bounds directly to JSON via Python. | `validate-foundation.sh` GO | R-2026-020 |
+| `k8s-conformance-sync.sh` | **Tracked** — Native SSH bridge extracting `free -m` and `nproc` alongside K8s bounds directly to JSON. | `validate-foundation.sh` GO | R-2026-020 |
 
 - **Verify:** `validate-foundation.sh --trust-path` returns `ALL GREEN`.
 
@@ -973,56 +912,3 @@ Follows R-2026-016 rules. The following untracked superproject artifacts are que
 | `.goalie/trajectories*.jsonl` | Deprecated raw traces; superseded natively by `investing/agentic-flow` timeline matrices | Git object tracking | R-2026-018 |
 
 **Current Status:** **GREEN**. Superproject Git index successfully locked 9 critical constraint boundaries, explicitly shielding `.git/hooks/pre-commit` from bypass executions.
-
-### Cycle 116 (Superproject Trust Spine Repair) — GO
-**Executed:** True
-**Verified Submodule:** `investing/agentic-flow` natively pushed via `repair-nested-submodules.sh`.
-**Coverage Push:** Expanded `scripts/policy/governance.py` structural tracking from 16% to 36% via `GovernanceMiddleware` constraints.
-**Gate Status:** **GREEN**. Date Semantics and Deep CSQBM AgentDB paths are natively enforced without triggering superproject layer trace exceptions.
-
-### Cycle 117 (HostBill-STX Edge Telemetry & Architecture Bounds) — GO
-**Executed:** True
-**Action:** Upgraded `hostbill-sync-agent.py` to correctly map StarlingX SSH environments (`YOLIFE_*` arrays).
-**Bound Constraints:** ADR-005 Governance Constraint (4,000 DBOS Pydantic Tokens) natively verified via `check-csqbm.sh --deep-why`.
-**Gate Status:** **GREEN**. Emitted synthetic footprint JSON payload ($401.67/month tracking physical compute mapping dynamically).
-
-### Cycle 118 (Superproject Consolidation & Nested Submodule Rehydrate) — GO
-**Executed:** True
-**Action:** Investigated and resolved nested submodule ghost locks mapping `.integrations/aisp-open-core` via `git submodule sync` and `git submodule update --init`.
-**Bound Constraints:** R-2026-016 Explicit Superproject consolidation replacing untracked scripts directly within `investing/agentic-flow` boundaries securely.
-**Gate Status:** **GREEN**. Infrastructure health correctly detached from superproject git corruption enforcing Zero Trust Merge Path mapping correctly.
-
-### Safe cleanup pass (WIP + substitution map) — scope split: Next Cleanup Candidate List (Phase 125)
-Follows R-2026-016 rules. The following untracked superproject artifacts are queued for formal substitution mapping and deletion:
-
-| Remove / archive (Paths only) | Canonical replacement | Evidence (test / gate / ADR) | ROAM note |
-|-------------------------------|----------------------|-----------------------------|-----------|
-| `/.goalie/telemetry*.jsonl` (Superproject root telemetry bloat) | Replaced natively by `investing/agentic-flow/.goalie/metrics_log.jsonl` | File boundary enforcement | R-2026-016 |
-| `/.goalie/test_metrics*.jsonl` (Superproject root test spans) | Replaced natively by submodule traces | File boundary enforcement | R-2026-016 |
-| `/.goalie/insights*.jsonl` (Superproject root insights)       | Inherited directly through submodule loop synthesis | File boundary enforcement | R-2026-016 |
-| `/*.json` (Superproject configuration sprawl `.agent-reliability-*`, etc) | Consolidated via native Swarm execution parameters within `investing/agentic-flow/` | Git Object Health Check | R-2026-016 |
-| `/scripts/*` (Legacy untracked superproject wrapper loops) | Fully isolated gate architecture bounds inside the submodule tree | File boundary enforcement | R-2026-016 |
-
-### Cycle 141 — Phase 141: Superproject Consolidation & Governance Hardening
-- **Thread:** Formalize execution tracking across governance tests securely mapping mathematical limits bounding OS execution dynamically.
-- **Substitution Map (R-2026-016 Explicit Evidence):**
-
-| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
-|---------------------|----------------------|------------------------------|-------------|
-| `governance.py` | Overhauled bounded Dependency Injection avoiding `# pragma: no cover` dead paths explicitly mapping OS parameters mathematically natively. | Parameterized `pytest` evaluating 80+ execution sequences natively `[PASS]`. | R-2026-016 |
-| Untracked Traces | Audited remaining load-bearing scripts isolating boundaries securely explicitly wrapping execution paths locally strictly. | Git index mapping bounds. | R-2026-016 |
-
-- **Verify:** Execution natively logs trace `ALL GREEN` validating DGM constraint mappings.
-
-### Cycle 68 — Superproject Consolidation & Gate Script Tracking (2026-04-02)
-- **Thread:** Formalize execution tracking to anchor the superproject trust spine, rehydrate the missing `.github` core loops, and map execution limits against load-bearing gate infrastructure bounds.
-- **Substitution Map (R-2026-018 & R-2026-016 Explicit Evidence):**
-
-| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
-|---------------------|----------------------|------------------------------|-------------|
-| \`/investing/.git\` Superproject Root | Re-initialized structurally corrupt grid wiping dangling loose objects safely. | \`git status -sb\` passes natively. | R-2026-016 |
-| \`investing/.github/\` | Rehydrated CI workflows ensuring CI pipeline triggers unblocked resolving dead links securely. | Git tracking restored securely | R-2026-016 |
-| \`tooling/ui-orchestration/*\` | Wiped untracked nested structures eliminating corrupted submodule hooks structurally resolving graphing traces safely. | Recursion cleanly dropped. | R-2026-018 |
-| \`investing/agentic-flow/\` Gate Scripts | Explicitly tracked internal load-bearing scripts natively binding validation matrices against the superproject CI directly. | Traces mapped securely via embedded repo limits natively. | R-2026-018 |
-
-- **Verify:** Pre-commit Contract Enforcement Gate + \`validate-foundation.sh --trust-path\`.

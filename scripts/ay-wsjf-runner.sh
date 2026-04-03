@@ -562,6 +562,22 @@ cmd_baseline() {
   local mem_pressure_pct=$((100 - memory_free_pct))
   local overall_pressure=$(echo "scale=0; ($cpu_pressure + $mem_pressure_pct) / 2" | bc 2>/dev/null || echo "50")
   
+  # HostBill / StarlingX Financial Telemetry Integration
+  # Extract synthetic_mrr_usd or power boundaries to calculate financial equilibrium constraints
+  local hostbill_ledger="$PROJECT_ROOT/.goalie/hostbill_ledger.json"
+  local mrr_financial_stress=0
+
+  if [[ -f "$hostbill_ledger" ]] && command -v jq >/dev/null 2>&1; then
+      local mrr_val=$(jq -r '.synthetic_billing.synthetic_mrr_usd // 0' "$hostbill_ledger")
+      # Scale: Every $10 in MRR above $100 adds +5% to overall system pressure mathematically slowing loops.
+      mrr_financial_stress=$(echo "scale=0; if($mrr_val > 100) (($mrr_val - 100) / 10) * 5 else 0" | bc 2>/dev/null || echo "0")
+      
+      if [[ "$mrr_financial_stress" -gt 0 ]]; then
+          echo -e "\033[1;33m[HostBill] Financial Telemetry active (MRR: \$${mrr_val}). Applying +${mrr_financial_stress}% pressure constraint.\033[0m"
+          overall_pressure=$(echo "scale=0; $overall_pressure + $mrr_financial_stress" | bc 2>/dev/null || echo "$overall_pressure")
+      fi
+  fi
+  
   cat > "$metric_file" << EOF
 {
   "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",

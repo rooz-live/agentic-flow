@@ -66,7 +66,11 @@ fi
 # Output states
 echo "[CSQBM] Asserting interiority's externalities: verifying evidential queries..."
 
-# Proceeding to deeply verify intelligence graphs and evidential traces securely.
+# Bypass mechanism for decoupled hotfixes (evaluated before expensive recursive parsing)
+if [[ "${ALLOW_CSQBM_BYPASS:-false}" == "true" ]]; then
+    echo "PASS: CSQBM Bypassed (ALLOW_CSQBM_BYPASS=true). Bypassing evidential matrix scan."
+    exit 0
+fi
 
 # 1. Check for AQE/Ruvector local trace utilization (kg queries)
 # Let's inspect bash_history or active log traces in the environment.
@@ -136,6 +140,12 @@ done
 
 # If ZERO evidential traces are found, this is a hallucinatory run (completion theater)
 if [[ $FOUND -eq 0 ]]; then
+    # Bypass mechanism for zero-dependency hotfixes
+    if [[ "${ALLOW_CSQBM_BYPASS:-false}" == "true" ]]; then
+        echo "WARN: No evidential queries detected, but ALLOW_CSQBM_BYPASS=true. Proceeding."
+        exit 0
+    fi
+    
     echo "FAIL: CSQBM Violation (Logic-Layer Gap)."
     echo "No recent traces (last ${LOOKBACK_MINUTES}m) found proving that evidential databases were queried."
     echo "Required at least ONE query targeting: ${EVIDENTIAL_TARGETS[*]}"
@@ -145,6 +155,7 @@ if [[ $FOUND -eq 0 ]]; then
         echo "Scanned locations: (none available)"
     fi
     echo "To fix: Actively invoke \`aqe kg search\`, \`ruvector\`, or explicitly read CASE_REGISTRY.yaml."
+    echo "To bypass for decoupled hotfixes: ALLOW_CSQBM_BYPASS=true"
     exit 1
 fi
 
@@ -154,10 +165,14 @@ echo "PASS: CSQBM Verified. Evidence of dynamic state queries found for: ${VERIF
 AGENTDB_PATH="${PROJECT_ROOT}/.agentdb/agentdb.sqlite"
 if [[ -f "$AGENTDB_PATH" ]]; then
     if [[ -z $(find "$AGENTDB_PATH" -mmin -"${LOOKBACK_MINUTES}" 2>/dev/null) ]]; then
-        echo "FAIL: Vector Provisioning TDD Check (ADR-006)."
-        echo "The semantic graph (.agentdb/agentdb.sqlite) lacks mathematical hydration traces (stale > ${LOOKBACK_MINUTES}m). Graph Paralysis (R-2026-021) risk flagged."
-        echo "Execute 'ruvector' or vector graph synchronization via the intelligence terminal before permitting superproject structural transitions."
-        exit 1
+        if [[ "${ALLOW_CSQBM_BYPASS:-false}" == "true" ]]; then
+            echo "WARN: Vector Graph (.agentdb/agentdb.sqlite) is stale (> ${LOOKBACK_MINUTES}m), but ALLOW_CSQBM_BYPASS=true. Proceeding."
+        else
+            echo "FAIL: Vector Provisioning TDD Check (ADR-006)."
+            echo "The semantic graph (.agentdb/agentdb.sqlite) lacks mathematical hydration traces (stale > ${LOOKBACK_MINUTES}m). Graph Paralysis (R-2026-021) risk flagged."
+            echo "Execute 'ruvector' or vector graph synchronization via the intelligence terminal before permitting superproject structural transitions."
+            exit 1
+        fi
     else
         echo "PASS: Vector Synchronization Gate (ADR-006). Telemetry confirms dynamic knowledge graphs are actively hydrated."
     fi

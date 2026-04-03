@@ -5,7 +5,7 @@ set -euo pipefail
 
 # Source configurations
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$PROJECT_ROOT/_SYSTEM/_AUTOMATION/tld-server-config.sh"
 
 GREEN='\033[0;32m'

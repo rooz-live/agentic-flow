@@ -20,7 +20,7 @@ ALARM_MODEL="qwen-3.5-plus"
 
 # 4. Local Darwin Gödel Machine (DGM) Synthesis & Max Scope Tasks: Gemma 4
 # TARGETED HARDWARE: M3 Ultra (256GB RAM) natively running massive 262k token graphs without CI latency blocks.
-GEMMA_COMPUTE_MODEL="gemma4:26b"
+GEMMA_COMPUTE_MODEL="gemma4-26b-q4-k-m"
 
 # ADR-005 Governance: Dynamic Connectome Ceiling
 export AQE_CONNECTOME_TOKEN_CEILING=$(compute_dynamic_token_ceiling 2>/dev/null || echo 4000)

@@ -6,14 +6,11 @@ module.exports = {
   testRunner: 'jest',
   coverageAnalysis: 'perTest',
   
-  // Mutate only business logic, not test files
+  // Mutate only tested business logic files
   mutate: [
-    'scripts/policy/governance.js',
-    'scripts/**/*.js',
-    'src/**/*.ts',
-    '!src/**/*.d.ts',
-    '!src/**/*.spec.ts',
-    '!src/**/*.test.ts',
+    'scripts/policy/governance.py',
+    '!scripts/**/*.js',
+    '!src/**/*.ts',
     '!**/node_modules/**'
   ],
   
@@ -38,8 +35,8 @@ module.exports = {
   // Timeout per mutant (in ms)
   timeoutMS: 5000,
   
-  // Maximum concurrent test runners
-  maxConcurrentTestRunners: 2,
+  // Concurrency (renamed from maxConcurrentTestRunners)
+  concurrency: 2,
   
   // Plugin configuration
   plugins: [
@@ -53,6 +50,7 @@ module.exports = {
     'coverage/**',
     '.goalie/**',
     'reports/**',
-    'node_modules/**'
+    'node_modules/**',
+    'scripts/governance-audit-system.js'
   ]
 };

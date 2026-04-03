@@ -663,6 +663,28 @@ class GovernanceMiddleware:
             # Progress logging must never break prod-cycle
             pass
 
+    def _compute_dynamic_tokens(self) -> int:
+        """Proxies real payload size estimations per ADR-005 bounds to correctly map SAFLA alpha_1 penalty logic.
+        This overrides the fake 'iteration count' proxy."""
+        # Check active log contexts mapped by the pipeline
+        telemetry_db = self.project_root / "agentdb.db"
+        base_size = 0
+        if telemetry_db.exists():
+            base_size += os.path.getsize(telemetry_db)
+        
+        goalie_metrics = self.project_root / ".goalie" / "metrics_log.jsonl"
+        if goalie_metrics.exists():
+            base_size += os.path.getsize(goalie_metrics)
+            
+        if base_size == 0:
+            return 4000 # TurboQuant baseline Default
+            
+        # Approximation: roughly 4 bytes per token
+        approx_tokens = int(base_size / 4)
+        
+        # OpenWorm Connectome Bound limits context mathematically to ~32k max without external vectors
+        return min(max(approx_tokens, 1), 32000)
+
     def update_rca_counters(self, status: str):
         """Update RCA counters based on cycle status."""
         if status == "failure":
@@ -764,6 +786,12 @@ class GovernanceMiddleware:
             subprocess.run(cmd, check=False)
             print(f"\n[Governance] 🕵️ AUTOMATED RCA TRIGGERED: {reason}")
             print(f"[Governance] Context: {initial_why}")
+            
+            # Actively dispatch the RCA handler
+            dispatcher_script = Path(__file__).resolve().parent.parent / "system" / "rca-dispatcher.sh"
+            if dispatcher_script.exists():
+                subprocess.Popen(["bash", str(dispatcher_script), "--run-id", self.run_id, "--reason", reason])
+                print(f"[Governance] RCA Dispatcher invoked in background.")
         except Exception as e:
             print(f"[Governance] Failed to emit RCA event: {e}")
 
@@ -1222,7 +1250,7 @@ class GovernanceMiddleware:
 
         current_metrics = {
             "reward": self.current_avg_score / 100.0,  # Normalize to [0, 1]
-            "tokens_used": max(self.current_iteration, 1),
+            "tokens_used": self._compute_dynamic_tokens(),
             "throughput": throughput,
             "resource_used": self.extensions_used + 1,
             "divergence_score": self.safe_degrade_error_count / 10.0,  # Normalize

@@ -69,4 +69,16 @@ cat >> "$GOALIE_DIR/go_no_go_ledger.md" << EOF
 - [$(date -u +"%Y-%m-%dT%H:%M:%SZ")] K8s $K8S_VERSION Conformance Sync [STX-Node: $STX_HOST] -> ✅ **GO** (Sonobuoy Verified)
 EOF
 
+log "Bridging telemetry through governance emit_metrics.py..."
+if [[ -f "$ROOT_DIR/scripts/emit_metrics.py" ]]; then
+    python3 "$ROOT_DIR/scripts/emit_metrics.py" \
+        --event-type retro_coach_run \
+        --run-id "stx-conformance-$(date +%s)" \
+        --cycle-index 0 \
+        --log-file "$GOALIE_DIR/metrics_log.jsonl" \
+        --retro-event-prototype "starlingx_k8s_conformance" \
+        --retro-rca-why "K8s $K8S_VERSION Sync validation verified against bounds on $STX_HOST" \
+        --retro-design-pattern "pi-sync-telemetry"
+fi
+
 log "StarlingX CNCF Pipeline Synthesis 100% GO."

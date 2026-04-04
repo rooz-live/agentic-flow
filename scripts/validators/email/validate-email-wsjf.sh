@@ -181,23 +181,58 @@ calculate_email_wsjf() {
   local email_file="$1"
   local content=$(cat "$email_file")
 
+  # Extract upcoming date from content to compute temporal urgency multiplier (min/hr/d/w bounds)
+  local temporal_multiplier
+  temporal_multiplier=$(python3 -c "
+import re, sys
+from datetime import datetime
+content = sys.stdin.read()
+matches = re.findall(r'(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})', content, re.IGNORECASE)
+now = datetime.now()
+min_days = 9999
+for m in matches:
+    try:
+        date_str = f'{now.year} {m[0]} {m[1]}'
+        target_date = datetime.strptime(date_str, '%Y %B %d')
+        delta = (target_date - now).days
+        if -2 <= delta < min_days:
+            min_days = max(0, delta)
+    except Exception:
+        pass
+
+if min_days <= 1:
+    print(10)
+elif min_days <= 7:
+    print(5)
+elif min_days <= 30:
+    print(2)
+else:
+    print(1)
+" <<< "$content")
+  
+  temporal_multiplier=${temporal_multiplier:-1}
+
   # Check risk level using Early Exit Guard Clauses
   if echo "$content" | grep -Eiq "$RED_KEYWORDS"; then
-    echo '{"risk":"RED","wsjf":45,"priority":1}'
+    local wsjf=$(( 45 * temporal_multiplier ))
+    echo "{\"risk\":\"RED\",\"wsjf\":$wsjf,\"priority\":1,\"temporal_multiplier\":$temporal_multiplier}"
     return 0
   fi
   
   if echo "$content" | grep -Eiq "$YELLOW_KEYWORDS"; then
-    echo '{"risk":"YELLOW","wsjf":35,"priority":2}'
+    local wsjf=$(( 35 * temporal_multiplier ))
+    echo "{\"risk\":\"YELLOW\",\"wsjf\":$wsjf,\"priority\":2,\"temporal_multiplier\":$temporal_multiplier}"
     return 0
   fi
   
   if echo "$content" | grep -Eiq "$GREEN_KEYWORDS"; then
-    echo '{"risk":"GREEN","wsjf":25,"priority":3}'
+    local wsjf=$(( 25 * temporal_multiplier ))
+    echo "{\"risk\":\"GREEN\",\"wsjf\":$wsjf,\"priority\":3,\"temporal_multiplier\":$temporal_multiplier}"
     return 0
   fi
   
-  echo '{"risk":"UNKNOWN","wsjf":15,"priority":4}'
+  local wsjf=$(( 15 * temporal_multiplier ))
+  echo "{\"risk\":\"UNKNOWN\",\"wsjf\":$wsjf,\"priority\":4,\"temporal_multiplier\":$temporal_multiplier}"
   return 0
 }
 

@@ -968,3 +968,11 @@ Follows R-2026-016 rules. The following untracked superproject artifacts are que
 | `[SUPERPROJECT]/scripts/agentic/retro_replenish_workflow.py` | `investing/agentic-flow/scripts/agentic/retro_replenish_workflow.py` | R-2026-018 |
 
 - **Verify:** `.gitMUX` or `validate-foundation.sh` tracing natively bound within the local execution timeline mapping.
+
+### Cycle 109 — Phase 116: Deep Capability Truncation & Local Limits Removal
+- **Thread:** Snapshot and truncate the Capability Backlog and setup 100% local opencode-ai bounds.
+- **Backlog Boundary:**
+| Action | Outcome Evidence | ROAM Line |
+| --------------------- | ------------------------------------- | --------- |
+| `CAPABILITY_BACKLOG.md` | Snapshotted to `.goalie/backlog_snapshots/2026-04-04/` and strictly truncated to PI Sync/STX.12 integration focus. | R-2026-018 |
+| `opencode-ai` Initialization | Setup 100% private node execution for `qwen`. | R-2026-018 |

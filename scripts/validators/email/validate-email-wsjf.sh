@@ -181,16 +181,24 @@ calculate_email_wsjf() {
   local email_file="$1"
   local content=$(cat "$email_file")
 
-  # Check risk level
+  # Check risk level using Early Exit Guard Clauses
   if echo "$content" | grep -Eiq "$RED_KEYWORDS"; then
     echo '{"risk":"RED","wsjf":45,"priority":1}'
-  elif echo "$content" | grep -Eiq "$YELLOW_KEYWORDS"; then
-    echo '{"risk":"YELLOW","wsjf":35,"priority":2}'
-  elif echo "$content" | grep -Eiq "$GREEN_KEYWORDS"; then
-    echo '{"risk":"GREEN","wsjf":25,"priority":3}'
-  else
-    echo '{"risk":"UNKNOWN","wsjf":15,"priority":4}'
+    return 0
   fi
+  
+  if echo "$content" | grep -Eiq "$YELLOW_KEYWORDS"; then
+    echo '{"risk":"YELLOW","wsjf":35,"priority":2}'
+    return 0
+  fi
+  
+  if echo "$content" | grep -Eiq "$GREEN_KEYWORDS"; then
+    echo '{"risk":"GREEN","wsjf":25,"priority":3}'
+    return 0
+  fi
+  
+  echo '{"risk":"UNKNOWN","wsjf":15,"priority":4}'
+  return 0
 }
 
 # Update HTML dashboard with current priorities
@@ -296,22 +304,23 @@ validate_email() {
 
   # T0 FIX: Check for duplicate emails first
   log "Checking for duplicate emails..."
-  if ! check_email_duplicate "$email_file"; then
-    case $? in
-      1)
-        log "ERROR: Failed to check email duplicate"
-        exit ${EXIT_SCHEMA_VALIDATION_FAILED:-100}
-        ;;
-      2)
-        log "⚠️  DUPLICATE EMAIL DETECTED - Aborting send to prevent redundancy"
-        echo ""
-        echo "🚫 EMAIL SEND BLOCKED: Duplicate content detected"
-        echo "   This email appears to be identical to a previously sent message."
-        echo "   Review the email hash database: $EMAIL_HASH_DB"
-        echo ""
-        exit ${EXIT_DUPLICATE_DETECTED:-120}  # Exit code 120 = duplicate detected
-        ;;
-    esac
+  check_email_duplicate "$email_file"
+  local dup_status=$?
+
+  # Early Exit Guard Clauses
+  if [ "$dup_status" -eq 1 ]; then
+    log "ERROR: Failed to check email duplicate"
+    exit ${EXIT_SCHEMA_VALIDATION_FAILED:-100}
+  fi
+
+  if [ "$dup_status" -eq 2 ]; then
+    log "⚠️  DUPLICATE EMAIL DETECTED - Aborting send to prevent redundancy"
+    echo ""
+    echo "🚫 EMAIL SEND BLOCKED: Duplicate content detected"
+    echo "   This email appears to be identical to a previously sent message."
+    echo "   Review the email hash database: $EMAIL_HASH_DB"
+    echo ""
+    exit ${EXIT_DUPLICATE_DETECTED:-120}  # Exit code 120 = duplicate detected
   fi
 
   log "Validating email: $email_file"

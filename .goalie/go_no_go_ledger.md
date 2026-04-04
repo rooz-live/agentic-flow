@@ -164,6 +164,19 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 
 **Preflight / DoD:** `TRUST_GIT=/usr/bin/git bash scripts/validate-foundation.sh --trust-path` **before** and **after** the cleanup PR; if infra or CSQBM goes RED, **stop** and revert or repair before expanding scope.
 
+### Cycle AM — Phase 114: Superproject Consolidation & Safe Cleanup (WIP + substitution map)
+
+- **Thread:** Phase 114 Execution of "Safe Cleanup Pass" to desprawl root superproject legacy traces evaluating untracked duplicate infrastructure scripts.
+- **Substitution Map (R-2026-016 Explicit Evidence):**
+
+| Remove / Archive Path | Canonical Replacement / Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+| --------------------- | --------------------------------- | ---------------------------- | ----------- |
+| `[SUPERPROJECT]/scripts/` | `investing/agentic-flow/scripts/` tracked boundary | CSQBM / Pre-commit Gate Pass | R-2026-016 |
+| `[SUPERPROJECT]/.goalie/` | `investing/agentic-flow/.goalie/` tracked truth anchor | `validate-foundation.sh` tracing cleanly | R-2026-016 |
+| `[SUPERPROJECT]/.governance/` | Cleanly pruned from superproject. Core logic inside `agentic-flow` | Trust bundle ALL GREEN | R-2026-016 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.
+
 ### Latest status (2026-04-03)
 
 - **Cycle PI-prep-backlog (2026-04-03):** Backlog hygiene with restore path

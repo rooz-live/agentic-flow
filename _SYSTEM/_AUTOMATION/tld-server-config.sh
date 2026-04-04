@@ -78,24 +78,33 @@ configure_server() {
 check_tld_readiness() {
     echo "Checking TLD readiness..."
     
-    # Precondition Bound: Dependency verification decoupled from main execution branching
+    # Early Exit: Dependency Injection & Precondition Check
     if ! command -v dig >/dev/null 2>&1; then
-        echo "⚠️ Dependency missing: dig. Continuing without domain resolution validation."
+        echo "❌ ERROR: Critical Dependency missing: 'dig'. Required for domain resolution validation. Blocked via Early Exit." >&2
+        return 1
     fi
     
-    # Early Exit: Domain resolution precondition bound (Flattened)
-    if command -v dig >/dev/null 2>&1 && [[ -z "$(dig +short "$DASHBOARD_DOMAIN" 2>/dev/null)" ]]; then
+    if ! command -v lsof >/dev/null 2>&1; then
+        echo "❌ ERROR: Critical Dependency missing: 'lsof'. Required for port availability matrix validation. Blocked via Early Exit." >&2
+        return 1
+    fi
+    
+    # Early Exit: Domain resolution precondition bound
+    local dig_result=$(dig +short "$DASHBOARD_DOMAIN" 2>/dev/null || echo "")
+    if [[ -z "$dig_result" ]]; then
         echo "❌ ERROR: Domain $DASHBOARD_DOMAIN is not resolving. Blocked via Early Exit." >&2
         return 1
     fi
     
-    # Early Exit: SSL certificates precondition bound (Flattened)
-    if [[ "$DASHBOARD_SSL" == "true" ]] && [[ ! -d "/etc/letsencrypt/live/$DASHBOARD_DOMAIN" ]]; then
-        echo "❌ ERROR: SSL certificates absent at /etc/letsencrypt/live/$DASHBOARD_DOMAIN. Blocked via Early Exit." >&2
-        return 1
+    # Early Exit: SSL certificates precondition bound
+    if [[ "$DASHBOARD_SSL" == "true" ]]; then
+        if [[ ! -d "/etc/letsencrypt/live/$DASHBOARD_DOMAIN" ]]; then
+            echo "❌ ERROR: SSL certificates absent at /etc/letsencrypt/live/$DASHBOARD_DOMAIN. Configure SSL before binding. Blocked via Early Exit." >&2
+            return 1
+        fi
     fi
     
-    # Early Exit: Port availability precondition bound (Standardized Return)
+    # Early Exit: Port availability precondition bound
     echo "Checking port $DASHBOARD_PORT..."
     if lsof -i:"$DASHBOARD_PORT" >/dev/null 2>&1; then
         echo "❌ ERROR: Port $DASHBOARD_PORT is already in use. Blocked via Early Exit." >&2

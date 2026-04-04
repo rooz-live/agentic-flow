@@ -97,11 +97,9 @@ check_tld_readiness() {
     fi
     
     # Early Exit: SSL certificates precondition bound
-    if [[ "$DASHBOARD_SSL" == "true" ]]; then
-        if [[ ! -d "/etc/letsencrypt/live/$DASHBOARD_DOMAIN" ]]; then
-            echo "❌ ERROR: SSL certificates absent at /etc/letsencrypt/live/$DASHBOARD_DOMAIN. Configure SSL before binding. Blocked via Early Exit." >&2
-            return 1
-        fi
+    if [[ "$DASHBOARD_SSL" == "true" ]] && [[ ! -d "/etc/letsencrypt/live/$DASHBOARD_DOMAIN" ]]; then
+        echo "❌ ERROR: SSL certificates absent at /etc/letsencrypt/live/$DASHBOARD_DOMAIN. Configure SSL before binding. Blocked via Early Exit." >&2
+        return 1
     fi
     
     # Early Exit: Port availability precondition bound

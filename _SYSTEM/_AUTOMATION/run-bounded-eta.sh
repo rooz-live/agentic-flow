@@ -99,10 +99,13 @@ run_bounded_eta() {
     emit_progress_update "$process_id" "INIT" "Starting $process_name" 0 "RUNNING"
     update_progress "$process_id" "Initializing $process_name" 0 "RUNNING"
 
-    # Dependency Injection: Fast Precondition Checker (Early Exit)
+    # Dependency Injection: Normalized empty state
     if [[ -z "${dependencies:-}" ]] || [[ "$dependencies" == "none" ]]; then
-        dependencies="" # Normalized empty state
-    else
+        dependencies=""
+    fi
+
+    # Fast Precondition Checker (Early Exit blocks without nesting loops inside 'else')
+    if [[ -n "$dependencies" ]]; then
         IFS=',' read -ra deps <<< "$dependencies"
         for dep in "${deps[@]}"; do
             step_count=$((step_count + 1))
@@ -114,10 +117,10 @@ run_bounded_eta() {
                 return 1
             fi
 
-            # Timeout Guard: Check if we're exceeding time
+            # Timeout Guard: Explicit Early Exit Check
             local elapsed=$(($(date +%s) - start_time))
             if [[ $elapsed -gt $max_duration ]]; then
-                emit_progress_update "$process_id" "TIMEOUT" "Process exceeded max duration" 0 "FAILED"
+                emit_progress_update "$process_id" "TIMEOUT" "Process exceeded max duration during dependency boot" 0 "FAILED"
                 complete_process "$process_id" false
                 return 124
             fi

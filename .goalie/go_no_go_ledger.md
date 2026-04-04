@@ -952,3 +952,19 @@ Follows R-2026-016 rules. The following untracked superproject artifacts are que
 | Legacy Fleet Sprawl (`scripts/ay-*`) | Remove legacy bash wrapper instances from superproject directly substituted by standard AQE integrations. | Execution trace mapped cleanly | R-2026-018 |
 
 - **Verify:** Recursive Git Submodule status explicitly returns `0` tracking nested boundaries dynamically.
+
+### Cycle 108 — Phase 115: Superproject Consolidation — Gate Script Tracking
+- **Thread:** Safe cleanup pass mapping load-bearing gates from corrupted superproject root to `investing/agentic-flow` establishing trusted bounds.
+- **Substitution Map (R-2026-016 Capability Retention):**
+
+| Remove / Archive Path | Canonical Replacement / Evidence Path | ROAM Line |
+| --------------------- | ------------------------------------- | --------- |
+| `[SUPERPROJECT]/scripts/validators/project/check-csqbm.sh` | `investing/agentic-flow/scripts/validators/project/check-csqbm.sh` | R-2026-018 |
+| `[SUPERPROJECT]/scripts/policy/governance.py` | `investing/agentic-flow/scripts/policy/governance.py` | R-2026-018 |
+| `[SUPERPROJECT]/scripts/emit_metrics.py` | `investing/agentic-flow/scripts/emit_metrics.py` | R-2026-018 |
+| `[SUPERPROJECT]/scripts/feedback-loop-analyzer.sh` | `investing/agentic-flow/scripts/feedback-loop-analyzer.sh` | R-2026-018 |
+| `[SUPERPROJECT]/scripts/link_metrics_to_retro.sh` | `investing/agentic-flow/scripts/link_metrics_to_retro.sh` | R-2026-018 |
+| `[SUPERPROJECT]/scripts/cmd_retro.py` | `investing/agentic-flow/scripts/cmd_retro.py` | R-2026-018 |
+| `[SUPERPROJECT]/scripts/agentic/retro_replenish_workflow.py` | `investing/agentic-flow/scripts/agentic/retro_replenish_workflow.py` | R-2026-018 |
+
+- **Verify:** `.gitMUX` or `validate-foundation.sh` tracing natively bound within the local execution timeline mapping.

@@ -1,48 +1,26 @@
-# WSJF Prompt Reindex
-Generated: 2026-04-02T19:00:00Z
+# WSJF prompt reindex — live summary
 
-The following user prompt items have been analyzed and ordered by assumed WSJF priority (Cost of Delay ÷ Job Size).
+**Generated:** 2026-04-03Z  
+**Full line-by-line pre-truncate copy:** `.goalie/backlog_snapshots/2026-04-03/wsjf_prompt_reindex.md`
 
-## 1. Top Priority / Blockers (90-100)
-- **Item**: `npx gitnexus analyze workflow iteratively/incrementally`
-- **Context**: Zero-server code intelligence updating.
-- **WSJF Score**: 98
+## Top priority / blockers (90–100)
 
-- **Item**: `re-sort prompt, line by line wsjf before regenerating wsjf_prompt_reindex.md + CAPABILITY_BACKLOG.md`
-- **Context**: Meta-task to maintain prioritization ledger.
-- **WSJF Score**: 95
+| WSJF | Item | Context |
+|------|------|---------|
+| 98 | `npx gitnexus analyze` (iterative) | Keep graph fresh — blast radius before edits |
+| 95 | Re-sort `wsjf_prompt_reindex.md` + `CAPABILITY_BACKLOG.md` | Meta — this file + backlog WSJF order |
 
-## 2. Methodology & Architecture (80-89)
-- **Item**: `MPP TDD MCP DDD ADR PRD VDD BDD SDD Specification-Driven Development`
-- **Context**: Aligning with Compounding_Intelligence_Protocol.pdf
-- **WSJF Score**: 88
+## Methodology & architecture (80–89)
 
-- **Item**: `Finely tune chunking config per cycle-gate-increment-iteration-phase?`
-- **Context**: Refining indexing and context chunking parameters.
-- **WSJF Score**: 85
+| WSJF | Item | Context |
+|------|------|---------|
+| 88 | MPP / TDD / MCP / DDD / ADR / PRD / SDD | Spec-driven alignment |
+| 85 | Chunking config per cycle-gate | Indexing / context windows |
 
-## 3. UI Realism & Refactoring (70-79)
-- **Item**: `Rewire fake UI towards reality?`
-- **Context**: Migrate placeholder or disconnected UI components to actual data streams.
-- **WSJF Score**: 78
+## Parked (70–69) — detail in snapshot only
 
-- **Item**: `landing-with-art-cards.html (vziatkov/neuro) + hyperbolic vectors?`
-- **Context**: UI implementation reference for "art cards".
-- **WSJF Score**: 75
+- UI realism (fake UI → data), art-cards reference, dev-browser, livestream config, hardware/physics items — **see snapshot** for full text and scores.
 
-- **Item**: `dev-browser (SawyerHood)`
-- **Context**: Investigate embedded/headless dev browser integration.
-- **WSJF Score**: 72
+---
 
-- **Item**: `livestream-pages config.js blame`
-- **Context**: Configuration review for live stream functionality.
-- **WSJF Score**: 70
-
-## 4. Hardware/Physics Integrations (60-69)
-- **Item**: `Pressure sensitivity %/# upgrade %.#`
-- **Context**: Hardware or input sensor adaptation.
-- **WSJF Score**: 65
-
-- **Item**: `Cell, materials of interest?`
-- **Context**: Physics simulation, lab logic, or specific use case domain.
-- **WSJF Score**: 60
+*Regenerate from user prompt dumps by WSJF; long “link farm” prompts stay out of this file — use snapshot + `CAPABILITY_BACKLOG` pointers.*

@@ -14,6 +14,18 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 
+# Guard Clauses / Precondition Checks for Early Exit
+if [[ ! -f "$PROJECT_ROOT/_SYSTEM/_AUTOMATION/tld-server-config.sh" ]]; then
+    echo -e "${RED}❌ FATAL: Missing dependencies. tld-server-config.sh not found.${NC}"
+    exit 1
+fi
+
+if [[ ! -f "$PROJECT_ROOT/.tld-config" ]]; then
+    echo -e "${RED}❌ FATAL: Blocked. .tld-config not found in project root. Cannot test config without it.${NC}"
+    exit 1
+fi
+
+
 echo -e "${BLUE}🧪 Testing TLD Configuration${NC}"
 echo ""
 

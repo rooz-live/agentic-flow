@@ -155,7 +155,23 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `gitlab-environment-toolkit` | gitlab-org | Submodule health only |
 | `rust/ffi/forge` | ikennaokpala/forge | Submodule health only |
 
+### Backlog hygiene substitution (2026-04-03)
+
+| Remove / archive | Canonical replacement | Evidence | ROAM |
+|------------------|----------------------|----------|------|
+| Long-form `CAPABILITY_BACKLOG.md` (items 12–23, extended checklists) | Live WSJF index + `.goalie/backlog_snapshots/2026-04-03/CAPABILITY_BACKLOG.md` | T1 `validate-foundation.sh --trust-path` ALL GREEN before edit; snapshot dir + README | R-2026-016 |
+| Long-form `wsjf_prompt_reindex.md` (§3–4 UI/hardware prompt lines) | Live summary + `.goalie/backlog_snapshots/2026-04-03/wsjf_prompt_reindex.md` | Same | R-2026-016 |
+
 **Preflight / DoD:** `TRUST_GIT=/usr/bin/git bash scripts/validate-foundation.sh --trust-path` **before** and **after** the cleanup PR; if infra or CSQBM goes RED, **stop** and revert or repair before expanding scope.
+
+### Latest status (2026-04-03)
+
+- **Cycle PI-prep-backlog (2026-04-03):** Backlog hygiene with restore path
+  - **Snapshot:** `.goalie/backlog_snapshots/2026-04-03/` (full `CAPABILITY_BACKLOG.md`, `wsjf_prompt_reindex.md`, `README.md`).
+  - **Live files:** Truncated WSJF index tables at repo root; pointers to snapshot for demoted rows.
+  - **T1:** `TRUST_GIT=/usr/bin/git bash scripts/validate-foundation.sh --trust-path` → **Trust bundle: ALL GREEN**, Merge GO (infra + CSQBM); `head_sha` recorded in `.goalie/metrics_log.jsonl`.
+  - **Tooling:** `npx agentic-qe@3.9.0 init --auto` run in-repo (separate commit from snapshot/hygiene when committed).
+  - **Claude Code:** Reconcile install/plugins with [anthropics/claude-code releases](https://github.com/anthropics/claude-code/releases); see `ide_configs.md` § Upgrade note.
 
 ### Latest status (2026-04-02)
 

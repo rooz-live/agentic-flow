@@ -269,6 +269,20 @@ run_trust_path() {
     fi
 
     echo ""
+    echo "Historical Velocity Analysis"
+    echo "----------------------------"
+    local delta_script="${_PROJECT_ROOT}/_SYSTEM/_AUTOMATION/extract-historic-delta.py"
+    if [ -x "$delta_script" ]; then
+        if ! python3 "$delta_script"; then
+            echo -e "${YELLOW}⚠${NC} historical velocity delta script failed but not blocking"
+        else
+            echo -e "${GREEN}✓${NC} historical velocity calculated"
+        fi
+    else
+        echo -e "${YELLOW}⚠${NC} historical velocity delta script not executable or missing"
+    fi
+
+    echo ""
     echo "==========================================="
     local merge_go=1
     if [ "$infra_ok" -eq 0 ] || [ "$csqbm_ok" -eq 0 ]; then

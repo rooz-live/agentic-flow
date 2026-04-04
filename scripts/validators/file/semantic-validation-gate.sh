@@ -81,14 +81,14 @@ local_proj_root="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 AGENTDB_PATH="$(cd "$local_proj_root/../.." 2>/dev/null && pwd)/agentdb.db"
 if [[ -f "$AGENTDB_PATH" ]]; then
     if [[ -n "$(find "$AGENTDB_PATH" -mmin +5760 2>/dev/null)" ]]; then
-        echo -e "${RED}❌ FAIL (CSQBM Governance Halt)${RESET} agentdb.db staleness >96h. Task blocked via OpenWorm Physical Bounds (ADR-005)."
+        echo -e "${RED}❌ CSQBM_HALT [Yasna/TIME]${RESET} agentdb.db staleness >96h. Validation Execution blocked via TurboQuant-DGM Temporal Binding (ADR-005)."
         exit ${EX_VALIDATION_FAILED:-150}
     fi
 fi
 
 if [ -f "$local_proj_root/scripts/validators/project/check-csqbm.sh" ]; then
     if ! bash "$local_proj_root/scripts/validators/project/check-csqbm.sh" --deep-why > /dev/null 2>&1; then
-        echo -e "${RED}❌ FAIL (CSQBM Governance Halt)${RESET} CSQBM Deep-Why Violation. Task blocked via OpenWorm Physical Bounds (ADR-005)."
+        echo -e "${RED}❌ CSQBM_HALT [Manthra/TRUTH]${RESET} CSQBM Deep-Why Violation. Task validation bounded failing alignment via TurboQuant-DGM physical checks (ADR-005)."
         exit ${EX_VALIDATION_FAILED:-150}
     fi
 fi
@@ -119,13 +119,14 @@ elif [[ "$EMAIL_FILE" == *"income"* ]] || [[ "$EMAIL_FILE" == *"job"* ]]; then
     DOMAIN_NAME="Income"
 fi
 
-# OpenWorm Contrastive Intelligence Connectome Trace
-echo "[CONNECTOME TRACE] Total Mapped Scalability: $MAX_BYTES bytes (~$DYNAMIC_BASE_TOKENS tokens natively mapped) via ADR-005 Governance"
+# Temporal Active Capability Freshness Trace
+echo "[TEMPORAL/TIME] Connectome Trace Scaling evaluated under $(date -u +%H) active metrics natively prioritized"
+echo "[CONNECTOME/LIVE] Total Mapped Scalability: $MAX_BYTES bytes (~$DYNAMIC_BASE_TOKENS tokens natively mapped) via Layer Aggregation (ADR-005)"
 
 if [[ "$file_size_bytes" -gt "$MAX_BYTES" ]]; then
-    echo -e "${RED}❌ FAIL (Memory Bound Exceeded)${RESET} Target footprint exceeds dynamic $DOMAIN_NAME physical bounds ($MAX_BYTES bytes)."
-    echo -e "   ${CYAN}Action Triggered: OpenWorm Taxonomy Threshold Reached. Hardware limits exceeded the allowed ADR-005 memory capacity.${RESET}"
-    echo -e "   ${YELLOW}Constraint (ADR-005): Payloads must fit within the 4,000 DBOS Pydantic token ceiling. Shrink unstructured sprawl prior to processing.${RESET}"
+    echo -e "${RED}❌ CSQBM_HALT [Mithra/LIVE] (Connectome Bound Exceeded)${RESET} Unstructured target footprint exceeds dynamic $DOMAIN_NAME physical limits ($MAX_BYTES bytes)."
+    echo -e "   ${CYAN}Action Triggered: Discover/Consolidate THEN Extend protocol dictates shrinking payload sprawl natively.${RESET}"
+    echo -e "   ${YELLOW}Constraint (ADR-005): Payload exceeds maximum $DYNAMIC_BASE_TOKENS DBOS Token ceiling. Compression Required.${RESET}"
     exit $EX_VALIDATION_FAILED
 fi
 

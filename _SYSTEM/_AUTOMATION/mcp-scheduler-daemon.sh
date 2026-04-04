@@ -41,7 +41,7 @@ run_periodic() {
                 local file_age=$(( $(date +%s) - $(stat -c %Y "$agentdb_path") ))
             fi
             if [ "$file_age" -gt "$ADR_005_MAX_STALENESS_SEC" ]; then
-                echo "[$(date -u)] CSQBM Governance Halt: agentdb.db staleness >96h ($file_age seconds). Task $task_name blocked via TurboQuant-DGM Physical Bounds (ADR-005)." >> "$log_file"
+                echo "[$(date -u)] CSQBM_HALT [Yasna/TIME]: agentdb.db staleness >96h ($file_age seconds). Task $task_name blocked via TurboQuant-DGM Temporal Limits (ADR-005)." >> "$log_file"
                 sleep "$delay_sec"
                 continue
             fi
@@ -53,7 +53,7 @@ run_periodic() {
             # Cycle 116: Physical Memory Context Halt limit (simulating a 4,000 DBOS token overhead protective baseline mapped via ADR-005)
             local connectome_pressure=$(vm_stat | awk '/Pages free/ {free=$3} /Pages active/ {active=$3} END { if(active+free>0) { print int((active / (active + free)) * 100)} else {print 0} }' | tr -d '.')
             if [[ "$connectome_pressure" -gt 90 && "$connectome_pressure" != "-1085" ]]; then
-                echo "[$(date -u)] CSQBM Governance Halt: Absolute OS Connectome Overload ($connectome_pressure%). Task $task_name blocked prioritizing R-2026-018 stability (ADR-005)." >> "$log_file"
+                echo "[$(date -u)] CSQBM_HALT [Manthra/TRUTH]: Absolute OS Connectome Overload ($connectome_pressure%). Task $task_name execution blocked enforcing Layer Aggregation Model limits (ADR-005)." >> "$log_file"
                 sleep "$delay_sec"
                 continue
             fi
@@ -73,7 +73,7 @@ run_periodic() {
                 local active_nodes
                 active_nodes=$(kubectl --kubeconfig "$conf_path" get nodes --no-headers 2>/dev/null | grep -c ' Ready' || echo "0")
                 if [ "$active_nodes" -ge "$TURNKEY_NODE_LIMIT" ]; then
-                    echo "[$(date -u)] CSQBM Governance Halt: K8s Turnkey pipeline sprawl limit exceeded ($active_nodes nodes >= $TURNKEY_NODE_LIMIT max). Task $task_name blocked prioritizing physical environment matrix bounds." >> "$log_file"
+                    echo "[$(date -u)] CSQBM_HALT [Mithra/LIVE]: K8s Turnkey pipeline sprawl limit exceeded ($active_nodes nodes >= $TURNKEY_NODE_LIMIT max). Task $task_name execution blocked prioritizing structural environmental bounds." >> "$log_file"
                     sleep "$delay_sec"
                     continue
                 fi
@@ -82,7 +82,7 @@ run_periodic() {
 
         if [ -f "$proj_root/scripts/validators/project/check-csqbm.sh" ]; then
             if ! bash "$proj_root/scripts/validators/project/check-csqbm.sh" --deep-why > /dev/null 2>&1; then
-                echo "[$(date -u)] CSQBM Governance Halt: CSQBM Deep-Why Violation. Task $task_name blocked via TurboQuant-DGM Physical Bounds (ADR-005)." >> "$log_file"
+                echo "[$(date -u)] CSQBM_HALT [Yasna/TIME]: CSQBM Deep-Why Violation. Truth execution path for task $task_name blocked natively via TurboQuant-DGM bounds (ADR-005)." >> "$log_file"
                 sleep "$delay_sec"
                 continue
             fi

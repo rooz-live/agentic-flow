@@ -134,6 +134,7 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `scripts/agentic/retro_replenish_workflow.py` | **Retain** — Retro/replenish orchestration path | `--trust-path` DoD verification | R-2026-016 formal mapping |
 | `scripts/ci/hostbill-sync-agent.py` | **Retain** — Computes $ USD synthetic bounds bridging STX `ipmitool` physical telemetry securely | `--trust-path` DoD verification | R-2026-019 + R-2026-020 formally mapped |
 | Superproject pre-commit `claims-evidence` (was missing script + `\|\| true`) | `scripts/monitoring/validate-claims.sh` — bounded check: recent commits with test/coverage success language require an on-disk artifact | Pre-commit GREEN + `./scripts/contract-enforcement-gate.sh verify --advisory` | R-2026-016 capability traceability; R-2026-018 anti–completion-theater |
+| `Superproject Untracked Scripts` | **Retain** — 1400+ scripts safely bound into `scripts/superproject-gates/` within the healthy submodule. | Successful migration and audit via `audit-untracked-gates.sh` | R-2026-016 formal mapping; execution in Cycle 38 |
 
 ### T2 — Superproject validate-claims (hook parity)
 

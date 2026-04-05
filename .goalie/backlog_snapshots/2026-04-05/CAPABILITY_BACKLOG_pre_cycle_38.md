@@ -1,16 +1,8 @@
 # CAPABILITY BACKLOG — WSJF live index (truncated)
 
-**Generated:** 2026-04-05Z (hygiene cycle 38)
-**Sort:** Cost of Delay ÷ Job Size (highest first)
-**Full pre-truncate copy (restorable):** `.goalie/backlog_snapshots/2026-04-05/CAPABILITY_BACKLOG_pre_cycle_38.md`
-
----
-
-## RECENTLY COMPLETED
-
-| # | Item | WSJF | Pointer |
-|---|------|------|---------|
-| - | Superproject gate tracking | - | `scripts/superproject-gates/` isolated and bound to `go_no_go_ledger.md` (Cycle 38) |
+**Generated:** 2026-04-04Z (hygiene cycle)  
+**Sort:** Cost of Delay ÷ Job Size (highest first)  
+**Full pre-truncate copy (restorable):** `.goalie/backlog_snapshots/2026-04-04/CAPABILITY_BACKLOG.md`
 
 ---
 
@@ -18,8 +10,8 @@
 
 | # | Item | WSJF | Pointer |
 |---|------|------|---------|
-| 1 | Agentic QE / Verification | 100 | Ensure CI executes `npm run test:mutation` and `scripts/contract-enforcement-gate.sh verify` seamlessly |
-| 2 | Superproject Full Rehydrate | 98 | Root tree remains strictly `.git/` corrupted, wait for STX or scion fix |
+| 1 | Superproject git health | 100 | Anchor work in healthy tree `projects/investing/agentic-flow`; superproject merge NO-GO until tree rehydrated — `.goalie/go_no_go_ledger.md` |
+| 2 | Agentic QE / Verification | 100 | Ensure CI executes `npm run test:mutation` and `scripts/contract-enforcement-gate.sh verify` seamlessly |
 
 ---
 

@@ -23,6 +23,7 @@ EVIDENTIAL_TARGETS=(
     "WSJF-PACK-MOVE-CHECKLIST.md"
     ".goalie/metrics_log.jsonl"
     ".goalie/retro_summary.md"
+    ".goalie/trading_ledger.json"
 )
 
 # Optional flag override for local ad-hoc runs.

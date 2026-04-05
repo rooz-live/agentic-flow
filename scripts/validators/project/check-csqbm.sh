@@ -24,6 +24,7 @@ EVIDENTIAL_TARGETS=(
     ".goalie/metrics_log.jsonl"
     ".goalie/retro_summary.md"
     ".goalie/trading_ledger.json"
+    ".goalie/evidence/maa_arbitration_footprint.md"
 )
 
 # Optional flag override for local ad-hoc runs.

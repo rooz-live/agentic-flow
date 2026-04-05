@@ -1,29 +1,33 @@
-# Rollback Procedure: Risk Analytics Architecture
+# 🔄 Local CLI / Global Binaries Backout Procedures
 
-## Overview
-This document legally establishes the precise steps executing structural rollback maneuvers recovering baseline dependencies successfully mapping exactly gracefully preventing permanent regressions.
+> [!CAUTION]
+> This runbook is utilized **strictly** if the local LLM routing (`OPENCODE_DISABLE_DEFAULT_PLUGINS=true opencode`) acts catastrophically or exhausts resources abruptly, requiring a return to native Anthropic inference mapping or prior execution baselines.
 
-## Condition 1: Daemon Telemetry Failures
-- **Issue:** `mcp-scheduler-daemon.sh` looping crash or STX host authentication failure preventing node baseline acquisition.
-- **Action:** Execute the explicit manual termination sequence:
+## 1. Purge OpenCode and Local Wrappers
+To completely remove `opencode-ai` CLI mapping globally:
+
 ```bash
-killall -9 mcp-scheduler-daemon.sh
-rm -f /tmp/mcp-scheduler.log
-```
-- **Fallback Evaluation:** Rely safely natively on `150.0W` Base constraints logically mapped directly inside Python arrays inherently without SSH boundaries.
+# Terminate global bin installation limiters
+npm uninstall -g opencode-ai
 
-## Condition 2: Pre-Commit Contract Gate Regressions (ADR-005)
-- **Issue:** `semantic-validation-gate.sh` crashing locally restricting code changes via fatal false negatives unexpectedly bridging logic dependencies.
-- **Action:** Utilize the built-in trust bypass natively securely without stripping `.git/hooks`:
-```bash
-ALLOW_CSQBM_BYPASS=true VALIDATE_CLAIMS_ADVISORY=1 TRUST_GIT=/usr/bin/git git commit -m "chore(infra): Override commit logic constraints"
+# Purge Anthropic Auth bypass plugins local definitions
+rm -rf ~/.config/opencode/
+rm -rf /Users/shahroozbhopti/Documents/code/projects/investing/agentic-flow/.integrations/opencode-plugins/
 ```
 
-## Condition 3: Total Git Boundary Refactor (Structural Rebase)
-- **Issue:** Superproject arrays fatally corrupt tracing incorrectly mapping sub-modules.
-- **Action:** Fallback internally bridging correctly bypassing the native boundaries isolating `agentic-flow` entirely safely cleanly overriding via:
+## 2. Unload Ollama Model Payloads
+Reclaim MacBook resource footprints (RAM / Storage):
 ```bash
-cd investing/agentic-flow
-git reset --hard origin/main
-git clean -xfd
+ollama rm qwen2.5-coder
+ollama rm deepseek-coder:1.3b
 ```
+
+## 3. Disconnect Agentic QE Persistence Database
+If `.agentic-qe/memory.db` becomes too bloated (~100k+ traces) and causes file-watch lockups natively:
+```bash
+npx agentic-qe reset
+# Or physically purge the file mapping:
+rm -rf .agentic-qe/memory.db
+```
+
+These steps ensure a complete reversal back to the **Phase 117** state seamlessly mapped naturally.

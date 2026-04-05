@@ -6,6 +6,17 @@ Setup the "Master Max-Scope System Prompt" in your editor for Gemma 4 / Qwen3.5.
 
 After upgrading the [Claude Code CLI or plugins](https://github.com/anthropics/claude-code/releases), diff your local hook and MCP settings against release notes (breaking paths, env vars, default plugin locations). Re-run `TRUST_GIT=/usr/bin/git bash scripts/validate-foundation.sh --trust-path` before claiming PI Sync readiness. Project truth for merge policy stays in `.goalie/go_no_go_ledger.md`.
 
+## OpenCode-AI (Cursor-Level Local Power)
+
+To authorize a 100% private, local macOS agent utilizing Gemma 4 or Qwen 3.5 without upstream Anthropic Cloud limits:
+1. Install globally: `npm install -g opencode-ai`
+2. Initialize local bypass structure restricting upstream fallbacks.
+3. Hook local models via executing the workflow with plugins disabled:
+```bash
+OPENCODE_DISABLE_DEFAULT_PLUGINS=true opencode
+```
+*(Utilize `--model gemma4:26b` or the equivalent Ollama pointer to initialize dynamic token sizing bounded reasoning loop without upstream quotas).*
+
 #### **Continue.dev** (VS Code + Cursor + Windsurf Editor — universal layer)
 1. Open Continue sidebar (`Cmd/Ctrl + L`).
 2. Click the gear → `config.json` (or `~/.continue/config.json`).

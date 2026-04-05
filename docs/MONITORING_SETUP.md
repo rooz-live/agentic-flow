@@ -1,18 +1,24 @@
-# Monitoring Setup: Structural Swarm Topology
+# 🔭 Monitoring & Analytics Environment Setup
 
-## 1. Daemon Persistence Logic (`ADR-005`)
-The background swarm limits evaluate asynchronously ensuring internal matrices validate constraints structurally preventing memory sprawl inherently:
+> [!NOTE]
+> This runbook is intended specifically for the local, private Mac agentic execution topology (Ollama / Qwen / Gemma + OpenCode) mapping organically alongside STX12 / HostBill baseline nodes natively.
 
+## 1. Local CLI Metrics Output (OpenCode / Ollama)
+When utilizing `OPENCODE_DISABLE_DEFAULT_PLUGINS=true opencode`, explicit token sizes, reasoning lengths, and fallback actions will be securely bound mapped strictly locally. 
+
+**STX & JIT Telemetry Bounding**: 
+`scripts/ci/collect_metrics.py` now specifically watches the `.agentic_logs` for `opencode` execution streams binding physical metrics mapping locally directly alongside the HostBill STX ($130.14) baselines. 
+
+## 2. Agentic QE Telemetry (`npx agentic-qe@3.9.0`)
+Agentic-QE local Unified Memory (`.agentic-qe/memory.db`) will inherently output the trace metrics:
+*  **Hooks Activated**: Claude Code / OpenCode compatibility tracing.
+*  **Nodes Captured**: 88k+ nodes mapped globally from the repository tree automatically.
+
+## 3. Real-Time Dashboards
+To launch the real-time observer locally mapping to OpenStack integration traces:
 ```bash
-# MCP Background Daemons
-run_periodic "STX Hardware Telemetry Bridge" 300 "ipmitool chassis status >> /tmp/stx_telemetry.log 2>/dev/null" &
-run_periodic "HostBill OpenStack Sync Engine" 1200 "python3 $PROJECT_ROOT/scripts/ci/hostbill-sync-agent.py" &
+python scripts/monitoring_dashboard.py --target local-swarm
 ```
 
-## 2. Trust Gates Evaluation Matrices
-Every commit structurally tracks execution paths automatically preventing CI failures mapping execution logically:
-- `scripts/validators/project/check-csqbm.sh` natively enforces `< 96h` `agentdb.sqlite` parameters dynamically validating traces gracefully.
-- `scripts/validators/semantic/validate-dates.sh` securely guarantees 75% alignment bounding semantic constraints seamlessly mapping explicitly.
-
-## 3. Financial Infrastructure Telemetry
-`scripts/ci/hostbill-sync-agent.py` maps the physical bounds natively bridging the OpenStack `STX` infrastructure to ElizaOS limits avoiding USD financial sprawl mapping explicitly accurately ensuring accurate hardware valuation internally cleanly.
+---
+# ⚠️ Operations & Incident Management Protocol

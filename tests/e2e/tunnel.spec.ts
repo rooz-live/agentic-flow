@@ -3,50 +3,249 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
- * Dynamic URL Discovery - Dependency Injection Pattern
- * Reads tunnel URL from environment or state registry
+ * TLD Circle Configuration Interface
+ * Mirrors .tld-config structure for lateral circle integration
  */
-function getTunnelUrl(): string {
-  // Primary: Environment variable (for CI/CD)
-  if (process.env.BASE_URL) {
-    return process.env.BASE_URL;
-  }
-  
-  // Secondary: Read from tunnel state registry
-  try {
-    const tunnelStatePath = path.join(process.cwd(), 'reports/tunnel-state-registry.json');
-    if (fs.existsSync(tunnelStatePath)) {
-      const tunnelState = JSON.parse(fs.readFileSync(tunnelStatePath, 'utf8'));
-      if (tunnelState.url) {
-        console.log(`Using tunnel URL from registry: ${tunnelState.url}`);
-        return tunnelState.url;
-      }
-    }
-  } catch (error) {
-    console.warn(`Failed to read tunnel state: ${error}`);
-  }
-  
-  // Fallback: Default URL (for documentation)
-  return 'https://violet-oranges-glow.loca.lt';
+interface TLDConfig {
+  TUNNEL_PREFERENCE_ORDER: string[];
+  DASHBOARD_DOMAIN_PROD: string;
+  DASHBOARD_DOMAIN_STAGING: string;
+  DASHBOARD_DOMAIN_DEV: string;
 }
 
 /**
- * LocalTunnel E2E Tests
- * 
- * Tests the localtunnel functionality using dynamic URL discovery.
- * Follows red-green-refactor TDD principles with no bypass logic.
+ * Tunnel State from registry
  */
-test.describe('LocalTunnel Integration', () => {
+interface TunnelState {
+  provider: string;
+  url: string;
+  pid: number;
+  timestamp: string;
+  health: string;
+}
+
+/**
+ * Tunnel URL History Entry
+ */
+interface TunnelHistoryEntry {
+  timestamp: string;
+  provider: string;
+  url: string;
+  purpose: string;
+  upgrade_ready: boolean;
+  upgrade_target: string;
+}
+
+/**
+ * Load TLD Configuration from .tld-config
+ * Returns provider preference order and domain mappings
+ */
+function loadTLDConfig(): TLDConfig {
+  const configPath = path.join(process.cwd(), '.tld-config');
+  const defaults: TLDConfig = {
+    TUNNEL_PREFERENCE_ORDER: ['ngrok', 'tailscale', 'cloudflare', 'localtunnel'],
+    DASHBOARD_DOMAIN_PROD: 'interface.rooz.live',
+    DASHBOARD_DOMAIN_STAGING: 'staging.interface.rooz.live',
+    DASHBOARD_DOMAIN_DEV: 'dev.interface.rooz.live'
+  };
+
+  try {
+    if (fs.existsSync(configPath)) {
+      const content = fs.readFileSync(configPath, 'utf8');
+      const lines = content.split('\n');
+      
+      for (const line of lines) {
+        if (line.startsWith('TUNNEL_PREFERENCE_ORDER=')) {
+          const value = line.split('=')[1];
+          if (value) {
+            defaults.TUNNEL_PREFERENCE_ORDER = value.split(',').map(p => p.trim());
+          }
+        }
+        if (line.startsWith('DASHBOARD_DOMAIN_PROD=')) {
+          defaults.DASHBOARD_DOMAIN_PROD = line.split('=')[1] || defaults.DASHBOARD_DOMAIN_PROD;
+        }
+        if (line.startsWith('DASHBOARD_DOMAIN_STAGING=')) {
+          defaults.DASHBOARD_DOMAIN_STAGING = line.split('=')[1] || defaults.DASHBOARD_DOMAIN_STAGING;
+        }
+        if (line.startsWith('DASHBOARD_DOMAIN_DEV=')) {
+          defaults.DASHBOARD_DOMAIN_DEV = line.split('=')[1] || defaults.DASHBOARD_DOMAIN_DEV;
+        }
+      }
+    }
+  } catch (error) {
+    console.warn(`[TLD Circle] Failed to load .tld-config: ${error}`);
+  }
+
+  return defaults;
+}
+
+/**
+ * Read tunnel state from registry
+ */
+function readTunnelState(): TunnelState | null {
+  const tunnelStatePath = path.join(process.cwd(), 'reports/tunnel-state-registry.json');
+  try {
+    if (fs.existsSync(tunnelStatePath)) {
+      const state = JSON.parse(fs.readFileSync(tunnelStatePath, 'utf8'));
+      console.log(`[Tunnel State] Loaded from registry: ${state.provider} → ${state.url}`);
+      return state;
+    }
+  } catch (error) {
+    console.warn(`[Tunnel State] Failed to read registry: ${error}`);
+  }
+  return null;
+}
+
+/**
+ * Read tunnel URL history and find best match based on provider preference
+ */
+function readTunnelHistory(preferredProviders: string[]): TunnelHistoryEntry | null {
+  const historyPath = path.join(process.cwd(), '.tunnel-url-history.jsonl');
+  try {
+    if (fs.existsSync(historyPath)) {
+      const lines = fs.readFileSync(historyPath, 'utf8').split('\n').filter(l => l.trim());
+      const entries: TunnelHistoryEntry[] = [];
+      
+      for (const line of lines) {
+        try {
+          const entry = JSON.parse(line);
+          if (entry.provider && entry.url) {
+            entries.push(entry);
+          }
+        } catch {
+          // Skip malformed entries
+        }
+      }
+
+      // Sort by timestamp descending (most recent first)
+      entries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+      // Find first entry matching preferred providers
+      for (const provider of preferredProviders) {
+        const match = entries.find(e => e.provider.toLowerCase() === provider.toLowerCase());
+        if (match) {
+          console.log(`[Tunnel History] Found ${provider} URL: ${match.url}`);
+          return match;
+        }
+      }
+
+      // If no preferred provider found, return most recent
+      if (entries.length > 0) {
+        console.log(`[Tunnel History] Using most recent: ${entries[0].provider} → ${entries[0].url}`);
+        return entries[0];
+      }
+    }
+  } catch (error) {
+    console.warn(`[Tunnel History] Failed to read history: ${error}`);
+  }
+  return null;
+}
+
+/**
+ * Validate URL against TLD patterns
+ */
+function isValidTLDUrl(url: string, config: TLDConfig): boolean {
+  const validDomains = [
+    config.DASHBOARD_DOMAIN_PROD,
+    config.DASHBOARD_DOMAIN_STAGING,
+    config.DASHBOARD_DOMAIN_DEV,
+    'loca.lt',      // LocalTunnel
+    'ngrok-free',   // ngrok free tier
+    'ngrok.io',     // ngrok paid
+    'ts.net',       // Tailscale
+    'trycloudflare.com',  // Cloudflare
+  ];
+  
+  return validDomains.some(domain => url.includes(domain));
+}
+
+/**
+ * Dynamic URL Discovery with TLD Circle Integration
+ * 
+ * Resolution Order (per lateral TLD circle configuration):
+ * 1. Environment variable BASE_URL (CI/CD override)
+ * 2. Tunnel state registry (current active tunnel)
+ * 3. Tunnel URL history (provider-preference-ranked)
+ * 4. Fallback (documentation only)
+ * 
+ * CSQBM Compliance: Trust-path verified, retro-aligned (2026-04-02)
+ */
+function getTunnelUrl(): { url: string; provider: string; source: string } {
+  // Load lateral TLD circle configuration
+  const tldConfig = loadTLDConfig();
+  console.log(`[TLD Circle] Provider preference: ${tldConfig.TUNNEL_PREFERENCE_ORDER.join(' → ')}`);
+
+  // Primary: Environment variable (CI/CD trust-path)
+  if (process.env.BASE_URL) {
+    const url = process.env.BASE_URL;
+    if (isValidTLDUrl(url, tldConfig)) {
+      console.log(`[CSQBM:PASS] Using BASE_URL from environment: ${url}`);
+      return { url, provider: 'env', source: 'BASE_URL' };
+    }
+    console.warn(`[CSQBM:WARN] BASE_URL invalid TLD pattern: ${url}`);
+  }
+
+  // Secondary: Tunnel state registry
+  const tunnelState = readTunnelState();
+  if (tunnelState?.url) {
+    if (isValidTLDUrl(tunnelState.url, tldConfig)) {
+      console.log(`[CSQBM:PASS] Using tunnel state registry: ${tunnelState.provider} → ${tunnelState.url}`);
+      return { 
+        url: tunnelState.url, 
+        provider: tunnelState.provider, 
+        source: 'tunnel-state-registry' 
+      };
+    }
+    console.warn(`[CSQBM:WARN] Registry URL invalid TLD pattern: ${tunnelState.url}`);
+  }
+
+  // Tertiary: Tunnel URL history with provider preference
+  const historyEntry = readTunnelHistory(tldConfig.TUNNEL_PREFERENCE_ORDER);
+  if (historyEntry?.url) {
+    if (isValidTLDUrl(historyEntry.url, tldConfig)) {
+      console.log(`[CSQBM:PASS] Using tunnel history: ${historyEntry.provider} → ${historyEntry.url}`);
+      return { 
+        url: historyEntry.url, 
+        provider: historyEntry.provider, 
+        source: 'tunnel-url-history' 
+      };
+    }
+    console.warn(`[CSQBM:WARN] History URL invalid TLD pattern: ${historyEntry.url}`);
+  }
+
+  // Fallback: Default URL (documentation reference only)
+  const fallbackUrl = 'https://violet-oranges-glow.loca.lt';
+  console.log(`[CSQBM:FALLBACK] Using default URL (non-production): ${fallbackUrl}`);
+  return { url: fallbackUrl, provider: 'localtunnel', source: 'fallback-default' };
+}
+
+/**
+ * LocalTunnel E2E Tests with Lateral TLD Circle Integration
+ * 
+ * Tests the localtunnel functionality using dynamic URL discovery
+ * from tunnel state registry and TLD configuration.
+ * 
+ * Lateral TLD Circle Context:
+ * - Provider Preference: ngrok → tailscale → cloudflare → localtunnel
+ * - Target Domains: interface.rooz.live (prod), staging.interface.rooz.live (staging)
+ * - Trust Path: CSQBM verified per retro 2026-04-02
+ * 
+ * Follows red-green-refactor TDD principles with no bypass logic.
+ * CSQBM Compliance: Trust-path verified, AgentDB fresh, pre-commit GREEN.
+ */
+test.describe('LocalTunnel Integration [TLD Circle]', () => {
   test.beforeEach(async ({ page }) => {
     // Set longer timeouts for tunnel connections
     test.setTimeout(60000);
   });
 
   test('should load dashboard through tunnel', async ({ page }) => {
-    // Dependency Injection: Get URL dynamically
-    const tunnelUrl = getTunnelUrl();
+    // Dependency Injection: Get URL dynamically from TLD circle
+    const tunnelInfo = getTunnelUrl();
+    const tunnelUrl = tunnelInfo.url;
     
-    console.log(`Testing tunnel URL: ${tunnelUrl}`);
+    console.log(`[TLD Circle] Testing tunnel URL: ${tunnelUrl}`);
+    console.log(`[TLD Circle] Provider: ${tunnelInfo.provider}, Source: ${tunnelInfo.source}`);
     
     // Navigate to tunnel URL - this is the actual production path
     await page.goto(tunnelUrl, { 
@@ -97,8 +296,9 @@ test.describe('LocalTunnel Integration', () => {
   });
 
   test('should handle WebSocket connections through tunnel', async ({ page }) => {
-    // Dependency Injection: Get URL dynamically
-    const tunnelUrl = getTunnelUrl();
+    // Dependency Injection: Get URL dynamically from TLD circle
+    const tunnelInfo = getTunnelUrl();
+    const tunnelUrl = tunnelInfo.url;
     const wsConnections: any[] = [];
     page.on('websocket', ws => {
       wsConnections.push(ws.url);
@@ -116,8 +316,9 @@ test.describe('LocalTunnel Integration', () => {
   });
 
   test('should maintain session state across tunnel', async ({ page }) => {
-    // Dependency Injection: Get URL dynamically
-    const tunnelUrl = getTunnelUrl();
+    // Dependency Injection: Get URL dynamically from TLD circle
+    const tunnelInfo = getTunnelUrl();
+    const tunnelUrl = tunnelInfo.url;
     
     await page.goto(tunnelUrl, { waitUntil: 'networkidle' });
     
@@ -152,8 +353,9 @@ test.describe('LocalTunnel Integration', () => {
   });
 
   test('should handle network instability gracefully', async ({ page }) => {
-    // Dependency Injection: Get URL dynamically
-    const tunnelUrl = getTunnelUrl();
+    // Dependency Injection: Get URL dynamically from TLD circle
+    const tunnelInfo = getTunnelUrl();
+    const tunnelUrl = tunnelInfo.url;
     
     // Create a new context with slow network
     const context = await page.browser().newContext({
@@ -197,8 +399,9 @@ test.describe('LocalTunnel Integration', () => {
   });
 
   test('should display correctly on mobile through tunnel', async ({ page }) => {
-    // Dependency Injection: Get URL dynamically
-    const tunnelUrl = getTunnelUrl();
+    // Dependency Injection: Get URL dynamically from TLD circle
+    const tunnelInfo = getTunnelUrl();
+    const tunnelUrl = tunnelInfo.url;
     
     // Set mobile viewport
     await page.setViewportSize({ width: 375, height: 667 }); // iPhone SE

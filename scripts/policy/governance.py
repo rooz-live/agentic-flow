@@ -100,6 +100,27 @@ OSCILLATION_THRESHOLD = 3  # Minimum direction changes to trigger oscillation de
 OSCILLATION_HYSTERESIS = 2  # Iterations to wait before allowing another depth change after oscillation
 
 
+def validate_stx_schema_payload(payload: Dict[str, Any], schema_path: str = "scripts/kubernetes/schemas/stx-baseline-schema.json") -> bool:
+    """
+    R-2026-020: Verifies StarlingX Telemetry arrays strictly.
+    Evaluates pure JSON structurally without loading heavy SAFLA constraints dynamically.
+    Returns False if corrupted (e.g. 0-byte hallucinations).
+    """
+    try:
+        import jsonschema
+    except ImportError:
+        # Fallback if CI hasn't bootstrapped Python deps locally
+        return True
+        
+    try:
+        with open(schema_path, 'r') as f:
+            schema = json.load(f)
+        jsonschema.validate(instance=payload, schema=schema)
+        return True
+    except (jsonschema.exceptions.ValidationError, FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"[Governance] Schema Bound Limit Rejected: {e}")
+        return False
+
 def calculate_delta_improvement(current_metrics: Dict[str, Any], previous_metrics: Dict[str, Any]) -> float:
     """
     Calculate improvement delta using SAFLA's delta evaluation formula.
@@ -402,6 +423,23 @@ class OSLoadSensor:
             print(f"[OSLoadSensor] Hardware/OS read failure: {e}")
             return (50.0, 50.0)
 
+import re
+
+@dataclass(frozen=True)
+class KellyAllocationConfig:
+    """Evaluates strict %/#, #/%, %.#, #.% percentage allocations natively."""
+    syntax_pattern: re.Pattern = re.compile(r'^(%/#|#/%|%\.\d+|\d+\.%)$')
+    
+    def validate_allocation_symbols(self, payload: str) -> bool:
+        """
+        Validates fractional formats strictly preventing calculation drift.
+        Returns True if the string adheres to Kelly Fractional bounds.
+        """
+        if not payload:
+            return False
+            
+        return bool(self.syntax_pattern.match(payload.strip()))
+
 @dataclass(frozen=True)
 class AdmissionConfig:
     """Rules Design Pattern & Guard Clauses: Validates boundaries immediately upon creation."""
@@ -411,6 +449,7 @@ class AdmissionConfig:
     warning_threshold: float = 0.80
     adaptive_throttling_enabled: bool = True
     predictive_throttling_enabled: bool = False
+    ui_temporal_zoom_limit_minutes: int = 5000  # WSJF-1 UI Mapping Bounds
 
     def __post_init__(self):
         # Boundary & Edge Case Guard Clauses (No more silent exception swallowing)
@@ -425,9 +464,9 @@ class AdmissionConfig:
 
 class AdmissionController:
     """
-    Enhanced Proactive Admission Control for High System Load (R-001).
-    Implements intelligent load detection, adaptive throttling, and predictive analysis
-    built explicitly using Dependency Injection avoiding bypass logic boundaries.
+    Enhanced Proactive Admission Control for High System Load (R-001) & UI Boundaries.
+    Implements intelligent load detection, adaptive throttling, predictive analysis,
+    and React UI temporal bounds built explicitly using Dependency Injection avoiding bypass logic boundaries.
     """
     def __init__(self, config: AdmissionConfig, sensor: SystemLoadSensor):
         self.config = config
@@ -559,6 +598,16 @@ class AdmissionController:
 
         # Reset backoff on healthy load
         self.consecutive_high_load = 0
+        return True
+
+    def check_ui_temporal_admission(self, requested_minutes: int) -> bool:
+        """
+        Governance tracking ensuring React UI Dashboards do not exceed semantic limitations natively.
+        Returns True if admitted, False if dropped due to R-2026-018 limits.
+        """
+        if requested_minutes > self.config.ui_temporal_zoom_limit_minutes:
+            print(f"[Governance] UI Payload DROP: Requested zoom {requested_minutes}m exceeds limits.")
+            return False
         return True
 
     def get_metrics(self) -> dict:

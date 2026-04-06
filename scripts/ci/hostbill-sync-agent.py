@@ -471,9 +471,10 @@ def sync_hostbill_pipeline():
         logger.info(f"  Temperatures: {dict(temps)}")
     
     tlds = [
-        PriorityTLD(domain_name="yo.life", ddd_context="AI Governance Ceremonials", wsjf_score=95, k8s_zone="stx-aio-0", k8s_status="PROVISIONED"),
-        PriorityTLD(domain_name="rooz.live", ddd_context="Risk Analytics K8s Prep Backlog", wsjf_score=85, k8s_zone="stx-aio-0", k8s_status="PENDING"),
-        PriorityTLD(domain_name="tag.ooo", ddd_context="Contrastive Intelligence Matrices", wsjf_score=90, k8s_zone="stx-aio-0", k8s_status="PENDING")
+        PriorityTLD(domain_name="law.rooz.live", ddd_context="ROOT", wsjf_score=95, k8s_zone="stx-aio-0", k8s_status="PROVISIONED"),
+        PriorityTLD(domain_name="pur.tag.vote", ddd_context="GATEWAY", wsjf_score=90, k8s_zone="stx-aio-0", k8s_status="PROVISIONED"),
+        PriorityTLD(domain_name="hab.yo.life", ddd_context="EVIDENCE", wsjf_score=85, k8s_zone="stx-aio-0", k8s_status="PENDING"),
+        PriorityTLD(domain_name="file.720.chat", ddd_context="PROCESS", wsjf_score=80, k8s_zone="stx-aio-0", k8s_status="PENDING")
     ]
     
     if PYDANTIC_AI_AVAILABLE:
@@ -525,12 +526,27 @@ def sync_hostbill_pipeline():
         if not api_test_mode:
             raise RuntimeError("CRITICAL: ElizaOS HostBill Financial Sync Failed. Failing provisioning bounds.")
     
+    import sys
     # Store structurally natively
     output_path = project_root / ".goalie" / "hostbill_ledger.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(telemetry.model_dump_json(indent=2))
     logger.info(f"Financial pipeline traces successfully synced to {output_path.name} natively.")
     print("✅ HostBill Financial Pipeline Matrix Evaluated & Optimized iteratively.")
+    
+    # 150-153 Exit Code mapping requirements
+    required_maps = {
+        "law.rooz.live": ("ROOT", 150),
+        "pur.tag.vote": ("GATEWAY", 151),
+        "hab.yo.life": ("EVIDENCE", 152),
+        "file.720.chat": ("PROCESS", 153)
+    }
+    
+    actual_maps = {t.domain_name: t.ddd_context for t in telemetry.priority_tlds}
+    for dom, (ctx, code) in required_maps.items():
+        if dom not in actual_maps or actual_maps[dom] != ctx:
+            logger.error(f"Mapping validation failed: {dom} expected {ctx}")
+            sys.exit(code)
 
 if __name__ == '__main__':
     sync_hostbill_pipeline()

@@ -1,12 +1,35 @@
 import pytest
-from scripts.policy.governance import AdmissionController, AdmissionConfig
+from scripts.policy.governance import AdmissionConfig, AdmissionController, SystemLoadSensor
 
-class MockSensor:
-    def __init__(self, load: float, idle: float):
+class MockSensor(SystemLoadSensor):
+    def __init__(self, load: float = 0.0, idle: float = 100.0):
         self.load = load
         self.idle = idle
+        
     def get_load_percentages(self):
-        return self.load, self.idle
+        return (self.load, self.idle)
+
+def test_ui_temporal_admission_pass():
+    # Arrange 1000 minutes = under 5000 limit
+    config = AdmissionConfig()
+    controller = AdmissionController(config, MockSensor())
+    
+    # Act
+    admitted = controller.check_ui_temporal_admission(1000)
+    
+    # Assert
+    assert admitted is True
+
+def test_ui_temporal_admission_drop_seasons():
+    # Arrange 60000 minutes = heavily violating limit
+    config = AdmissionConfig()
+    controller = AdmissionController(config, MockSensor())
+    
+    # Act
+    admitted = controller.check_ui_temporal_admission(60000)
+    
+    # Assert - should explicitly drop the payload resolving R-2026-018
+    assert admitted is False
 
 # 1. Numeric and Data Boundaries Matrix (Valid and Invalid)
 @pytest.mark.parametrize("threshold, backoff, expected_exception", [

@@ -21,6 +21,11 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
+@test "Verify api.interface.rooz.live API_GATEWAY proxy maps boundaries effectively" {
+    run jq -e '.priority_tlds[] | select(.domain_name=="api.interface.rooz.live" and .ddd_context=="API_GATEWAY")' "$LEDGER_FILE"
+    [ "$status" -eq 0 ]
+}
+
 @test "Verify pur.tag.vote GATEWAY proxy maps cleanly organically" {
     run jq -e '.priority_tlds[] | select(.domain_name=="pur.tag.vote" and .ddd_context=="GATEWAY")' "$LEDGER_FILE"
     [ "$status" -eq 0 ]

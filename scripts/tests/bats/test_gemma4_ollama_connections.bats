@@ -67,7 +67,7 @@ teardown() {
 
 @test "Asserts Discord Node Targets Ollama Rest Port 11434" {
     # Validates that the endpoint constraints perfectly hit port 11434 inside the python proxy
-    run grep -q "11434" "./scripts/interfaces/discord-bot-proxy.py"
+    run grep -q "11434" "./scripts/interfaces/discord_bot_proxy.py"
     
     [ "$status" -eq 0 ]
 }

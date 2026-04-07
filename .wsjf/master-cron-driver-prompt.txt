@@ -1,0 +1,79 @@
+You are running a phased automation hardening loop for WSJF advocacy tooling.
+
+Mission:
+Execute T0→T5 in order, iteratively, for {{CYCLES}} cycles (default 6), with strict stop conditions and rollback safety.
+Do not skip phases unless a stop condition is triggered.
+
+Execution model:
+- Cycle = T0, T1, T2, T3, T4, T5
+- After each phase: run verification checks, log JSONL event, decide CONTINUE/HOLD/STOP
+- After each cycle: produce summary + next-cycle delta plan
+
+Phase definitions:
+T0 Baseline + inventory (read-only)
+T1 Extract classifier rules to _SYSTEM/_AUTOMATION/_classifier-rules.sh + tests
+T2 Build _SYSTEM/_AUTOMATION/batch-classify.sh (--file/--dir/--all-files/--newer/--json)
+T3 Refactor validate-email-wsjf.sh scope (.emlx + legal .eml) and route into canonical validate-email.sh
+T4 Implement _SYSTEM/_AUTOMATION/la-health-check.sh with RUNNING / IDLE_HEALTHY / FAIL semantics
+T5 Enhance bounce cross-ref (content-first, filename fallback) + report-only hygiene checks (git temp pack garbage, sqlite/wal growth, cache growth)
+
+Required invariants (must remain true):
+1) No LaunchAgent restart thrash
+2) No duplicate routing regressions
+3) No false “down” on launchctl PID “-” with exit 0
+4) No aggressive delete behavior introduced (report-only unless explicitly approved)
+
+Hard stop conditions (STOP immediately):
+- Any phase introduces destructive cleanup without explicit approval gate
+- Validation engine behavior diverges from canonical _SYSTEM/_AUTOMATION/validate-email.sh contract
+- LaunchAgent status worsens from baseline (new crash loop / repeated non-zero exits)
+- Evidence of routing duplication increase after dedup checks
+
+Soft stop conditions (HOLD and request decision):
+- >20% increase in WARN/FAIL events cycle-over-cycle
+- Conflicting classification outcomes for same file across runs
+- Missing dependency blocks completion (tool/path unavailable)
+
+Per-phase output format (strict):
+- PHASE: T#
+- CHANGES: files touched
+- VERIFY: checks run + pass/fail
+- RISKS: new/changed
+- DECISION: CONTINUE | HOLD | STOP
+- EVENT_JSONL: {"timestamp":"...","component":"...","mode":"...","action":"...","target":"...","status":"...","severity":"...","evidence_path":"..."}
+
+Per-cycle output:
+- Cycle number
+- T0→T5 status table
+- Diff vs prior cycle
+- Gate result: PASS / HOLD / STOP
+- Next cycle plan (max 5 bullets)
+
+If STOP triggered:
+- Print STOP reason
+- Print rollback steps (exact files and .bak restore actions)
+- Print minimal repro evidence paths
+
+Most capable existing scripts to reuse first (don’t rewrite):
+1. Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/_SYSTEM/_AUTOMATION/file-to-wsjf-router.sh
+2. Library/Scripts/bhopti/validate-email-wsjf.sh
+3. Documents/code/investing/agentic-flow/_SYSTEM/_AUTOMATION/validate-email.sh
+4. Library/LaunchAgents/com.wsjf.validator.plist
+5. Documents/code/investing/agentic-flow/scripts/monitoring/tm_disk_guardian.sh
+
+Phase 0 Safety Baseline (before edits):
+- Backup target files to .bak
+- Record: free space, snapshot count, .codeium/.git/objects/.cache sizes, validator run status
+- Define and enforce exit gates
+
+IDE constraints (mandatory):
+- Do not attach files >10MB
+- Do not rely on add-context for files near/over 1MB
+- Always read by file path and chunk large files in ranges
+- Summarize large files section-by-section with line ranges before editing
+- Prefer path-based incremental reads/writes over full-file attachments
+
+Begin now with:
+- CYCLES={{CYCLES}}
+- Current cycle={{CURRENT_CYCLE}}
+- Run T0 first (read-only), then continue sequentially unless stop conditions fire.

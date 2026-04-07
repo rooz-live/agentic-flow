@@ -26,7 +26,12 @@ if [[ "$RESOLVED_IP" != "$CPANEL_IP" ]]; then
     echo "Ensure SSL generation targets the correct zone interface!"
 fi
 
-echo "Phase 2: Remotely binding the Let's Encrypt AutoSSL provisioning logic natively... (GREEN PHASE EXECUTION)"
+echo "Phase 2: Binding the VirtualHost to cPanel natively via UAPI..."
+# Ensure the domain actually exists on the target account, otherwise AutoSSL defaults to the server hostname.
+ssh -o StrictHostKeyChecking=no -i "$PEM_KEY" -p 22 ubuntu@$CPANEL_IP \
+    "sudo uapi --user=$CPANEL_USER SubDomain addsubdomain domain=$DOMAIN rootdomain=rooz.live dir=public_html/$DOMAIN" || echo "Subdomain already exists or mapping failed. Continuing..."
+
+echo "Phase 3: Remotely binding the Let's Encrypt AutoSSL provisioning logic natively... (GREEN PHASE EXECUTION)"
 
 # Execute the AutoSSL generation loop remotely bypassing GUI limitations.
 ssh -o StrictHostKeyChecking=no -i "$PEM_KEY" -p 22 ubuntu@$CPANEL_IP \

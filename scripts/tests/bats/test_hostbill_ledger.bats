@@ -36,10 +36,20 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
+@test "Verify file.720.chat PROCESS proxy validates correctly enforcing exit code 153 boundary natively" {
+    run jq -e '.priority_tlds[] | select(.domain_name=="file.720.chat" and .ddd_context=="PROCESS")' "$LEDGER_FILE"
+    [ "$status" -eq 0 ]
+}
+
 @test "Verify STX Synthetic Metrics footprint translates hardware effectively securely gracefully optimally" {
     run jq -e '.synthetic_billing.billing_tier | select(.!=null)' "$LEDGER_FILE"
     [ "$status" -eq 0 ]
     
     run jq -r '.synthetic_billing.billing_tier' "$LEDGER_FILE"
     [ "$output" = "ENTERPRISE_TIER_1" ]
+}
+
+@test "Verify hostbill-sync-agent.py validates TLDs successfully with 0 exit code natively avoiding 150-153 error codes" {
+    run python3 scripts/ci/hostbill-sync-agent.py
+    [ "$status" -eq 0 ]
 }

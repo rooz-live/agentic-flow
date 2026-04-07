@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# pi-prep-bootstrap.sh — PI Prep → trust-path with exclusive flock (idempotent serial entry).
+# pi-prep-bootstrap.sh — PI Prep → trust-path with mkdir atomic lock (idempotent serial entry).
 #
 # Order: remind session contract → optional velocity delta → validate-foundation --trust-path
 #

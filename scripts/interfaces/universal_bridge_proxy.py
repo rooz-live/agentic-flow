@@ -20,11 +20,62 @@ sys.path.insert(0, str(project_root))
 
 from scripts.interfaces import discord_bot_proxy
 
+HOSTBILL_LEDGER_PATH = project_root / ".goalie" / "hostbill_ledger.json"
 KELLY_CONFIG_PATH = project_root / ".neural-trader" / "kelly_tuning.json"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 class UniversalBridgeHandler(BaseHTTPRequestHandler):
+    def _send_cors_headers(self):
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self._send_cors_headers()
+        self.end_headers()
+
+    def do_GET(self):
+        if self.path == '/api/telemetry':
+            try:
+                hostbill_data = {}
+                if HOSTBILL_LEDGER_PATH.exists():
+                    with open(HOSTBILL_LEDGER_PATH, 'r') as f:
+                        hostbill_data = json.load(f)
+                else:
+                    hostbill_data = {"error": "HostBill ledger not provisioned yet."}
+                
+                # Directly load Neural-Trader CLI bridging arrays
+                neural_limits = {}
+                if KELLY_CONFIG_PATH.exists():
+                    with open(KELLY_CONFIG_PATH, 'r') as f:
+                        neural_limits = json.load(f)
+                
+                # Formulate unified API Bridge mapping
+                hostbill_data["universal_bridge_metrics"] = {
+                    "tld_proxy_status": "ACTIVE_BOUNDED",
+                    "neural_limits": neural_limits
+                }
+                
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps(hostbill_data).encode('utf-8'))
+            except Exception as e:
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self._send_cors_headers()
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
+        else:
+            self.send_response(404)
+            self.send_header('Content-type', 'application/json')
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": "Endpoint not found"}).encode('utf-8'))
+
     def do_POST(self):
         content_length = int(self.headers['Content-Length'])
         post_data = self.rfile.read(content_length)
@@ -52,12 +103,14 @@ class UniversalBridgeHandler(BaseHTTPRequestHandler):
             
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
+            self._send_cors_headers()
             self.end_headers()
             self.wfile.write(json.dumps(response).encode('utf-8'))
             
         except Exception as e:
             self.send_response(400)
             self.send_header('Content-type', 'application/json')
+            self._send_cors_headers()
             self.end_headers()
             self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
 

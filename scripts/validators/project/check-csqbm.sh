@@ -25,6 +25,8 @@ EVIDENTIAL_TARGETS=(
     ".goalie/retro_summary.md"
     ".goalie/trading_ledger.json"
     ".goalie/evidence/maa_arbitration_footprint.md"
+    ".goalie/hostbill_ledger.json"
+    "scripts/ci/hostbill-sync-agent.py"
 )
 
 # Optional flag override for local ad-hoc runs.

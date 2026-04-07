@@ -471,6 +471,7 @@ def sync_hostbill_pipeline():
         logger.info(f"  Temperatures: {dict(temps)}")
     
     tlds = [
+        PriorityTLD(domain_name="api.interface.rooz.live", ddd_context="API_GATEWAY", wsjf_score=92, k8s_zone="stx-aio-0", k8s_status="PROVISIONED"),
         PriorityTLD(domain_name="law.rooz.live", ddd_context="ROOT", wsjf_score=95, k8s_zone="stx-aio-0", k8s_status="PROVISIONED"),
         PriorityTLD(domain_name="pur.tag.vote", ddd_context="GATEWAY", wsjf_score=90, k8s_zone="stx-aio-0", k8s_status="PROVISIONED"),
         PriorityTLD(domain_name="hab.yo.life", ddd_context="EVIDENCE", wsjf_score=85, k8s_zone="stx-aio-0", k8s_status="PENDING"),
@@ -536,6 +537,7 @@ def sync_hostbill_pipeline():
     
     # 150-153 Exit Code mapping requirements
     required_maps = {
+        "api.interface.rooz.live": ("API_GATEWAY", 154),
         "law.rooz.live": ("ROOT", 150),
         "pur.tag.vote": ("GATEWAY", 151),
         "hab.yo.life": ("EVIDENCE", 152),

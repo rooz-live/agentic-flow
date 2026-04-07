@@ -1,18 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const TLDs = [
-  { domain: 'interface.rooz.live', status: 'active', desc: 'Primary Production Dashboard' },
-  { domain: 'staging.interface.rooz.live', status: 'active', desc: 'Staging Environment' },
-  { domain: 'dev.interface.rooz.live', status: 'warning', desc: 'Development Environment' },
-  { domain: 'pur.tag.vote', status: 'active', desc: 'Purpose Gateway' },
-  { domain: 'hab.yo.life', status: 'error', desc: 'Evidence Tracker' },
-  { domain: 'file.720.chat', status: 'active', desc: 'Process Processor' }
+  { domain: 'api.interface.rooz.live', status: 'active', desc: 'API_GATEWAY' },
+  { domain: 'law.rooz.live', status: 'active', desc: 'ROOT' },
+  { domain: 'pur.tag.vote', status: 'active', desc: 'GATEWAY' },
+  { domain: 'hab.yo.life', status: 'warning', desc: 'EVIDENCE' },
+  { domain: 'file.720.chat', status: 'error', desc: 'PROCESS' }
 ];
 
 const TLDDashboard = () => {
   const [activeTab, setActiveTab] = useState(TLDs[0].domain);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
+  const [telemetry, setTelemetry] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchTelemetry = async () => {
+      try {
+        const url = (import.meta as any).env.VITE_BRIDGE_URL || 'http://localhost:5050/api/telemetry';
+        const response = await fetch(url);
+        const data = await response.json();
+        if (!data.error) {
+          setTelemetry(data);
+        }
+      } catch (e) {
+        console.error("Bridge telemetry failed", e);
+      }
+    };
+    fetchTelemetry();
+    const intervalId = setInterval(fetchTelemetry, 30000); // 30s temporal polling 
+    return () => clearInterval(intervalId);
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#0f172a] text-slate-200 font-sans selection:bg-indigo-500/30 overflow-hidden flex">
@@ -27,7 +45,7 @@ const TLDDashboard = () => {
             initial={{ width: 0, opacity: 0 }}
             animate={{ width: 320, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
-            className="relative z-10 hidden md:flex flex-col bg-white/5 backdrop-blur-xl border-r border-white/10 p-6"
+            className="relative z-10 flex flex-col bg-white/5 backdrop-blur-xl border-r border-white/10 p-6 shadow-2xl"
           >
             <div className="flex items-center gap-3 mb-10">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
@@ -123,9 +141,9 @@ const TLDDashboard = () => {
             {/* Header Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {[
-                { label: 'Active Micro-Frontends', value: '14', trend: '+2 this cycle', color: 'text-cyan-400' },
-                { label: 'Token Burn Rate', value: '1,204\u00A0tk/s', trend: '-12% optimal', color: 'text-emerald-400' },
-                { label: 'DGM Re-Render Syncs', value: '99.8%', trend: 'Stable baseline', color: 'text-indigo-400' }
+                { label: 'Active Micro-Frontends', value: telemetry?.priority_tlds?.length || '...', trend: 'Synced from STX Edge', color: 'text-cyan-400' },
+                { label: 'WSJF Priority Base', value: telemetry?.wsjf_priority ? `${telemetry.wsjf_priority} WSJF` : '...', trend: 'Cost of Delay Bounds', color: 'text-emerald-400' },
+                { label: 'DGM Re-Render Syncs', value: telemetry?.elizaos_sync_state?.substring(0, 15) || '...', trend: 'ElizaOS Baseline', color: 'text-indigo-400' }
               ].map((stat, i) => (
                 <div key={i} className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 hover:bg-white/10 transition-colors group">
                   <h3 className="text-slate-400 text-sm font-medium mb-2">{stat.label}</h3>

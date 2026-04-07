@@ -119,15 +119,55 @@ if $SUMMARY; then
   echo "${good}/${total_count} healthy | ${fail_count} FAIL"
 fi
 
+# ─── DISK HYGIENE (optional integration) ─────────────────────────────────────
+# Run hygiene-check.sh --summary if available, append to output
+HYGIENE_SCRIPT="$(dirname "${BASH_SOURCE[0]}")/hygiene-check.sh"
+hygiene_warns=0
+hygiene_summary="(not available)"
+if [[ -x "$HYGIENE_SCRIPT" ]] || [[ -f "$HYGIENE_SCRIPT" ]]; then
+  hygiene_summary=$(bash "$HYGIENE_SCRIPT" --summary 2>/dev/null) || true
+  hygiene_warns=$(echo "$hygiene_summary" | grep -oE '[0-9]+ WARN' | awk '{print $1}') || hygiene_warns=0
+  hygiene_warns=${hygiene_warns:-0}
+  if ! $OUTPUT_JSON && ! $SUMMARY; then
+    echo ""
+    echo "── Disk Hygiene ────────────────────────────────────────────────────────"
+    echo "  $hygiene_summary"
+    if [[ "$hygiene_warns" -gt 0 ]]; then
+      echo "  ⚠️  Run hygiene-check.sh for details. Cleanup requires --cleanup --approve-cleanup <token>."
+    fi
+  fi
+fi
+
+# ─── LOG ROTATION (runs on every health check) ─────────────────────────────────
+# Rotate oversized logs (>50MB → keep last 10K lines)
+LOG_ROTATE_SCRIPT="$(dirname "${BASH_SOURCE[0]}")/_log-rotate.sh"
+if [[ -f "$LOG_ROTATE_SCRIPT" ]]; then
+  source "$LOG_ROTATE_SCRIPT"
+  rotate_log "${HOME}/Library/Logs/wsjf-roam-escalator-enhanced.log" 50 10000
+  rotate_log "${HOME}/Library/Logs/com.bhopti.swarm.supervisor.log" 50 10000
+  rotate_log "${HOME}/Library/Logs/swarm-supervisor-legal-coordination-swarm.log" 50 10000
+  rotate_log "${HOME}/Library/Logs/validator-13.log" 30 8000
+  rotate_log "${HOME}/Library/Logs/validator-12-enhanced.stdout.log" 30 8000
+  rotate_log "${HOME}/Library/Logs/agent-validator.log" 30 8000
+  rotate_log "${HOME}/Library/Logs/agent-legal-coordinator.log" 30 8000
+  rotate_log "${HOME}/Library/Logs/agent-legal-researcher.log" 30 8000
+  rotate_log "${HOME}/Library/Logs/file-wsjf-router.log" 5 5000
+  rotate_log "${HOME}/Library/Logs/wsjf-html.log" 2 3000
+fi
+
 # ─── JSONL EVENT EMISSION ─────────────────────────────────────────────────────
 # Emit a unified JSONL event for monitoring dashboards/log streams
 EVENTS_LOG="${HOME}/Library/Logs/wsjf-events.jsonl"
 _severity="INFO"
 _status="PASS"
 [[ "$fail_count" -gt 0 ]] && _severity="WARN" && _status="FAIL"
+[[ "$hygiene_warns" -gt 2 ]] && _severity="WARN"  # disk pressure escalation
 _ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%s)
-printf '{"timestamp":"%s","component":"la-health-check","mode":"health","action":"check","target":"launchagents","status":"%s","severity":"%s","evidence_path":"healthy=%d,fail=%d,total=%d"}\n' \
-  "$_ts" "$_status" "$_severity" "$healthy_count" "$fail_count" "$total_count" \
+printf '{"timestamp":"%s","component":"la-health-check","mode":"health","action":"check","target":"launchagents+hygiene","status":"%s","severity":"%s","evidence_path":"healthy=%d,fail=%d,total=%d,hygiene_warns=%d"}\n' \
+  "$_ts" "$_status" "$_severity" "$healthy_count" "$fail_count" "$total_count" "$hygiene_warns" \
   >> "$EVENTS_LOG" 2>/dev/null || true
 
-[[ "$fail_count" -gt 0 ]] && exit 1 || exit 0
+# Exit: fail if agents failing OR severe disk pressure
+exit_code=0
+[[ "$fail_count" -gt 0 ]] && exit_code=1
+exit "$exit_code"

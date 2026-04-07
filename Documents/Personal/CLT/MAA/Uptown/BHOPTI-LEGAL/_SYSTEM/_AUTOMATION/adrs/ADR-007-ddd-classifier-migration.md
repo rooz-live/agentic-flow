@@ -2,6 +2,7 @@
 
 ## Status
 PROPOSED — 2026-04-07
+PHASE A STARTED — 2026-04-07 (scaffold + parity harness added)
 
 ## Context
 Classification, bounce routing, and ROAM cross-referencing logic is currently implemented as shell functions in `_classifier-rules.sh` (interim bridge extracted in T1). This works for the current operational cadence but has limitations:
@@ -77,3 +78,5 @@ _SYSTEM/_AUTOMATION/
 - `_SYSTEM/_AUTOMATION/batch-classify.sh` — batch classifier using shell rules
 - `file-to-wsjf-router.sh` — primary consumer of classifier module
 - `wsjf-roam-escalator.ts` — existing TypeScript component (validates TS feasibility)
+- `_SYSTEM/_AUTOMATION/classifier/src/*` — ADR-007 Phase A scaffold
+- `_SYSTEM/_AUTOMATION/classifier/tests/parity.test.ts` — initial parity cases (filename + bounce routing)

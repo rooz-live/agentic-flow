@@ -9,7 +9,7 @@
 #
 # Status meanings:
 #   RUNNING  — agent has an active PID and last exit was 0
-#   IDLE     — no active PID, last exit 0 (normal for interval-based agents)
+#   IDLE_HEALTHY — no active PID, last exit 0 (normal for interval-based agents)
 #   FAIL     — no active PID, last exit non-zero
 #   UNKNOWN  — label not found in launchctl list
 #
@@ -63,6 +63,7 @@ lookup_agent() {
 # ─── REPORT ───────────────────────────────────────────────────────────────────
 fail_count=0
 total_count=0
+healthy_count=0
 
 if $OUTPUT_JSON; then echo "["; first=true; fi
 if ! $OUTPUT_JSON && ! $SUMMARY; then
@@ -82,10 +83,13 @@ for label in "${AGENTS[@]}"; do
   elif [[ "$pid" != "-" ]]; then
     status="RUNNING"
   elif [[ "$exitcode" == "0" ]]; then
-    status="IDLE"
+    status="IDLE_HEALTHY"
   else
     status="FAIL"
     ((fail_count++))
+  fi
+  if [[ "$status" == "RUNNING" || "$status" == "IDLE_HEALTHY" ]]; then
+    ((healthy_count++))
   fi
 
   ((total_count++))
@@ -100,7 +104,7 @@ for label in "${AGENTS[@]}"; do
   elif ! $SUMMARY; then
     case "$status" in
       RUNNING) marker="✅" ;;
-      IDLE)    marker="⚪" ;;
+      IDLE_HEALTHY) marker="⚪" ;;
       FAIL)    marker="🔴" ;;
       *)       marker="❓" ;;
     esac
@@ -123,7 +127,7 @@ _status="PASS"
 [[ "$fail_count" -gt 0 ]] && _severity="WARN" && _status="FAIL"
 _ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%s)
 printf '{"timestamp":"%s","component":"la-health-check","mode":"health","action":"check","target":"launchagents","status":"%s","severity":"%s","evidence_path":"healthy=%d,fail=%d,total=%d"}\n' \
-  "$_ts" "$_status" "$_severity" "$((total_count - fail_count))" "$fail_count" "$total_count" \
+  "$_ts" "$_status" "$_severity" "$healthy_count" "$fail_count" "$total_count" \
   >> "$EVENTS_LOG" 2>/dev/null || true
 
 [[ "$fail_count" -gt 0 ]] && exit 1 || exit 0

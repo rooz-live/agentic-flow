@@ -5,7 +5,8 @@
 #   hygiene-check.sh                full report (text)
 #   hygiene-check.sh --json         JSON output
 #   hygiene-check.sh --summary      one-line summary
-#   hygiene-check.sh --cleanup      actually run cleanup (requires explicit opt-in)
+#   hygiene-check.sh --cleanup --approve-cleanup <token>
+#                                 actually run cleanup (requires explicit opt-in + approval token)
 #
 # Checks:
 #   1. git temp pack garbage (*.tmp, .git/objects/pack/*.tmp)
@@ -39,12 +40,20 @@ EVENTS_LOG="$HOME/Library/Logs/wsjf-events.jsonl"
 OUTPUT_JSON=false
 SUMMARY_ONLY=false
 DO_CLEANUP=false
+APPROVAL_TOKEN=""
 
-for _a in "$@"; do
-  case "$_a" in
-    --json)    OUTPUT_JSON=true ;;
-    --summary) SUMMARY_ONLY=true ;;
-    --cleanup) DO_CLEANUP=true ;;
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --json)    OUTPUT_JSON=true; shift ;;
+    --summary) SUMMARY_ONLY=true; shift ;;
+    --cleanup) DO_CLEANUP=true; shift ;;
+    --approve-cleanup)
+      APPROVAL_TOKEN="${2:-}"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
   esac
 done
 
@@ -101,7 +110,7 @@ check_git_temp_packs() {
       local pack_dir="${git_dir}/pack"
       if [[ -d "$pack_dir" ]]; then
         local tmp_count
-        tmp_count=$(find "$pack_dir" -name "*.tmp" -o -name "tmp_*" 2>/dev/null | wc -l | tr -d ' ')
+        tmp_count=$(find "$pack_dir" \( -name "*.tmp" -o -name "tmp_*" \) 2>/dev/null | wc -l | tr -d ' ')
         count=$((count + tmp_count))
         [[ "$tmp_count" -gt 0 ]] && details="${details}${git_dir}: ${tmp_count} tmp files; "
       fi
@@ -197,6 +206,12 @@ fi
 
 # ─── CLEANUP (opt-in only) ────────────────────────────────────────────────────
 if $DO_CLEANUP; then
+  if [[ "$APPROVAL_TOKEN" != "YES_CLEANUP" ]]; then
+    echo "Cleanup blocked: explicit approval required."
+    echo "Re-run with: hygiene-check.sh --cleanup --approve-cleanup YES_CLEANUP"
+    emit_event "hygiene" "cleanup-blocked" "approval-gate" "HOLD" "WARN" "missing or invalid --approve-cleanup token"
+    exit 1
+  fi
   echo ""
   echo "=== CLEANUP MODE (explicit opt-in) ==="
 
@@ -214,8 +229,8 @@ if $DO_CLEANUP; then
   for git_dir in "$AGENTIC_GIT" "$CLT_GIT"; do
     pack_dir="${git_dir}/pack"
     if [[ -d "$pack_dir" ]]; then
-      local tmp_files
-      tmp_files=$(find "$pack_dir" -name "*.tmp" -o -name "tmp_*" 2>/dev/null)
+      tmp_files=""
+      tmp_files=$(find "$pack_dir" \( -name "*.tmp" -o -name "tmp_*" \) 2>/dev/null)
       if [[ -n "$tmp_files" ]]; then
         echo "Removing temp pack files in $pack_dir..."
         echo "$tmp_files" | xargs rm -f 2>/dev/null || true

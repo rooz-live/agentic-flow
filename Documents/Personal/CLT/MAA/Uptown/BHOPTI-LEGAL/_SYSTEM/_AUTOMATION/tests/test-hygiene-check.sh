@@ -108,7 +108,21 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# Test 9: cleanup is blocked without explicit approval token
+cleanup_blocked_out=$(bash "$SCRIPT" --cleanup 2>&1 || true)
+assert_contains "cleanup blocked without approval token" "Cleanup blocked: explicit approval required" "$cleanup_blocked_out"
+
+# Test 10: approval token interface exists in script
+if grep -q -- '--approve-cleanup' "$SCRIPT" && grep -q 'YES_CLEANUP' "$SCRIPT"; then
+  printf 'PASS: --approve-cleanup token contract present\n'
+  PASS=$((PASS + 1))
+else
+  printf 'FAIL: --approve-cleanup token contract missing\n'
+  FAIL=$((FAIL + 1))
+fi
+
 printf '\nSummary: PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
 if [[ "$FAIL" -gt 0 ]]; then
   exit 1
 fi
+exit 0

@@ -139,11 +139,12 @@ const TLDDashboard = () => {
             className="max-w-6xl mx-auto flex flex-col gap-8"
           >
             {/* Header Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               {[
                 { label: 'Active Micro-Frontends', value: telemetry?.priority_tlds?.length || '...', trend: 'Synced from STX Edge', color: 'text-cyan-400' },
                 { label: 'WSJF Priority Base', value: telemetry?.wsjf_priority ? `${telemetry.wsjf_priority} WSJF` : '...', trend: 'Cost of Delay Bounds', color: 'text-emerald-400' },
-                { label: 'DGM Re-Render Syncs', value: telemetry?.elizaos_sync_state?.substring(0, 15) || '...', trend: 'ElizaOS Baseline', color: 'text-indigo-400' }
+                { label: 'DGM Re-Render Syncs', value: telemetry?.elizaos_sync_state?.substring(0, 15) || '...', trend: 'ElizaOS Baseline', color: 'text-indigo-400' },
+                { label: 'Kelly Allocation', value: telemetry?.kelly_fraction || '15% / 85#', trend: '% / # Coverage Matrix', color: 'text-rose-400' }
               ].map((stat, i) => (
                 <div key={i} className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 hover:bg-white/10 transition-colors group">
                   <h3 className="text-slate-400 text-sm font-medium mb-2">{stat.label}</h3>

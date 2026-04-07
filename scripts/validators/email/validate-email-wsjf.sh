@@ -15,18 +15,17 @@ fi
 EMAIL_FILE="${1:-}"
 MODE="${2:-validate}" # validate | scan-sent | update-dashboard | migrate-structure
 
-SENT_FOLDER="$HOME/Library/Mail/V*/*/Sent Messages.mbox/Data"
-INBOX_FOLDER="$HOME/Library/Mail/V*/*/INBOX.mbox/Data"
+SENT_FOLDER="${SENT_FOLDER:-$HOME/Library/Mail/V10/*/*Sent*.mbox/*/Data}"
+INBOX_FOLDER="${INBOX_FOLDER:-$HOME/Library/Mail/V10/*/INBOX.mbox/*/Data}"
 
 # Helper: safely expand glob patterns containing spaces for find(1)
 # Usage: _find_mailbox <glob_pattern> <find_args...>
 _find_mailbox() {
   local pattern="$1"; shift
   local -a dirs=()
-  local escaped="${pattern// /\\ }"
   while IFS= read -r _p; do
     [[ -d "$_p" ]] && dirs+=("$_p")
-  done < <(compgen -G "$escaped" 2>/dev/null || true)
+  done < <(compgen -G "$pattern" 2>/dev/null || true)
   [[ ${#dirs[@]} -eq 0 ]] && return 0
   find "${dirs[@]}" "$@" 2>/dev/null || true
 }
@@ -34,22 +33,29 @@ WSJF_DASHBOARD="/tmp/wsjf-email-dashboard.html"
 WSJF_ESCALATOR="/Users/shahroozbhopti/Documents/code/investing/agentic-flow/scripts/validators/wsjf/wsjf-roam-escalator.sh"
 
 # T3: Legal case folders to scan for .eml files
-LEGAL_ROOT="/Users/shahroozbhopti/Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL"
-LEGAL_CASE_FOLDERS=(
-  "${LEGAL_ROOT}/01-ACTIVE-CRITICAL"
-  "${LEGAL_ROOT}/02-ACTIVE-HIGH"
-  "${LEGAL_ROOT}/03-ACTIVE-MEDIUM"
-  "${LEGAL_ROOT}/06-EMAILS"
-)
-CANONICAL_VALIDATOR="/Users/shahroozbhopti/Documents/code/investing/agentic-flow/_SYSTEM/_AUTOMATION/validate-email.sh"
+LEGAL_ROOT="${LEGAL_ROOT:-/Users/shahroozbhopti/Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL}"
+if [[ -n "${LEGAL_CASE_FOLDERS_CSV:-}" ]]; then
+  IFS=':' read -r -a LEGAL_CASE_FOLDERS <<< "$LEGAL_CASE_FOLDERS_CSV"
+else
+  LEGAL_CASE_FOLDERS=(
+    "${LEGAL_ROOT}/01-ACTIVE-CRITICAL"
+    "${LEGAL_ROOT}/02-ACTIVE-HIGH"
+    "${LEGAL_ROOT}/03-ACTIVE-MEDIUM"
+    "${LEGAL_ROOT}/06-EMAILS"
+  )
+fi
+CANONICAL_VALIDATOR="${CANONICAL_VALIDATOR:-/Users/shahroozbhopti/Documents/code/investing/agentic-flow/_SYSTEM/_AUTOMATION/validate-email.sh}"
+CLASSIFIER_RULES="${CLASSIFIER_RULES:-/Users/shahroozbhopti/Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/_SYSTEM/_AUTOMATION/_classifier-rules.sh}"
+if [[ -f "$CLASSIFIER_RULES" ]]; then
+  # shellcheck source=/dev/null
+  source "$CLASSIFIER_RULES"
+fi
 
-# T0 FIX: SHA256 hash duplicate detection (prevent duplicate/redundant emails)
-EMAIL_HASH_DB="/tmp/email-hashes.db"
-
-# Risk thresholds for email priority
-RED_KEYWORDS="(utilities?|block|disconnect|evict|arbitration.*urgent|deadline.*3.*day|emergency)"
-YELLOW_KEYWORDS="(arbitration|hearing|trial|legal.*deadline|notice.*appear|move.*date)"
-GREEN_KEYWORDS="(storage|backup|contingency|optional)"
+# Risk thresholds — sourced from _classifier-rules.sh (WSJF_*_KEYWORDS)
+# Fallback to inline if shared module unavailable
+RED_KEYWORDS="${WSJF_RED_KEYWORDS:-(utilities?|block|disconnect|evict|arbitration.*urgent|deadline.*3.*day|emergency)}"
+YELLOW_KEYWORDS="${WSJF_YELLOW_KEYWORDS:-(arbitration|hearing|trial|legal.*deadline|notice.*appear|move.*date)}"
+GREEN_KEYWORDS="${WSJF_GREEN_KEYWORDS:-(storage|backup|contingency|optional)}"
 
 usage() {
   cat <<EOF
@@ -152,44 +158,7 @@ extract_email_headers() {
   return 0
 }
 
-# T0 FIX: SHA256 hash duplicate detection function
-check_email_duplicate() {
-  local email_file="$1"
-
-  if [[ ! -f "$email_file" ]]; then
-    log "ERROR: Email file not found: $email_file"
-    return 1
-  fi
-
-  # Extract email body (skip headers) and compute hash
-  local email_body
-  email_body=$(sed -n '/^$/,$p' "$email_file" | tail -n +2)
-  local email_hash
-  email_hash=$(echo "$email_body" | shasum -a 256 | cut -d' ' -f1)
-
-  # Initialize hash database if not exists
-  if [[ ! -f "$EMAIL_HASH_DB" ]]; then
-    touch "$EMAIL_HASH_DB"
-    log "Initialized email hash database: $EMAIL_HASH_DB"
-  fi
-
-  # Check for duplicate
-  if grep -q "^$email_hash" "$EMAIL_HASH_DB"; then
-    local duplicate_info
-    duplicate_info=$(grep "^$email_hash" "$EMAIL_HASH_DB")
-    log "⚠️  DUPLICATE EMAIL DETECTED!"
-    log "Hash: $email_hash"
-    log "Previous: $duplicate_info"
-    return 2  # Exit code 2 = duplicate detected
-  fi
-
-  # Store hash with timestamp and subject
-  local subject
-  subject=$(grep -i "^Subject:" "$email_file" | head -1 | cut -d' ' -f2- || echo "No Subject")
-  echo "$email_hash $(date '+%Y-%m-%d %H:%M:%S') $subject" >> "$EMAIL_HASH_DB"
-  log "✅ Email hash stored: $email_hash"
-  return 0
-}
+# Duplicate checks are delegated to canonical validate-email.sh
 
 # Scan sent folder for emails in last 24 hours
 scan_sent_folder() {
@@ -266,11 +235,13 @@ else:
 update_dashboard() {
   log "Updating WSJF email dashboard..."
 
-  cat > "$WSJF_DASHBOARD" <<'HTMLEOF'
+  local _now
+  _now=$(date '+%Y-%m-%d %H:%M:%S')
+  cat > "$WSJF_DASHBOARD" <<HTMLEOF
 <!DOCTYPE html>
 <html>
 <head>
-  <meta http-equiv="refresh" content="60">
+  <meta http-equiv="refresh" content="300">
   <style>
     body { font-family: monospace; background: #1a1a1a; color: #fff; padding: 20px; }
     .red { color: #ff4444; font-weight: bold; }
@@ -290,8 +261,8 @@ update_dashboard() {
 </head>
 <body>
   <h1>📧 WSJF Email Priority Dashboard</h1>
-  <p>Last updated: $(date)</p>
-  <p>Auto-refreshes every 60s</p>
+  <p>Last updated: ${_now}</p>
+  <p>Auto-refreshes every 5 min</p>
 HTMLEOF
 
   # Scan recent sent emails
@@ -363,25 +334,17 @@ validate_email() {
       exit ${EXIT_SCHEMA_VALIDATION_FAILED:-100}
   fi
 
-  # T0 FIX: Check for duplicate emails first
-  log "Checking for duplicate emails..."
-  check_email_duplicate "$email_file"
-  local dup_status=$?
-
-  # Early Exit Guard Clauses
-  if [ "$dup_status" -eq 1 ]; then
-    log "ERROR: Failed to check email duplicate"
-    exit ${EXIT_SCHEMA_VALIDATION_FAILED:-100}
-  fi
-
-  if [ "$dup_status" -eq 2 ]; then
-    log "⚠️  DUPLICATE EMAIL DETECTED - Aborting send to prevent redundancy"
-    echo ""
-    echo "🚫 EMAIL SEND BLOCKED: Duplicate content detected"
-    echo "   This email appears to be identical to a previously sent message."
-    echo "   Review the email hash database: $EMAIL_HASH_DB"
-    echo ""
-    exit ${EXIT_DUPLICATE_DETECTED:-120}  # Exit code 120 = duplicate detected
+  # Canonical validation precheck (includes duplicate SHA256 and policy checks)
+  if [[ -x "$CANONICAL_VALIDATOR" ]]; then
+    local canon_ret=0
+    SKIP_ARBITRATION_WINDOW=1 bash "$CANONICAL_VALIDATOR" "$email_file" >/dev/null 2>&1 || canon_ret=$?
+    if [[ "$canon_ret" -eq 120 ]]; then
+      log "⚠️  DUPLICATE EMAIL DETECTED by canonical validator"
+      exit ${EXIT_DUPLICATE_DETECTED:-120}
+    elif [[ "$canon_ret" -ne 0 && "$canon_ret" -ne 1 ]]; then
+      log "ERROR: canonical validator failed with exit=$canon_ret"
+      exit "$canon_ret"
+    fi
   fi
 
   log "Validating email: $email_file"
@@ -407,9 +370,6 @@ validate_email() {
 
   # Update dashboard after validation
   update_dashboard
-
-  # Open dashboard
-  open "$WSJF_DASHBOARD" 2>/dev/null || true
 }
 
 # T3: Scan legal case folders for .eml files and dispatch to canonical validator
@@ -423,7 +383,7 @@ scan_legal_folders() {
   log "--- Source: Apple Mail INBOX (.emlx) ---"
   while IFS= read -r eml; do
     [[ -z "$eml" ]] && continue
-    ((inbox_count++))
+    ((inbox_count+=1))
     local subject
     subject=$(grep -i "^Subject:" "$eml" 2>/dev/null | head -1 | sed 's/Subject: //' || echo "No subject")
     local risk="GREEN"
@@ -433,7 +393,7 @@ scan_legal_folders() {
       risk="YELLOW"
     fi
     log "  INBOX [$risk]: $subject"
-    ((inbox_pass++))
+    ((inbox_pass+=1))
   done < <(_find_mailbox "$INBOX_FOLDER" -type f -name "*.emlx" -mtime -7 | head -50)
 
   # 2. Scan legal case folders for .eml files — dispatch to canonical validator
@@ -442,7 +402,7 @@ scan_legal_folders() {
     [[ ! -d "$folder" ]] && continue
     while IFS= read -r eml; do
       [[ -z "$eml" ]] && continue
-      ((legal_count++))
+      ((legal_count+=1))
       local fname
       fname=$(basename "$eml")
 
@@ -451,10 +411,10 @@ scan_legal_folders() {
         local ret=0
         SKIP_ARBITRATION_WINDOW=1 bash "$CANONICAL_VALIDATOR" "$eml" 2>/dev/null || ret=$?
         case $ret in
-          0)   ((legal_pass++)); log "  LEGAL [PASS]: $fname" ;;
-          1)   ((legal_warn++)); log "  LEGAL [WARN]: $fname" ;;
-          120) ((legal_fail++)); log "  LEGAL [DUP]:  $fname" ;;
-          *)   ((legal_fail++)); log "  LEGAL [FAIL:$ret]: $fname" ;;
+          0)   ((legal_pass+=1)); log "  LEGAL [PASS]: $fname" ;;
+          1)   ((legal_warn+=1)); log "  LEGAL [WARN]: $fname" ;;
+          120) ((legal_fail+=1)); log "  LEGAL [DUP]:  $fname" ;;
+          *)   ((legal_fail+=1)); log "  LEGAL [FAIL:$ret]: $fname" ;;
         esac
       else
         # Fallback: basic subject-based classification if canonical validator missing
@@ -463,7 +423,7 @@ scan_legal_folders() {
         local risk="GREEN"
         if echo "$subject" | grep -Eiq "$RED_KEYWORDS"; then risk="RED"; fi
         log "  LEGAL [BASIC/$risk]: $fname ($subject)"
-        ((legal_pass++))
+        ((legal_pass+=1))
       fi
     done < <(find "$folder" -type f -name "*.eml" -mtime -30 2>/dev/null)
   done
@@ -494,7 +454,6 @@ case "$MODE" in
     ;;
   update-dashboard)
     update_dashboard
-    open "$WSJF_DASHBOARD" 2>/dev/null || true
     ;;
   migrate-structure)
     migrate_structure

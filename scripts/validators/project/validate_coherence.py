@@ -442,9 +442,19 @@ SKIP_DIRS = {
     "ai_env",
     "external",
     "venv_settlement",
+    "venv_advocate",
     "site-packages",
     "archive.bak",
     ".agentdb",
+    ".stryker-tmp",
+    "coverage",
+    ".jest-cache",
+    "_BACKUPS",
+    "retiring",
+    "_LEGACY-ARCHIVE",
+    "deployment-20260228-2205",
+    ".claude-flow",
+    ".test_venv",
 }
 
 
@@ -454,20 +464,36 @@ def _file_identity(p: Path) -> Tuple[int, int]:
     return (st.st_dev, st.st_ino)
 
 
-def find_files(root: Path, globs: List[str], max_files: int = 2000) -> List[Path]:
+def find_files(root: Path, globs: List[str], max_files: int = 500) -> List[Path]:
     """Find files matching any of the given glob patterns.
 
-    Deduplicates by inode to handle case-insensitive filesystems
-    (e.g. docs/prd/ vs docs/PRD/ on macOS APFS).
+    Uses os.walk with directory pruning to avoid traversing SKIP_DIRS.
+    Deduplicates by inode to handle case-insensitive filesystems.
     """
+    import fnmatch as _fnmatch
+
     seen_inodes: Set[Tuple[int, int]] = set()
     found: List[Path] = []
-    for pattern in globs:
-        for p in root.glob(pattern):
-            if not p.is_file() or len(found) >= max_files:
+
+    # Extract filename patterns from glob strings (e.g. "**/*.py" -> "*.py")
+    filename_patterns = []
+    for g in globs:
+        parts = g.replace("\\", "/").split("/")
+        filename_patterns.append(parts[-1] if parts else g)
+
+    for dirpath, dirnames, filenames in os.walk(root):
+        # Prune SKIP_DIRS BEFORE descent (O(useful) not O(all))
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+
+        if len(found) >= max_files:
+            break
+
+        for fname in filenames:
+            if len(found) >= max_files:
+                break
+            if not any(_fnmatch.fnmatch(fname, pat) for pat in filename_patterns):
                 continue
-            if any(part in SKIP_DIRS for part in p.parts):
-                continue
+            p = Path(dirpath) / fname
             try:
                 ident = _file_identity(p)
             except OSError:
@@ -476,6 +502,7 @@ def find_files(root: Path, globs: List[str], max_files: int = 2000) -> List[Path
                 continue
             seen_inodes.add(ident)
             found.append(p)
+
     return sorted(found)
 
 

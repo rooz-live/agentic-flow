@@ -1,0 +1,65 @@
+version: '3.8'
+
+# @business-context WSJF-Cycle-55: Docker Isolation Architecture
+# @constraint R-2026-024: Physically maps the production limits avoiding Execution Theater natively.
+
+services:
+  agentic-postgres:
+    image: postgres:16-alpine
+    container_name: agentic_telemetry_db
+    environment:
+      POSTGRES_DB: agentic_telemetry
+      POSTGRES_USER: postgres_agent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mock_env_offline_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - agentdb_pg_data:/var/lib/postgresql/data
+    networks:
+      - agentic_telemetry_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres_agent -d agentic_telemetry"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  tld-universal-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.proxy # Theoretical Dockerfile mapped to Python bridging
+    container_name: tld_universal_proxy
+    ports:
+      - "5050:5050"
+    environment:
+      - POSTGRES_HOST=agentic-postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres_agent
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-mock_env_offline_password}
+      - POSTGRES_DB=agentic_telemetry
+    networks:
+      - agentic_telemetry_net
+    depends_on:
+      agentic-postgres:
+        condition: service_healthy
+
+  tld-react-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.ui # Theoretical NodeJS Dockerfile
+    container_name: tld_react_ui
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_ENDPOINT=http://localhost:5050
+    networks:
+      - agentic_telemetry_net
+    depends_on:
+      - tld-universal-proxy
+
+networks:
+  agentic_telemetry_net:
+    driver: bridge
+
+volumes:
+  agentdb_pg_data:
+    driver: local

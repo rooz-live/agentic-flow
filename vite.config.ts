@@ -17,9 +17,19 @@ export default defineConfig({
     port: 5173,
     strictPort: false,
     allowedHosts: true,
+    // Forward /api/* to Flask in dev so the trading dashboard can fetch live data
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+      },
+    },
   },
   build: {
     outDir: 'dist',
     sourcemap: true,
+    rollupOptions: {
+      input: 'trading.html'
+    }
   },
 })

@@ -5,7 +5,9 @@
 set -euo pipefail
 
 CRON_JOB_COMMAND="cd /Users/shahroozbhopti/Documents/code/projects/investing/agentic-flow && python3 scripts/policy/polymarket_scraper.py >> .goalie/metrics_log.jsonl 2>&1"
-CRON_SCHEDULE="30 8 * * 1-5" # Runs cleanly at 8:30 AM EST before Market opens, Monday - Friday natively successfully properly effortlessly
+CRON_TRADER_COMMAND="cd /Users/shahroozbhopti/Documents/code/projects/investing/agentic-flow && /Users/shahroozbhopti/.nvm/versions/node/v20.19.5/bin/node scripts/validators/dist/wsjf-roam-escalator.js >> .goalie/metrics_log.jsonl 2>&1"
+CRON_SOXL_COMMAND="cd /Users/shahroozbhopti/Documents/code/projects/investing/agentic-flow && /Users/shahroozbhopti/.nvm/versions/node/v20.19.5/bin/npx tsx src/trading/soxl_soxs_trader.ts --json >> .goalie/trading_signals.jsonl 2>&1"
+CRON_SCHEDULE="30 8 * * 1-5" # 8:30 AM EST before market open, Mon-Fri
 
 echo "[CRON SETUP] Installing Native SOXL Probability Array Scripts safely smoothly natively."
 
@@ -17,8 +19,10 @@ if grep -q "polymarket_scraper.py" /tmp/current_crons; then
     exit 0
 fi
 
-# Append exact execution proxy strings matching parameters limits natively
+# Append scraper + trader + SOXL cron entries
 echo "${CRON_SCHEDULE} ${CRON_JOB_COMMAND}" >> /tmp/current_crons
+echo "45 8 * * 1-5 ${CRON_TRADER_COMMAND}" >> /tmp/current_crons
+echo "50 8 * * 1-5 ${CRON_SOXL_COMMAND}" >> /tmp/current_crons
 
 # Install updated bounds securely checking formats natively cleanly seamlessly
 crontab /tmp/current_crons

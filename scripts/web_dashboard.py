@@ -116,6 +116,24 @@ def run_command(cmd):
         return None
 
 
+# Serve Vite-built trading dashboard as static files at /trading
+TRADING_DIST = Path(PROJECT_ROOT) / "dist"
+
+@app.route('/trading')
+@app.route('/trading/')
+def trading_dashboard():
+    """Trading dashboard (React/Vite build)"""
+    index = TRADING_DIST / "index.html"
+    if index.exists():
+        return open(index).read()
+    return '<h1>Trading dashboard not built</h1><p>Run: <code>npx vite build --base=/trading/ --outDir=dist</code></p>', 404
+
+@app.route('/trading/<path:filename>')
+def trading_assets(filename):
+    """Serve trading dashboard static assets"""
+    from flask import send_from_directory
+    return send_from_directory(str(TRADING_DIST), filename)
+
 # Routes
 @app.route('/')
 def home():

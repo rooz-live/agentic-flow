@@ -18,8 +18,9 @@
 
 | # | Item | WSJF | Pointer |
 |---|------|------|---------|
-| 1 | Agentic QE / Verification | 100 | Ensure CI executes `npm run test:mutation` and `scripts/contract-enforcement-gate.sh verify` seamlessly |
-| 2 | Superproject Full Rehydrate | 98 | Root tree remains strictly `.git/` corrupted, wait for STX or scion fix |
+| 1 | Multi-Agent Legal/Eml Integrity Loop | 100 | Create `legal-fact-check.sh` integrated into `.pre-commit` to definitively parse `.eml` drafts for temporal validation before treating as DoD eligible. |
+| 2 | Agentic QE / Verification | 100 | Ensure CI executes `npm run test:mutation` and `scripts/contract-enforcement-gate.sh verify` seamlessly |
+| 3 | Superproject Full Rehydrate | 98 | Root tree remains strictly `.git/` corrupted, wait for STX or scion fix |
 
 ---
 

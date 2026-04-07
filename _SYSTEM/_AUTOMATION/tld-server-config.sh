@@ -38,6 +38,8 @@ get_domain_for_env() {
         "gateway") echo "pur.tag.vote" ;;
         "evidence") echo "hab.yo.life" ;;
         "process") echo "file.720.chat" ;;
+        "inference"|"api_gateway") echo "api.interface.rooz.live" ;;
+        "root") echo "law.rooz.live" ;;
         *) echo "$DASHBOARD_DOMAIN" ;;
     esac
 }
@@ -77,6 +79,12 @@ configure_server() {
 # Pre-flight checks for TLD setup
 check_tld_readiness() {
     echo "Checking TLD readiness..."
+    
+    # Offline Isolation Bypass
+    if [[ "${OFFLINE_MODE:-false}" == "true" ]]; then
+        echo "✅ Offline Isolation Active: Bypassing DNS & Let's Encrypt validation constraints."
+        return 0
+    fi
     
     # Early Exit: Dependency Injection & Precondition Check
     if ! command -v dig >/dev/null 2>&1; then

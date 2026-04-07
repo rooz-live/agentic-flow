@@ -17,6 +17,7 @@
 | Gate | Command |
 |------|---------|
 | **Full trust bundle** | `TRUST_GIT=/usr/bin/git bash scripts/validate-foundation.sh --trust-path` |
+| **PI Prep bootstrap** (contract reminder → velocity delta → **mkdir lock** → trust-path) | `TRUST_GIT=/usr/bin/git bash scripts/pi-prep-bootstrap.sh` — see `docs/WORKFLOW_RETRO_TRUST_BOOTSTRAP.md` |
 | **Trust status** | `bash scripts/trust-status.sh` |
 | **Collect evidence** | `bash scripts/collect-evidence.sh` |
 | **WSJF cycle** | `bash scripts/wsjf-cycle.sh start|status|complete|evidence` |
@@ -29,6 +30,7 @@
 
 - `docs/STX_RETRO_AND_BACKLOG.md` — STX / HostBill / K8s backlog (WSJF-ranked).
 - `docs/TURBOQUANT_CSQBM_PROMPT.md` — TurboQuant–CSQBM loop; trust-path as local preflight.
+- `docs/WORKFLOW_RETRO_TRUST_BOOTSTRAP.md` — Workflow retro matrix, dynamic hydration, PI Prep bootstrap + lock mapping.
 - `docs/CONSOLIDATED_RCA_DDD_MATRIX.md` — Infra vs CSQBM matrix and RCA links.
 
 ### Actively integrated optimal cycle (increment vs iteration)

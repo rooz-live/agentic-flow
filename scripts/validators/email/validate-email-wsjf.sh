@@ -17,8 +17,31 @@ MODE="${2:-validate}" # validate | scan-sent | update-dashboard | migrate-struct
 
 SENT_FOLDER="$HOME/Library/Mail/V*/*/Sent Messages.mbox/Data"
 INBOX_FOLDER="$HOME/Library/Mail/V*/*/INBOX.mbox/Data"
+
+# Helper: safely expand glob patterns containing spaces for find(1)
+# Usage: _find_mailbox <glob_pattern> <find_args...>
+_find_mailbox() {
+  local pattern="$1"; shift
+  local -a dirs=()
+  local escaped="${pattern// /\\ }"
+  while IFS= read -r _p; do
+    [[ -d "$_p" ]] && dirs+=("$_p")
+  done < <(compgen -G "$escaped" 2>/dev/null || true)
+  [[ ${#dirs[@]} -eq 0 ]] && return 0
+  find "${dirs[@]}" "$@" 2>/dev/null || true
+}
 WSJF_DASHBOARD="/tmp/wsjf-email-dashboard.html"
 WSJF_ESCALATOR="/Users/shahroozbhopti/Documents/code/investing/agentic-flow/scripts/validators/wsjf/wsjf-roam-escalator.sh"
+
+# T3: Legal case folders to scan for .eml files
+LEGAL_ROOT="/Users/shahroozbhopti/Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL"
+LEGAL_CASE_FOLDERS=(
+  "${LEGAL_ROOT}/01-ACTIVE-CRITICAL"
+  "${LEGAL_ROOT}/02-ACTIVE-HIGH"
+  "${LEGAL_ROOT}/03-ACTIVE-MEDIUM"
+  "${LEGAL_ROOT}/06-EMAILS"
+)
+CANONICAL_VALIDATOR="/Users/shahroozbhopti/Documents/code/investing/agentic-flow/_SYSTEM/_AUTOMATION/validate-email.sh"
 
 # T0 FIX: SHA256 hash duplicate detection (prevent duplicate/redundant emails)
 EMAIL_HASH_DB="/tmp/email-hashes.db"
@@ -33,21 +56,25 @@ usage() {
 Usage: $0 <email_file> [mode]
 
 Modes:
-  validate        - Check email priority via WSJF before sending
-  scan-sent       - Scan sent folder for recent priority emails
-  update-dashboard - Update HTML dashboard with latest WSJF priorities
+  validate             - Check email priority via WSJF before sending
+  scan-sent            - Scan sent folder for recent priority emails
+  scan-legal-folders   - Scan legal case folders for .eml files, dispatch to canonical validator
+  update-dashboard     - Update HTML dashboard with latest WSJF priorities
+  migrate-structure    - Reorganize emails into structured folder hierarchy
 
 Examples:
   $0 email-to-doug.eml validate
   $0 - scan-sent
+  $0 - scan-legal-folders
   $0 - update-dashboard
   $0 - migrate-structure
 
 Workflow:
   1. Scan sent/inbox for recent emails (last 24h)
-  2. Calculate WSJF impact of pending email
-  3. Update HTML dashboard with priorities
-  4. Prompt: "Send now?" or "Higher priority: [X]"
+  2. Scan legal case folders for .eml files (T3 expansion)
+  3. Calculate WSJF impact of pending email
+  4. Update HTML dashboard with priorities
+  5. Prompt: "Send now?" or "Higher priority: [X]"
 EOF
   exit ${EXIT_INVALID_ARGS:-10}
 }
@@ -68,7 +95,7 @@ migrate_structure() {
   local total=0
   local routed=0
   
-  find "$SENT_FOLDER" "$INBOX_FOLDER" -type f -name "*.emlx" -mtime -7 2>/dev/null | head -50 | while read -r eml; do
+  { _find_mailbox "$SENT_FOLDER" -type f -name "*.emlx" -mtime -7; _find_mailbox "$INBOX_FOLDER" -type f -name "*.emlx" -mtime -7; } | head -50 | while read -r eml; do
       local subject=$(grep -i "^Subject:" "$eml" | head -1 | sed 's/Subject: //' || echo "No subject")
       local dest=""
       total=$((total+1))
@@ -167,13 +194,12 @@ check_email_duplicate() {
 # Scan sent folder for emails in last 24 hours
 scan_sent_folder() {
   log "Scanning sent folder for recent emails..."
-  local yesterday=$(date -v-24H +%Y%m%d)
-
-  find "$SENT_FOLDER" -type f -name "*.emlx" -mtime -1 2>/dev/null | while read -r eml; do
+  while IFS= read -r eml; do
+    [[ -z "$eml" ]] && continue
     local subject=$(grep -i "^Subject:" "$eml" | head -1 || echo "No subject")
     local to=$(grep -i "^To:" "$eml" | head -1 || echo "Unknown")
     log "SENT: $subject → $to"
-  done
+  done < <(_find_mailbox "$SENT_FOLDER" -type f -name "*.emlx" -mtime -1)
 }
 
 # Calculate WSJF score for email content
@@ -270,7 +296,7 @@ HTMLEOF
 
   # Scan recent sent emails
   echo '<h2>📤 Recent Sent (24h)</h2>' >> "$WSJF_DASHBOARD"
-  find "$SENT_FOLDER" -type f -name "*.emlx" -mtime -1 2>/dev/null | head -10 | while read -r eml; do
+  while IFS= read -r eml; do
     local subject=$(grep -i "^Subject:" "$eml" | head -1 | sed 's/Subject: //' || echo "No subject")
     local to=$(grep -i "^To:" "$eml" | head -1 | sed 's/To: //' || echo "Unknown")
     local risk="green"
@@ -286,11 +312,11 @@ HTMLEOF
     echo "  <strong>$subject</strong><br>" >> "$WSJF_DASHBOARD"
     echo "  → $to" >> "$WSJF_DASHBOARD"
     echo "</div>" >> "$WSJF_DASHBOARD"
-  done
+  done < <(_find_mailbox "$SENT_FOLDER" -type f -name "*.emlx" -mtime -1 | head -10)
 
   # Scan recent inbox
   echo '<h2>📥 Recent Inbox (24h)</h2>' >> "$WSJF_DASHBOARD"
-  find "$INBOX_FOLDER" -type f -name "*.emlx" -mtime -1 2>/dev/null | head -10 | while read -r eml; do
+  while IFS= read -r eml; do
     local subject=$(grep -i "^Subject:" "$eml" | head -1 | sed 's/Subject: //' || echo "No subject")
     local from=$(grep -i "^From:" "$eml" | head -1 | sed 's/From: //' || echo "Unknown")
     local risk="green"
@@ -305,7 +331,7 @@ HTMLEOF
     echo "  <strong>$subject</strong><br>" >> "$WSJF_DASHBOARD"
     echo "  ← $from" >> "$WSJF_DASHBOARD"
     echo "</div>" >> "$WSJF_DASHBOARD"
-  done
+  done < <(_find_mailbox "$INBOX_FOLDER" -type f -name "*.emlx" -mtime -1 | head -10)
 
   echo '</body></html>' >> "$WSJF_DASHBOARD"
   log "Dashboard updated: $WSJF_DASHBOARD"
@@ -368,7 +394,7 @@ validate_email() {
   log "Email WSJF: $wsjf (Risk: $risk)"
 
   # Check if higher priority emails exist
-  local higher_priority_count=$(find "$INBOX_FOLDER" -type f -name "*.emlx" -mtime -1 2>/dev/null | wc -l | tr -d ' ')
+  local higher_priority_count=$(_find_mailbox "$INBOX_FOLDER" -type f -name "*.emlx" -mtime -1 | wc -l | tr -d ' ')
 
   if [ "$risk" = "RED" ]; then
     echo "✅ HIGH PRIORITY - Send immediately (WSJF: $wsjf)"
@@ -386,6 +412,74 @@ validate_email() {
   open "$WSJF_DASHBOARD" 2>/dev/null || true
 }
 
+# T3: Scan legal case folders for .eml files and dispatch to canonical validator
+scan_legal_folders() {
+  log "T3: Scanning legal case folders for .eml files..."
+
+  local inbox_count=0 inbox_pass=0 inbox_fail=0 inbox_warn=0
+  local legal_count=0 legal_pass=0 legal_fail=0 legal_warn=0
+
+  # 1. Scan Apple Mail INBOX .emlx files (original behavior)
+  log "--- Source: Apple Mail INBOX (.emlx) ---"
+  while IFS= read -r eml; do
+    [[ -z "$eml" ]] && continue
+    ((inbox_count++))
+    local subject
+    subject=$(grep -i "^Subject:" "$eml" 2>/dev/null | head -1 | sed 's/Subject: //' || echo "No subject")
+    local risk="GREEN"
+    if echo "$subject" | grep -Eiq "$RED_KEYWORDS"; then
+      risk="RED"
+    elif echo "$subject" | grep -Eiq "$YELLOW_KEYWORDS"; then
+      risk="YELLOW"
+    fi
+    log "  INBOX [$risk]: $subject"
+    ((inbox_pass++))
+  done < <(_find_mailbox "$INBOX_FOLDER" -type f -name "*.emlx" -mtime -7 | head -50)
+
+  # 2. Scan legal case folders for .eml files — dispatch to canonical validator
+  log "--- Source: Legal case folders (.eml) ---"
+  for folder in "${LEGAL_CASE_FOLDERS[@]}"; do
+    [[ ! -d "$folder" ]] && continue
+    while IFS= read -r eml; do
+      [[ -z "$eml" ]] && continue
+      ((legal_count++))
+      local fname
+      fname=$(basename "$eml")
+
+      # Dispatch to canonical validate-email.sh (no duplicated logic)
+      if [[ -x "$CANONICAL_VALIDATOR" ]]; then
+        local ret=0
+        SKIP_ARBITRATION_WINDOW=1 bash "$CANONICAL_VALIDATOR" "$eml" 2>/dev/null || ret=$?
+        case $ret in
+          0)   ((legal_pass++)); log "  LEGAL [PASS]: $fname" ;;
+          1)   ((legal_warn++)); log "  LEGAL [WARN]: $fname" ;;
+          120) ((legal_fail++)); log "  LEGAL [DUP]:  $fname" ;;
+          *)   ((legal_fail++)); log "  LEGAL [FAIL:$ret]: $fname" ;;
+        esac
+      else
+        # Fallback: basic subject-based classification if canonical validator missing
+        local subject
+        subject=$(grep -i "^Subject:" "$eml" 2>/dev/null | head -1 | sed 's/Subject: //' || echo "No subject")
+        local risk="GREEN"
+        if echo "$subject" | grep -Eiq "$RED_KEYWORDS"; then risk="RED"; fi
+        log "  LEGAL [BASIC/$risk]: $fname ($subject)"
+        ((legal_pass++))
+      fi
+    done < <(find "$folder" -type f -name "*.eml" -mtime -30 2>/dev/null)
+  done
+
+  # Summary counters
+  log "--- Summary ---"
+  log "  INBOX (.emlx):  total=$inbox_count  pass=$inbox_pass  fail=$inbox_fail  warn=$inbox_warn"
+  log "  LEGAL (.eml):   total=$legal_count  pass=$legal_pass  fail=$legal_fail  warn=$legal_warn"
+  log "  COMBINED:       total=$((inbox_count + legal_count))  pass=$((inbox_pass + legal_pass))  fail=$((inbox_fail + legal_fail))  warn=$((inbox_warn + legal_warn))"
+
+  # JSONL event
+  local ts
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%s)
+  echo "{\"timestamp\":\"$ts\",\"component\":\"validate-email-wsjf\",\"mode\":\"scan-legal-folders\",\"action\":\"scan\",\"target\":\"legal-case-folders\",\"status\":\"PASS\",\"severity\":\"INFO\",\"evidence_path\":\"inbox=$inbox_count,legal=$legal_count,fail=$((inbox_fail + legal_fail))\"}" >> "${HOME}/Library/Logs/wsjf-events.jsonl" 2>/dev/null || true
+}
+
 # Main execution
 case "$MODE" in
   validate)
@@ -395,9 +489,12 @@ case "$MODE" in
   scan-sent)
     scan_sent_folder
     ;;
+  scan-legal-folders)
+    scan_legal_folders
+    ;;
   update-dashboard)
     update_dashboard
-    open "$WSJF_DASHBOARD"
+    open "$WSJF_DASHBOARD" 2>/dev/null || true
     ;;
   migrate-structure)
     migrate_structure

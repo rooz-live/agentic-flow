@@ -354,6 +354,8 @@ async function validateEmailPreSend(filePath: string): Promise<boolean> {
 function initWatcher() {
   console.log(`🚀 WSJF ROAM Escalator v2.0.0 - Enhanced`);
   console.log(`📁 Watching: ${WATCH_DIR}`);
+  console.log(`📁 Extra watch dirs (covered by main depth=10): ${EXTRA_WATCH_DIRS.length}`);
+  EXTRA_WATCH_DIRS.forEach(d => console.log(`   ↳ ${d}`));
   console.log(`📤 Sent Folders: ${SENT_DIRS.length} monitored`);
   console.log(`⏱️  Scan Frequency: ${SCAN_INTERVAL_MS / 1000}s`);
   console.log(`🎯 Keywords: ${Object.keys(WSJF_KEYWORDS).join(', ')}`);

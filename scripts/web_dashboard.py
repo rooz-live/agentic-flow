@@ -46,17 +46,18 @@ def get_tenant_from_request():
 PROJECT_ROOT = os.environ.get("PROJECT_ROOT", ".")
 GOALIE_DIR = Path(PROJECT_ROOT) / ".goalie"
 METRICS_FILE = GOALIE_DIR / "pattern_metrics.jsonl"
+TRADING_SIGNALS_FILE = GOALIE_DIR / "trading_signals.jsonl"
 
 
-def load_events(hours=168):
-    """Load recent pattern events"""
-    if not METRICS_FILE.exists():
+def _load_jsonl(filepath, hours=168):
+    """Load recent events from a JSONL file"""
+    if not filepath.exists():
         return []
-    
+
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     events = []
-    
-    with open(METRICS_FILE, 'r') as f:
+
+    with open(filepath, 'r') as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -73,8 +74,18 @@ def load_events(hours=168):
                         pass
             except json.JSONDecodeError:
                 continue
-    
+
     return events
+
+
+def load_events(hours=168):
+    """Load recent pattern events"""
+    return _load_jsonl(METRICS_FILE, hours=hours)
+
+
+def _load_trading_signals(hours=168):
+    """Load recent trading signals from soxl_soxs_trader output"""
+    return _load_jsonl(TRADING_SIGNALS_FILE, hours=hours)
 
 
 def get_tenants():
@@ -197,6 +208,37 @@ def api_flow_efficiency():
         result['filtered_by_tenant'] = tenant_filter
     
     return jsonify(result or {})
+
+
+@app.route('/api/trading')
+def api_trading():
+    """Trading signals and SOXL/SOXS events from both pattern_metrics + trading_signals"""
+    hours = int(request.args.get('hours', 72))
+    symbol_filter = request.args.get('symbol')  # e.g. SOXL, SOXS
+
+    # Merge events from both JSONL sources
+    events = load_events(hours=hours)
+    events.extend(_load_trading_signals(hours=hours))
+
+    trading_events = [
+        e for e in events
+        if e.get('pattern', '').startswith('trading')
+        or e.get('component') in ('soxl_soxs_trader', 'neural-trader', 'backtest')
+        or e.get('action') in ('BUY', 'SELL', 'HOLD')
+        or any(t in str(e.get('data', '')) + str(e.get('symbol', '')) for t in ('SOXL', 'SOXS', 'SMH', 'SOXX'))
+    ]
+
+    if symbol_filter:
+        trading_events = [e for e in trading_events if symbol_filter.upper() in str(e.get('symbol', '')) + str(e.get('data', ''))]
+
+    # Sort by timestamp descending
+    trading_events.sort(key=lambda e: e.get('timestamp', e.get('ts', '')), reverse=True)
+
+    return jsonify({
+        'events': trading_events[:100],
+        'count': len(trading_events),
+        'filters': {'hours': hours, 'symbol': symbol_filter}
+    })
 
 
 @app.route('/api/patterns')

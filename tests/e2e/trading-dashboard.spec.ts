@@ -17,8 +17,11 @@ const TRADING_URL = process.env.TRADING_URL || '/trading.html';
 
 test.describe('Trading Dashboard — Structure & Load', () => {
   test.beforeEach(async ({ page }) => {
-    test.setTimeout(30_000);
-    await page.goto(TRADING_URL);
+    test.setTimeout(60_000);
+    // 'commit' avoids timing out on Vite's dep-optimizer full-reload.
+    // After globalSetup pre-warms the module graph, the h1 appears within ~1s.
+    await page.goto(TRADING_URL, { waitUntil: 'commit' });
+    await page.waitForSelector('h1', { timeout: 30_000 });
   });
 
   test('page loads without console errors', async ({ page }) => {
@@ -46,9 +49,15 @@ test.describe('Trading Dashboard — Structure & Load', () => {
 
 test.describe('Trading Dashboard — Data Quality', () => {
   test.beforeEach(async ({ page }) => {
-    test.setTimeout(30_000);
-    await page.goto(TRADING_URL);
-    await page.waitForLoadState('networkidle');
+    test.setTimeout(60_000);
+    await page.goto(TRADING_URL, { waitUntil: 'commit' });
+    // Wait for React to mount + loading state to resolve (Flask fetch fails fast).
+    // 'networkidle' never settles with Vite's HMR WebSocket open; wait for
+    // the empty-state or signal cards to confirm the async fetch has completed.
+    await page.waitForSelector(
+      '[data-testid="empty-state"], [data-testid="signal-card"], [role="status"]',
+      { timeout: 30_000 },
+    );
   });
 
   test('displays at least one trading signal or empty-state message', async ({ page }) => {
@@ -76,9 +85,9 @@ test.describe('Trading Dashboard — Data Quality', () => {
 
 test.describe('Trading Dashboard — UI/UX Quality', () => {
   test.beforeEach(async ({ page }) => {
-    test.setTimeout(30_000);
-    await page.goto(TRADING_URL);
-    await page.waitForLoadState('networkidle');
+    test.setTimeout(60_000);
+    await page.goto(TRADING_URL, { waitUntil: 'commit' });
+    await page.waitForSelector('h1', { timeout: 30_000 });
   });
 
   test('has dark theme (background is not white)', async ({ page }) => {

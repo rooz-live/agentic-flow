@@ -9,6 +9,7 @@ const runTldOnly = process.env.PLAYWRIGHT_TLD_ONLY === '1';
  */
 export default defineConfig({
   testDir: './tests/e2e',
+  globalSetup: './tests/e2e/global-setup.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -67,6 +68,10 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         baseURL: 'http://localhost:5173',
+        // Vite compiles TSX on-demand; first load can take 10-15s on cold start.
+        // globalSetup pre-warms the cache, but keep a generous timeout as safety net.
+        navigationTimeout: 60_000,
+        actionTimeout: 15_000,
       },
       testMatch: /trading-dashboard\.spec\.ts/,
     },
@@ -100,8 +105,11 @@ export default defineConfig({
     },
     {
       // Run Vite dev server for trading dashboard — serves trading.html at /trading.html
-      command: 'npx vite trading.html --port 5173',
-      url: 'http://localhost:5173',
+      // NOTE: use vite.trading.config.ts (not vite.config.ts) to avoid the
+      // optimizeDeps.include hang: main config lists @cosmograph + @cosmos.gl which
+      // aren’t installed, causing Vite’s optimizer to hang indefinitely.
+      command: 'npx vite --config vite.trading.config.ts',
+      url: 'http://localhost:5173/trading.html',
       reuseExistingServer: true,
       timeout: 60 * 1000,
     },

@@ -3,7 +3,36 @@ Paste this at the start of a new session to restore context.
 
 ---
 
-## Prior Session Summary (2026-04-08, ~3h)
+## Prior Session Summary (2026-04-08, session 2 ~1.5h)
+
+### TLD Status — LIVE + VERIFIED
+- `https://analytics.interface.tag.ooo/api/health` → HTTP 200, 556ms, `{status: healthy, events_count: 26}` ✅
+- `https://analytics.interface.tag.ooo/api/trading` → HTTP 200, 492ms, 16 events (SOXL/SOXS/AMD/NVDA, all HOLD) ✅
+- `https://analytics.interface.tag.ooo/trading` → HTTP 200, 312ms, Vite SPA serving ✅
+- Flask PID running on STX (managed via `/opt/wsjf/flask.pid`)
+
+### Work Completed This Session
+1. **Email entry points unified**: `validate-email-master.sh` `VALIDATORS_DIR` fragility fixed (`$(dirname "$0")` → `$SCRIPT_DIR`); `scripts/validators/email/email-gate-lean.sh` replaced with thin delegator to canonical gate
+2. **Trading dashboard deployed to STX** via `deploy/deploy-trading.sh --setup-nginx`; 3 bugs fixed in deploy script (root-owned dirs, `bash -lc` SSH multi-arg split, `pkill -f` self-kill)
+3. **scripts/CATALOG.md** generated: 1,872 scripts across 55 directories
+4. **web_dashboard.py HTTP exit codes improved**: JSON error handlers (404/500/Exception), `api_health` returns 503 on exception, `api_trading` returns 204 on short-window empty + `status: no_data`
+
+### ROAM Risks Discovered This Session
+- **R-DEPLOY-001**: `pkill -f <pattern>` via SSH self-kills the bash session when the pattern appears in bash's own command line. **Fix**: PID file (`flask.pid`) for stop/start; never use `pkill -f` in SSH commands.
+- **R-DEPLOY-002**: `ssh host bash -lc "multiline"` splits into 3 separate args; remote shell receives `bash -lc` on one line, body on next → "option requires an argument". **Fix**: Drop `bash -lc`, pass multiline as single double-quoted SSH argument.
+- **R-DEPLOY-003**: `/var/log/` is root-owned on STX ubuntu user. App log paths must use `/opt/wsjf/logs/`. **Fix**: deploy script now creates and uses `${REMOTE_APP_DIR}/logs/`.
+- **R-VALIDATOR-001**: `VALIDATORS_DIR="$(dirname "$0")"` resolves to `.` when called via relative path — `LEAN_GATE` not found. **Fix**: use `SCRIPT_DIR` (already computed with `cd && pwd`).
+- **R-TSC-001**: `tsc --noEmit` hangs on this project (274 TS files, deep type cycles, >45s with no output). Build script already uses `|| echo` fallback. Do NOT rely on tsc in CI gate or session flow without timeout.
+- **R-GIT-001**: `investing` path is a symlink to `projects/investing`. `edit_files` tool resolves canonical path and shows `projects/investing/` in results. This is the same directory — not a duplicate.
+
+### Dirty Tree (small, scoped)
+- Staged: `.gitignore`, `tsconfig.json`, `D .rca-backups/2026-03-07/validation-core.sh`
+- Unstaged: `reports/wsjf-priority-dashboard.html`
+- To commit: scope into 2 commits — (1) `feat(api): HTTP exit codes` for web_dashboard.py, (2) `chore: cleanup gitignore + rca-backups + reports`
+
+---
+
+## Prior Session Summary (2026-04-08, session 1 ~3h)
 
 ### TLD Status — LIVE
 - `https://analytics.interface.tag.ooo/api/health` → `{status: healthy, events_count: 26}` ✅

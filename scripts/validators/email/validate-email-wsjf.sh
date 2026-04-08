@@ -423,24 +423,33 @@ scan_legal_folders() {
       fname=$(basename "$eml")
 
       # Dispatch to canonical validate-email.sh (no duplicated logic)
+      local _file_status="PASS" _file_severity="INFO" _file_exit=0
       if [[ -x "$CANONICAL_VALIDATOR" ]]; then
         local ret=0
         SKIP_ARBITRATION_WINDOW=1 bash "$CANONICAL_VALIDATOR" "$eml" 2>/dev/null || ret=$?
+        _file_exit=$ret
         case $ret in
-          0)   ((legal_pass+=1)); log "  LEGAL [PASS]: $fname" ;;
-          1)   ((legal_warn+=1)); log "  LEGAL [WARN]: $fname" ;;
-          120) ((legal_fail+=1)); log "  LEGAL [DUP]:  $fname" ;;
-          *)   ((legal_fail+=1)); log "  LEGAL [FAIL:$ret]: $fname" ;;
+          0)   ((legal_pass+=1)); log "  LEGAL [PASS]: $fname"; _file_status="PASS" ;;
+          1)   ((legal_warn+=1)); log "  LEGAL [WARN]: $fname"; _file_status="WARN"; _file_severity="WARN" ;;
+          120) ((legal_fail+=1)); log "  LEGAL [DUP]:  $fname"; _file_status="DUP"; _file_severity="WARN" ;;
+          *)   ((legal_fail+=1)); log "  LEGAL [FAIL:$ret]: $fname"; _file_status="FAIL"; _file_severity="ERROR" ;;
         esac
       else
         # Fallback: basic subject-based classification if canonical validator missing
         local subject
         subject=$(grep -i "^Subject:" "$eml" 2>/dev/null | head -1 | sed 's/Subject: //' || echo "No subject")
         local risk="GREEN"
-        if echo "$subject" | grep -Eiq "$RED_KEYWORDS"; then risk="RED"; fi
+        if echo "$subject" | grep -Eiq "$RED_KEYWORDS"; then risk="RED"; _file_severity="HIGH"; fi
         log "  LEGAL [BASIC/$risk]: $fname ($subject)"
+        _file_status="BASIC_$risk"
         ((legal_pass+=1))
       fi
+      # Per-file JSONL event for monitoring pipeline
+      local _fts
+      _fts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%s)
+      printf '{"timestamp":"%s","component":"validate-email-wsjf","mode":"scan-legal-folders","action":"validate-file","target":"%s","folder":"%s","status":"%s","severity":"%s","exit_code":%d}\n' \
+        "$_fts" "$fname" "$(basename "$folder")" "$_file_status" "$_file_severity" "$_file_exit" \
+        >> "${HOME}/Library/Logs/wsjf-events.jsonl" 2>/dev/null || true
     done < <(find "$folder" -type f -name "*.eml" -mtime -30 2>/dev/null)
   done
 

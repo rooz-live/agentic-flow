@@ -15,7 +15,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
-    strictPort: false,
+    strictPort: true,   // Hard-fail instead of drifting to 5174 — keeps Playwright baseURL contract
     allowedHosts: true,
     // Forward /api/* to Flask in dev so the trading dashboard can fetch live data
     proxy: {

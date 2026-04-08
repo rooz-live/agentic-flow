@@ -3,6 +3,94 @@ Paste this at the start of a new session to restore context.
 
 ---
 
+## Prior Session Summary (2026-04-08, ~3h)
+
+### TLD Status — LIVE
+- `https://analytics.interface.tag.ooo/api/health` → `{status: healthy, events_count: 26}` ✅
+- `https://analytics.interface.tag.ooo/` — Flask dashboard serving
+- `https://analytics.interface.tag.ooo/trading` — trading dashboard route exists (Flask serves dist/)
+- `/api/trading` → returns events (count depends on .goalie/trading_signals.jsonl)
+
+### Trading Dashboard Rewrite — COMPLETE (code), UNVERIFIED (tests)
+**What changed:**
+- NEW: `src/trading/ui/TradingDashboardAPI.tsx` — standalone API-driven component, no prop deps,
+  fetches `/api/trading` + `/api/health`, `data-testid="signal-card"`/`data-testid="empty-state"`,
+  exactly 1 `<h1>`, SOXL/SOXS ticker cards with `$XX.XX` reference prices, dark Tailwind theme
+- NEW: `src/trading/ui/trading-api.css` — `@import "tailwindcss"` entry for Tailwind v4
+- MODIFIED: `src/trading/ui/App.tsx` — now just `<TradingDashboardAPI />`, no TradingSystemFactory
+- MODIFIED: `src/trading/ui/main.tsx` — imports `trading-api.css`
+- MODIFIED: `vite.config.ts` — `/api` proxy → `http://localhost:5000`, `strictPort: true`
+- MODIFIED: `playwright.config.ts` — trading-chromium baseURL=5173, trading-tld=analytics.interface.tag.ooo
+- MODIFIED: `tests/e2e/trading-dashboard.spec.ts` — `TRADING_URL` default → `/trading.html`, API port 5000
+
+**Verify git status of these files** — `git status src/trading/ui/ vite.config.ts` may show some
+as untracked (not yet staged). Run `git add` + scope into topic commit before push.
+
+### Playwright — 3/13 PASS, 10 FAIL (port mismatch only)
+- 3 API tests PASS (Flask on :5000 confirmed healthy)
+- 10 UI tests FAIL: `TimeoutError page.goto http://localhost:5173/trading.html`
+  → Root cause: Vite drifted to :5174 (something else was on :5173)
+  → Fix: `lsof -ti:5173 | xargs kill -9 2>/dev/null; true` before starting Vite
+- Last test command (use this in new session):
+  ```
+  lsof -ti:5173 | xargs kill -9 2>/dev/null; true
+  npx vite trading.html --port 5173   # Terminal 1
+  # Wait for "ready" then Terminal 2:
+  TRADING_URL=/trading.html npx playwright test tests/e2e/trading-dashboard.spec.ts --project=trading-chromium --reporter=list
+  ```
+
+### Dirty Tree — needs topic-scoped commits before push
+1. **Trading dashboard commit** (stage these):
+   `src/trading/ui/TradingDashboardAPI.tsx` `src/trading/ui/trading-api.css`
+   `src/trading/ui/App.tsx` `src/trading/ui/main.tsx` `vite.config.ts`
+   Message: `feat(trading): API-driven dashboard + Tailwind TDD (TradingDashboardAPI)`
+
+2. **Playwright/test config commit**:
+   `playwright.config.ts` `tests/e2e/trading-dashboard.spec.ts`
+   Message: `test(e2e): trading dashboard Playwright TDD — URL fix + API port + health test`
+
+3. **Gitignore/cleanup commit**:
+   `.gitignore` (add `dist/`, `playwright-report/`, `test-results/`, `.goalie.backup-*/`)
+   `.goalie.backup-20251217-225410/` deletions
+   Message: `chore(cleanup): gitignore generated artifacts + remove stale backup dir`
+
+4. **After commits**: `./deploy/deploy-trading.sh` → deploy built dist to TLD
+   Then verify: `TRADING_URL=/trading/ TRADING_BASE_URL=https://analytics.interface.tag.ooo npx playwright test --project=trading-tld`
+
+### Remaining P1 Queue (WSJF order, single-thread)
+1. ✅ **Playwright tests GREEN** — run sequence above, should go 13/13 once port fixed
+2. **Build + deploy** — `npm run trader:build && ./deploy/deploy-trading.sh`
+3. **Topic commits + push** — see 3-commit sequence above
+4. **Hygiene cleanup** — `hygiene-check.sh --cleanup` REQUIRES [SA][FA] approval
+   (4 WARN: .codeium 30G, .cache 21G, agentdb WAL 1.7G, git objects 496M = 52G+ reclaimable)
+5. **T0-T5 Cycle 2** — after deploy is green
+6. **Validators** — `pre-send-email-workflow.sh` consolidation, compare-all-validators.sh timeout 30→60s
+
+### Key File Locations (unchanged from prior session)
+- `web_dashboard.py`: `scripts/web_dashboard.py` (Flask + SocketIO, consolidation hub)
+- `soxl_soxs_trader.ts`: `src/trading/soxl_soxs_trader.ts`
+- `trading_dashboard.tsx` (legacy): `src/trading/ui/trading_dashboard.tsx` (no longer in App.tsx render path)
+- `TradingDashboardAPI.tsx` (active): `src/trading/ui/TradingDashboardAPI.tsx`
+- `deploy script`: `deploy/deploy-trading.sh`
+- `nginx config`: `deploy/nginx-analytics.conf`
+- `setup_soxl_cron.sh`: `scripts/setup_soxl_cron.sh` (runs at 8:45 AM)
+
+### Invariants (must remain true)
+1. No LaunchAgent restart thrash
+2. No duplicate routing regressions
+3. No false "down" on launchctl PID "-" with exit 0
+4. No aggressive delete behavior (report-only unless explicitly SA/FA approved)
+5. All changes discover/consolidate THEN extend — no new tech debt
+
+### IDE Constraints
+- Do not attach files >10MB
+- Always read by file path and chunk large files in ranges
+- Prefer path-based incremental reads/writes over full-file attachments
+
+---
+
+## [Previous session summary follows below — 2026-04-07]
+
 ## Prior Session Summary (2026-04-07, 4.5h)
 
 ### Server (yo.tag.ooo) — COMPLETE

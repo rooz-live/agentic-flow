@@ -57,10 +57,15 @@ if [[ "$SKIP_BUILD" == "false" ]]; then
 fi
 
 # 1. Build
+# IMPORTANT: use trader:build:tld (--base=/trading/) not trader:build (--base=/).
+# Vite builds asset paths relative to --base. Without this, the bundle generates
+# /assets/trading-*.js (absolute root) which nginx serves 404 because Flask routes
+# assets under /trading/<path>. With --base=/trading/ the HTML references
+# /trading/assets/trading-*.js which the Flask /trading/<path:filename> route handles.
 if [[ "$SKIP_BUILD" == "false" ]]; then
-  echo "▶ Building trading dashboard..."
+  echo "▶ Building trading dashboard (--base=/trading/)..."
   cd "$PROJECT_ROOT"
-  npm run trader:build
+  npm run trader:build:tld
   echo "✅ Build complete: dist/"
 else
   echo "⏭  Skipping build (--deploy-only)"

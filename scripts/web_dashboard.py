@@ -164,6 +164,14 @@ def trading_assets(filename):
     from flask import send_from_directory
     return send_from_directory(str(TRADING_DIST), filename)
 
+@app.route('/assets/<path:filename>')
+def trading_assets_root(filename):
+    """Serve Vite asset bundles referenced with absolute /assets paths."""
+    assets_dir = TRADING_DIST / "assets"
+    if assets_dir.exists():
+        return send_from_directory(str(assets_dir), filename)
+    return send_from_directory(str(TRADING_DIST), filename)
+
 # Routes
 @app.route('/')
 def home():
@@ -175,7 +183,13 @@ def home():
     except Exception:
         if MONITORING_DASHBOARD_FILE.exists():
             return MONITORING_DASHBOARD_FILE.read_text(encoding='utf-8')
-        return '<h1>Agentic Flow Dashboard</h1><p>Dashboard template not found.</p>', 200
+        return (
+            '<h1>Agentic Flow Dashboard</h1>'
+            '<p>The primary dashboard template is unavailable on this host, '
+            'but analytics and trading APIs remain online for contract checks.</p>'
+            '<p>Use <a href="/trading">/trading</a> for live SOXL/SOXS monitoring '
+            'and <a href="/api/health">/api/health</a> for service status.</p>'
+        ), 200
 
 
 @app.route('/patterns')

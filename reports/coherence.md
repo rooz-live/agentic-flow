@@ -1,11 +1,11 @@
 # DDD/TDD/ADR Coherence Validation Report
-**Generated:** 2026-04-08 10:34:11
+**Generated:** 2026-04-08 11:29:09
 **Project:** `/Users/shahroozbhopti/Documents/code/projects/investing/agentic-flow`
-**Files Scanned:** 1510
+**Files Scanned:** 1515
 **Automation Level:** Level 0 (Manual)
 
 ## ❌ Overall: FAIL
-`███░░░░░░░░░░░░░░░░░░░░░░░░░░░` **12.7%** (392/3088 checks)
+`███░░░░░░░░░░░░░░░░░░░░░░░░░░░` **13.0%** (402/3104 checks)
 
 ## Layer Health
 
@@ -13,12 +13,12 @@
 |:------|:------:|:-----:|:----:|:----------|
 | **PRD** | 🔴 23% | 500 | 715 | 500 PRD document(s) found |
 | **ADR** | 🔴 4% | 500 | 499 | 500 ADR document(s) found |
-| **DDD** | 🔴 14% | 500 | 0 | 500 domain file(s) found |
-| **TDD** | 🟢 100% | 10 | 0 | 10 test file(s) found |
+| **DDD** | 🔴 13% | 500 | 0 | 500 domain file(s) found |
+| **TDD** | 🟢 100% | 15 | 0 | 15 test file(s) found |
 
 ## Cross-Layer Coherence
 
-- ✅ **COH-001** (ddd→tdd): 40/50 domain classes have test coverage (80%)
+- ✅ **COH-001** (ddd→tdd): 42/50 domain classes have test coverage (84%)
 - ✅ **COH-003** (prd→tdd): PRD criteria: ✓, Tests exist: ✓
 - ✅ **COH-004** (tdd→ddd): 31/63 domain terms found in test names (49%)
 - ✅ **COH-002** (adr→ddd): 500 ADR(s), 50 domain classes
@@ -4297,7 +4297,13 @@
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `tools/goalie-vscode/test/mocks/vscode.ts`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `tools/goalie-vscode/tests/alertManager.test.ts`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `tools/goalie-vscode/tests/commandHandlers.test.ts`
+- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `tools/goalie-vscode/tests/dataParsing.test.ts`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `tools/goalie-vscode/tests/fileWatcherService.test.ts`
+- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `tools/goalie-vscode/tests/integration.test.ts`
+- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `tools/goalie-vscode/tests/performance.test.ts`
+- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `tools/goalie-vscode/tests/setup.ts`
+- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `tools/goalie-vscode/tests/treeview.test.ts`
+- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `tools/goalie-vscode/tests/userExperience.test.ts`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `tools/wsjf/build_ssot_snapshot.ts`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `validate_legal_patterns_cli.py`
 - ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `validation_dashboard_tui.py`
@@ -4326,11 +4332,21 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.1 assertions/test (14 assertions, 13 tests) `tools/goalie-vscode/tests/alertManager.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: commandHandlers.test.ts `tools/goalie-vscode/tests/commandHandlers.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.4 assertions/test (32 assertions, 23 tests) `tools/goalie-vscode/tests/commandHandlers.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: dataParsing.test.ts `tools/goalie-vscode/tests/dataParsing.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.5 assertions/test (35 assertions, 14 tests) `tools/goalie-vscode/tests/dataParsing.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: fileWatcherService.test.ts `tools/goalie-vscode/tests/fileWatcherService.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.5 assertions/test (43 assertions, 17 tests) `tools/goalie-vscode/tests/fileWatcherService.test.ts`
-- ✅ [CRITICAL] Unit tests present: 94 test functions found
-- ✅ [WARNING] Integration tests present: 3 integration test file(s)
-- ✅ [INFO] Total assertion count reasonable: 207 total assertions across 10 files
+- ✅ [INFO] Test file follows naming convention: Correct: integration.test.ts `tools/goalie-vscode/tests/integration.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.6 assertions/test (18 assertions, 7 tests) `tools/goalie-vscode/tests/integration.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: performance.test.ts `tools/goalie-vscode/tests/performance.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.9 assertions/test (15 assertions, 8 tests) `tools/goalie-vscode/tests/performance.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: treeview.test.ts `tools/goalie-vscode/tests/treeview.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (41 assertions, 19 tests) `tools/goalie-vscode/tests/treeview.test.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: userExperience.test.ts `tools/goalie-vscode/tests/userExperience.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.6 assertions/test (14 assertions, 9 tests) `tools/goalie-vscode/tests/userExperience.test.ts`
+- ✅ [CRITICAL] Unit tests present: 151 test functions found
+- ✅ [WARNING] Integration tests present: 4 integration test file(s)
+- ✅ [INFO] Total assertion count reasonable: 330 total assertions across 15 files
 
 ## Recommendations
 
@@ -4342,17 +4358,17 @@
 -   → [WARNING] ADR has required sections: 1/4 sections (missing: context, decision, consequences)
 -   → [WARNING] ADR has required sections: 1/4 sections (missing: status, decision, consequences)
 -   → [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences)
-- ⚠️ DDD health is 14% — address 0 gap(s)
+- ⚠️ DDD health is 13% — address 0 gap(s)
 - 🏗️ Strengthen domain model: ensure aggregate roots, value objects, and services are clearly defined
 
 ## OODA Integration
 
 | Phase | Coherence Action |
 |:------|:-----------------|
-| **Observe** | Scanned 1510 files across 4 layers |
-| **Orient** | Health: PRD=23%, ADR=4%, DDD=14%, TDD=100% |
+| **Observe** | Scanned 1515 files across 4 layers |
+| **Orient** | Health: PRD=23%, ADR=4%, DDD=13%, TDD=100% |
 | **Decide** | Verdict: FAIL at 13% |
 | **Act** | 10 recommendations to implement |
 
 ---
-*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-04-08 10:34:11*
+*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-04-08 11:29:09*

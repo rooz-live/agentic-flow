@@ -91,6 +91,7 @@ export class SOXLSOXSTrader {
   private fmpClient: any;
   private goalieDir: string;
   private priceHistory: Map<string, number[]> = new Map();
+  private fmpEntitlementBlocked: boolean = false;
 
   constructor(fmpApiKey?: string) {
     // FMP is optional — Yahoo Finance is the free default
@@ -386,6 +387,45 @@ export class SOXLSOXSTrader {
     const metricsFile = path.join(this.goalieDir, 'pattern_metrics.jsonl');
     fs.appendFileSync(metricsFile, JSON.stringify(metricEntry) + '\n');
   }
+  private isDryRunMode(): boolean {
+    return process.argv.includes('--dry-run') || process.env.TRADER_DRY_RUN === '1';
+  }
+
+  private allow402Simulation(): boolean {
+    return process.env.TRADER_ALLOW_402_SIMULATION === '1' || process.env.CI_ALLOW_FMP_402_SIMULATION === '1';
+  }
+
+  private isFmp402Error(error: unknown): boolean {
+    const message = (error as Error)?.message || '';
+    return message.includes('402') || message.includes('Payment Required');
+  }
+
+  private buildSimulatedQuote(symbol: string): StockQuote {
+    const anchorPrices: Record<string, number> = {
+      SOXL: 45.5,
+      SOXS: 45.5,
+      SMH: 260.0,
+      SOXX: 220.0,
+    };
+    const price = anchorPrices[symbol] ?? 100.0;
+    return {
+      symbol,
+      name: `${symbol} (simulated)`,
+      price,
+      changesPercentage: 0,
+      change: 0,
+      dayLow: price * 0.99,
+      dayHigh: price * 1.01,
+      yearHigh: price * 1.3,
+      yearLow: price * 0.7,
+      marketCap: 0,
+      priceAvg50: price,
+      priceAvg200: price,
+      volume: 1,
+      avgVolume: 1,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
+  }
 
   /**
    * Analyze any list of tickers and generate trading signals.
@@ -397,17 +437,37 @@ export class SOXLSOXSTrader {
 
     const quotes: StockQuote[] = [];
     for (const sym of symbols) {
+      let quote: StockQuote | null = null;
       try {
-        quotes.push(await fetchYahooQuote(sym));
+        quote = await fetchYahooQuote(sym);
       } catch (err) {
         console.warn(`⚠️  ${sym}: ${(err as Error).message}`);
-        // If FMP available, try fallback for this symbol
-        if (this.fmpClient) {
+        // If FMP available, try fallback for this symbol.
+        // If we hit 402 once, avoid further entitlement calls in this run.
+        if (this.fmpClient && !this.fmpEntitlementBlocked) {
           try {
             const fmpQ = await this.fmpClient.getQuote(sym);
-            if (fmpQ?.[0]) quotes.push(fmpQ[0]);
-          } catch { /* skip */ }
+            if (fmpQ?.[0]) {
+              quote = fmpQ[0];
+            }
+          } catch (fmpErr) {
+            if (this.isFmp402Error(fmpErr)) {
+              this.fmpEntitlementBlocked = true;
+              const typedReason = `FMP_ENTITLEMENT_402 (${sym})`;
+              if (this.isDryRunMode() && this.allow402Simulation()) {
+                console.warn(`⚠️  ${typedReason}: simulation fallback enabled`);
+                quote = this.buildSimulatedQuote(sym);
+              } else {
+                throw new Error(`${typedReason}: provider plan/entitlement blocked quote access. Set TRADER_ALLOW_402_SIMULATION=1 for approved CI simulation mode.`);
+              }
+            } else {
+              throw fmpErr;
+            }
+          }
         }
+      }
+      if (quote) {
+        quotes.push(quote);
       }
     }
 
@@ -469,15 +529,44 @@ export class SOXLSOXSTrader {
 
 // CLI execution
 async function main() {
+  const isDryRun = process.argv.includes('--dry-run');
   const trader = new SOXLSOXSTrader();
 
-  console.log('🚀 Neural Trading System\n');
+  console.log(`🚀 Neural Trading System${isDryRun ? ' (DRY-RUN: synthetic data)' : ''}\n`);
 
   try {
-    // Use analyzeMulti — reads tickers from --tickers or TICKERS env
-    const result = await trader.analyzeMulti();
+    let result;
 
-    console.log('\n✅ Analysis complete!');
+    if (isDryRun) {
+      // Dry-run mode: use synthetic quotes — no network calls, CI-safe
+      const syntheticQuote = (sym: string, price: number): StockQuote => ({
+        symbol: sym, name: `${sym} (simulated)`, price,
+        changesPercentage: -1.2, change: -price * 0.012,
+        dayLow: price * 0.97, dayHigh: price * 1.03,
+        yearHigh: price * 2, yearLow: price * 0.4,
+        marketCap: 0, priceAvg50: price * 1.05, priceAvg200: price * 0.95,
+        volume: 5000000, avgVolume: 4000000, timestamp: Math.floor(Date.now() / 1000),
+      });
+      const tickers = trader['getTickerList']();
+      const signals: TradingSignal[] = [];
+      for (const sym of tickers) {
+        const q = syntheticQuote(sym, sym === 'SOXL' ? 22.50 : 45.54);
+        const indicators = trader['calculateIndicators'](sym, q);
+        const signal = trader['generateSignal'](sym, q, indicators);
+        signals.push(signal);
+        trader['logSignal'](signal);
+        console.log(`🤖 ${signal.symbol}: ${signal.action} (${(signal.confidence * 100).toFixed(0)}%) — ${signal.reason} [SIMULATED]`);
+      }
+      const soxlSig = signals.find(s => s.symbol === 'SOXL') || signals[0];
+      const soxsSig = signals.find(s => s.symbol === 'SOXS') || signals[1] || soxlSig;
+      result = { signals, portfolio: trader.optimizePortfolio(soxlSig, soxsSig) };
+      console.log('\n✅ Dry-run complete — indicators validated, no API calls made.');
+    } else {
+      // Live mode: use Yahoo (free) + FMP fallback
+      result = await trader.analyzeMulti();
+      console.log('\n✅ Analysis complete!');
+    }
+
     console.log(`📝 Signals logged to .goalie/trading_signals.jsonl`);
     console.log(`📊 Pattern metrics logged to .goalie/pattern_metrics.jsonl`);
 

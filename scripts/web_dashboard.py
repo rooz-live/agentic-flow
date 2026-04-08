@@ -142,6 +142,20 @@ def run_command(cmd):
         return None
 
 
+# ── JSON error handlers (all API errors return JSON, not HTML) ──────────────
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({'error': 'not_found', 'message': str(e)}), 404
+
+@app.errorhandler(500)
+def internal_error(e):
+    return jsonify({'error': 'internal_server_error', 'message': str(e)}), 500
+
+@app.errorhandler(Exception)
+def unhandled_exception(e):
+    return jsonify({'error': 'unexpected_error', 'message': str(e)}), 500
+
+
 # Serve Vite-built trading dashboard as static files at /trading
 # Local dev: dist/ | Deployed: trading-dashboard/
 TRADING_DIST = Path(PROJECT_ROOT) / "trading-dashboard"
@@ -223,12 +237,22 @@ def tenants_view():
 # API Endpoints
 @app.route('/api/health')
 def api_health():
-    """System health"""
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now(timezone.utc).isoformat(),
-        'events_count': len(load_events(hours=24))
-    })
+    """System health. Returns 200 (healthy) or 503 (degraded)."""
+    try:
+        events = load_events(hours=24)
+        signal_count = len(events)
+        status = 'healthy' if signal_count >= 0 else 'degraded'
+        return jsonify({
+            'status': status,
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'events_count': signal_count,
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'degraded',
+            'error': str(e),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+        }), 503
 
 
 @app.route('/api/recommendations')
@@ -356,15 +380,17 @@ def api_trading():
     # Sort by timestamp descending
     trading_events.sort(key=lambda e: e.get('timestamp', ''), reverse=True)
 
-    return jsonify({
+    status_code = 200 if trading_events else 204 if (hours < 24) else 200
+    body = {
         'events': trading_events[:100],
         'count': len(trading_events),
         'unique_symbols': sorted(set(e['symbol'] for e in trading_events if e.get('symbol'))),
         'action_summary': {a: sum(1 for e in trading_events if e.get('action') == a)
                            for a in set(e.get('action', '') for e in trading_events) if a},
         'filters': {'hours': hours, 'symbol': symbol_filter},
-        'status': 'ok'
-    })
+        'status': 'ok' if trading_events else 'no_data',
+    }
+    return jsonify(body), status_code
 
 
 @app.route('/api/patterns')

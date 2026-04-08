@@ -233,7 +233,23 @@ else:
 
 # Update HTML dashboard with current priorities
 update_dashboard() {
-  log "Updating WSJF email dashboard..."
+  # Content-hash gate: only rewrite HTML when mailbox data actually changed
+  local _dash_hash_file="${HOME}/.bhopti-legal/email-dashboard-last-hash"
+  mkdir -p "$(dirname "$_dash_hash_file")" 2>/dev/null
+  local _dash_data_hash
+  _dash_data_hash=$(
+    { _find_mailbox "$SENT_FOLDER" -type f -name "*.emlx" -mtime -1 -exec stat -f '%m' {} \; 2>/dev/null
+      _find_mailbox "$INBOX_FOLDER" -type f -name "*.emlx" -mtime -1 -exec stat -f '%m' {} \; 2>/dev/null
+    } | sort | shasum -a 256 | cut -d' ' -f1
+  )
+  local _prev_dash_hash=""
+  [[ -f "$_dash_hash_file" ]] && _prev_dash_hash=$(cat "$_dash_hash_file" 2>/dev/null)
+  if [[ "$_dash_data_hash" == "$_prev_dash_hash" ]] && [[ -f "$WSJF_DASHBOARD" ]]; then
+    log "Email data unchanged (hash: ${_dash_data_hash:0:12}) — skipping dashboard rewrite"
+    return 0
+  fi
+  echo "$_dash_data_hash" > "$_dash_hash_file"
+  log "Updating WSJF email dashboard (data changed)..."
 
   local _now
   _now=$(date '+%Y-%m-%d %H:%M:%S')

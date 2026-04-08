@@ -49,13 +49,56 @@ interface PortfolioAllocation {
   sharpe_ratio: number;
 }
 
+/**
+ * Fetch a real-time quote from Yahoo Finance (free, no API key required).
+ * Falls back to FMP if Yahoo fails and FMP_API_KEY is set.
+ */
+async function fetchYahooQuote(symbol: string): Promise<StockQuote> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=5d`;
+  const resp = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; agentic-flow/1.0)' },
+  });
+  if (!resp.ok) throw new Error(`Yahoo Finance ${resp.status} for ${symbol}`);
+  const json = await resp.json() as any;
+  const meta = json.chart?.result?.[0]?.meta;
+  if (!meta) throw new Error(`No Yahoo data for ${symbol}`);
+  const closes: number[] = json.chart.result[0].indicators?.quote?.[0]?.close?.filter(Boolean) || [];
+  const volumes: number[] = json.chart.result[0].indicators?.quote?.[0]?.volume?.filter(Boolean) || [];
+  const price = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 0;
+  const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? price;
+  const change = price - prevClose;
+  const avgVol = volumes.length > 1 ? volumes.slice(0, -1).reduce((a: number, b: number) => a + b, 0) / (volumes.length - 1) : volumes[0] || 1;
+  return {
+    symbol,
+    name: meta.shortName || meta.symbol || symbol,
+    price,
+    changesPercentage: prevClose ? (change / prevClose) * 100 : 0,
+    change,
+    dayLow: meta.regularMarketDayLow ?? price * 0.98,
+    dayHigh: meta.regularMarketDayHigh ?? price * 1.02,
+    yearHigh: meta.fiftyTwoWeekHigh ?? price * 1.5,
+    yearLow: meta.fiftyTwoWeekLow ?? price * 0.5,
+    marketCap: 0,
+    priceAvg50: meta.fiftyDayAverage ?? price,
+    priceAvg200: meta.twoHundredDayAverage ?? price,
+    volume: meta.regularMarketVolume ?? volumes[volumes.length - 1] ?? 0,
+    avgVolume: avgVol,
+    timestamp: Math.floor(Date.now() / 1000),
+  };
+}
+
 export class SOXLSOXSTrader {
-  private fmpClient;
+  private fmpClient: any;
   private goalieDir: string;
   private priceHistory: Map<string, number[]> = new Map();
 
   constructor(fmpApiKey?: string) {
-    this.fmpClient = createFMPStableClient(fmpApiKey);
+    // FMP is optional — Yahoo Finance is the free default
+    try {
+      this.fmpClient = createFMPStableClient(fmpApiKey);
+    } catch {
+      this.fmpClient = null;
+    }
     this.goalieDir = process.env.GOALIE_DIR || path.join(process.cwd(), '.goalie');
 
     if (!fs.existsSync(this.goalieDir)) {
@@ -345,59 +388,71 @@ export class SOXLSOXSTrader {
   }
 
   /**
-   * Analyze SOXL/SOXS and generate trading signals
+   * Analyze any list of tickers and generate trading signals.
+   * Default: SOXL,SOXS. Override via TICKERS env var or --tickers CLI arg.
    */
-  async analyze(): Promise<{
-    soxlSignal: TradingSignal;
-    soxsSignal: TradingSignal;
-    portfolio: PortfolioAllocation;
-  }> {
-    console.log('🔍 Fetching SOXL/SOXS quotes from FMP Stable API...');
+  async analyzeMulti(tickers?: string[]): Promise<{ signals: TradingSignal[]; portfolio: PortfolioAllocation }> {
+    const symbols = tickers || this.getTickerList();
+    console.log(`🔍 Fetching ${symbols.join(', ')} from Yahoo Finance (free)...`);
 
-    const quotes = await this.fmpClient.batchGetQuotes(['SOXL', 'SOXS']);
-    
-    if (quotes.length !== 2) {
-      throw new Error('Failed to fetch quotes for SOXL and SOXS');
+    const quotes: StockQuote[] = [];
+    for (const sym of symbols) {
+      try {
+        quotes.push(await fetchYahooQuote(sym));
+      } catch (err) {
+        console.warn(`⚠️  ${sym}: ${(err as Error).message}`);
+        // If FMP available, try fallback for this symbol
+        if (this.fmpClient) {
+          try {
+            const fmpQ = await this.fmpClient.getQuote(sym);
+            if (fmpQ?.[0]) quotes.push(fmpQ[0]);
+          } catch { /* skip */ }
+        }
+      }
     }
 
-    const soxlQuote = quotes.find(q => q.symbol === 'SOXL')!;
-    const soxsQuote = quotes.find(q => q.symbol === 'SOXS')!;
+    if (quotes.length === 0) throw new Error('No quotes retrieved for any ticker');
 
-    console.log(`📊 SOXL: $${soxlQuote.price} (${soxlQuote.changesPercentage.toFixed(2)}%)`);
-    console.log(`📊 SOXS: $${soxsQuote.price} (${soxsQuote.changesPercentage.toFixed(2)}%)`);
+    const signals: TradingSignal[] = [];
+    for (const quote of quotes) {
+      console.log(`📊 ${quote.symbol}: $${quote.price.toFixed(2)} (${quote.changesPercentage.toFixed(2)}%)`);
+      const indicators = this.calculateIndicators(quote.symbol, quote);
+      const signal = this.generateSignal(quote.symbol, quote, indicators);
+      signals.push(signal);
+      this.logSignal(signal);
+      console.log(`🤖 ${signal.symbol}: ${signal.action} (${(signal.confidence * 100).toFixed(0)}%) — ${signal.reason}`);
+    }
 
-    // Calculate indicators and generate signals
-    const soxlIndicators = this.calculateIndicators('SOXL', soxlQuote);
-    const soxsIndicators = this.calculateIndicators('SOXS', soxsQuote);
+    // Portfolio allocation (uses first two as bull/bear pair, rest informational)
+    const soxlSig = signals.find(s => s.symbol === 'SOXL') || signals[0];
+    const soxsSig = signals.find(s => s.symbol === 'SOXS') || signals[1] || soxlSig;
+    const portfolio = this.optimizePortfolio(soxlSig, soxsSig);
 
-    const soxlSignal = this.generateSignal('SOXL', soxlQuote, soxlIndicators);
-    const soxsSignal = this.generateSignal('SOXS', soxsQuote, soxsIndicators);
+    console.log(`\n💼 Portfolio: SOXL ${portfolio.soxl_pct.toFixed(0)}% | SOXS ${portfolio.soxs_pct.toFixed(0)}% | Cash ${portfolio.cash_pct.toFixed(0)}%`);
 
-    console.log(`\n🤖 SOXL Signal: ${soxlSignal.action} (${(soxlSignal.confidence * 100).toFixed(1)}% confidence)`);
-    console.log(`   Reason: ${soxlSignal.reason}`);
-    console.log(`   RSI: ${soxlSignal.indicators.rsi.toFixed(2)} | MACD: ${soxlSignal.indicators.macdHist.toFixed(2)}`);
+    return { signals, portfolio };
+  }
 
-    console.log(`\n🤖 SOXS Signal: ${soxsSignal.action} (${(soxsSignal.confidence * 100).toFixed(1)}% confidence)`);
-    console.log(`   Reason: ${soxsSignal.reason}`);
-    console.log(`   RSI: ${soxsSignal.indicators.rsi.toFixed(2)} | MACD: ${soxsSignal.indicators.macdHist.toFixed(2)}`);
+  /** Parse ticker list from env/CLI. Default: SOXL,SOXS */
+  private getTickerList(): string[] {
+    // --tickers SOXL,SOXS,SMH,SOXX
+    const idx = process.argv.indexOf('--tickers');
+    if (idx !== -1 && process.argv[idx + 1]) {
+      return process.argv[idx + 1].split(',').map(s => s.trim().toUpperCase());
+    }
+    // TICKERS=SOXL,SOXS,SMH
+    if (process.env.TICKERS) {
+      return process.env.TICKERS.split(',').map(s => s.trim().toUpperCase());
+    }
+    return ['SOXL', 'SOXS'];
+  }
 
-    // Optimize portfolio
-    const portfolio = this.optimizePortfolio(soxlSignal, soxsSignal);
-
-    console.log(`\n💼 Portfolio Allocation:`);
-    console.log(`   SOXL: ${portfolio.soxl_pct.toFixed(1)}%`);
-    console.log(`   SOXS: ${portfolio.soxs_pct.toFixed(1)}%`);
-    console.log(`   Cash: ${portfolio.cash_pct.toFixed(1)}%`);
-    console.log(`   Expected Return: ${(portfolio.expected_return * 100).toFixed(2)}%`);
-    console.log(`   Sharpe Ratio: ${portfolio.sharpe_ratio.toFixed(2)}`);
-
-    // Log signals
-    this.logSignal(soxlSignal);
-    this.logSignal(soxsSignal);
-
+  /** Backward-compatible: analyze SOXL+SOXS only */
+  async analyze() {
+    const { signals, portfolio } = await this.analyzeMulti(['SOXL', 'SOXS']);
     return {
-      soxlSignal,
-      soxsSignal,
+      soxlSignal: signals.find(s => s.symbol === 'SOXL')!,
+      soxsSignal: signals.find(s => s.symbol === 'SOXS')!,
       portfolio,
     };
   }
@@ -416,16 +471,16 @@ export class SOXLSOXSTrader {
 async function main() {
   const trader = new SOXLSOXSTrader();
 
-  console.log('🚀 SOXL/SOXS Neural Trading System\n');
+  console.log('🚀 Neural Trading System\n');
 
   try {
-    const result = await trader.analyze();
+    // Use analyzeMulti — reads tickers from --tickers or TICKERS env
+    const result = await trader.analyzeMulti();
 
     console.log('\n✅ Analysis complete!');
     console.log(`📝 Signals logged to .goalie/trading_signals.jsonl`);
     console.log(`📊 Pattern metrics logged to .goalie/pattern_metrics.jsonl`);
 
-    // Output JSON for programmatic use
     if (process.argv.includes('--json')) {
       console.log('\n' + JSON.stringify(result, null, 2));
     }

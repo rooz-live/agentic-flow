@@ -24,6 +24,10 @@ SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
 SKIP_BUILD=false
 SETUP_NGINX=false
 
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || { echo "❌ Missing required command: $1"; exit 1; }
+}
+
 for arg in "$@"; do
   case "$arg" in
     --deploy-only)  SKIP_BUILD=true ;;
@@ -34,6 +38,13 @@ done
 echo "═══════════════════════════════════════════════════"
 echo "  Trading Dashboard Deploy → ${DEPLOY_HOST}"
 echo "═══════════════════════════════════════════════════"
+
+require_cmd ssh
+require_cmd rsync
+require_cmd curl
+if [[ "$SKIP_BUILD" == "false" ]]; then
+  require_cmd npm
+fi
 
 # 1. Build
 if [[ "$SKIP_BUILD" == "false" ]]; then
@@ -46,14 +57,14 @@ else
 fi
 
 # Verify dist exists
-if [[ ! -f "$PROJECT_ROOT/dist/index.html" ]]; then
-  echo "❌ dist/index.html not found. Run without --deploy-only first."
+if [[ ! -f "$PROJECT_ROOT/dist/trading.html" && ! -f "$PROJECT_ROOT/dist/index.html" ]]; then
+  echo "❌ dist/trading.html or dist/index.html not found. Run without --deploy-only first."
   exit 1
 fi
 
 # 2. Deploy built assets
 echo "▶ Deploying to ${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_DASHBOARD_DIR}..."
-ssh $SSH_OPTS "${DEPLOY_USER}@${DEPLOY_HOST}" "sudo mkdir -p ${REMOTE_DASHBOARD_DIR}" 2>/dev/null || true
+ssh $SSH_OPTS "${DEPLOY_USER}@${DEPLOY_HOST}" "sudo mkdir -p ${REMOTE_DASHBOARD_DIR} ${REMOTE_APP_DIR}/scripts ${REMOTE_APP_DIR}/.goalie" 2>/dev/null || true
 rsync -avz --delete -e "ssh $SSH_OPTS" \
   "$PROJECT_ROOT/dist/" \
   "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_DASHBOARD_DIR}/"
@@ -79,35 +90,43 @@ ssh $SSH_OPTS "${DEPLOY_USER}@${DEPLOY_HOST}" bash -lc "
   PROJECT_ROOT=${REMOTE_APP_DIR} nohup python3 scripts/web_dashboard.py --host 0.0.0.0 --port 5000 > /var/log/wsjf-dashboard.log 2>&1 &
   echo 'Flask PID: '\$!
 "
-echo "✅ Flask restarted"
+echo "✅ Flask restart command issued"
 
 # 6. Nginx setup (optional)
+# Uses cPanel Nginx include directory — NOT sites-available (cPanel manages its own server blocks)
+CPANEL_INCLUDE_DIR="/etc/nginx/conf.d/users/tag/analytics.interface.tag.ooo"
 if [[ "$SETUP_NGINX" == "true" ]]; then
-  echo "▶ Installing nginx config..."
+  echo "▶ Installing cPanel Nginx include config..."
   rsync -avz -e "ssh $SSH_OPTS" \
-    "$PROJECT_ROOT/deploy/nginx-analytics.conf" \
-    "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/nginx-analytics.conf"
+    "$PROJECT_ROOT/deploy/cpanel-flask-proxy.conf" \
+    "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/flask-proxy.conf"
 
   ssh $SSH_OPTS "${DEPLOY_USER}@${DEPLOY_HOST}" bash -lc "
-    sudo cp /tmp/nginx-analytics.conf /etc/nginx/sites-available/analytics
-    sudo ln -sf /etc/nginx/sites-available/analytics /etc/nginx/sites-enabled/
+    sudo mkdir -p ${CPANEL_INCLUDE_DIR}
+    sudo cp /tmp/flask-proxy.conf ${CPANEL_INCLUDE_DIR}/flask-proxy.conf
     sudo nginx -t && sudo systemctl reload nginx
-    echo '✅ Nginx configured'
-    
-    # SSL (optional — requires DNS pointing to this server)
-    if command -v certbot &>/dev/null; then
-      sudo certbot --nginx -d analytics.interface.tag.ooo --non-interactive --agree-tos -m admin@interface.tag.ooo || echo '⚠️  Certbot failed (DNS may not be pointed yet)'
-    fi
+    echo '✅ cPanel Nginx include configured'
   "
 fi
 
 # 7. Health check
 echo "▶ Health check..."
-sleep 2
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if ssh $SSH_OPTS "${DEPLOY_USER}@${DEPLOY_HOST}" "curl -sf http://localhost:5000/api/health" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
 if ssh $SSH_OPTS "${DEPLOY_USER}@${DEPLOY_HOST}" "curl -sf http://localhost:5000/api/health" >/dev/null 2>&1; then
   echo "✅ Health check passed"
 else
-  echo "⚠️  Health check failed (Flask may still be starting)"
+  echo "⚠️  Health check failed on remote Flask endpoint"
+fi
+
+if curl -ksf "https://analytics.interface.tag.ooo/api/health" >/dev/null 2>&1; then
+  echo "✅ Public TLD health endpoint reachable"
+else
+  echo "⚠️  Public TLD health endpoint not reachable yet"
 fi
 
 echo ""

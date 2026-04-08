@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+const runTldOnly = process.env.PLAYWRIGHT_TLD_ONLY === '1';
 
 /**
  * Playwright E2E Testing Configuration
@@ -80,9 +81,17 @@ export default defineConfig({
       },
       testMatch: /trading-dashboard\.spec\.ts/,
     },
+    {
+      name: 'analytics-tld-contract',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: process.env.CONTRACT_BASE_URL || 'https://analytics.interface.tag.ooo',
+      },
+      testMatch: /analytics-tld\.contract\.spec\.ts/,
+    },
   ],
 
-  webServer: [
+  webServer: runTldOnly ? undefined : [
     {
       command: 'node scripts/monitoring/dashboard_server.js --port=3030',
       url: 'http://localhost:3030',

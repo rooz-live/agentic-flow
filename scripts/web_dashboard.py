@@ -4,7 +4,7 @@ Agentic Flow Web Dashboard
 Flask-based UI for velocity, flow efficiency, WSJF, and multitenant insights
 """
 
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_from_directory
 from flask_socketio import SocketIO, emit
 import json
 import os
@@ -47,6 +47,7 @@ PROJECT_ROOT = os.environ.get("PROJECT_ROOT", ".")
 GOALIE_DIR = Path(PROJECT_ROOT) / ".goalie"
 METRICS_FILE = GOALIE_DIR / "pattern_metrics.jsonl"
 TRADING_SIGNALS_FILE = GOALIE_DIR / "trading_signals.jsonl"
+MONITORING_DASHBOARD_FILE = Path(__file__).resolve().parent / "monitoring" / "dashboard.html"
 
 
 def _load_jsonl(filepath, hours=168):
@@ -117,15 +118,19 @@ def run_command(cmd):
 
 
 # Serve Vite-built trading dashboard as static files at /trading
-TRADING_DIST = Path(PROJECT_ROOT) / "dist"
+# Local dev: dist/ | Deployed: trading-dashboard/
+TRADING_DIST = Path(PROJECT_ROOT) / "trading-dashboard"
+if not TRADING_DIST.exists():
+    TRADING_DIST = Path(PROJECT_ROOT) / "dist"
 
 @app.route('/trading')
 @app.route('/trading/')
 def trading_dashboard():
     """Trading dashboard (React/Vite build)"""
-    index = TRADING_DIST / "index.html"
-    if index.exists():
-        return open(index).read()
+    if (TRADING_DIST / "trading.html").exists():
+        return send_from_directory(str(TRADING_DIST), "trading.html")
+    if (TRADING_DIST / "index.html").exists():
+        return send_from_directory(str(TRADING_DIST), "index.html")
     return '<h1>Trading dashboard not built</h1><p>Run: <code>npx vite build --base=/trading/ --outDir=dist</code></p>', 404
 
 @app.route('/trading/<path:filename>')
@@ -140,7 +145,12 @@ def home():
     """Home dashboard"""
     current_tenant = get_tenant_from_request()
     tenants = get_tenants()
-    return render_template('dashboard.html', tenants=tenants, current_tenant=current_tenant)
+    try:
+        return render_template('dashboard.html', tenants=tenants, current_tenant=current_tenant)
+    except Exception:
+        if MONITORING_DASHBOARD_FILE.exists():
+            return MONITORING_DASHBOARD_FILE.read_text(encoding='utf-8')
+        return '<h1>Agentic Flow Dashboard</h1><p>Dashboard template not found.</p>', 500
 
 
 @app.route('/patterns')
@@ -255,7 +265,8 @@ def api_trading():
     return jsonify({
         'events': trading_events[:100],
         'count': len(trading_events),
-        'filters': {'hours': hours, 'symbol': symbol_filter}
+        'filters': {'hours': hours, 'symbol': symbol_filter},
+        'status': 'ok'
     })
 
 
@@ -415,7 +426,8 @@ def main():
 ╚══════════════════════════════════════════════════════════════╝
 """)
     
-    socketio.run(app, host=args.host, port=args.port, debug=args.debug)
+    socketio.run(app, host=args.host, port=args.port, debug=args.debug,
+                 allow_unsafe_werkzeug=True)
 
 
 if __name__ == '__main__':

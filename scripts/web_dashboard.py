@@ -175,7 +175,7 @@ def home():
     except Exception:
         if MONITORING_DASHBOARD_FILE.exists():
             return MONITORING_DASHBOARD_FILE.read_text(encoding='utf-8')
-        return '<h1>Agentic Flow Dashboard</h1><p>Dashboard template not found.</p>', 500
+        return '<h1>Agentic Flow Dashboard</h1><p>Dashboard template not found.</p>', 200
 
 
 @app.route('/patterns')
@@ -263,41 +263,91 @@ def api_flow_efficiency():
     return jsonify(result or {})
 
 
+def _normalize_trading_event(e):
+    """Normalize a trading event to consistent schema for API output.
+    Handles both trading_signals.jsonl (flat) and pattern_metrics.jsonl (nested) formats.
+    """
+    # Normalize timestamp: trading_signals uses 'timestamp', pattern_metrics uses 'ts'
+    ts = e.get('timestamp') or e.get('ts', '')
+    # Normalize symbol/action/confidence from flat or nested metrics
+    symbol = e.get('symbol') or e.get('metrics', {}).get('symbol', '')
+    action = e.get('action') or e.get('metrics', {}).get('action', '')
+    confidence = e.get('confidence') or e.get('metrics', {}).get('confidence')
+    price = e.get('price') or e.get('metrics', {}).get('price')
+    reason = e.get('reason') or e.get('metrics', {}).get('reason', '')
+    indicators = e.get('indicators') or e.get('metrics', {}).get('indicators')
+    return {
+        'timestamp': ts,
+        'symbol': symbol,
+        'action': action,
+        'confidence': confidence,
+        'price': price,
+        'reason': reason,
+        'indicators': indicators,
+        'source': 'trading_signals' if 'indicators' in e else 'pattern_metrics',
+        'pattern': e.get('pattern', ''),
+        'economic': e.get('economic'),
+    }
+
+
+def _dedup_key(e):
+    """Dedup key: same symbol + action + timestamp (to the second) = same signal."""
+    ts = (e.get('timestamp') or e.get('ts', ''))[:19]  # truncate to second
+    sym = e.get('symbol') or e.get('metrics', {}).get('symbol', '')
+    act = e.get('action') or e.get('metrics', {}).get('action', '')
+    return f"{sym}|{act}|{ts}"
+
+
 @app.route('/api/trading')
 def api_trading():
-    """Trading signals and SOXL/SOXS events from both pattern_metrics + trading_signals"""
+    """Trading signals and SOXL/SOXS events from both pattern_metrics + trading_signals.
+    Deduplicates cross-source events (same signal logged to both files).
+    Prefers trading_signals.jsonl (richer schema) over pattern_metrics.jsonl.
+    """
     hours = int(request.args.get('hours', 72))
     symbol_filter = request.args.get('symbol')  # e.g. SOXL, SOXS
 
-    # Merge events from both JSONL sources
-    events = load_events(hours=hours)
-    events.extend(_load_trading_signals(hours=hours))
+    # Load from both sources; trading_signals first (preferred on dedup)
+    raw_signals = _load_trading_signals(hours=hours)
+    raw_metrics = load_events(hours=hours)
 
-    trading_events = [
-        e for e in events
-        if e.get('pattern', '').startswith('trading')
-        or e.get('component') in ('soxl_soxs_trader', 'neural-trader', 'backtest')
-        or e.get('action') in ('BUY', 'SELL', 'HOLD')
-        or e.get('metrics', {}).get('action') in ('BUY', 'SELL', 'HOLD')
-        or any(t in str(e.get('data', '')) + str(e.get('symbol', '')) + str(e.get('metrics', {}).get('symbol', '')) for t in ('SOXL', 'SOXS', 'SMH', 'SOXX'))
-    ]
+    # Dedup: prefer trading_signals entries (richer indicators)
+    seen = {}
+    for e in raw_signals:
+        key = _dedup_key(e)
+        if key not in seen:
+            seen[key] = e
+    for e in raw_metrics:
+        key = _dedup_key(e)
+        if key not in seen:
+            seen[key] = e
+
+    # Filter to trading-related events
+    trading_events = []
+    for e in seen.values():
+        if (e.get('pattern', '').startswith('trading')
+            or e.get('component') in ('soxl_soxs_trader', 'neural-trader', 'backtest')
+            or e.get('action') in ('BUY', 'SELL', 'HOLD')
+            or e.get('metrics', {}).get('action') in ('BUY', 'SELL', 'HOLD')
+            or any(t in str(e.get('symbol', '')) + str(e.get('metrics', {}).get('symbol', ''))
+                   for t in ('SOXL', 'SOXS', 'SMH', 'SOXX', 'AMD', 'NVDA'))):
+            trading_events.append(_normalize_trading_event(e))
 
     if symbol_filter:
         trading_events = [
             e for e in trading_events
-            if symbol_filter.upper() in (
-                str(e.get('symbol', ''))
-                + str(e.get('data', ''))
-                + str(e.get('metrics', {}).get('symbol', ''))
-            )
+            if symbol_filter.upper() in str(e.get('symbol', '')).upper()
         ]
 
     # Sort by timestamp descending
-    trading_events.sort(key=lambda e: e.get('timestamp', e.get('ts', '')), reverse=True)
+    trading_events.sort(key=lambda e: e.get('timestamp', ''), reverse=True)
 
     return jsonify({
         'events': trading_events[:100],
         'count': len(trading_events),
+        'unique_symbols': sorted(set(e['symbol'] for e in trading_events if e.get('symbol'))),
+        'action_summary': {a: sum(1 for e in trading_events if e.get('action') == a)
+                           for a in set(e.get('action', '') for e in trading_events) if a},
         'filters': {'hours': hours, 'symbol': symbol_filter},
         'status': 'ok'
     })

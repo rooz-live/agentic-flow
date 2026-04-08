@@ -26,7 +26,7 @@ if [ -z "$EMAIL_FILE" ] || [ ! -f "$EMAIL_FILE" ]; then
 fi
 
 EXIT_CODE=$EXIT_SUCCESS
-VALIDATORS_DIR="$(dirname "$0")"
+VALIDATORS_DIR="$SCRIPT_DIR"  # Use robust absolute path (SCRIPT_DIR computed via cd+pwd at top)
 BACKUP_DIR="$(dirname "$EMAIL_FILE")/SENT_BACKUPS"
 
 # Initialize per-stage exit codes (avoid unbound variable in summary)

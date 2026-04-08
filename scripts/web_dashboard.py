@@ -145,11 +145,11 @@ def home():
     """Home dashboard"""
     current_tenant = get_tenant_from_request()
     tenants = get_tenants()
+    if MONITORING_DASHBOARD_FILE.exists():
+        return MONITORING_DASHBOARD_FILE.read_text(encoding='utf-8')
     try:
         return render_template('dashboard.html', tenants=tenants, current_tenant=current_tenant)
     except Exception:
-        if MONITORING_DASHBOARD_FILE.exists():
-            return MONITORING_DASHBOARD_FILE.read_text(encoding='utf-8')
         return '<h1>Agentic Flow Dashboard</h1><p>Dashboard template not found.</p>', 500
 
 

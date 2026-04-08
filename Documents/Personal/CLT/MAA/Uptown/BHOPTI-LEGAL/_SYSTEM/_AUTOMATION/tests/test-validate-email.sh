@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# test-validate-email.sh - Automated tests for validate-email.sh (21-check pre-send validator)
+# test-validate-email.sh - Automated tests for validate-email.sh (22-check pre-send validator)
 # Tests: file existence, required headers, bounce list, placeholders, email format,
-#        body size, date freshness, Message-ID, platform relay, markdown in plain-text,
-#        draft artifacts, word count, self-send, Reply-To, temporal truth,
-#        sent-dupe fingerprint, context-aware action dates
+#        body size, date freshness, Message-ID, reply thread, platform relay, markdown,
+#        draft artifacts, word count, self-send, Reply-To, ADR gate, sent-dupe,
+#        temporal truth, context-aware action dates, deadline proximity (CHECK 22)
 #
 # EXIT CODES: 0 = all pass, 1 = failures detected
 # Run: bash _SYSTEM/_AUTOMATION/tests/test-validate-email.sh
@@ -94,7 +94,7 @@ EOF
 }
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  VALIDATE-EMAIL.SH TEST SUITE (21 CHECKS)"
+echo "  VALIDATE-EMAIL.SH TEST SUITE (22 CHECKS)"
 echo "  $(date '+%Y-%m-%d %H:%M:%S')"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
@@ -360,7 +360,170 @@ EOF
 assert_exit "Historical date reference exits with warning (exit 1)" 1 bash "$VALIDATOR" "$HIST_REF"
 echo ""
 
-# ─── SUMMARY ─────────────────────────────────────────────────────────
+# ─── TEST 16: Reply thread headers (Check 11b) ──────────────────
+echo "TEST 16: Reply thread headers (Check 11b)"
+REPLY_EML="$TEMP_DIR/reply-thread.eml"
+cat > "$REPLY_EML" <<EOF
+Message-ID: <reply-test-$$@rooz.live>
+In-Reply-To: <original-msg-123@shumaker.com>
+References: <original-msg-123@shumaker.com>
+Date: $CURRENT_RFC_DATE
+From: Shahrooz Bhopti <rooz@rooz.live>
+To: dgrimes@shumaker.com
+Subject: Re: Follow-Up on Previous Discussion
+
+Dear Mr. Grimes, following up on your message from last week.
+The proposed terms remain as previously discussed and documented.
+Please confirm receipt and advise on next steps for resolution.
+We are prepared to move forward pending your confirmation on terms.
+EOF
+# Reply email with In-Reply-To/References should pass (CHECK 11b is info only)
+assert_exit_range "Reply thread email passes validation" 0 1 bash "$VALIDATOR" "$REPLY_EML"
+# Output should confirm In-Reply-To was detected
+assert_output_contains "In-Reply-To detected in output" "In-Reply-To present" bash "$VALIDATOR" "$REPLY_EML"
+echo ""
+
+# ─── TEST 17: ADR frontmatter gate (Check 18) ──────────────────
+echo "TEST 17: ADR gate (Check 18)"
+# Non-legal subject: ADR gate should be skipped entirely
+NONLEGAL_EML="$TEMP_DIR/nonlegal.eml"
+cat > "$NONLEGAL_EML" <<EOF
+Message-ID: <nonlegal-$$@rooz.live>
+Date: $CURRENT_RFC_DATE
+From: rooz@rooz.live
+To: someone@real-domain.com
+Subject: Moving Logistics Update
+
+Hi, just wanted to confirm the logistics for the upcoming move.
+The schedule has been finalized and all parties have been notified.
+Please confirm receipt of this scheduling update at your earliest convenience.
+Thank you for coordinating on this important logistics matter.
+EOF
+assert_output_contains "Non-legal email skips ADR gate" "not a legal/case email" bash "$VALIDATOR" "$NONLEGAL_EML"
+
+# Legal subject triggers ADR gate check path
+LEGAL_EML="$TEMP_DIR/legal-subject.eml"
+cat > "$LEGAL_EML" <<EOF
+Message-ID: <legal-$$@rooz.live>
+Date: $CURRENT_RFC_DATE
+From: rooz@rooz.live
+To: dgrimes@shumaker.com
+Subject: Case 26CV005596 - Arbitration Settlement Discussion
+
+Dear Mr. Grimes, this correspondence concerns the pending arbitration.
+We would like to discuss settlement options before the hearing date.
+Please advise on your availability for a brief telephone conference.
+All communications are made in good faith toward resolution.
+EOF
+assert_output_contains "Legal email triggers ADR gate path" "ADR gate" bash "$VALIDATOR" "$LEGAL_EML"
+echo ""
+
+# ─── TEST 18: Sent-dupe fingerprint detection (Check 19) ────────────
+echo "TEST 18: Sent-dupe fingerprint (Check 19)"
+DUPE_EML="$TEMP_DIR/dupe-test.eml"
+cat > "$DUPE_EML" <<EOF
+Message-ID: <dupe-check-$$@rooz.live>
+Date: $CURRENT_RFC_DATE
+From: rooz@rooz.live
+To: dgrimes@shumaker.com
+Subject: Duplicate Detection Test
+
+This email is used to test duplicate fingerprint detection logic.
+The validator computes SHA256 of To, Subject, and body snippet.
+A second attempt to send this exact email should be flagged as duplicate.
+This prevents accidental re-sends of already-delivered correspondence.
+EOF
+# First run: no fingerprint DB → no dupe (pass/warn only)
+assert_exit_range "First send: no dupe detected" 0 1 bash "$VALIDATOR" "$DUPE_EML"
+# Create fingerprint entry matching this email
+_to=$(grep -i '^To:' "$DUPE_EML" | head -1 | sed 's/^To: *//i' | tr -d '\r')
+_subj=$(grep -i '^Subject:' "$DUPE_EML" | head -1 | sed 's/^Subject: *//i' | tr -d '\r')
+_body=$(awk '/^$/{found=1; next} found{print}' "$DUPE_EML" | head -c 512 | tr -d '\n\r ')
+_fp=$(echo "${_to}${_subj}${_body}" | shasum -a 256 | cut -d' ' -f1 2>/dev/null || echo "")
+if [[ -n "$_fp" ]]; then
+  mkdir -p "$TEMP_DIR" && echo "$_fp" > "${TEMP_DIR}/.sent-fingerprints"
+  assert_exit "Dupe re-send warns (exit 1)" 1 bash "$VALIDATOR" "${TEMP_DIR}/dupe-test.eml"
+  rm -f "${TEMP_DIR}/.sent-fingerprints"
+fi
+unset _to _subj _body _fp
+echo ""
+
+# ─── TEST 19: Temporal truth - stale 'yesterday' (Check 20) ─────────
+echo "TEST 19: Temporal truth - stale 'yesterday' (Check 20)"
+STALE_YEST="$TEMP_DIR/stale-yesterday.eml"
+# Date header from 48 hours ago (stale)
+STALE_DATE=$(date -v-48H "+%a, %d %b %Y %H:%M:%S %z" 2>/dev/null || date -d '48 hours ago' "+%a, %d %b %Y %H:%M:%S %z" 2>/dev/null || echo "$CURRENT_RFC_DATE")
+cat > "$STALE_YEST" <<EOF
+Message-ID: <stale-yest-$$@rooz.live>
+Date: $STALE_DATE
+From: rooz@rooz.live
+To: dgrimes@shumaker.com
+Subject: Follow Up After Meeting
+
+Dear Mr. Grimes, yesterday's meeting covered the key settlement terms.
+Yesterday we reviewed all open items and made significant progress.
+I am following up today to confirm the agreements reached yesterday.
+Please confirm receipt and advise on next steps for the settlement.
+EOF
+# Email is 48h old with 'yesterday' in body: should FAIL exit 110
+assert_exit "Stale 'yesterday' fails temporal truth (exit 110)" 110 bash "$VALIDATOR" "$STALE_YEST"
+
+# Fresh email with 'yesterday' (within 30h): should WARN not FAIL
+FRESH_YEST="$TEMP_DIR/fresh-yesterday.eml"
+cat > "$FRESH_YEST" <<EOF
+Message-ID: <fresh-yest-$$@rooz.live>
+Date: $CURRENT_RFC_DATE
+From: rooz@rooz.live
+To: dgrimes@shumaker.com
+Subject: Following Up on Yesterday Discussion
+
+Dear Mr. Grimes, I am following up on yesterday's call.
+Yesterday we discussed the settlement terms in detail and I wanted
+to memorialize the key points for the record. Please confirm receipt.
+EOF
+assert_exit "Fresh 'yesterday' (within 30h) warns only (exit 1)" 1 bash "$VALIDATOR" "$FRESH_YEST"
+echo ""
+
+# ─── TEST 20: Deadline proximity - future dates within 14d (Check 22) ───
+echo "TEST 20: Deadline proximity (Check 22)"
+# Date 7 days from now: should trigger DEADLINE PROXIMITY warn
+SOON_DATE=$(date -v+7d "+%B %-d" 2>/dev/null || date -d '7 days' "+%B %-d" 2>/dev/null || echo "April 3")
+SEVEN_DAYS_EML="$TEMP_DIR/seven-days.eml"
+cat > "$SEVEN_DAYS_EML" <<EOF
+Message-ID: <7d-$$@rooz.live>
+Date: $CURRENT_RFC_DATE
+From: rooz@rooz.live
+To: dgrimes@shumaker.com
+Subject: Preparing for Upcoming Hearing
+
+Dear Mr. Grimes, I want to confirm our preparation for the hearing.
+The arbitration date is set for ${SOON_DATE} and we need to finalize all
+submissions well in advance. Please advise on outstanding items.
+We look forward to a productive resolution of this matter.
+EOF
+# Future date within 14 days → WARN (exit 1 since no other failures)
+assert_exit "Future date within 14d triggers proximity warn (exit 1)" 1 bash "$VALIDATOR" "$SEVEN_DAYS_EML"
+assert_output_contains "Output contains DEADLINE PROXIMITY label" "DEADLINE PROXIMITY" bash "$VALIDATOR" "$SEVEN_DAYS_EML"
+
+# Date far in future: should NOT trigger proximity warn
+FAR_EML="$TEMP_DIR/far-future.eml"
+cat > "$FAR_EML" <<EOF
+Message-ID: <far-$$@rooz.live>
+Date: $CURRENT_RFC_DATE
+From: rooz@rooz.live
+To: dgrimes@shumaker.com
+Subject: Long Term Planning
+
+Dear Mr. Grimes, this concerns planning for the September 2027 review.
+The annual review will assess all outcomes from this litigation cycle.
+We request that you retain all correspondence until December 2027.
+All files should be preserved for the anticipated regulatory review.
+EOF
+# December 2027 is > 14 days away: no proximity warn (only other warnings)
+assert_output_contains "Far future date skips proximity warn" "No imminent future dates" bash "$VALIDATOR" "$FAR_EML"
+echo ""
+
+# ─── SUMMARY ───────────────────────────────────────────────────
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "  RESULTS: $PASSED/$TOTAL passed ($FAILED failed)"
 if [[ $TOTAL -gt 0 ]]; then

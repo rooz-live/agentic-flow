@@ -65,6 +65,39 @@ else
   FAIL=$((FAIL + 1))
 fi
 
+# T1: WSJF keyword variable tests (sourced from shared module)
+assert_eq "WSJF_RED defined" "$([[ -n "${WSJF_RED_KEYWORDS:-}" ]] && echo yes || echo no)" "yes"
+assert_eq "WSJF_YELLOW defined" "$([[ -n "${WSJF_YELLOW_KEYWORDS:-}" ]] && echo yes || echo no)" "yes"
+assert_eq "WSJF_GREEN defined" "$([[ -n "${WSJF_GREEN_KEYWORDS:-}" ]] && echo yes || echo no)" "yes"
+
+# RED keyword matches
+if echo "utilities shutoff" | grep -Eiq "$WSJF_RED_KEYWORDS"; then
+  printf 'PASS: RED keyword "utilities"\n'; PASS=$((PASS + 1))
+else
+  printf 'FAIL: RED keyword "utilities"\n'; FAIL=$((FAIL + 1))
+fi
+
+# YELLOW keyword matches
+if echo "arbitration scheduled" | grep -Eiq "$WSJF_YELLOW_KEYWORDS"; then
+  printf 'PASS: YELLOW keyword "arbitration"\n'; PASS=$((PASS + 1))
+else
+  printf 'FAIL: YELLOW keyword "arbitration"\n'; FAIL=$((FAIL + 1))
+fi
+
+# GREEN keyword matches
+if echo "storage unit lease" | grep -Eiq "$WSJF_GREEN_KEYWORDS"; then
+  printf 'PASS: GREEN keyword "storage"\n'; PASS=$((PASS + 1))
+else
+  printf 'FAIL: GREEN keyword "storage"\n'; FAIL=$((FAIL + 1))
+fi
+
+# Negative: GREEN should NOT match RED content
+if ! echo "emergency disconnect" | grep -Eiq "$WSJF_GREEN_KEYWORDS"; then
+  printf 'PASS: GREEN does not match RED content\n'; PASS=$((PASS + 1))
+else
+  printf 'FAIL: GREEN should not match RED content\n'; FAIL=$((FAIL + 1))
+fi
+
 printf '\nSummary: PASS=%s FAIL=%s\n' "$PASS" "$FAIL"
 if [[ "$FAIL" -gt 0 ]]; then
   exit 1

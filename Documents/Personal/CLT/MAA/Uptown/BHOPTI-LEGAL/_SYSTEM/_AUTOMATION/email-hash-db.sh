@@ -11,16 +11,20 @@
 #   source email-hash-db.sh
 #   check_duplicate_email "$email_file" "$recipient" || exit $EXIT_DUPLICATE_DETECTED
 #   record_email_hash "$email_file" "$recipient" "sent"
+#
+# Strict mode only when run as CLI — callers (e.g. validate-email.sh) may use set -e separately.
 
-set -euo pipefail
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    set -euo pipefail
+fi
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CONFIGURATION
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC2034
 BASE_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-
 # Database location
 HASH_DB="${HASH_DB:-$SCRIPT_DIR/.email-hashes.db}"
 HASH_DB_LOCK="${HASH_DB}.lock"

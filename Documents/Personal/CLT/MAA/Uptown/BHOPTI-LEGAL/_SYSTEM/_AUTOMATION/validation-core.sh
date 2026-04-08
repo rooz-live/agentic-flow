@@ -61,18 +61,18 @@ fi
 validate_placeholders() {
     local email_file="$1"
     
-    [[ ! -f "$email_file" ]] && return $EXIT_PLACEHOLDER_DETECTED
+    [[ ! -f "$email_file" ]] && return "$EXIT_PLACEHOLDER_DETECTED"
     
     # Pattern 1: Bracket placeholders
-    grep -qE '\[(Your|Amanda|Phone|Email|Name)\]' "$email_file" && return $EXIT_PLACEHOLDER_DETECTED
+    grep -qE '\[(Your|Amanda|Phone|Email|Name)\]' "$email_file" && return "$EXIT_PLACEHOLDER_DETECTED"
     
     # Pattern 2: Template markers
-    grep -qE '@example\.com|TODO|FIXME|{{.*}}' "$email_file" && return $EXIT_PLACEHOLDER_DETECTED
+    grep -qE '@example\.com|TODO|FIXME|{{.*}}' "$email_file" && return "$EXIT_PLACEHOLDER_DETECTED"
     
     # Pattern 3: Placeholder phone numbers
-    grep -qE '\(XXX\)|\(555\)|xxx-xxxx' "$email_file" && return $EXIT_PLACEHOLDER_DETECTED
+    grep -qE '\(XXX\)|\(555\)|xxx-xxxx' "$email_file" && return "$EXIT_PLACEHOLDER_DETECTED"
     
-    return $EXIT_SUCCESS
+    return "$EXIT_SUCCESS"
 }
 
 # Validation 2: Employment Claims (ROAM R-2026-011)
@@ -87,14 +87,14 @@ validate_placeholders() {
 validate_employment_claims() {
     local email_file="$1"
     
-    [[ ! -f "$email_file" ]] && return $EXIT_SCHEMA_VALIDATION_FAILED
+    [[ ! -f "$email_file" ]] && return "$EXIT_SCHEMA_VALIDATION_FAILED"
     
     # Patterns that conflict with R-2026-011 (unemployed 2019-2024)
     # Exclude negations like "no stable income" which describe hardship, not employment
-    grep -qiE '(two|2).*employed|both.*working' "$email_file" && return $EXIT_SCHEMA_VALIDATION_FAILED
-    grep -iE 'stable income' "$email_file" | grep -qivE 'no stable income|without stable income|lack.*stable income' && return $EXIT_SCHEMA_VALIDATION_FAILED
+    grep -qiE '(two|2).*employed|both.*working' "$email_file" && return "$EXIT_SCHEMA_VALIDATION_FAILED"
+    grep -iE 'stable income' "$email_file" | grep -qivE 'no stable income|without stable income|lack.*stable income' && return "$EXIT_SCHEMA_VALIDATION_FAILED"
     
-    return $EXIT_SUCCESS
+    return "$EXIT_SUCCESS"
 }
 
 # Validation 3: Legal Citations
@@ -109,20 +109,20 @@ validate_employment_claims() {
 validate_legal_citations() {
     local email_file="$1"
     
-    [[ ! -f "$email_file" ]] && return $EXIT_LEGAL_CITATION_MALFORMED
+    [[ ! -f "$email_file" ]] && return "$EXIT_LEGAL_CITATION_MALFORMED"
     
     # If statute references exist, verify format (§ symbol optional)
     if grep -qE 'N\.C\.|42-42|42-50|42-40' "$email_file"; then
         # Accept: N.C.G.S. § XX-XX or N.C.G.S. XX-XX (§ optional)
-        grep -qE 'N\.C\.G\.S\.\s*(§\s*)?[0-9]+-[0-9]+' "$email_file" || return $EXIT_LEGAL_CITATION_MALFORMED
+        grep -qE 'N\.C\.G\.S\.\s*(§\s*)?[0-9]+-[0-9]+' "$email_file" || return "$EXIT_LEGAL_CITATION_MALFORMED"
     fi
     
     # Case numbers should be complete: 26CV005596-590
     if grep -qE '26CV[0-9]+' "$email_file"; then
-        grep -qE '26CV[0-9]{6}-[0-9]{3}' "$email_file" || return $EXIT_LEGAL_CITATION_MALFORMED
+        grep -qE '26CV[0-9]{6}-[0-9]{3}' "$email_file" || return "$EXIT_LEGAL_CITATION_MALFORMED"
     fi
     
-    return $EXIT_SUCCESS
+    return "$EXIT_SUCCESS"
 }
 
 # Validation 4: Required Recipients
@@ -137,21 +137,21 @@ validate_legal_citations() {
 validate_required_recipients() {
     local email_file="$1"
     
-    [[ ! -f "$email_file" ]] && return $EXIT_MISSING_REQUIRED_FIELD
+    [[ ! -f "$email_file" ]] && return "$EXIT_MISSING_REQUIRED_FIELD"
     
     # Only enforce landlord recipients when email is addressed to amcharlotte.com
     if grep -qiE '^To:.*amcharlotte\.com' "$email_file"; then
         # Check for Allison (landlord)
-        grep -qi 'allison@amcharlotte\.com' "$email_file" || return $EXIT_MISSING_REQUIRED_FIELD
+        grep -qi 'allison@amcharlotte\.com' "$email_file" || return "$EXIT_MISSING_REQUIRED_FIELD"
         
         # Check for Nyla (co-manager)
-        grep -qi 'nyla@amcharlotte\.com' "$email_file" || return $EXIT_MISSING_REQUIRED_FIELD
+        grep -qi 'nyla@amcharlotte\.com' "$email_file" || return "$EXIT_MISSING_REQUIRED_FIELD"
         
         # Check for Amanda in CC
-        grep -qi 'mandersnc@gmail\.com' "$email_file" || return $EXIT_MISSING_REQUIRED_FIELD
+        grep -qi 'mandersnc@gmail\.com' "$email_file" || return "$EXIT_MISSING_REQUIRED_FIELD"
     fi
     
-    return $EXIT_SUCCESS
+    return "$EXIT_SUCCESS"
 }
 
 # Validation 5: Trial Date References
@@ -166,14 +166,14 @@ validate_required_recipients() {
 validate_trial_references() {
     local email_file="$1"
     
-    [[ ! -f "$email_file" ]] && return $EXIT_SCHEMA_VALIDATION_FAILED
+    [[ ! -f "$email_file" ]] && return "$EXIT_SCHEMA_VALIDATION_FAILED"
     
     # If trial mentioned, date should be present
     if grep -qiE 'trial|court|hearing' "$email_file"; then
-        grep -qE 'March 3,? 2026|2026-03-03|03/03/2026' "$email_file" || return $EXIT_SCHEMA_VALIDATION_FAILED
+        grep -qE 'March 3,? 2026|2026-03-03|03/03/2026' "$email_file" || return "$EXIT_SCHEMA_VALIDATION_FAILED"
     fi
     
-    return $EXIT_SUCCESS
+    return "$EXIT_SUCCESS"
 }
 
 # Validation 6: Attachments Exist
@@ -188,17 +188,17 @@ validate_trial_references() {
 validate_attachments() {
     local email_file="$1"
     
-    [[ ! -f "$email_file" ]] && return $EXIT_MISSING_REQUIRED_FIELD
+    [[ ! -f "$email_file" ]] && return "$EXIT_MISSING_REQUIRED_FIELD"
     
     local dir
     dir=$(dirname "$email_file")
     
     # Extract attachment references
     while IFS= read -r attachment; do
-        [[ ! -f "$dir/$attachment" ]] && return $EXIT_MISSING_REQUIRED_FIELD
+        [[ ! -f "$dir/$attachment" ]] && return "$EXIT_MISSING_REQUIRED_FIELD"
     done < <(grep -oE '[A-Z0-9_-]+\.md|[A-Z0-9_-]+\.eml|[A-Z0-9_-]+\.pdf' "$email_file" || true)
     
-    return $EXIT_SUCCESS
+    return "$EXIT_SUCCESS"
 }
 
 # Validation 7: Date Consistency
@@ -213,7 +213,7 @@ validate_attachments() {
 validate_date_consistency() {
     local email_file="$1"
     
-    [[ ! -f "$email_file" ]] && return $EXIT_DATE_IN_PAST
+    [[ ! -f "$email_file" ]] && return "$EXIT_DATE_IN_PAST"
     
     # Extract all dates
     local dates
@@ -222,10 +222,10 @@ validate_date_consistency() {
     # Check for obvious contradictions (multiple trial dates, etc.)
     # For now, just check if trial date is March 3, 2026
     if echo "$dates" | grep -qiE 'trial.*March' && ! echo "$dates" | grep -qE 'March 3,? 2026'; then
-        return $EXIT_DATE_IN_PAST
+        return "$EXIT_DATE_IN_PAST"
     fi
     
-    return $EXIT_SUCCESS
+    return "$EXIT_SUCCESS"
 }
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

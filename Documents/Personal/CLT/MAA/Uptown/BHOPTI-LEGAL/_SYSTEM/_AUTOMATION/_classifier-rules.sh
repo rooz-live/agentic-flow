@@ -1,8 +1,21 @@
 #!/bin/bash
 # _classifier-rules.sh — Shared classifier rules for bhopti-legal pipeline
 
+# ─── EMAIL CONTENT KEYWORDS (used by validate-email-wsjf.sh dashboard + WSJF scoring) ──
+EMAIL_RED_KEYWORDS="(utilities?|block|disconnect|evict|arbitration.*urgent|deadline.*3.*day|emergency)"
+EMAIL_YELLOW_KEYWORDS="(arbitration|hearing|trial|legal.*deadline|notice.*appear|move.*date)"
+EMAIL_GREEN_KEYWORDS="(storage|backup|contingency|optional)"
+
+# ─── SMTP BOUNCE PATTERNS ──
 SMTP_BOUNCE_RE='(550 5\.[0-9]\.[0-9]|551 5\.[0-9]\.[0-9]|5\.4\.1|delivery.*fail|address.*reject|recipient.*reject|undeliverable|message.*bounced)'
 SMTP_TEMP_RE='(421 4\.[0-9]\.[0-9]|450 4\.[0-9]\.[0-9]|451 4\.[0-9]\.[0-9]|4\.[0-9]\.[0-9] temporary)'
+
+# ─── WSJF EMAIL PRIORITY KEYWORDS (shared by validate-email-wsjf.sh) ─────────
+# These replace the inline RED_KEYWORDS/YELLOW_KEYWORDS/GREEN_KEYWORDS that
+# were previously hardcoded in validate-email-wsjf.sh (lines 53-55).
+WSJF_RED_KEYWORDS='(utilities?|block|disconnect|evict|arbitration.*urgent|deadline.*3.*day|emergency)'
+WSJF_YELLOW_KEYWORDS='(arbitration|hearing|trial|legal.*deadline|notice.*appear|move.*date)'
+WSJF_GREEN_KEYWORDS='(storage|backup|contingency|optional)'
 
 # Format: "filename_pattern|ROAM_id|escalation_level|message"
 FILE_CLASSIFIER=(

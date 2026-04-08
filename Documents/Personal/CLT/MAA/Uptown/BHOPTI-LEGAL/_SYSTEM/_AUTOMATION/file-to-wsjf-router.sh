@@ -209,6 +209,20 @@ done <<< "$new_files"
 # Update scan timestamp
 touch "$STAMP_FILE"
 
+# ── SEEN-DB PRUNING (remove entries for files that no longer exist, >30 days) ──
+if [[ -f "$SEEN_DB" ]]; then
+  _seen_lines=$(wc -l < "$SEEN_DB" | tr -d ' ')
+  if [[ "$_seen_lines" -gt 5000 ]]; then
+    _tmp_seen=$(mktemp "${SEEN_DB}.prune.XXXXXX")
+    while IFS= read -r _path; do
+      [[ -f "$_path" ]] && echo "$_path"
+    done < "$SEEN_DB" > "$_tmp_seen"
+    _pruned=$(( _seen_lines - $(wc -l < "$_tmp_seen" | tr -d ' ') ))
+    mv "$_tmp_seen" "$SEEN_DB" 2>/dev/null || rm -f "$_tmp_seen"
+    [[ "$_pruned" -gt 0 ]] && log "Pruned ${_pruned} stale entries from seen-files.db"
+  fi
+fi
+
 log "Processed: ${processed} files, ${escalations} routed"
 
 # Rebuild HTML dashboard — FULL_AUTO only

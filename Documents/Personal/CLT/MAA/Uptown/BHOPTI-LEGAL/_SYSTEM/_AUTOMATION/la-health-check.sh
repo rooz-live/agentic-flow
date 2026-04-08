@@ -155,17 +155,24 @@ if [[ -f "$LOG_ROTATE_SCRIPT" ]]; then
   rotate_log "${HOME}/Library/Logs/wsjf-html.log" 2 3000
 fi
 
-# ─── JSONL EVENT EMISSION ─────────────────────────────────────────────────────
-# Emit a unified JSONL event for monitoring dashboards/log streams
+# ─── JSONL EVENT EMISSION (content-hash gated) ─────────────────────────────
+# Only emit event when status actually changes (not identical repeats)
 EVENTS_LOG="${HOME}/Library/Logs/wsjf-events.jsonl"
+_LA_HASH_FILE="${HOME}/.bhopti-legal/la-health-last-state"
 _severity="INFO"
 _status="PASS"
 [[ "$fail_count" -gt 0 ]] && _severity="WARN" && _status="FAIL"
-[[ "$hygiene_warns" -gt 2 ]] && _severity="WARN"  # disk pressure escalation
-_ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%s)
-printf '{"timestamp":"%s","component":"la-health-check","mode":"health","action":"check","target":"launchagents+hygiene","status":"%s","severity":"%s","evidence_path":"healthy=%d,fail=%d,total=%d,hygiene_warns=%d"}\n' \
-  "$_ts" "$_status" "$_severity" "$healthy_count" "$fail_count" "$total_count" "$hygiene_warns" \
-  >> "$EVENTS_LOG" 2>/dev/null || true
+[[ "$hygiene_warns" -gt 2 ]] && _severity="WARN"
+_state_key="h=${healthy_count},f=${fail_count},t=${total_count},hw=${hygiene_warns}"
+_prev_state=""
+[[ -f "$_LA_HASH_FILE" ]] && _prev_state=$(cat "$_LA_HASH_FILE" 2>/dev/null)
+if [[ "$_state_key" != "$_prev_state" ]]; then
+  echo "$_state_key" > "$_LA_HASH_FILE"
+  _ts=$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%s)
+  printf '{"timestamp":"%s","component":"la-health-check","mode":"health","action":"check","target":"launchagents+hygiene","status":"%s","severity":"%s","evidence_path":"healthy=%d,fail=%d,total=%d,hygiene_warns=%d"}\n' \
+    "$_ts" "$_status" "$_severity" "$healthy_count" "$fail_count" "$total_count" "$hygiene_warns" \
+    >> "$EVENTS_LOG" 2>/dev/null || true
+fi
 
 # Exit: fail if agents failing OR severe disk pressure
 exit_code=0

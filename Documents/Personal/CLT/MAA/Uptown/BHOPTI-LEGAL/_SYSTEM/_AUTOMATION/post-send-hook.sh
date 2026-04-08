@@ -19,14 +19,14 @@ source "$SCRIPT_DIR/exit-codes.sh" || exit 11
 # shellcheck source=email-hash-db.sh
 source "$SCRIPT_DIR/email-hash-db.sh" || {
     echo "❌ ERROR: email-hash-db.sh not found" >&2
-    exit $EXIT_TOOL_MISSING
+    exit "${EXIT_TOOL_MISSING:-255}"
 }
 
 EML_FILE="${1:-}"
 
 if [[ -z "$EML_FILE" || ! -f "$EML_FILE" ]]; then
     echo "❌ Usage: $0 path/to/email.eml" >&2
-    exit $EXIT_INVALID_ARGS
+    exit "${EXIT_INVALID_ARGS:-10}"
 fi
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -38,7 +38,7 @@ RECIPIENT=$(echo "$TO_RAW" | awk '{print $1}' | tr -d '<>')
 
 if [[ -z "$RECIPIENT" ]]; then
     echo "❌ ERROR: Could not extract recipient from email" >&2
-    exit $EXIT_MISSING_REQUIRED_FIELD
+    exit "${EXIT_MISSING_REQUIRED_FIELD:-21}"
 fi
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -49,21 +49,21 @@ fi
 if check_duplicate_email "$EML_FILE" "$RECIPIENT" 2>/dev/null; then
     echo "⚠️  WARNING: Email hash already recorded (duplicate send attempt)" >&2
     echo "    Recipient: $RECIPIENT" >&2
-    exit $EXIT_DUPLICATE_DETECTED
+    exit "${EXIT_DUPLICATE_DETECTED:?}"
 fi
 
 # Record the sent email
 record_email_hash "$EML_FILE" "$RECIPIENT" "sent" "Sent successfully" || {
     echo "❌ ERROR: Failed to record email hash" >&2
-    exit $EXIT_DATABASE_LOCKED
+    exit "${EXIT_DATABASE_LOCKED:?}"
 }
 
 echo "✅ Email hash recorded: recipient=$RECIPIENT status=sent"
 
 # ─── OPTIONAL: LOG TO WSJF ─────────────────────────────────────────────────────
-# Trigger email-to-wsjf-bridge.sh if exists
+# Trigger email-to-wsjf-bridge.sh if exists (SKIP_WSJF_BRIDGE=1 for tests/CI)
 BRIDGE_SCRIPT="$(dirname "$0")/email-to-wsjf-bridge.sh"
-if [[ -x "$BRIDGE_SCRIPT" ]]; then
+if [[ "${SKIP_WSJF_BRIDGE:-0}" != "1" ]] && [[ -x "$BRIDGE_SCRIPT" ]]; then
   bash "$BRIDGE_SCRIPT" "$EML_FILE" >> "${HOME}/Library/Logs/wsjf-email-bridge.log" 2>&1 || true
 fi
 

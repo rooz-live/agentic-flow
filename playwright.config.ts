@@ -107,10 +107,12 @@ export default defineConfig({
       // Run Vite dev server for trading dashboard — serves trading.html at /trading.html
       // NOTE: use vite.trading.config.ts (not vite.config.ts) to avoid the
       // optimizeDeps.include hang: main config lists @cosmograph + @cosmos.gl which
-      // aren’t installed, causing Vite’s optimizer to hang indefinitely.
-      command: 'npx vite --config vite.trading.config.ts',
+      // aren't installed, causing Vite's optimizer to hang indefinitely.
+      // Kill stale processes on 5173 first — strictPort:true means Vite exits
+      // immediately if the port is occupied, causing all 13 tests to time out.
+      command: 'lsof -ti:5173 | xargs kill -9 2>/dev/null; npx vite --config vite.trading.config.ts',
       url: 'http://localhost:5173/trading.html',
-      reuseExistingServer: true,
+      reuseExistingServer: !process.env.CI,
       timeout: 60 * 1000,
     },
   ],

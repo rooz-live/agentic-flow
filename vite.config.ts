@@ -29,7 +29,9 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: true,
     rollupOptions: {
-      input: 'trading.html'
-    }
+      input: {
+        trading: 'trading.html',
+      },
+    },
   },
 })

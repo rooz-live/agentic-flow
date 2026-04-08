@@ -12,14 +12,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Configuration — override via env vars
+# Guard clause: DEPLOY_USER must not default to local whoami (RCA: local username
+# doesn't exist on remote server, causing password prompt instead of key auth)
 DEPLOY_HOST="${DEPLOY_HOST:-stx-aio-0.corp.interface.tag.ooo}"
-DEPLOY_USER="${DEPLOY_USER:-$(whoami)}"
-DEPLOY_KEY="${DEPLOY_KEY:-}"  # Optional SSH key path
+DEPLOY_USER="${DEPLOY_USER:-ubuntu}"
+DEPLOY_KEY="${DEPLOY_KEY:-$HOME/.ssh/starlingx_key}"
+DEPLOY_PORT="${DEPLOY_PORT:-2222}"
 REMOTE_APP_DIR="/opt/wsjf"
 REMOTE_DASHBOARD_DIR="${REMOTE_APP_DIR}/trading-dashboard"
 
-SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10"
-[[ -n "$DEPLOY_KEY" ]] && SSH_OPTS="$SSH_OPTS -i $DEPLOY_KEY"
+SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -p ${DEPLOY_PORT}"
+[[ -n "$DEPLOY_KEY" && -f "$DEPLOY_KEY" ]] && SSH_OPTS="$SSH_OPTS -i $DEPLOY_KEY"
+
+# Guard clause: fail fast if key doesn't exist
+if [[ ! -f "$DEPLOY_KEY" ]]; then
+  echo "❌ SSH key not found: $DEPLOY_KEY"
+  echo "   Set DEPLOY_KEY=/path/to/key or ensure ~/.ssh/starlingx_key exists"
+  exit 1
+fi
 
 SKIP_BUILD=false
 SETUP_NGINX=false
@@ -64,7 +74,8 @@ fi
 
 # 2. Deploy built assets
 echo "▶ Deploying to ${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_DASHBOARD_DIR}..."
-ssh $SSH_OPTS "${DEPLOY_USER}@${DEPLOY_HOST}" "sudo mkdir -p ${REMOTE_DASHBOARD_DIR} ${REMOTE_APP_DIR}/scripts ${REMOTE_APP_DIR}/.goalie" 2>/dev/null || true
+ssh $SSH_OPTS "${DEPLOY_USER}@${DEPLOY_HOST}" \
+  "sudo mkdir -p ${REMOTE_DASHBOARD_DIR} ${REMOTE_APP_DIR}/scripts ${REMOTE_APP_DIR}/.goalie ${REMOTE_APP_DIR}/logs && sudo chown -R ${DEPLOY_USER}:${DEPLOY_USER} ${REMOTE_APP_DIR}" 2>/dev/null || true
 rsync -avz --delete -e "ssh $SSH_OPTS" \
   "$PROJECT_ROOT/dist/" \
   "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_DASHBOARD_DIR}/"
@@ -77,19 +88,28 @@ rsync -avz -e "ssh $SSH_OPTS" \
   "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_APP_DIR}/scripts/"
 
 # 4. Sync .goalie metrics (for /api/trading to read)
-rsync -avz -e "ssh $SSH_OPTS" \
-  "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl" \
-  "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_APP_DIR}/.goalie/" 2>/dev/null || echo "⚠️  No metrics to sync"
+for jsonl in pattern_metrics.jsonl trading_signals.jsonl; do
+  if [[ -f "$PROJECT_ROOT/.goalie/$jsonl" ]]; then
+    rsync -avz -e "ssh $SSH_OPTS" \
+      "$PROJECT_ROOT/.goalie/$jsonl" \
+      "${DEPLOY_USER}@${DEPLOY_HOST}:${REMOTE_APP_DIR}/.goalie/"
+  fi
+done
+echo "✅ JSONL data synced"
 
-# 5. Restart Flask
-echo "▶ Restarting Flask dashboard on remote..."
-ssh $SSH_OPTS "${DEPLOY_USER}@${DEPLOY_HOST}" bash -lc "
-  cd ${REMOTE_APP_DIR}
-  pkill -f 'web_dashboard.py' 2>/dev/null || true
-  sleep 1
-  PROJECT_ROOT=${REMOTE_APP_DIR} nohup python3 scripts/web_dashboard.py --host 0.0.0.0 --port 5000 > /var/log/wsjf-dashboard.log 2>&1 &
-  echo 'Flask PID: '\$!
-"
+# 5. Ensure Flask is installed on remote
+echo "▶ Ensuring Flask dependencies on remote..."
+ssh $SSH_OPTS "${DEPLOY_USER}@${DEPLOY_HOST}" \
+  "pip3 install -q flask flask-cors flask-socketio 2>&1 | tail -3" || echo "⚠️  pip install step failed (Flask may already be installed)"
+
+# 5b. Stop existing Flask (via PID file — avoids pkill -f self-kill bug)
+ssh $SSH_OPTS "${DEPLOY_USER}@${DEPLOY_HOST}" \
+  "[ -f ${REMOTE_APP_DIR}/flask.pid ] && kill \$(cat ${REMOTE_APP_DIR}/flask.pid) 2>/dev/null; rm -f ${REMOTE_APP_DIR}/flask.pid" || true
+
+# 5c. Start Flask and save PID
+echo "▶ Starting Flask dashboard on remote..."
+ssh $SSH_OPTS "${DEPLOY_USER}@${DEPLOY_HOST}" \
+  "mkdir -p ${REMOTE_APP_DIR}/logs; cd ${REMOTE_APP_DIR} && PROJECT_ROOT=${REMOTE_APP_DIR} nohup python3 scripts/web_dashboard.py --port 5000 >> ${REMOTE_APP_DIR}/logs/wsjf-dashboard.log 2>&1 & echo \$! > ${REMOTE_APP_DIR}/flask.pid && echo Flask-PID:\$(cat ${REMOTE_APP_DIR}/flask.pid)" || echo "⚠️  Flask start failed"
 echo "✅ Flask restart command issued"
 
 # 6. Nginx setup (optional)
@@ -101,7 +121,7 @@ if [[ "$SETUP_NGINX" == "true" ]]; then
     "$PROJECT_ROOT/deploy/cpanel-flask-proxy.conf" \
     "${DEPLOY_USER}@${DEPLOY_HOST}:/tmp/flask-proxy.conf"
 
-  ssh $SSH_OPTS "${DEPLOY_USER}@${DEPLOY_HOST}" bash -lc "
+  ssh $SSH_OPTS "${DEPLOY_USER}@${DEPLOY_HOST}" "
     sudo mkdir -p ${CPANEL_INCLUDE_DIR}
     sudo cp /tmp/flask-proxy.conf ${CPANEL_INCLUDE_DIR}/flask-proxy.conf
     sudo nginx -t && sudo systemctl reload nginx

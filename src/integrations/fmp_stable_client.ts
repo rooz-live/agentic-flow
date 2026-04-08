@@ -159,6 +159,27 @@ export class FMPStableClient {
       if (!response.ok) {
         const responseTime = Date.now() - startTime;
         await this.emitMetric(endpoint, params.symbol || '', false, responseTime);
+
+        // Typed error for billing/quota limits (402 Payment Required)
+        if (response.status === 402) {
+          const billingEvent = {
+            ts: new Date().toISOString(),
+            run: 'fmp-api-client',
+            run_id: `fmp-402-${Date.now()}`,
+            circle: 'analyst',
+            pattern: 'provider_billing_limit',
+            'pattern:kebab-name': 'provider-billing-limit',
+            mode: 'advisory',
+            gate: 'external_provider',
+            tags: ['Financial', 'Billing', 'ExternalProvider'],
+            reason: `FMP 402: daily API limit reached (250 free calls). Endpoint: ${endpoint}`,
+            metrics: { endpoint, symbol: params.symbol || '', http_status: 402, response_time_ms: responseTime },
+          };
+          const metricsFile = path.join(this.goalieDir, 'pattern_metrics.jsonl');
+          fs.appendFileSync(metricsFile, JSON.stringify(billingEvent) + '\n');
+          throw new Error(`FMP 402: API billing limit reached for ${endpoint}. Use Yahoo Finance fallback or --dry-run.`);
+        }
+
         throw new Error(`FMP API error: ${response.status} ${response.statusText}`);
       }
 

@@ -43,11 +43,30 @@ def get_tenant_from_request():
     host = request.host.split(':')[0]  # Remove port
     return DOMAIN_TENANT_MAP.get(host, 'default')
 
-PROJECT_ROOT = os.environ.get("PROJECT_ROOT", ".")
-GOALIE_DIR = Path(PROJECT_ROOT) / ".goalie"
-METRICS_FILE = GOALIE_DIR / "pattern_metrics.jsonl"
-TRADING_SIGNALS_FILE = GOALIE_DIR / "trading_signals.jsonl"
+PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", str(Path(__file__).resolve().parent.parent))).resolve()
+GOALIE_DIR = PROJECT_ROOT / ".goalie"
 MONITORING_DASHBOARD_FILE = Path(__file__).resolve().parent / "monitoring" / "dashboard.html"
+
+
+def _candidate_goalie_dirs():
+    dirs = [
+        GOALIE_DIR,
+        Path.cwd() / ".goalie",
+        Path(__file__).resolve().parent.parent / ".goalie",
+    ]
+    seen = set()
+    unique = []
+    for d in dirs:
+        key = str(d.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(d)
+    return unique
+
+
+def _jsonl_sources(filename):
+    return [d / filename for d in _candidate_goalie_dirs() if (d / filename).exists()]
 
 
 def _load_jsonl(filepath, hours=168):
@@ -81,12 +100,18 @@ def _load_jsonl(filepath, hours=168):
 
 def load_events(hours=168):
     """Load recent pattern events"""
-    return _load_jsonl(METRICS_FILE, hours=hours)
+    events = []
+    for source in _jsonl_sources("pattern_metrics.jsonl"):
+        events.extend(_load_jsonl(source, hours=hours))
+    return events
 
 
 def _load_trading_signals(hours=168):
     """Load recent trading signals from soxl_soxs_trader output"""
-    return _load_jsonl(TRADING_SIGNALS_FILE, hours=hours)
+    events = []
+    for source in _jsonl_sources("trading_signals.jsonl"):
+        events.extend(_load_jsonl(source, hours=hours))
+    return events
 
 
 def get_tenants():
@@ -145,11 +170,11 @@ def home():
     """Home dashboard"""
     current_tenant = get_tenant_from_request()
     tenants = get_tenants()
-    if MONITORING_DASHBOARD_FILE.exists():
-        return MONITORING_DASHBOARD_FILE.read_text(encoding='utf-8')
     try:
         return render_template('dashboard.html', tenants=tenants, current_tenant=current_tenant)
     except Exception:
+        if MONITORING_DASHBOARD_FILE.exists():
+            return MONITORING_DASHBOARD_FILE.read_text(encoding='utf-8')
         return '<h1>Agentic Flow Dashboard</h1><p>Dashboard template not found.</p>', 500
 
 
@@ -253,11 +278,19 @@ def api_trading():
         if e.get('pattern', '').startswith('trading')
         or e.get('component') in ('soxl_soxs_trader', 'neural-trader', 'backtest')
         or e.get('action') in ('BUY', 'SELL', 'HOLD')
-        or any(t in str(e.get('data', '')) + str(e.get('symbol', '')) for t in ('SOXL', 'SOXS', 'SMH', 'SOXX'))
+        or e.get('metrics', {}).get('action') in ('BUY', 'SELL', 'HOLD')
+        or any(t in str(e.get('data', '')) + str(e.get('symbol', '')) + str(e.get('metrics', {}).get('symbol', '')) for t in ('SOXL', 'SOXS', 'SMH', 'SOXX'))
     ]
 
     if symbol_filter:
-        trading_events = [e for e in trading_events if symbol_filter.upper() in str(e.get('symbol', '')) + str(e.get('data', ''))]
+        trading_events = [
+            e for e in trading_events
+            if symbol_filter.upper() in (
+                str(e.get('symbol', ''))
+                + str(e.get('data', ''))
+                + str(e.get('metrics', {}).get('symbol', ''))
+            )
+        ]
 
     # Sort by timestamp descending
     trading_events.sort(key=lambda e: e.get('timestamp', e.get('ts', '')), reverse=True)

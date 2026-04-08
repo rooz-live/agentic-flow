@@ -160,13 +160,87 @@ write_trust_cache() {
 EOF
 }
 
+compute_trust_files_sha256() {
+    python3 - "$_PROJECT_ROOT" <<'PY'
+import hashlib, os, sys
+root = sys.argv[1]
+targets = [
+    ".github/workflows/strict-validation.yml",
+    "scripts/validate-foundation.sh",
+    "scripts/validators/project/check-csqbm.sh",
+    "scripts/check-infra-health.sh",
+    "scripts/validators/project/contract-enforcement-gate.sh",
+    ".gitmodules",
+]
+h = hashlib.sha256()
+for rel in targets:
+    p = os.path.join(root, rel)
+    if os.path.exists(p):
+        st = os.stat(p)
+        h.update(f"{rel}:{int(st.st_mtime)}:{st.st_size}".encode())
+    else:
+        h.update(f"{rel}:missing".encode())
+print(h.hexdigest())
+PY
+}
+
+check_phase_checkpoint() {
+    local ck_file="${_PROJECT_ROOT}/.goalie/cron_state/T0_last_pass.json"
+    [ -f "$ck_file" ] || return 1
+    [ "${TRUST_FORCE_RERUN:-0}" = "1" ] && return 1
+
+    local head cached_sha cached_exit cached_hash current_hash
+    head=$("$(resolve_trust_git)" -C "${_PROJECT_ROOT}" rev-parse HEAD 2>/dev/null || echo "")
+    cached_sha=$(grep -o '"head_sha": *"[^"]*"' "$ck_file" 2>/dev/null | head -1 | cut -d'"' -f4 || echo "")
+    cached_exit=$(grep -o '"exit_code": *[0-9]*' "$ck_file" 2>/dev/null | head -1 | sed 's/[^0-9]//g' || echo "1")
+    cached_hash=$(grep -o '"files_checked_sha256": *"[^"]*"' "$ck_file" 2>/dev/null | head -1 | cut -d'"' -f4 || echo "")
+    current_hash=$(compute_trust_files_sha256)
+
+    [ "$cached_exit" = "0" ] || return 1
+    [ -n "$head" ] || return 1
+    [ "$cached_sha" = "$head" ] || return 1
+    [ -n "$cached_hash" ] || return 1
+    [ "$cached_hash" = "$current_hash" ] || return 1
+
+    echo ""
+    echo "Trust path validation (zero-trust bundle)"
+    echo "==========================================="
+    echo -e "${GREEN}CHECKPOINT HIT${NC}: T0_last_pass.json unchanged for current HEAD + file mtimes"
+    echo "To force full run: TRUST_FORCE_RERUN=1"
+    echo ""
+    return 0
+}
+
+write_phase_checkpoint() {
+    local exit_code="$1"
+    local ck_dir="${_PROJECT_ROOT}/.goalie/cron_state"
+    local ck_file="${ck_dir}/T0_last_pass.json"
+    local head_sha files_sha
+    mkdir -p "$ck_dir"
+    head_sha=$("$(resolve_trust_git)" -C "${_PROJECT_ROOT}" rev-parse HEAD 2>/dev/null || echo "unknown")
+    files_sha=$(compute_trust_files_sha256)
+    cat > "$ck_file" <<EOF
+{
+  "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "head_sha": "$head_sha",
+  "exit_code": $exit_code,
+  "files_checked_sha256": "$files_sha"
+}
+EOF
+}
+
 run_trust_path() {
     local GIT_BIN
     GIT_BIN="$(resolve_trust_git)"
     cd "$_PROJECT_ROOT" || exit "$EXIT_FILE_NOT_FOUND"
+    # Guard clause: skip if phase checkpoint indicates unchanged green state
+    if check_phase_checkpoint; then
+        return "$EXIT_SUCCESS"
+    fi
 
     # Guard clause: skip if cached GREEN and HEAD unchanged
     if check_trust_cache; then
+        write_phase_checkpoint "$EXIT_SUCCESS"
         return "$EXIT_SUCCESS"
     fi
 
@@ -382,11 +456,13 @@ run_trust_path() {
         echo -e "${GREEN}Trust bundle: ALL GREEN${NC}"
         echo "EXIT: $EXIT_SUCCESS"
         write_trust_cache "$EXIT_SUCCESS"
+        write_phase_checkpoint "$EXIT_SUCCESS"
         return "$EXIT_SUCCESS"
     fi
     echo -e "${RED}Trust bundle: NO-GO (one or more gates red)${NC}"
     echo "EXIT: $EXIT_SCHEMA_VALIDATION_FAILED"
     write_trust_cache "$EXIT_SCHEMA_VALIDATION_FAILED"
+    write_phase_checkpoint "$EXIT_SCHEMA_VALIDATION_FAILED"
     return "$EXIT_SCHEMA_VALIDATION_FAILED"
 }
 

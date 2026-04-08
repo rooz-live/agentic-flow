@@ -1,3 +1,9 @@
+---
+date: 2026-03-29
+status: accepted
+related_tests: scripts/validators/project/check-csqbm.sh
+---
+
 # ADR-006: Vector Search Merge Provisioning
 
 **Date**: 2026-03-29

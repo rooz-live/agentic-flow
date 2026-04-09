@@ -1,0 +1,86 @@
+# Improved Cron Jobs with SAFe Lean-Agile + Goalie Integration
+# All jobs use cron-wrapper.sh for proper logging, metrics, and inbox zero handling
+# 
+# Format: cron-wrapper.sh --job-id <id> --track <track> --command "<cmd>" [--mail-on-success] [--priority <level>]
+#
+# Tracks: S-Security, F-Federation, I-Inbox, Q-QualityEngineering, R-Research
+# Priority: CRITICAL, HIGH, MEDIUM, LOW
+
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+MAILTO=shahroozbhopti
+
+# ============================================================================
+# Track: Q-QualityEngineering (Backup Jobs)
+# ============================================================================
+
+# ALL-HANDS-AI Production Backup (every 6 hours)
+0 */6 * * * /Users/shahroozbhopti/Documents/code/scripts/monitoring/cron-wrapper.sh --job-id backup-6h --track Q-QualityEngineering --priority HIGH --command "cd /Users/shahroozbhopti/Documents/code/Engineering/DevOps/platform-integrations/all-hands-ai && source venv/bin/activate && python scripts/backup.py"
+
+# Daily comprehensive backup (2 AM)
+0 2 * * * /Users/shahroozbhopti/Documents/code/scripts/monitoring/cron-wrapper.sh --job-id backup-daily --track Q-QualityEngineering --priority HIGH --command "cd /Users/shahroozbhopti/Documents/code/Engineering/DevOps/platform-integrations/all-hands-ai && ./scripts/production-backup.sh"
+
+# Weekly database backup (Sundays 3 AM)
+0 3 * * 0 /Users/shahroozbhopti/Documents/code/scripts/monitoring/cron-wrapper.sh --job-id backup-weekly --track Q-QualityEngineering --priority MEDIUM --command "cd /Users/shahroozbhopti/Documents/code/Engineering/DevOps/platform-integrations/all-hands-ai && ./scripts/backup.sh"
+
+# ============================================================================
+# Track: I-Inbox (Mail Processing & Cleanup)
+# ============================================================================
+
+# Daily mail digest (8 AM) - Archive instead of delete
+0 8 * * * /Users/shahroozbhopti/Documents/code/scripts/monitoring/cron-wrapper.sh --job-id mail-digest --track I-Inbox --priority LOW --mail-on-success --command "mkdir -p /Users/shahroozbhopti/Documents/code/logs/mail-archive && cat /var/mail/shahroozbhopti >> /Users/shahroozbhopti/Documents/code/logs/mail-archive/\$(date +\%Y\%m).mbox && > /var/mail/shahroozbhopti"
+
+# Weekly cron metrics rollup (Mondays 4 AM)
+0 4 * * 1 /Users/shahroozbhopti/Documents/code/scripts/monitoring/cron-wrapper.sh --job-id metrics-rollup --track I-Inbox --priority LOW --command "cd /Users/shahroozbhopti/Documents/code && python3 scripts/monitoring/rollup_cron_metrics.py"
+
+# ============================================================================
+# Track: Q-QualityEngineering (Health Checks)
+# ============================================================================
+
+# Hourly system health check
+0 * * * * /Users/shahroozbhopti/Documents/code/scripts/monitoring/cron-wrapper.sh --job-id health-check --track Q-QualityEngineering --priority MEDIUM --command "cd /Users/shahroozbhopti/Documents/code && python3 monitor/cli.py health"
+
+# ============================================================================
+# Track: S-Security (Security Scans)
+# ============================================================================
+
+# Daily security scan (1 AM)
+0 1 * * * /Users/shahroozbhopti/Documents/code/scripts/monitoring/cron-wrapper.sh --job-id security-scan --track S-Security --priority HIGH --command "cd /Users/shahroozbhopti/Documents/code && ./scripts/security-scan.sh"
+
+
+# ============================================================================
+# Track: Q-QualityEngineering (Agentic Proactive Monitoring)
+# ============================================================================
+
+# Agentic health check every 15 minutes (git/AgentDB/system)
+*/15 * * * * /Users/shahroozbhopti/Documents/code/.claude/agents/cron_health_monitor.sh >> /Users/shahroozbhopti/Documents/code/.goalie/cron_monitor.log 2>&1
+0 2 * * * cd /Users/shahroozbhopti/Documents/code/secure_quarantine && ./quarantine_cleanup.sh
+# WSJF Automation - Daily at 2am
+0 2 * * * cd /Users/shahroozbhopti/Documents/code/investing/agentic-flow && /usr/local/bin/python3 scripts/circles/wsjf_automation_engine.py --mode auto >> logs/wsjf_automation.log 2>&1
+# WSJF Health Report - Weekly Sunday 9am
+0 9 * * 0 cd /Users/shahroozbhopti/Documents/code/investing/agentic-flow && /usr/local/bin/python3 scripts/check_wsjf_hygiene.py >> logs/wsjf_health.log 2>&1
+0 * * * * cd /Users/shahroozbhopti/Documents/code/investing/agentic-flow && npm run assess >> logs/hourly-review.log 2>&1
+0 3 * * 0 /Users/shahroozbhopti/Documents/code/scripts/monitoring/cron-wrapper.sh --job-id brew-maintenance --track Q-QualityEngineering --priority LOW --command "brew update && brew upgrade && brew cleanup"
+0 9 * * 1-5 /Users/shahroozbhopti/Documents/code/scripts/monitoring/cron-wrapper.sh --job-id wsjf-weekday --track Q-QualityEngineering --priority MEDIUM --command 'cd /Users/shahroozbhopti/Documents/code/agentic-flow-core && /Users/shahroozbhopti/Documents/code/scripts/ay-wsjf-iterate.sh'
+# BACKUP ROAM staleness watchdog - every hour (coexists with LaunchAgent)
+0 * * * * cd /Users/shahroozbhopti/Documents/code/investing/agentic-flow && /bin/bash scripts/validators/roam-staleness-watchdog.sh >> /Users/shahroozbhopti/Library/Logs/roam-staleness-watchdog-cron.log 2>&1
+# BACKUP Swarm supervisor health check - every 10 minutes (coexists with LaunchAgent)
+*/10 * * * * cd /Users/shahroozbhopti/Documents/code/investing/agentic-flow && /bin/bash scripts/orchestrators/swarm-agent-supervisor.sh legal-coordination-swarm 1 >> /Users/shahroozbhopti/Library/Logs/swarm-supervisor-cron.log 2>&1
+
+# SA FA Verification Loop - Continuous Process Improvement
+# Run full test suite every 6 hours
+0 */6 * * * bash "/Users/shahroozbhopti/Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/_SYSTEM/_AUTOMATION/sa-fa-verification-loop.sh" test >> "/Users/shahroozbhopti/Library/Logs/sa-fa-verification/cron-test.log" 2>&1
+
+# Generate retrospective every Monday at 9am
+0 9 * * 1 bash "/Users/shahroozbhopti/Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/_SYSTEM/_AUTOMATION/sa-fa-verification-loop.sh" retro >> "/Users/shahroozbhopti/Library/Logs/sa-fa-verification/cron-retro.log" 2>&1
+
+# Monitor zombie processes every 15 minutes
+
+
+# Adaptive SA FA Monitoring - Velocity-based (every 1 min)
+*/1 * * * * bash "/Users/shahroozbhopti/Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/_SYSTEM/_AUTOMATION/adaptive-sa-fa-cycles.sh" monitor >> "/Users/shahroozbhopti/Library/Logs/sa-fa-verification/adaptive-monitor.log" 2>&1
+
+# Disk Space Guardian - Automated TM snapshot cleanup
+0 * * * * /Users/shahroozbhopti/Documents/code/investing/agentic-flow/scripts/monitoring/tm_disk_guardian.sh --check >> /Users/shahroozbhopti/Documents/code/investing/agentic-flow/logs/tm_guardian_cron.log 2>&1
+# TimeMachine snapshot management - every 6 hours
+0 */6 * * * sudo tmutil thinlocalsnapshots / 1000000000 4

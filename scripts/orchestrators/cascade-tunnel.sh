@@ -27,7 +27,7 @@ safe_source_optional "$PROJECT_ROOT/scripts/validation-core.sh"
 safe_source_optional "$PROJECT_ROOT/_SYSTEM/_AUTOMATION/exit-codes-robust.sh"
 safe_source_optional "$PROJECT_ROOT/_SYSTEM/_AUTOMATION/debug-exit-codes.sh"
 safe_source_optional "$PROJECT_ROOT/_SYSTEM/_AUTOMATION/bounded-reasoning-framework.sh"
-safe_source_optional "$PROJECT_ROOT/_SYSTEM/_AUTOMATION/eta-live-stream.sh"
+# eta-live-stream.sh removed in Cycle BJ consolidation (R-2026-016)
 safe_source_optional "$PROJECT_ROOT/_SYSTEM/_AUTOMATION/run-bounded-eta.sh"
 
 # ===========================================================================

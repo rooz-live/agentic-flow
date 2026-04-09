@@ -978,4 +978,38 @@ Follows R-2026-016 rules. The following untracked superproject artifacts are que
 | Action | Outcome Evidence | ROAM Line |
 | --------------------- | ------------------------------------- | --------- |
 | `CAPABILITY_BACKLOG.md` | Snapshotted to `.goalie/backlog_snapshots/2026-04-04/` and strictly truncated to PI Sync/STX.12 integration focus. | R-2026-018 |
-| `opencode-ai` Initialization | Setup 100% private node execution for `qwen`. | R-2026-018 |
+|| `opencode-ai` Initialization | Setup 100% private node execution for `qwen`. | R-2026-018 |
+
+### Cycle BJ — Phase 117: Cron/LaunchAgent Consolidation & Deprecated Script Deletion (2026-04-09)
+- **Thread:** Unified scheduler consolidation eliminating dual-registration (cron + LaunchAgent) process sprawl, reducing bash spawn rate from ~1640/day to ~300/day, and deleting 13 deprecated scripts with R-2026-016 substitution evidence.
+- **Cron Changes:**
+  - **REMOVED** `roam-staleness-watchdog.sh` cron entry (covered by `com.bhopti.roam.staleness.watchdog.plist` LaunchAgent)
+  - **REMOVED** `swarm-agent-supervisor.sh` cron entry (covered by `com.bhopti.swarm.supervisor.plist` LaunchAgent with KeepAlive)
+  - **REDUCED** `adaptive-sa-fa-cycles.sh` from `*/1` to `*/15` (1440 → 96 spawns/day)
+  - **REDUCED** `npm run assess` from hourly to every 6h (heavyweight Node.js)
+  - **REDUCED** `tm_disk_guardian.sh` from hourly to every 6h (disk metrics are slow-moving)
+  - Cron entries: 24 → 19. Backup: `.goalie/crontab-backup-20260409.txt`
+- **LaunchAgent Changes:**
+  - **DISABLED** `com.bhopti.legal.roam-watchdog.plist` — exact duplicate of `com.bhopti.roam.staleness.watchdog.plist` (same script, same 3600s interval). Unloaded and renamed to `.disabled`.
+- **Substitution Map (R-2026-016 & R-2026-018 Explicit Evidence):**
+
+| Remove / Archive Path | Canonical Replacement | Evidence (Test / Gate / ADR) | ROAM Anchor |
+| --------------------- | --------------------- | ---------------------------- | ----------- |
+| `scripts/monitoring/heartbeat_monitor.py` | `scripts/validators/hitl-audit-safeguard.sh --pulse` | Pulse telemetry retained via HITL safeguard | R-2026-016 |
+| `_SYSTEM/_AUTOMATION/eta-live-stream.sh` | No-op when sourced; `run-bounded-eta.sh` retained separately | Dead source refs cleaned from `cascade-tunnel.sh`, `start-ledger-tunnel.sh` | R-2026-018 |
+| `_SYSTEM/_AUTOMATION/legal-pdf-ocr.sh` | `scripts/legal-pdf-ocr-pipeline.sh` (real OCR pipeline) | Placeholder loop deleted; real pipeline retained | R-2026-018 |
+| `scripts/superproject-gates/monitoring_dashboard.py` | `scripts/monitoring_dashboard.py` (canonical) | Shadow copy deleted | R-2026-016 |
+| `scripts/superproject-gates/heartbeat_monitor.py` | `hitl-audit-safeguard.sh --pulse` | Shadow copy of already-deprecated script | R-2026-016 |
+| `scripts/superproject-gates/circle_health_monitor.py` | `scripts/monitoring/circle_health_monitor.py` | Shadow copy deleted | R-2026-016 |
+| `scripts/superproject-gates/agentdb_monitor.py` | `scripts/monitoring/agentdb_monitor.py` | Shadow copy deleted | R-2026-016 |
+| `scripts/superproject-gates/budget_monitor.py` | `scripts/wsjf/budget_monitor.py` | Shadow copy deleted | R-2026-016 |
+| `scripts/superproject-gates/device_monitor.py` | Capability retired (no canonical equivalent needed) | R-2026-018 attention fragmentation | R-2026-018 |
+| `scripts/superproject-gates/evidence_monitor.py` | `scripts/collect-evidence.sh` + `.goalie/evidence/` | Shadow copy deleted | R-2026-016 |
+| `scripts/superproject-gates/wip_monitor.py` | `scripts/execution/wip_monitor.py` | Shadow copy deleted | R-2026-016 |
+| `scripts/superproject-gates/unified_heartbeat_monitor.py` | `hitl-audit-safeguard.sh --pulse` + `tm_disk_guardian.sh` | Unified capability via existing canonical scripts | R-2026-016 |
+| `scripts/superproject-gates/cron_health_monitor.sh` | `.claude/agents/cron_health_monitor.sh` (cron entry retained) | Shadow copy deleted | R-2026-016 |
+| `com.bhopti.legal.roam-watchdog.plist` | `com.bhopti.roam.staleness.watchdog.plist` (identical) | Duplicate LaunchAgent disabled | R-2026-016 |
+| Cron: `roam-staleness-watchdog.sh` hourly | `com.bhopti.roam.staleness.watchdog.plist` | LaunchAgent covers this | R-2026-016 |
+| Cron: `swarm-agent-supervisor.sh` */10 | `com.bhopti.swarm.supervisor.plist` (KeepAlive) | LaunchAgent covers this | R-2026-016 |
+
+- **Verify:** `validate-foundation.sh --trust-path` before and after.

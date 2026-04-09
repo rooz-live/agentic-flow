@@ -554,6 +554,28 @@ Agentic Flow integrates with **four MCP servers** providing 213 tools total:
 
 ---
 
+## 🏗️ Infrastructure Operations
+
+This fork includes SRE tooling for production gate enforcement, monitoring, and trust-path validation.
+
+### Gate Infrastructure
+| Gate | Command | Purpose |
+|------|---------|---------|
+| **Trust Bundle** | `TRUST_GIT=/usr/bin/git bash scripts/validate-foundation.sh --trust-path` | Full 4-pillar validation (infra + CSQBM + shell tests + contracts) |
+| **CSQBM** | `bash scripts/validators/project/check-csqbm.sh --deep-why` | AgentDB freshness + constraint validation |
+| **Evidence** | `bash scripts/collect-evidence.sh` | Generate GO/NO-GO evidence bundle |
+| **HITL Audit** | `bash scripts/validators/hitl-audit-safeguard.sh --audit` | Email tracking HITL compliance |
+| **Disk Guardian** | `bash scripts/monitoring/tm_disk_guardian.sh --cleanup` | TimeMachine/SQLite/git objects cleanup |
+| **Site Health** | `python3 scripts/monitoring/site_health_monitor.py --watch` | Multi-domain DNS/SSL/HTTP monitoring |
+
+### Scheduler (19 cron entries + 13 LaunchAgents)
+Consolidated crontab: `.goalie/crontab-consolidated.txt`
+GO/NO-GO ledger: `.goalie/go_no_go_ledger.md`
+
+See [Infrastructure Improvements](docs/INFRASTRUCTURE_IMPROVEMENTS.md) for the full consolidation log.
+
+---
+
 ## 🤝 Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](https://github.com/ruvnet/agentic-flow/blob/main/CONTRIBUTING.md) for guidelines.

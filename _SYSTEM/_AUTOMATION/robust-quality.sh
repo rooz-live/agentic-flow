@@ -106,11 +106,13 @@ collect_quality_metrics() {
         --arg score "$quality_score" \
         --arg status "$(if [[ $exit_code -eq 0 ]]; then echo "passed"; else echo "failed"; fi)" \
         --argjson components "$comp_json" \
+        --arg script_name "$script_name" \
+        --arg exit_code "$exit_code" \
         '.quality_score = ($score | tonumber) |
          .status = $status |
          .components = $components |
          .metrics.script_name = $script_name |
-         .metrics.exit_code = $exit_code |
+         .metrics.exit_code = ($exit_code | tonumber) |
          .metrics.collected_at = now' \
         "$QUALITY_STATE_FILE" > "$temp_file"
     mv "$temp_file" "$QUALITY_STATE_FILE"
@@ -121,14 +123,14 @@ collect_quality_metrics() {
     if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
         echo "robust_quality=$quality_score" >> "$GITHUB_OUTPUT"
         echo "robust_status=$(if [[ $exit_code -eq 0 ]]; then echo "passed"; else echo "failed"; fi)" >> "$GITHUB_OUTPUT"
-        echo "robust_components=$(jo -a "${components[@]}")" >> "$GITHUB_OUTPUT"
+        echo "robust_components=$(jo -a "${components[@]:-}")" >> "$GITHUB_OUTPUT"
     fi
 
     # 2. Environment file for next steps
     cat > "$QUALITY_EXPORT_FILE" << EOF
 ROBUST_QUALITY=$quality_score
 ROBUST_STATUS=$(if [[ $exit_code -eq 0 ]]; then echo "passed"; else echo "failed"; fi)
-ROBUST_COMPONENTS=$(jo -a "${components[@]}")
+ROBUST_COMPONENTS=$(jo -a "${components[@]:-}")
 EOF
 
     # 3. Standard output for logging

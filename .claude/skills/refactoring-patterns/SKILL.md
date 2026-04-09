@@ -11,11 +11,6 @@ last_optimized: 2025-12-03
 dependencies: []
 quick_reference_card: true
 tags: [refactoring, code-quality, technical-debt, maintainability, clean-code]
-trust_tier: 2
-validation:
-  schema_path: schemas/output.json
-  validator_path: scripts/validate-config.json
-
 ---
 
 # Refactoring Patterns

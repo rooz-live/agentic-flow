@@ -72,9 +72,8 @@ execute_with_timeout() {
 
   # Check if timeout command exists (GNU coreutils)
   if ! command -v timeout >/dev/null 2>&1; then
-    # macOS fallback using perl
-    log_warn "GNU timeout not found, using perl fallback"
-    timeout_cmd="perl -e 'alarm shift; exec @ARGV' $budget_seconds"
+    log_warn "GNU timeout not found, defaulting to safe-timeout.py wrapper (cross-platform subprocess.run signal propagation)"
+    timeout_cmd="python3 $ROOT_DIR/scripts/ci/safe-timeout.py $budget_seconds"
   else
     timeout_cmd="timeout ${budget_seconds}s"
   fi
@@ -84,15 +83,15 @@ execute_with_timeout() {
   if command -v timeout >/dev/null 2>&1; then
     timeout "${budget_seconds}s" "$SCRIPT_DIR/ay-prod-cycle.sh" "$circle" "$ceremony" "$adr" || exit_code=$?
   else
-    # macOS: use perl-based timeout
-    perl -e "alarm $budget_seconds; exec @ARGV" "$SCRIPT_DIR/ay-prod-cycle.sh" "$circle" "$ceremony" "$adr" || exit_code=$?
+    # macOS: utilize strict process-group killing python wrapper avoiding SIGALRM bash proxy limitations
+    python3 "$ROOT_DIR/scripts/ci/safe-timeout.py" "$budget_seconds" "$SCRIPT_DIR/ay-prod-cycle.sh" "$circle" "$ceremony" "$adr" || exit_code=$?
   fi
 
   local end_time=$(date +%s)
   local actual_duration=$((end_time - start_time))
   local actual_minutes=$((actual_duration / 60))
 
-  # Check if timed out (exit code 124 for GNU timeout, 142 for perl alarm)
+  # Check if timed out (exit code 124 for GNU timeout, 142 for Python wrapper/alarm)
   if [[ $exit_code -eq 124 ]] || [[ $exit_code -eq 142 ]]; then
     log_error "Ceremony TIMED OUT after ${budget_minutes} minutes"
     log_warn "DoR budget exceeded - consider if preparation was truly necessary"
@@ -139,19 +138,38 @@ store_dor_violation() {
   local timestamp=$(date +%s)
   local violation_file="$violation_dir/${circle}_${ceremony}_${timestamp}.json"
 
-  cat > "$violation_file" <<EOF
-{
-  "circle": "$circle",
-  "ceremony": "$ceremony",
-  "budget_minutes": $budget,
-  "actual_minutes": $actual,
-  "violation_type": "timeout",
-  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-  "recommendation": "Simplify DoR or reassess ceremony scope"
-}
-EOF
+  jq -n \
+    --arg circle "$circle" \
+    --arg ceremony "$ceremony" \
+    --argjson budget "$budget" \
+    --argjson actual "$actual" \
+    --arg type "timeout" \
+    --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+    --arg rec "Simplify DoR or reassess ceremony scope" \
+    '{circle: $circle, ceremony: $ceremony, budget_minutes: $budget, actual_minutes: $actual, violation_type: $type, timestamp: $timestamp, recommendation: $rec}' > "$violation_file"
 
   log_info "Violation recorded: $violation_file"
+}
+
+# JSON Serialization Fix for HostBill IPMI strict parsing compliance
+create_dor_metrics_json() {
+  local circle="$1"
+  local ceremony="$2"
+  local budget="$3"
+  local actual="$4"
+  local compliance="$5"
+  local status="$6"
+  local metrics_file="$7"
+
+  jq -n \
+    --arg circle "$circle" \
+    --arg ceremony "$ceremony" \
+    --argjson budget "$budget" \
+    --argjson actual "$actual" \
+    --argjson compliance "$compliance" \
+    --arg status "$status" \
+    --arg timestamp "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+    '{circle: $circle, ceremony: $ceremony, dor_budget_minutes: $budget, dor_actual_minutes: $actual, compliance_percentage: $compliance, status: $status, timestamp: $timestamp}' > "$metrics_file"
 }
 
 # Store DoR metrics
@@ -173,17 +191,7 @@ store_dor_metrics() {
     status="exceeded"
   fi
 
-  cat > "$metrics_file" <<EOF
-{
-  "circle": "$circle",
-  "ceremony": "$ceremony",
-  "dor_budget_minutes": $budget,
-  "dor_actual_minutes": $actual,
-  "compliance_percentage": $compliance,
-  "status": "$status",
-  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-}
-EOF
+  create_dor_metrics_json "$circle" "$ceremony" "$budget" "$actual" "$compliance" "$status" "$metrics_file"
 
   log_info "Metrics recorded: $metrics_file"
 }

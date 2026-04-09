@@ -25,11 +25,14 @@ run_periodic() {
         local proj_root="$(cd "$(dirname "$(dirname "$(dirname "${BASH_SOURCE[0]}")")")" && pwd)"
         [ -f "$proj_root/scripts/validation-core.sh" ] && source "$proj_root/scripts/validation-core.sh" || true
 
-        # Enforce agentdb >96h staleness constraint natively
+        # Enforce agentdb >96h staleness constraint natively (ADR-005)
         local agentdb_path="$proj_root/agentdb.db"
         if [ ! -f "$agentdb_path" ] && [ -f "$proj_root/../../agentdb.db" ]; then
             agentdb_path="$proj_root/../../agentdb.db"
         fi
+
+        # Extract strict bounds documented in docs/architecture/decisions/005-swarm-persistence-architecture.md
+        local ADR_005_MAX_STALENESS_SEC=345600 # 96 hours * 60 mins * 60 secs
 
         if [ -f "$agentdb_path" ]; then
             if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -37,16 +40,49 @@ run_periodic() {
             else
                 local file_age=$(( $(date +%s) - $(stat -c %Y "$agentdb_path") ))
             fi
-            if [ "$file_age" -gt 345600 ]; then
-                echo "[$(date -u)] CSQBM Governance Halt: agentdb.db staleness >96h ($file_age seconds). Task $task_name blocked via OpenWorm Physical Bounds (ADR-005)." >> "$log_file"
+            if [ "$file_age" -gt "$ADR_005_MAX_STALENESS_SEC" ]; then
+                echo "[$(date -u)] CSQBM_HALT [Yasna/TIME]: agentdb.db staleness >96h ($file_age seconds). Task $task_name blocked via TurboQuant-DGM Temporal Limits (ADR-005)." >> "$log_file"
                 sleep "$delay_sec"
                 continue
             fi
         fi
 
+        # Extract baseline OS execution limits preventing unconstrained Daemon orchestration traces
+        # Evaluates local connectome pressure dynamically rejecting scheduling loops bypassing structural stability natively
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            # Cycle 116: Physical Memory Context Halt limit (simulating a 4,000 DBOS token overhead protective baseline mapped via ADR-005)
+            local connectome_pressure=$(vm_stat | awk '/Pages free/ {free=$3} /Pages active/ {active=$3} END { if(active+free>0) { print int((active / (active + free)) * 100)} else {print 0} }' | tr -d '.')
+            if [[ "$connectome_pressure" -gt 90 && "$connectome_pressure" != "-1085" ]]; then
+                echo "[$(date -u)] CSQBM_HALT [Manthra/TRUTH]: Absolute OS Connectome Overload ($connectome_pressure%). Task $task_name execution blocked enforcing Layer Aggregation Model limits (ADR-005)." >> "$log_file"
+                sleep "$delay_sec"
+                continue
+            fi
+        fi
+
+        # Cycle 76: Kubernetes Turnkey Pipeline Sprawl Limitation Matrix
+        # Throttles open scheduling orchestration if structural tracking constraints exceed Turnkey bounds natively.
+        local TURNKEY_NODE_LIMIT="${TURNKEY_NODE_LIMIT:-5}"
+        if command -v kubectl >/dev/null 2>&1; then
+            local k8s_conf="${KUBECONFIG:-/etc/kubernetes/admin.conf}"
+            if [ -f "$k8s_conf" ] || [ -f "$HOME/.kube/config" ]; then
+                local conf_path="${KUBECONFIG:-}"
+                if [ -z "$conf_path" ] && [ -f "$HOME/.kube/config" ]; then
+                   conf_path="$HOME/.kube/config"
+                fi
+                # Evaluate Active Worker Bounds organically avoiding JSON dependencies via standard structural grep 
+                local active_nodes
+                active_nodes=$(kubectl --kubeconfig "$conf_path" get nodes --no-headers 2>/dev/null | grep -c ' Ready' || echo "0")
+                if [ "$active_nodes" -ge "$TURNKEY_NODE_LIMIT" ]; then
+                    echo "[$(date -u)] CSQBM_HALT [Mithra/LIVE]: K8s Turnkey pipeline sprawl limit exceeded ($active_nodes nodes >= $TURNKEY_NODE_LIMIT max). Task $task_name execution blocked prioritizing structural environmental bounds." >> "$log_file"
+                    sleep "$delay_sec"
+                    continue
+                fi
+            fi
+        fi
+
         if [ -f "$proj_root/scripts/validators/project/check-csqbm.sh" ]; then
-            if ! bash "$proj_root/scripts/validators/project/check-csqbm.sh" > /dev/null 2>&1; then
-                echo "[$(date -u)] CSQBM Governance Halt: CSQBM trace missing. Task $task_name blocked via OpenWorm Physical Bounds (ADR-005)." >> "$log_file"
+            if ! bash "$proj_root/scripts/validators/project/check-csqbm.sh" --deep-why > /dev/null 2>&1; then
+                echo "[$(date -u)] CSQBM_HALT [Yasna/TIME]: CSQBM Deep-Why Violation. Truth execution path for task $task_name blocked natively via TurboQuant-DGM bounds (ADR-005)." >> "$log_file"
                 sleep "$delay_sec"
                 continue
             fi

@@ -9,6 +9,7 @@ import {
   BarChart3,
   Clock,
   Filter,
+  Globe,
   Home,
   Settings,
   TrendingUp,
@@ -33,6 +34,7 @@ const navigationItems = [
   { id: 'circles', label: 'Circles', icon: Users },
   { id: 'anomalies', label: 'Anomalies', icon: AlertTriangle },
   { id: 'economic', label: 'Economic Impact', icon: TrendingUp },
+  { id: 'tld', label: 'TLD Domains', icon: Globe },
   { id: 'timeline', label: 'Timeline', icon: Clock },
   { id: 'heatmap', label: 'Effectiveness Map', icon: Map },
   { id: 'settings', label: 'Settings', icon: Settings }

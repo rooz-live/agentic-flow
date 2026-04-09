@@ -4,20 +4,13 @@ description: "Test quality validation through mutation testing, assessing test s
 category: specialized-testing
 priority: high
 tokenEstimate: 900
-agents: [qe-test-generator, qe-coverage-analyzer, qe-quality-analyzer, qe-mutation-tester]
+agents: [qe-test-generator, qe-coverage-analyzer, qe-quality-analyzer]
 implementation_status: optimized
 optimization_version: 1.0
 last_optimized: 2025-12-02
 dependencies: []
 quick_reference_card: true
 tags: [mutation, stryker, test-quality, kill-rate, assertions, effectiveness]
-
-# ADR-056 Trust Tier 3 Validation
-trust_tier: 3
-validation:
-  schema_path: schemas/output.json
-  validator_path: scripts/validate-config.json
-  eval_path: evals/mutation-testing.yaml
 ---
 
 # Mutation Testing

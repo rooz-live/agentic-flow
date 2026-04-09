@@ -28,14 +28,14 @@ echo -e "${BLUE}🚀 Starting Dashboard Server${NC}"
 echo -e "${BLUE}Environment: $ENV${NC}"
 echo -e "${BLUE}Port: $PORT${NC}"
 
-# Configure based on environment
+# Flatten environment configuration mapping via early default declarative initialization
+BIND_ADDRESS="localhost"
+PUBLIC_URL="http://localhost:$PORT"
+
 if [[ "$ENV" != "local" ]]; then
     configure_server "$ENV" "$PORT"
     BIND_ADDRESS="$SERVER_BIND_ADDRESS"
     PUBLIC_URL="$DASHBOARD_PUBLIC_URL"
-else
-    BIND_ADDRESS="localhost"
-    PUBLIC_URL="http://localhost:$PORT"
 fi
 
 # Check if port is in use

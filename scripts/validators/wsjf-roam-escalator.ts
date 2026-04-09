@@ -34,7 +34,7 @@ import * as os from 'os';
 
 // Configuration
 const WATCH_DIR = path.join(os.homedir(), 'Documents/Personal/CLT/MAA');
-const EXTRA_WATCH_DIRS = [
+export const EXTRA_WATCH_DIRS = [
   path.join(os.homedir(), 'Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/01-ACTIVE-CRITICAL/MAA-26CV005596-590/TRIAL-PREP'),
   path.join(os.homedir(), 'Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/01-ACTIVE-CRITICAL/MAA-26CV007491-590/TRIAL-PREP'),
   path.join(os.homedir(), 'Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/00-DASHBOARD'),
@@ -46,7 +46,7 @@ const SENT_DIRS = [
   join(process.env.HOME!, 'Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/11-ADVOCACY-PIPELINE/TIER-5-DIGITAL/Email/SENT')
 ];
 const SCAN_INTERVAL_MS = 3000; // Scan every 3 seconds (increased from 10s)
-const VALIDATE_SH_PATH = join(process.env.HOME!, 'Documents/Personal/CLT/MAA/_SYSTEM/_AUTOMATION/validate-email.sh');
+const VALIDATE_SH_PATH = join(process.env.HOME!, 'Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/_SYSTEM/_AUTOMATION/validate-email.sh');
 const WSJF_HTML_PATH = '/tmp/wsjf-priority-dashboard.html';
 const WSJF_KEYWORDS = {
   legal: ['arbitration', 'hearing', 'tribunal', 'order', 'notice', 'court', 'judge', 'attorney'],
@@ -354,6 +354,8 @@ async function validateEmailPreSend(filePath: string): Promise<boolean> {
 function initWatcher() {
   console.log(`🚀 WSJF ROAM Escalator v2.0.0 - Enhanced`);
   console.log(`📁 Watching: ${WATCH_DIR}`);
+  console.log(`📁 Extra watch dirs (covered by main depth=10): ${EXTRA_WATCH_DIRS.length}`);
+  EXTRA_WATCH_DIRS.forEach(d => console.log(`   ↳ ${d}`));
   console.log(`📤 Sent Folders: ${SENT_DIRS.length} monitored`);
   console.log(`⏱️  Scan Frequency: ${SCAN_INTERVAL_MS / 1000}s`);
   console.log(`🎯 Keywords: ${Object.keys(WSJF_KEYWORDS).join(', ')}`);

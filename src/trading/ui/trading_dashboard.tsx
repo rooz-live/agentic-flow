@@ -12,6 +12,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ComplianceAlert, ComplianceManager } from '../core/compliance_manager';
 import { OptionsStrategy, OptionsStrategyEngine } from '../core/options_strategy_engine';
@@ -413,9 +414,17 @@ export const TradingDashboard: React.FC<DashboardProps> = ({
 
       {/* Main Content */}
       <main className="dashboard-content">
-        {/* Overview Tab */}
-        {state.activeTab === 'overview' && (
-          <div className="tab-content overview-tab">
+        <AnimatePresence mode="wait">
+          {/* Overview Tab */}
+          {state.activeTab === 'overview' && (
+            <motion.div 
+              key="overview"
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.3 }}
+              className="tab-content overview-tab"
+            >
             <div className="overview-grid">
               <div className="overview-card">
                 <h3>Portfolio Value</h3>
@@ -471,12 +480,19 @@ export const TradingDashboard: React.FC<DashboardProps> = ({
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-          </div>
+            </motion.div>
         )}
 
         {/* Portfolio Tab */}
         {state.activeTab === 'portfolio' && (
-          <div className="tab-content portfolio-tab">
+          <motion.div 
+            key="portfolio"
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -15 }}
+            transition={{ duration: 0.3 }}
+            className="tab-content portfolio-tab"
+          >
             <div className="portfolio-grid">
               <div className="portfolio-chart">
                 <h3>Portfolio Allocation</h3>
@@ -533,7 +549,7 @@ export const TradingDashboard: React.FC<DashboardProps> = ({
                 </table>
               </div>
             </div>
-          </div>
+          </motion.div>
         )}
 
         {/* Strategies Tab */}
@@ -693,12 +709,9 @@ export const TradingDashboard: React.FC<DashboardProps> = ({
                     <Bar dataKey="value" fill="#dc3545" />
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
-            </div>
           </div>
+          </motion.div>
         )}
-
-        {/* Options Tab */}
         {state.activeTab === 'options' && (
           <div className="tab-content options-tab">
             <div className="options-grid">
@@ -811,6 +824,7 @@ export const TradingDashboard: React.FC<DashboardProps> = ({
               </div>
             </div>
           )}
+        </AnimatePresence>
       </main>
 
       {/* Notifications Panel */}

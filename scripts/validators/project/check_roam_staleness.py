@@ -271,13 +271,13 @@ def main():
         print("ROAM STALENESS CHECK")
         print("=" * 70)
         print(f"Status: {result['status']}")
-        print(f"Last Updated: {result['last_updated']}")
-        if result['age_days'] is not None:
+        print(f"Last Updated: {result.get('last_updated', 'N/A')}")
+        if result.get('age_days') is not None:
             print(f"Age: {result['age_days']:.1f} days")
-        print(f"Max Age: {result['max_age_days']} days")
-        print(f"Reason: {result['reason']}")
+        print(f"Max Age: {result.get('max_age_days', 3)} days")
+        print(f"Reason: {result.get('reason', 'unknown')}")
         
-        if result['stale_entries']:
+        if result.get('stale_entries'):
             print(f"\nStale Entries ({result['stale_count']}):")
             for entry in result['stale_entries']:
                 print(f"  - {entry['id']}: {entry['title']}")

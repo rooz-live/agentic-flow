@@ -2,6 +2,9 @@
 # ay-wsjf-runner.sh - WSJF/Iterate/Run/Build/Measure/Learn Runner
 # MCP (Model Context Protocol) + MPP (Method Pattern Protocol) Integration
 # yo.life FLM aligned continuous improvement automation
+# @business-context WSJF-1
+# @adr ADR-021
+# @constraint R-2026-022
 
 set -euo pipefail
 
@@ -17,6 +20,12 @@ MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
+if [[ -f "$PROJECT_ROOT/_SYSTEM/_AUTOMATION/run-bounded-eta.sh" ]]; then
+    _OLD_SCRIPT_DIR="$SCRIPT_DIR"
+    source "$PROJECT_ROOT/_SYSTEM/_AUTOMATION/run-bounded-eta.sh" 2>/dev/null || true
+    SCRIPT_DIR="$_OLD_SCRIPT_DIR"
+fi
+
 log() { echo -e "${GREEN}[✓]${NC} $*"; }
 warn() { echo -e "${YELLOW}[⚠]${NC} $*"; }
 error() { echo -e "${RED}[✗]${NC} $*"; }
@@ -26,6 +35,25 @@ phase() { echo -e "${MAGENTA}[PHASE]${NC} $*"; }
 
 # WSJF Configuration - Dynamic thresholds
 # These are now calculated from ground truth, with conservative fallbacks
+
+# Pressure sensitivity thresholds
+PRESSURE_HIGH=85
+PRESSURE_MEDIUM=60
+PRESSURE_LOW=35
+
+# Circle balance configuration
+declare -A CIRCLE_WEIGHTS=(
+    ["assessor"]=0.20
+    ["analyst"]=0.15
+    ["innovator"]=0.15
+    ["seeker"]=0.15
+    ["intuitive"]=0.20
+    ["orchestrator"]=0.15
+)
+
+# Baseline metrics
+BASELINE_ITERATIONS=100
+BASELINE_DEPTH=3
 get_quick_cycles_target() {
   # Calculate based on episode velocity and variance
   local target
@@ -33,8 +61,8 @@ get_quick_cycles_target() {
 WITH episode_stats AS (
   SELECT 
     COUNT(*) as total_episodes,
-    AVG(CAST((julianday(completed_at) - julianday(created_at)) * 1440 AS REAL)) as avg_duration_min,
-    STDEV(reward) / NULLIF(AVG(reward), 0) as coeff_variation
+    AVG(CAST(latency_ms / 60000.0 AS REAL)) as avg_duration_min,
+    SQRT(MAX(0, AVG(reward * reward) - AVG(reward) * AVG(reward))) / NULLIF(AVG(reward), 0) as coeff_variation
   FROM episodes
   WHERE created_at > datetime('now', '-7 days') AND success = 1
 )
@@ -129,7 +157,7 @@ cmd_wsjf() {
   info "Analyzing current state..."
   
   local compliance
-  compliance=$(sqlite3 "$PROJECT_ROOT/agentdb.db" "SELECT COUNT(*) FROM observations WHERE outcome = 1;" 2>/dev/null || echo "0")
+  compliance=$(sqlite3 "$PROJECT_ROOT/agentdb.db" "SELECT COUNT(*) FROM observations WHERE success = 1;" 2>/dev/null || echo "0")
   
   # Check circle equity
   info "Calculating circle equity..."
@@ -197,7 +225,7 @@ SQL
   min_baseline=$(sqlite3 "$PROJECT_ROOT/agentdb.db" <<SQL
 WITH variance_estimate AS (
   SELECT 
-    COALESCE(STDEV(CASE WHEN outcome = 1 THEN 1.0 ELSE 0.0 END), 0.25) as est_stddev
+    COALESCE(SQRT(MAX(0, AVG(CASE WHEN success = 1 THEN 1.0 ELSE 0.0 END) * (1.0 - AVG(CASE WHEN success = 1 THEN 1.0 ELSE 0.0 END)))), 0.25) as est_stddev
   FROM observations
   WHERE created_at > datetime('now', '-30 days')
 )
@@ -348,7 +376,7 @@ build_baseline() {
   required_obs=$(sqlite3 "$PROJECT_ROOT/agentdb.db" <<SQL
 WITH current_variance AS (
   SELECT 
-    STDEV(CASE WHEN outcome = 1 THEN 1.0 ELSE 0.0 END) as p_stddev,
+    SQRT(MAX(0, AVG(CASE WHEN success = 1 THEN 1.0 ELSE 0.0 END) * (1.0 - AVG(CASE WHEN success = 1 THEN 1.0 ELSE 0.0 END)))) as p_stddev,
     COUNT(*) as n
   FROM observations
   WHERE created_at > datetime('now', '-30 days')
@@ -388,8 +416,8 @@ check_production_readiness() {
   thresholds=$(sqlite3 "$PROJECT_ROOT/agentdb.db" <<SQL
 WITH historical_perf AS (
   SELECT 
-    AVG(CASE WHEN outcome = 1 THEN 1.0 ELSE 0.0 END) as avg_compliance,
-    STDEV(CASE WHEN outcome = 1 THEN 1.0 ELSE 0.0 END) as stddev_compliance,
+    AVG(CASE WHEN success = 1 THEN 1.0 ELSE 0.0 END) as avg_compliance,
+    SQRT(MAX(0, AVG(CASE WHEN success = 1 THEN 1.0 ELSE 0.0 END) * (1.0 - AVG(CASE WHEN success = 1 THEN 1.0 ELSE 0.0 END)))) as stddev_compliance,
     COUNT(*) as total_obs,
     COUNT(DISTINCT circle) as active_circles
   FROM observations
@@ -433,7 +461,7 @@ SQL
   # Check compliance with dynamic threshold
   local compliance
   compliance=$(sqlite3 "$PROJECT_ROOT/agentdb.db" \
-    "SELECT CAST(AVG(CASE WHEN outcome = 1 THEN 100.0 ELSE 0.0 END) AS INTEGER) \
+    "SELECT CAST(AVG(CASE WHEN success = 1 THEN 100.0 ELSE 0.0 END) AS INTEGER) \
      FROM observations WHERE created_at > datetime('now', '-7 days');" 2>/dev/null || echo "0")
   
   # Ensure compliance is a number (fallback)
@@ -487,11 +515,35 @@ SQL
 # Balance Command
 cmd_balance() {
   local n=${1:-10}
+  local pressure_level=${2:-50}
   
-  phase "Balancing Circles ($n ceremonies)"
+  phase "Balancing Circles ($n ceremonies, Pressure: $pressure_level%)"
   echo
+
+  # Adjust weights based on pressure
+  local pressure_multiplier
+  if (( pressure_level >= PRESSURE_HIGH )); then
+    pressure_multiplier=1.5
+    warn "High pressure detected - increasing orchestrator and assessor weights"
+    CIRCLE_WEIGHTS["orchestrator"]=0.25
+    CIRCLE_WEIGHTS["assessor"]=0.25
+  elif (( pressure_level >= PRESSURE_MEDIUM )); then
+    pressure_multiplier=1.2
+  else
+    pressure_multiplier=1.0
+  fi
   
-  balance_circles "$n"
+  # Adjust all circle weights proportionally
+  for circle in "${!CIRCLE_WEIGHTS[@]}"; do
+    local base_weight=${CIRCLE_WEIGHTS[$circle]}
+    CIRCLE_WEIGHTS[$circle]=$(echo "scale=3; $base_weight * $pressure_multiplier" | bc 2>/dev/null || echo "$base_weight")
+  done
+  
+  if declare -F run_bounded_eta >/dev/null; then
+    run_bounded_eta "wsjf_balance" "balance_circles" "$n"
+  else
+    balance_circles "$n"
+  fi
   
   echo
   "$SCRIPT_DIR/ay-yo-integrate.sh" dashboard
@@ -502,7 +554,50 @@ cmd_baseline() {
   phase "Building Learning Baseline"
   echo
   
-  build_baseline
+  local metric_file="wsjf_baseline_$(date +%Y%m%d).json"
+  log "Recording systemic pressure state to $metric_file"
+  
+  local cpu_pressure=$(top -l 1 | grep "CPU usage" | awk '{print $3}' | sed 's/%//' || echo "50")
+  local memory_free_pct=$(memory_pressure | grep "System-wide memory free percentage:" | awk '{print $5}' | sed 's/%//' || echo "50")
+  local mem_pressure_pct=$((100 - memory_free_pct))
+  local overall_pressure=$(echo "scale=0; ($cpu_pressure + $mem_pressure_pct) / 2" | bc 2>/dev/null || echo "50")
+  
+  # HostBill / StarlingX Financial Telemetry Integration
+  # Extract synthetic_mrr_usd or power boundaries to calculate financial equilibrium constraints
+  local hostbill_ledger="$PROJECT_ROOT/.goalie/hostbill_ledger.json"
+  local mrr_financial_stress=0
+
+  if [[ -f "$hostbill_ledger" ]] && command -v jq >/dev/null 2>&1; then
+      local mrr_val=$(jq -r '.synthetic_billing.synthetic_mrr_usd // 0' "$hostbill_ledger")
+      # Scale: Every $10 in MRR above $100 adds +5% to overall system pressure mathematically slowing loops.
+      mrr_financial_stress=$(echo "scale=0; if($mrr_val > 100) (($mrr_val - 100) / 10) * 5 else 0" | bc 2>/dev/null || echo "0")
+      
+      if [[ "$mrr_financial_stress" -gt 0 ]]; then
+          echo -e "\033[1;33m[HostBill] Financial Telemetry active (MRR: \$${mrr_val}). Applying +${mrr_financial_stress}% pressure constraint.\033[0m"
+          overall_pressure=$(echo "scale=0; $overall_pressure + $mrr_financial_stress" | bc 2>/dev/null || echo "$overall_pressure")
+      fi
+  fi
+  
+  cat > "$metric_file" << EOF
+{
+  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "ceremony": "baseline",
+  "metrics": {
+    "cpu_pressure": $cpu_pressure,
+    "memory_pressure": $mem_pressure_pct,
+    "overall_pressure": $overall_pressure,
+    "baseline_iterations": $BASELINE_ITERATIONS,
+    "baseline_depth": $BASELINE_DEPTH
+  },
+  "circle_allocations": $(declare -p CIRCLE_WEIGHTS | sed 's/declare -A //')
+}
+EOF
+
+  if declare -F run_bounded_eta >/dev/null; then
+    run_bounded_eta "wsjf_baseline" "build_baseline"
+  else
+    build_baseline
+  fi
   
   echo
   "$SCRIPT_DIR/ay-yo-continuous-improvement.sh" analyze
@@ -595,6 +690,42 @@ cmd_status() {
   fi
 }
 
+
+# Structural audit of untracked files
+cmd_audit() {
+  local audit_dir=${1:-"$PROJECT_ROOT"}
+  
+  phase "STRUCTURAL AUDIT"
+  log "Auditing $audit_dir"
+  
+  cd "$audit_dir" || {
+    error "Cannot change to directory: $audit_dir"
+    return 1
+  }
+  
+  # Find untracked files
+  local untracked_count=$(git ls-files --others --exclude-standard | wc -l)
+  local audit_report="STRUCTURAL_AUDIT_$(date +%Y%m%d_%H%M%S).json"
+  
+  # Generate audit report
+  cat > "$audit_report" << EOF
+{
+  "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+  "audit_directory": "$(pwd)",
+  "untracked_summary": {
+    "total_files": $untracked_count,
+    "audit_report": "$audit_report"
+  },
+  "untracked_files": [
+$(git ls-files --others --exclude-standard | head -20 | jq -R . | jq -s . | sed 's/^/    /')
+  ]
+}
+EOF
+  
+  log "Structural audit complete: $audit_report"
+  log "Untracked files found: $untracked_count"
+}
+
 # Main
 main() {
   if [[ $# -eq 0 ]]; then
@@ -631,6 +762,9 @@ main() {
       ;;
     status)
       cmd_status "$@"
+      ;;
+    audit)
+      cmd_audit "$@"
       ;;
     *)
       error "Unknown command: $cmd"

@@ -159,6 +159,7 @@ FILE_VALIDATORS=(
     "mail-capture-validate.sh|$VALIDATOR_FILE_DIR/mail-capture-validate.sh --file FILE"
     "email-gate-lean.sh|$SCRIPT_DIR/validators/email-gate-lean.sh --file FILE 2>/dev/null || true"
     "validate-email-dupe.sh|$SCRIPT_DIR/validators/validate-email-dupe.sh FILE 2>/dev/null || true"
+    "legal-fact-check.sh|$SCRIPT_DIR/validators/project/legal-fact-check.sh FILE 2>/dev/null || true"
     # DEFERRED (create script first, then re-enable):
     # "pre-send-email-gate.sh|SKIP_MESH=true $VALIDATOR_FILE_DIR/pre-send-email-gate.sh FILE"
     # "pre-send-email-workflow.sh|COMPARE_MODE=true AUTO_REPLACE_PLACEHOLDERS=false $VALIDATOR_FILE_DIR/pre-send-email-workflow.sh FILE"

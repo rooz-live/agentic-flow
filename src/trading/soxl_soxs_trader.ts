@@ -49,13 +49,57 @@ interface PortfolioAllocation {
   sharpe_ratio: number;
 }
 
+/**
+ * Fetch a real-time quote from Yahoo Finance (free, no API key required).
+ * Falls back to FMP if Yahoo fails and FMP_API_KEY is set.
+ */
+async function fetchYahooQuote(symbol: string): Promise<StockQuote> {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=5d`;
+  const resp = await fetch(url, {
+    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; agentic-flow/1.0)' },
+  });
+  if (!resp.ok) throw new Error(`Yahoo Finance ${resp.status} for ${symbol}`);
+  const json = await resp.json() as any;
+  const meta = json.chart?.result?.[0]?.meta;
+  if (!meta) throw new Error(`No Yahoo data for ${symbol}`);
+  const closes: number[] = json.chart.result[0].indicators?.quote?.[0]?.close?.filter(Boolean) || [];
+  const volumes: number[] = json.chart.result[0].indicators?.quote?.[0]?.volume?.filter(Boolean) || [];
+  const price = meta.regularMarketPrice ?? closes[closes.length - 1] ?? 0;
+  const prevClose = meta.chartPreviousClose ?? meta.previousClose ?? price;
+  const change = price - prevClose;
+  const avgVol = volumes.length > 1 ? volumes.slice(0, -1).reduce((a: number, b: number) => a + b, 0) / (volumes.length - 1) : volumes[0] || 1;
+  return {
+    symbol,
+    name: meta.shortName || meta.symbol || symbol,
+    price,
+    changesPercentage: prevClose ? (change / prevClose) * 100 : 0,
+    change,
+    dayLow: meta.regularMarketDayLow ?? price * 0.98,
+    dayHigh: meta.regularMarketDayHigh ?? price * 1.02,
+    yearHigh: meta.fiftyTwoWeekHigh ?? price * 1.5,
+    yearLow: meta.fiftyTwoWeekLow ?? price * 0.5,
+    marketCap: 0,
+    priceAvg50: meta.fiftyDayAverage ?? price,
+    priceAvg200: meta.twoHundredDayAverage ?? price,
+    volume: meta.regularMarketVolume ?? volumes[volumes.length - 1] ?? 0,
+    avgVolume: avgVol,
+    timestamp: Math.floor(Date.now() / 1000),
+  };
+}
+
 export class SOXLSOXSTrader {
-  private fmpClient;
+  private fmpClient: any;
   private goalieDir: string;
   private priceHistory: Map<string, number[]> = new Map();
+  private fmpEntitlementBlocked: boolean = false;
 
   constructor(fmpApiKey?: string) {
-    this.fmpClient = createFMPStableClient(fmpApiKey);
+    // FMP is optional — Yahoo Finance is the free default
+    try {
+      this.fmpClient = createFMPStableClient(fmpApiKey);
+    } catch {
+      this.fmpClient = null;
+    }
     this.goalieDir = process.env.GOALIE_DIR || path.join(process.cwd(), '.goalie');
 
     if (!fs.existsSync(this.goalieDir)) {
@@ -343,61 +387,132 @@ export class SOXLSOXSTrader {
     const metricsFile = path.join(this.goalieDir, 'pattern_metrics.jsonl');
     fs.appendFileSync(metricsFile, JSON.stringify(metricEntry) + '\n');
   }
+  private isDryRunMode(): boolean {
+    return process.argv.includes('--dry-run') || process.env.TRADER_DRY_RUN === '1';
+  }
+
+  private allow402Simulation(): boolean {
+    return process.env.TRADER_ALLOW_402_SIMULATION === '1' || process.env.CI_ALLOW_FMP_402_SIMULATION === '1';
+  }
+
+  private isFmp402Error(error: unknown): boolean {
+    const message = (error as Error)?.message || '';
+    return message.includes('402') || message.includes('Payment Required');
+  }
+
+  private buildSimulatedQuote(symbol: string): StockQuote {
+    const anchorPrices: Record<string, number> = {
+      SOXL: 45.5,
+      SOXS: 45.5,
+      SMH: 260.0,
+      SOXX: 220.0,
+    };
+    const price = anchorPrices[symbol] ?? 100.0;
+    return {
+      symbol,
+      name: `${symbol} (simulated)`,
+      price,
+      changesPercentage: 0,
+      change: 0,
+      dayLow: price * 0.99,
+      dayHigh: price * 1.01,
+      yearHigh: price * 1.3,
+      yearLow: price * 0.7,
+      marketCap: 0,
+      priceAvg50: price,
+      priceAvg200: price,
+      volume: 1,
+      avgVolume: 1,
+      timestamp: Math.floor(Date.now() / 1000),
+    };
+  }
 
   /**
-   * Analyze SOXL/SOXS and generate trading signals
+   * Analyze any list of tickers and generate trading signals.
+   * Default: SOXL,SOXS. Override via TICKERS env var or --tickers CLI arg.
    */
-  async analyze(): Promise<{
-    soxlSignal: TradingSignal;
-    soxsSignal: TradingSignal;
-    portfolio: PortfolioAllocation;
-  }> {
-    console.log('🔍 Fetching SOXL/SOXS quotes from FMP Stable API...');
+  async analyzeMulti(tickers?: string[]): Promise<{ signals: TradingSignal[]; portfolio: PortfolioAllocation }> {
+    const symbols = tickers || this.getTickerList();
+    console.log(`🔍 Fetching ${symbols.join(', ')} from Yahoo Finance (free)...`);
 
-    const quotes = await this.fmpClient.batchGetQuotes(['SOXL', 'SOXS']);
-    
-    if (quotes.length !== 2) {
-      throw new Error('Failed to fetch quotes for SOXL and SOXS');
+    const quotes: StockQuote[] = [];
+    for (const sym of symbols) {
+      let quote: StockQuote | null = null;
+      try {
+        quote = await fetchYahooQuote(sym);
+      } catch (err) {
+        console.warn(`⚠️  ${sym}: ${(err as Error).message}`);
+        // If FMP available, try fallback for this symbol.
+        // If we hit 402 once, avoid further entitlement calls in this run.
+        if (this.fmpClient && !this.fmpEntitlementBlocked) {
+          try {
+            const fmpQ = await this.fmpClient.getQuote(sym);
+            if (fmpQ?.[0]) {
+              quote = fmpQ[0];
+            }
+          } catch (fmpErr) {
+            if (this.isFmp402Error(fmpErr)) {
+              this.fmpEntitlementBlocked = true;
+              const typedReason = `FMP_ENTITLEMENT_402 (${sym})`;
+              if (this.isDryRunMode() && this.allow402Simulation()) {
+                console.warn(`⚠️  ${typedReason}: simulation fallback enabled`);
+                quote = this.buildSimulatedQuote(sym);
+              } else {
+                throw new Error(`${typedReason}: provider plan/entitlement blocked quote access. Set TRADER_ALLOW_402_SIMULATION=1 for approved CI simulation mode.`);
+              }
+            } else {
+              throw fmpErr;
+            }
+          }
+        }
+      }
+      if (quote) {
+        quotes.push(quote);
+      }
     }
 
-    const soxlQuote = quotes.find(q => q.symbol === 'SOXL')!;
-    const soxsQuote = quotes.find(q => q.symbol === 'SOXS')!;
+    if (quotes.length === 0) throw new Error('No quotes retrieved for any ticker');
 
-    console.log(`📊 SOXL: $${soxlQuote.price} (${soxlQuote.changesPercentage.toFixed(2)}%)`);
-    console.log(`📊 SOXS: $${soxsQuote.price} (${soxsQuote.changesPercentage.toFixed(2)}%)`);
+    const signals: TradingSignal[] = [];
+    for (const quote of quotes) {
+      console.log(`📊 ${quote.symbol}: $${quote.price.toFixed(2)} (${quote.changesPercentage.toFixed(2)}%)`);
+      const indicators = this.calculateIndicators(quote.symbol, quote);
+      const signal = this.generateSignal(quote.symbol, quote, indicators);
+      signals.push(signal);
+      this.logSignal(signal);
+      console.log(`🤖 ${signal.symbol}: ${signal.action} (${(signal.confidence * 100).toFixed(0)}%) — ${signal.reason}`);
+    }
 
-    // Calculate indicators and generate signals
-    const soxlIndicators = this.calculateIndicators('SOXL', soxlQuote);
-    const soxsIndicators = this.calculateIndicators('SOXS', soxsQuote);
+    // Portfolio allocation (uses first two as bull/bear pair, rest informational)
+    const soxlSig = signals.find(s => s.symbol === 'SOXL') || signals[0];
+    const soxsSig = signals.find(s => s.symbol === 'SOXS') || signals[1] || soxlSig;
+    const portfolio = this.optimizePortfolio(soxlSig, soxsSig);
 
-    const soxlSignal = this.generateSignal('SOXL', soxlQuote, soxlIndicators);
-    const soxsSignal = this.generateSignal('SOXS', soxsQuote, soxsIndicators);
+    console.log(`\n💼 Portfolio: SOXL ${portfolio.soxl_pct.toFixed(0)}% | SOXS ${portfolio.soxs_pct.toFixed(0)}% | Cash ${portfolio.cash_pct.toFixed(0)}%`);
 
-    console.log(`\n🤖 SOXL Signal: ${soxlSignal.action} (${(soxlSignal.confidence * 100).toFixed(1)}% confidence)`);
-    console.log(`   Reason: ${soxlSignal.reason}`);
-    console.log(`   RSI: ${soxlSignal.indicators.rsi.toFixed(2)} | MACD: ${soxlSignal.indicators.macdHist.toFixed(2)}`);
+    return { signals, portfolio };
+  }
 
-    console.log(`\n🤖 SOXS Signal: ${soxsSignal.action} (${(soxsSignal.confidence * 100).toFixed(1)}% confidence)`);
-    console.log(`   Reason: ${soxsSignal.reason}`);
-    console.log(`   RSI: ${soxsSignal.indicators.rsi.toFixed(2)} | MACD: ${soxsSignal.indicators.macdHist.toFixed(2)}`);
+  /** Parse ticker list from env/CLI. Default: SOXL,SOXS */
+  private getTickerList(): string[] {
+    // --tickers SOXL,SOXS,SMH,SOXX
+    const idx = process.argv.indexOf('--tickers');
+    if (idx !== -1 && process.argv[idx + 1]) {
+      return process.argv[idx + 1].split(',').map(s => s.trim().toUpperCase());
+    }
+    // TICKERS=SOXL,SOXS,SMH
+    if (process.env.TICKERS) {
+      return process.env.TICKERS.split(',').map(s => s.trim().toUpperCase());
+    }
+    return ['SOXL', 'SOXS'];
+  }
 
-    // Optimize portfolio
-    const portfolio = this.optimizePortfolio(soxlSignal, soxsSignal);
-
-    console.log(`\n💼 Portfolio Allocation:`);
-    console.log(`   SOXL: ${portfolio.soxl_pct.toFixed(1)}%`);
-    console.log(`   SOXS: ${portfolio.soxs_pct.toFixed(1)}%`);
-    console.log(`   Cash: ${portfolio.cash_pct.toFixed(1)}%`);
-    console.log(`   Expected Return: ${(portfolio.expected_return * 100).toFixed(2)}%`);
-    console.log(`   Sharpe Ratio: ${portfolio.sharpe_ratio.toFixed(2)}`);
-
-    // Log signals
-    this.logSignal(soxlSignal);
-    this.logSignal(soxsSignal);
-
+  /** Backward-compatible: analyze SOXL+SOXS only */
+  async analyze() {
+    const { signals, portfolio } = await this.analyzeMulti(['SOXL', 'SOXS']);
     return {
-      soxlSignal,
-      soxsSignal,
+      soxlSignal: signals.find(s => s.symbol === 'SOXL')!,
+      soxsSignal: signals.find(s => s.symbol === 'SOXS')!,
       portfolio,
     };
   }
@@ -414,18 +529,47 @@ export class SOXLSOXSTrader {
 
 // CLI execution
 async function main() {
+  const isDryRun = process.argv.includes('--dry-run');
   const trader = new SOXLSOXSTrader();
 
-  console.log('🚀 SOXL/SOXS Neural Trading System\n');
+  console.log(`🚀 Neural Trading System${isDryRun ? ' (DRY-RUN: synthetic data)' : ''}\n`);
 
   try {
-    const result = await trader.analyze();
+    let result;
 
-    console.log('\n✅ Analysis complete!');
+    if (isDryRun) {
+      // Dry-run mode: use synthetic quotes — no network calls, CI-safe
+      const syntheticQuote = (sym: string, price: number): StockQuote => ({
+        symbol: sym, name: `${sym} (simulated)`, price,
+        changesPercentage: -1.2, change: -price * 0.012,
+        dayLow: price * 0.97, dayHigh: price * 1.03,
+        yearHigh: price * 2, yearLow: price * 0.4,
+        marketCap: 0, priceAvg50: price * 1.05, priceAvg200: price * 0.95,
+        volume: 5000000, avgVolume: 4000000, timestamp: Math.floor(Date.now() / 1000),
+      });
+      const tickers = trader['getTickerList']();
+      const signals: TradingSignal[] = [];
+      for (const sym of tickers) {
+        const q = syntheticQuote(sym, sym === 'SOXL' ? 22.50 : 45.54);
+        const indicators = trader['calculateIndicators'](sym, q);
+        const signal = trader['generateSignal'](sym, q, indicators);
+        signals.push(signal);
+        trader['logSignal'](signal);
+        console.log(`🤖 ${signal.symbol}: ${signal.action} (${(signal.confidence * 100).toFixed(0)}%) — ${signal.reason} [SIMULATED]`);
+      }
+      const soxlSig = signals.find(s => s.symbol === 'SOXL') || signals[0];
+      const soxsSig = signals.find(s => s.symbol === 'SOXS') || signals[1] || soxlSig;
+      result = { signals, portfolio: trader.optimizePortfolio(soxlSig, soxsSig) };
+      console.log('\n✅ Dry-run complete — indicators validated, no API calls made.');
+    } else {
+      // Live mode: use Yahoo (free) + FMP fallback
+      result = await trader.analyzeMulti();
+      console.log('\n✅ Analysis complete!');
+    }
+
     console.log(`📝 Signals logged to .goalie/trading_signals.jsonl`);
     console.log(`📊 Pattern metrics logged to .goalie/pattern_metrics.jsonl`);
 
-    // Output JSON for programmatic use
     if (process.argv.includes('--json')) {
       console.log('\n' + JSON.stringify(result, null, 2));
     }

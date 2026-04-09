@@ -1,27 +1,24 @@
-# SRE Monitoring Setup: Four Golden Signals Bounding
+# 🔭 Monitoring & Analytics Environment Setup
 
-> This observability mapping executes the fundamental principles outlined in `docs/TURBOQUANT-DGM-METRICS-2026-03-30.md`, strictly protecting the Swarm ecosystem by natively calculating the Four Golden Signals across the agentic network without hallucination.
+> [!NOTE]
+> This runbook is intended specifically for the local, private Mac agentic execution topology (Ollama / Qwen / Gemma + OpenCode) mapping organically alongside STX12 / HostBill baseline nodes natively.
 
-## 1. Latency Bounding
-*   **Measurement Target**: `check-infra-health.sh` submodule mapping speed and STX node IPMI response metrics.
-*   **Constraint (SLO)**: Core index status rendering must conclude in `< 1500ms`.
-*   **Trace Engine**: Submodule pointer extraction times logged natively mapping `time /usr/bin/git status -uno` inside validation bounds locally.
+## 1. Local CLI Metrics Output (OpenCode / Ollama)
+When utilizing `OPENCODE_DISABLE_DEFAULT_PLUGINS=true opencode`, explicit token sizes, reasoning lengths, and fallback actions will be securely bound mapped strictly locally. 
 
-## 2. Traffic Flow Evaluation
-*   **Measurement Target**: Concurrent execution of internal CI checks / Swarm thread spawning (e.g., executing `semantic-validation-gate.sh` on deep RFC matrices).
-*   **Constraint (SLO)**: Limit active node operations protecting STX 10/11 bounds natively (Max 5 concurrent Agent executions locally to bypass Attention Fragmentation limits mapped in `R-2026-018`).
-*   **Trace Engine**: Core daemon activation tracking (`mcp-scheduler-daemon.sh`).
+**STX & JIT Telemetry Bounding**: 
+`scripts/ci/collect_metrics.py` now specifically watches the `.agentic_logs` for `opencode` execution streams binding physical metrics mapping locally directly alongside the HostBill STX ($130.14) baselines. 
 
-## 3. Error Rates
-*   **Measurement Target**: Unhandled Bash exit codes, CI execution failures (`[NO-GO]` indicators), and submodule unmapped structural ghosts gracefully.
-*   **Constraint (SLO)**: `99.9%` pass rate matching target traces on `check-csqbm.sh --deep-why`.
-*   **Trace Engine**: `scripts/ci/collect_metrics.py` pushing failure metrics strictly to `.goalie/metrics_log.jsonl`.
+## 2. Agentic QE Telemetry (`npx agentic-qe@3.9.0`)
+Agentic-QE local Unified Memory (`.agentic-qe/memory.db`) will inherently output the trace metrics:
+*  **Hooks Activated**: Claude Code / OpenCode compatibility tracing.
+*  **Nodes Captured**: 88k+ nodes mapped globally from the repository tree automatically.
 
-## 4. Resource Saturation
-*   **Measurement Target**: StarlingX 12 (IP: `23.92.79.2`) hardware CPU / IPMI Wattage usage mapping against HostBill native constraints locally securely.
-*   **Constraint (SLO)**: System Power usage > `300 Watts` or MRR calculations > `$300.27 USD` immediately trigger threshold warnings bypassing cyclic sprawl.
-*   **Trace Engine**: `scripts/ci/hostbill-sync-agent.py` extracting and bounding `ipmitool` queries automatically.
+## 3. Real-Time Dashboards
+To launch the real-time observer locally mapping to OpenStack integration traces:
+```bash
+python scripts/monitoring_dashboard.py --target local-swarm
+```
 
 ---
-## Alerting Action & Next Steps
-When `scripts/ci/collect_metrics.py` executes, it will parse these bounds automatically. If the threshold fails, the deployment is marked `[NO-GO]` and the `docs/ROLLBACK_PROCEDURE.md` sequence is executed natively eliminating ongoing toil securely.
+# ⚠️ Operations & Incident Management Protocol

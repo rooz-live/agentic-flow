@@ -1,41 +1,37 @@
 # Consolidation Truth Report
 
 ## What works NOW
-- **File-level:** 6/8 passed (75%). Green: validation-runner.sh,email-gate-lean.sh,validate-email-dupe.sh
-- **Project-level:** 5/10 passed (50%). Green: semantic-validation-gate.sh,validate_coherence.py,check_roam_staleness.py,check-csqbm.sh,contract-enforcement-gate.sh
+- **File-level:** 4/5 passed (80%). Green: validation-runner.sh,email-gate-lean.sh,validate-email-dupe.sh,legal-fact-check.sh
+- **Project-level:** 4/10 passed (40%). Green: semantic-validation-gate.sh,validate_coherence.py,check-csqbm.sh,contract-enforcement-gate.sh
 - **Conflicting verdicts:** See Discrepancies below.
 
 ## Run metadata
-- **Date:** 2026-03-29T19:38:27Z
+- **Date:** 2026-04-06T20:52:15Z
 - **Command:** `compare-all-validators.sh `
-- **Files validated:** 2
-  - EMAIL-TO-LANDLORD-110-FRAZIER.md
-  - EMAIL-TO-AMANDA-REQUEST-APPROVAL.md
+- **Files validated:** 1
+  - MAA_Arbitrator_April6_Timeline_Clarification.eml
 
 ## Coverage metrics (%/#)
 *(Standard: %/# = state; %.# = velocity. See docs/VALIDATION_METRICS_AND_PROGRESS.md for 4D Progress and one-constant relation.)*
 
 | Scope | Passed | Failed | Skipped | Total | % |
 |-------|--------|--------|---------|-------|---|
-| File-level | 6 | 1 | 1 | 8 | 75% |
-| Project-level | 5 | 1 | 4 | 10 | 50% |
+| File-level | 4 | 1 | 0 | 5 | 80% |
+| Project-level | 4 | 2 | 4 | 10 | 40% |
 
 ## Per-run results
 | Validator | File(s) | Exit | Result | Notes |
 |-----------|---------|------|--------|-------|
-| validation-runner.sh | EMAIL-TO-LANDLORD-110-FRAZIER.md | 0 | PASS | Running Validation Runner on EMAIL-TO-LANDLORD-110 |
-| mail-capture-validate.sh | EMAIL-TO-LANDLORD-110-FRAZIER.md | 124 | SKIP |  |
-| email-gate-lean.sh | EMAIL-TO-LANDLORD-110-FRAZIER.md | 0 | PASS | Email Validation Gate |
-| validate-email-dupe.sh | EMAIL-TO-LANDLORD-110-FRAZIER.md | 0 | PASS | ⚠️  WARNING: No recipient found in email |
-| validation-runner.sh | EMAIL-TO-AMANDA-REQUEST-APPROVAL.md | 0 | PASS | Running Validation Runner on EMAIL-TO-AMANDA-REQUE |
-| mail-capture-validate.sh | EMAIL-TO-AMANDA-REQUEST-APPROVAL.md | 1 | FAIL | ════════════════� |
-| email-gate-lean.sh | EMAIL-TO-AMANDA-REQUEST-APPROVAL.md | 0 | PASS | Email Validation Gate |
-| validate-email-dupe.sh | EMAIL-TO-AMANDA-REQUEST-APPROVAL.md | 0 | PASS | ⚠️  WARNING: No recipient found in email |
+| validation-runner.sh | MAA_Arbitrator_April6_Timeline_Clarification.eml | 0 | PASS | Running Validation Runner on MAA_Arbitrator_April6 |
+| mail-capture-validate.sh | MAA_Arbitrator_April6_Timeline_Clarification.eml | 1 | FAIL | ══════════════════════════════════════════════════ |
+| email-gate-lean.sh | MAA_Arbitrator_April6_Timeline_Clarification.eml | 0 | PASS | Email Validation Gate |
+| validate-email-dupe.sh | MAA_Arbitrator_April6_Timeline_Clarification.eml | 0 | PASS | 🔍 Checking for duplicates to: "Mike Chaney, ADR Co |
+| legal-fact-check.sh | MAA_Arbitrator_April6_Timeline_Clarification.eml | 0 | PASS | [EML-GATE] Auditing correspondence constraint boun |
 | validate-foundation.sh | (project) | 1 | SKIP | 🔍 Foundation Validation Gate |
-| semantic-validation-gate.sh | (project) | 0 | PASS | ════════════════� |
-| agentdb_freshness | (project) | 0 | FAIL | [15:40:42.938] [INFO ] [ParserRegistry] tree-sitte |
+| semantic-validation-gate.sh | (project) | 0 | PASS | ══════════════════════════════════════════════════ |
+| agentdb_freshness | (project) | 0 | FAIL | error: unknown command 'kg' |
 | validate_coherence.py | (project) | 0 | PASS |  |
-| check_roam_staleness.py | (project) | 0 | PASS | ================================================== |
+| check_roam_staleness.py | (project) | 1 | FAIL | ERROR: Failed to parse ROAM tracker: while parsing |
 | check-csqbm.sh | (project) | 0 | PASS | [CSQBM] Asserting interiority's externalities: ver |
 | contract-enforcement-gate.sh | (project) | 0 | PASS | [INFO] Verifying ROAM freshness (<= 96h)... |
 | batch_classify | (project) | 1 | SKIP |  |
@@ -48,14 +44,14 @@
 
 ## Discrepancies
 Same file, different result across validators:
-- **EMAIL-TO-AMANDA-REQUEST-APPROVAL.md:** mixed PASS/FAIL (review per-validator output above)
+- **MAA_Arbitrator_April6_Timeline_Clarification.eml:** mixed PASS/FAIL (review per-validator output above)
 
 ## Coherence (DDD/ADR/TDD/PRD)
 When validate_coherence.py exit 0, see its JSON/output for structural coherence. Traceability: docs/VALIDATION-PIPELINE-TRACING.md
 
 ## RCA / Deep-Why Consolidation
 - **Model:** Gate evidence -> Causal metrics -> Retro synthesis
-- **Status:** 7/8 PASS, 0 FAIL, 1 SKIP
+- **Status:** 6/8 PASS, 0 FAIL, 2 SKIP
 
 | RCA check | Exit | Result | Notes |
 |-----------|------|--------|-------|
@@ -63,7 +59,7 @@ When validate_coherence.py exit 0, see its JSON/output for structural coherence.
 | gate_strict_validation_workflow | 0 | PASS |  |
 | causal_governance_rca_fields | 1 | SKIP |  |
 | causal_emit_metrics_rca_fields | 0 | PASS |  |
-| causal_metrics_anchor_present | 0 | PASS |  |
+| causal_metrics_anchor_present | 1 | SKIP |  |
 | retro_feedback_loop_analyzer | 0 | PASS |  |
 | retro_link_metrics_to_retro | 0 | PASS |  |
 | retro_cmd_retro_health | 0 | PASS |  |
@@ -89,16 +85,15 @@ When validate_coherence.py exit 0, see its JSON/output for structural coherence.
 
 
 ## DPC (Delivery Progress Constant)
-- **%/# coverage:** 61% (11/18)
-- **R(t) robustness:** 57% (8/14 implemented)
-- **DPC(t) = %/# × R(t):** 34
+- **%/# coverage:** 53% (8/15)
+- **R(t) robustness:** 53% (8/15 implemented)
+- **DPC(t) = %/# × R(t):** 28
 - **T_remain/T_total:** 0% (0d / 13d) [2026-02-18 → 2026-03-03]
 - **DPC_R(t) = C × (T/T₀) × R:** 0 (normalized, decays → 0 at deadline)
-- **DPC_U(t) = DPC × urgency:** 34 (pressure gauge — rises near deadline if DPC maintained)
+- **DPC_U(t) = DPC × urgency:** 28 (pressure gauge — rises near deadline if DPC maintained)
 - **Urgency factor:** 100/100 (rises as deadline approaches)
 - **Urgency zone:** RED
 - **T_remain (hourly):** 0h / 312h (0.0%)
 - **DPC_R decay:** 0.00 (λ=3, exponential pressure signal)
-- **Projected completion:** gap=26, need 0 DPC/day → feasible
-- **%.# velocity:** 0% in 8min = 0.00%/min (EMA: 0.00%/min)
+- **Projected completion:** gap=32, need 0 DPC/day → feasible
 

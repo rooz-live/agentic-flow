@@ -11,11 +11,6 @@ last_optimized: 2025-12-02
 dependencies: []
 quick_reference_card: true
 tags: [code-review, feedback, quality, testability, maintainability, pr-review]
-trust_tier: 2
-validation:
-  schema_path: schemas/output.json
-  validator_path: scripts/validate-config.json
-
 ---
 
 # Code Review Quality

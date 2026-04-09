@@ -38,6 +38,8 @@ get_domain_for_env() {
         "gateway") echo "pur.tag.vote" ;;
         "evidence") echo "hab.yo.life" ;;
         "process") echo "file.720.chat" ;;
+        "inference"|"api_gateway") echo "api.interface.rooz.live" ;;
+        "root") echo "law.rooz.live" ;;
         *) echo "$DASHBOARD_DOMAIN" ;;
     esac
 }
@@ -48,11 +50,14 @@ generate_public_url() {
     local domain=$(get_domain_for_env "$env")
     local port="${2:-$DASHBOARD_PORT}"
     
+    # Early Exit: Secure Protocol Path
     if [[ "$DASHBOARD_SSL" == "true" ]]; then
         echo "${DASHBOARD_PROTOCOL}://${domain}:${port}"
-    else
-        echo "http://${domain}:${port}"
+        return 0
     fi
+    
+    # Default Path
+    echo "http://${domain}:${port}"
 }
 
 # Server startup configuration
@@ -75,29 +80,45 @@ configure_server() {
 check_tld_readiness() {
     echo "Checking TLD readiness..."
     
-    # Check domain resolution
-    if command -v dig >/dev/null 2>&1; then
-        echo "Checking domain resolution for $DASHBOARD_DOMAIN..."
-        dig +short "$DASHBOARD_DOMAIN" || echo "⚠️ Domain not resolving"
+    # Offline Isolation Bypass
+    if [[ "${OFFLINE_MODE:-false}" == "true" ]]; then
+        echo "✅ Offline Isolation Active: Bypassing DNS & Let's Encrypt validation constraints."
+        return 0
     fi
     
-    # Check SSL certificates
-    if [[ "$DASHBOARD_SSL" == "true" ]]; then
-        echo "SSL enabled - checking certificates..."
-        if [[ -d "/etc/letsencrypt/live/$DASHBOARD_DOMAIN" ]]; then
-            echo "✅ SSL certificates found"
-        else
-            echo "⚠️ SSL certificates not found at /etc/letsencrypt/live/$DASHBOARD_DOMAIN"
-        fi
+    # Early Exit: Dependency Injection & Precondition Check
+    if ! command -v dig >/dev/null 2>&1; then
+        echo "❌ ERROR: Critical Dependency missing: 'dig'. Required for domain resolution validation. Blocked via Early Exit." >&2
+        return 1
     fi
     
-    # Check port availability
+    if ! command -v lsof >/dev/null 2>&1; then
+        echo "❌ ERROR: Critical Dependency missing: 'lsof'. Required for port availability matrix validation. Blocked via Early Exit." >&2
+        return 1
+    fi
+    
+    # Early Exit: Domain resolution precondition bound
+    local dig_result=$(dig +short "$DASHBOARD_DOMAIN" 2>/dev/null || echo "")
+    if [[ -z "$dig_result" ]]; then
+        echo "❌ ERROR: Domain $DASHBOARD_DOMAIN is not resolving. Blocked via Early Exit." >&2
+        return 1
+    fi
+    
+    # Early Exit: SSL certificates precondition bound
+    if [[ "$DASHBOARD_SSL" == "true" ]] && [[ ! -d "/etc/letsencrypt/live/$DASHBOARD_DOMAIN" ]]; then
+        echo "❌ ERROR: SSL certificates absent at /etc/letsencrypt/live/$DASHBOARD_DOMAIN. Configure SSL before binding. Blocked via Early Exit." >&2
+        return 1
+    fi
+    
+    # Early Exit: Port availability precondition bound
     echo "Checking port $DASHBOARD_PORT..."
     if lsof -i:"$DASHBOARD_PORT" >/dev/null 2>&1; then
-        echo "⚠️ Port $DASHBOARD_PORT already in use"
-    else
-        echo "✅ Port $DASHBOARD_PORT is available"
+        echo "❌ ERROR: Port $DASHBOARD_PORT is already in use. Blocked via Early Exit." >&2
+        return 1
     fi
+    
+    echo "✅ All physical TLD preconditions evaluated gracefully!"
+    return 0
 }
 
 # Usage info

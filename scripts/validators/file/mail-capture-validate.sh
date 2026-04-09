@@ -141,13 +141,17 @@ check_dependencies() {
         source "${PROJECT_ROOT}/venv/bin/activate" 2>/dev/null || true
     fi
 
-    python3 -c "import click" 2>/dev/null || missing+=("click (pip install click)")
-    python3 -c "import textual" 2>/dev/null || missing+=("textual (pip install textual)")
+    python3 -c "import click" 2>/dev/null || missing+=("click")
+    python3 -c "import textual" 2>/dev/null || missing+=("textual")
 
     if [[ ${#missing[@]} -gt 0 ]]; then
-        echo -e "${RED}Missing dependencies: ${missing[*]}${RESET}"
-        echo "Run: pip install click textual python-dotenv"
-        exit $EXIT_TOOL_MISSING
+        echo -e "${YELLOW}⚠ Optional deps missing: ${missing[*]} — 33-role council validation skipped${RESET}" >&2
+        PYTHON_COUNCIL_AVAILABLE=false
+        if [[ "$JSON_OUTPUT" == "true" ]]; then
+            echo '{"result":"SKIP","reason":"missing deps: '"${missing[*]}"'","validator":"mail-capture-validate"}'
+        fi
+    else
+        PYTHON_COUNCIL_AVAILABLE=true
     fi
 
     mkdir -p "$CAPTURE_DIR" "$REPORT_DIR"

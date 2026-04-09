@@ -34,10 +34,23 @@ export function applyAgentDBPatch(): boolean {
       return false;
     }
 
-    const controllerIndexPath = join(agentdbPath, 'dist', 'controllers', 'index.js');
+    // Try multiple controller paths (build structure varies by version)
+    const possibleControllerPaths = [
+      join(agentdbPath, 'dist', 'controllers', 'index.js'),      // Legacy v1.3.9 structure
+      join(agentdbPath, 'dist', 'src', 'controllers', 'index.js') // Current build structure
+    ];
 
-    if (!existsSync(controllerIndexPath)) {
-      console.warn(`[AgentDB Patch] Controller index not found: ${controllerIndexPath}`);
+    let controllerIndexPath: string | null = null;
+    for (const path of possibleControllerPaths) {
+      if (existsSync(path)) {
+        controllerIndexPath = path;
+        break;
+      }
+    }
+
+    if (!controllerIndexPath) {
+      console.warn(`[AgentDB Patch] Controller index not found in any expected location`);
+      console.warn(`[AgentDB Patch] Checked: ${possibleControllerPaths.join(', ')}`);
       return false;
     }
 
@@ -159,11 +172,20 @@ export function isAgentDBPatchNeeded(): boolean {
   const agentdbPath = findAgentDBPath();
   if (!agentdbPath) return false;
 
-  const controllerIndexPath = join(agentdbPath, 'dist', 'controllers', 'index.js');
-  if (!existsSync(controllerIndexPath)) return false;
+  // Check both possible controller paths
+  const possiblePaths = [
+    join(agentdbPath, 'dist', 'controllers', 'index.js'),
+    join(agentdbPath, 'dist', 'src', 'controllers', 'index.js')
+  ];
 
-  const content = readFileSync(controllerIndexPath, 'utf8');
-  return !content.includes("from './ReflexionMemory.js'");
+  for (const controllerIndexPath of possiblePaths) {
+    if (existsSync(controllerIndexPath)) {
+      const content = readFileSync(controllerIndexPath, 'utf8');
+      return !content.includes("from './ReflexionMemory.js'");
+    }
+  }
+
+  return false;
 }
 
 /**

@@ -11,11 +11,6 @@ last_optimized: 2025-12-02
 dependencies: []
 quick_reference_card: true
 tags: [tdd, testing, london-school, chicago-school, red-green-refactor, mocks]
-trust_tier: 2
-validation:
-  schema_path: schemas/output.json
-  validator_path: scripts/validate-config.json
-
 ---
 
 # Test-Driven Development: London & Chicago Schools

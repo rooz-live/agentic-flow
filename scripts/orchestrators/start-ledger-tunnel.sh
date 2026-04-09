@@ -7,7 +7,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$PROJECT_ROOT/_SYSTEM/_AUTOMATION/bounded-reasoning-framework.sh" 2>/dev/null || true
-source "$PROJECT_ROOT/_SYSTEM/_AUTOMATION/eta-live-stream.sh" 2>/dev/null || true
+# eta-live-stream.sh removed in Cycle BJ consolidation (R-2026-016)
 
 if [[ $# -lt 3 ]]; then
     echo "Usage: $0 <ledger-id> <domain> <port>"

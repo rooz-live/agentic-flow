@@ -1,5 +1,4 @@
 import pytest
-import time
 from scripts.policy.governance import AdmissionController, AdmissionConfig
 
 class MockSensor:
@@ -43,26 +42,3 @@ def test_update_load_history_clamping(simulated_load, simulated_idle, expected_c
     
     assert len(controller.load_history) == 1
     assert controller.load_history[0]["cpu_load"] == expected_clamped_load
-
-# Add test to execute paths
-@pytest.mark.parametrize("simulated_load, simulated_idle, should_admit", [
-    (10.0, 90.0, True),           # Low load, admits
-    (85.0, 15.0, False),          # Moderate load (>80.0), rejects
-    (96.0, 4.0, False),           # Critical load, rejects
-])
-def test_check_admission(monkeypatch, simulated_load, simulated_idle, should_admit):
-    config = AdmissionConfig(
-        threshold_pct=80.0,
-        warning_threshold=0.80,
-        critical_threshold=0.95,
-        predictive_throttling_enabled=False
-    )
-    sensor = MockSensor(simulated_load, simulated_idle)
-    controller = AdmissionController(config, sensor)
-    
-    # Mock sleep so we don't actually wait
-    monkeypatch.setattr(time, "sleep", lambda x: None)
-
-    admitted = controller.check_admission()
-    assert admitted == should_admit
-

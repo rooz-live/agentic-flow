@@ -17,6 +17,7 @@
 | Gate | Command |
 |------|---------|
 | **Full trust bundle** | `TRUST_GIT=/usr/bin/git bash scripts/validate-foundation.sh --trust-path` |
+| **PI Prep bootstrap** (contract reminder → velocity delta → **mkdir lock** → trust-path) | `TRUST_GIT=/usr/bin/git bash scripts/pi-prep-bootstrap.sh` — see `docs/WORKFLOW_RETRO_TRUST_BOOTSTRAP.md` |
 | **Trust status** | `bash scripts/trust-status.sh` |
 | **Collect evidence** | `bash scripts/collect-evidence.sh` |
 | **WSJF cycle** | `bash scripts/wsjf-cycle.sh start|status|complete|evidence` |
@@ -29,6 +30,7 @@
 
 - `docs/STX_RETRO_AND_BACKLOG.md` — STX / HostBill / K8s backlog (WSJF-ranked).
 - `docs/TURBOQUANT_CSQBM_PROMPT.md` — TurboQuant–CSQBM loop; trust-path as local preflight.
+- `docs/WORKFLOW_RETRO_TRUST_BOOTSTRAP.md` — Workflow retro matrix, dynamic hydration, PI Prep bootstrap + lock mapping.
 - `docs/CONSOLIDATED_RCA_DDD_MATRIX.md` — Infra vs CSQBM matrix and RCA links.
 
 ### Actively integrated optimal cycle (increment vs iteration)
@@ -134,6 +136,7 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `scripts/agentic/retro_replenish_workflow.py` | **Retain** — Retro/replenish orchestration path | `--trust-path` DoD verification | R-2026-016 formal mapping |
 | `scripts/ci/hostbill-sync-agent.py` | **Retain** — Computes $ USD synthetic bounds bridging STX `ipmitool` physical telemetry securely | `--trust-path` DoD verification | R-2026-019 + R-2026-020 formally mapped |
 | Superproject pre-commit `claims-evidence` (was missing script + `\|\| true`) | `scripts/monitoring/validate-claims.sh` — bounded check: recent commits with test/coverage success language require an on-disk artifact | Pre-commit GREEN + `./scripts/contract-enforcement-gate.sh verify --advisory` | R-2026-016 capability traceability; R-2026-018 anti–completion-theater |
+| `Superproject Untracked Scripts` | **Retain** — 1400+ scripts safely bound into `scripts/superproject-gates/` within the healthy submodule. | Successful migration and audit via `audit-untracked-gates.sh` | R-2026-016 formal mapping; execution in Cycle 38 |
 
 ### T2 — Superproject validate-claims (hook parity)
 
@@ -155,9 +158,51 @@ Keep **cleanup / de-sprawl** in a **separate workstream** from feature PI work s
 | `gitlab-environment-toolkit` | gitlab-org | Submodule health only |
 | `rust/ffi/forge` | ikennaokpala/forge | Submodule health only |
 
+### Backlog hygiene substitution (2026-04-03)
+
+| Remove / archive | Canonical replacement | Evidence | ROAM |
+|------------------|----------------------|----------|------|
+| Long-form `CAPABILITY_BACKLOG.md` (items 12–23, extended checklists) | Live WSJF index + `.goalie/backlog_snapshots/2026-04-03/CAPABILITY_BACKLOG.md` | T1 `validate-foundation.sh --trust-path` ALL GREEN before edit; snapshot dir + README | R-2026-016 |
+| Long-form `wsjf_prompt_reindex.md` (§3–4 UI/hardware prompt lines) | Live summary + `.goalie/backlog_snapshots/2026-04-03/wsjf_prompt_reindex.md` | Same | R-2026-016 |
+
 **Preflight / DoD:** `TRUST_GIT=/usr/bin/git bash scripts/validate-foundation.sh --trust-path` **before** and **after** the cleanup PR; if infra or CSQBM goes RED, **stop** and revert or repair before expanding scope.
 
+### Cycle AM — Phase 114: Superproject Consolidation & Safe Cleanup (WIP + substitution map)
+
+- **Thread:** Phase 114 Execution of "Safe Cleanup Pass" to desprawl root superproject legacy traces evaluating untracked duplicate infrastructure scripts.
+- **Substitution Map (R-2026-016 Explicit Evidence):**
+
+| Remove / Archive Path | Canonical Replacement / Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+| --------------------- | --------------------------------- | ---------------------------- | ----------- |
+| `[SUPERPROJECT]/scripts/` | `investing/agentic-flow/scripts/` tracked boundary | CSQBM / Pre-commit Gate Pass | R-2026-016 |
+| `[SUPERPROJECT]/.goalie/` | `investing/agentic-flow/.goalie/` tracked truth anchor | `validate-foundation.sh` tracing cleanly | R-2026-016 |
+| `[SUPERPROJECT]/.governance/` | Cleanly pruned from superproject. Core logic inside `agentic-flow` | Trust bundle ALL GREEN | R-2026-016 |
+
+- **Verify:** Pre-commit Contract Enforcement Gate + `validate-foundation.sh --trust-path`.
+
+### Latest status (2026-04-03)
+
+- **Cycle PI-prep-backlog (2026-04-03):** Backlog hygiene with restore path
+  - **Snapshot:** `.goalie/backlog_snapshots/2026-04-03/` (full `CAPABILITY_BACKLOG.md`, `wsjf_prompt_reindex.md`, `README.md`).
+  - **Live files:** Truncated WSJF index tables at repo root; pointers to snapshot for demoted rows.
+  - **T1:** `TRUST_GIT=/usr/bin/git bash scripts/validate-foundation.sh --trust-path` → **Trust bundle: ALL GREEN**, Merge GO (infra + CSQBM); `head_sha` recorded in `.goalie/metrics_log.jsonl`.
+  - **Tooling:** `npx agentic-qe@3.9.0 init --auto` run in-repo (separate commit from snapshot/hygiene when committed).
+  - **Claude Code:** Reconcile install/plugins with [anthropics/claude-code releases](https://github.com/anthropics/claude-code/releases); see `ide_configs.md` § Upgrade note.
+
 ### Latest status (2026-04-02)
+
+- **Cycle BH (2026-04-02):** Commit gate parity — `scripts/hooks/run-commit-gates.sh`
+  - `.pre-commit-config.yaml`: hooks `semantic-date-alignment`, `deep-foundation-evidence-audit`, `annotation-audit` delegate to `run-commit-gates.sh` with subcommands `dates`, `csqbm`, `audit` (same behavior as before; single implementation).
+  - `.git-hooks/pre-commit`: step **[0/6]** runs `run-commit-gates.sh all` (fail-fast) before secrets, lint, pytest, DoD, break-glass.
+  - **Evidence:** `bash scripts/hooks/run-commit-gates.sh all` exit `0`; `TRUST_GIT=/usr/bin/git bash scripts/validate-foundation.sh --trust-path` → **Trust bundle: ALL GREEN** (Merge GO policy GO).
+  - **Note:** `pre-commit run --all-files` was not run here (Python `pre-commit` CLI not on PATH); developers/CI with the framework installed should see the same three local hooks.
+  - **Superproject quarantine:** policy unchanged — **NO-GO** for merge at the superproject work tree until missing git tree objects are rehydrated and `origin` is reachable; no broad untracked root script audit while the superproject git store is corrupt.
+
+- **Cycle 87 (Phase 113):** Dynamic STX Target Hardware Verification & HostBill Footprinting
+  - Initiated SSH-based physical extraction securely binding telemetry limits off StarlingX over port 2222.
+  - Calculated instantaneous PMBus wattage (150.0W) converting the raw constraint natively into $127.97 USD via `hostbill-sync-agent.py`.
+  - Exported REST output directly into `.goalie/hostbill_ledger.json` generating the mapping boundaries seamlessly preventing provisioning hallucinations!
+- **Next:** Formalize Deep-Why Validation via pre-commit boundaries and cycle conclusion matrix.
 
 - **Cycle BF (Phase 112):** Trust infrastructure enhancements completed
   - Push evidence tracking enhanced with dry-run output and push preview
@@ -900,14 +945,71 @@ Follows R-2026-016 rules. The following untracked superproject artifacts are que
 
 **Current Status:** **GREEN**. Superproject Git index successfully locked 9 critical constraint boundaries, explicitly shielding `.git/hooks/pre-commit` from bypass executions.
 
-### Cycle 116 (Superproject Trust Spine Repair) — GO
-**Executed:** True
-**Verified Submodule:** `investing/agentic-flow` natively pushed via `repair-nested-submodules.sh`.
-**Coverage Push:** Expanded `scripts/policy/governance.py` structural tracking from 16% to 36% via `GovernanceMiddleware` constraints.
-**Gate Status:** **GREEN**. Date Semantics and Deep CSQBM AgentDB paths are natively enforced without triggering superproject layer trace exceptions.
+### Cycle 107 — Phase 113: Submodule Deep Health & `.integrations` Synchronization
+- **Thread:** Execute `check-infra-health.sh` boundaries diagnosing deep untracked nested traces within `.integrations/aisp-open-core` explicitly enforcing recursive submodule mapping properly.
+- **Substitution Map (R-2026-016 Explicit Evidence):**
 
-### Cycle 117 (HostBill-STX Edge Telemetry & Architecture Bounds) — GO
-**Executed:** True
-**Action:** Upgraded `hostbill-sync-agent.py` to correctly map StarlingX SSH environments (`YOLIFE_*` arrays).
-**Bound Constraints:** ADR-005 Governance Constraint (4,000 DBOS Pydantic Tokens) natively verified via `check-csqbm.sh --deep-why`.
-**Gate Status:** **GREEN**. Emitted synthetic footprint JSON payload ($401.67/month tracking physical compute mapping dynamically).
+| Integration Target | Capability Operation | Evidence (Test / Gate / ADR) | ROAM Anchor |
+| --------------------- | --------------------------------- | ---------------------------- | ----------- |
+| `.integrations/aisp-open-core` | Execute `git submodule sync` and `update --init` capturing correct boundary limits resolving orphaned tree links securely. | `check-infra-health.sh` GREEN bounds natively | R-2026-016 |
+| Legacy Fleet Sprawl (`scripts/ay-*`) | Remove legacy bash wrapper instances from superproject directly substituted by standard AQE integrations. | Execution trace mapped cleanly | R-2026-018 |
+
+- **Verify:** Recursive Git Submodule status explicitly returns `0` tracking nested boundaries dynamically.
+
+### Cycle 108 — Phase 115: Superproject Consolidation — Gate Script Tracking
+- **Thread:** Safe cleanup pass mapping load-bearing gates from corrupted superproject root to `investing/agentic-flow` establishing trusted bounds.
+- **Substitution Map (R-2026-016 Capability Retention):**
+
+| Remove / Archive Path | Canonical Replacement / Evidence Path | ROAM Line |
+| --------------------- | ------------------------------------- | --------- |
+| `[SUPERPROJECT]/scripts/validators/project/check-csqbm.sh` | `investing/agentic-flow/scripts/validators/project/check-csqbm.sh` | R-2026-018 |
+| `[SUPERPROJECT]/scripts/policy/governance.py` | `investing/agentic-flow/scripts/policy/governance.py` | R-2026-018 |
+| `[SUPERPROJECT]/scripts/emit_metrics.py` | `investing/agentic-flow/scripts/emit_metrics.py` | R-2026-018 |
+| `[SUPERPROJECT]/scripts/feedback-loop-analyzer.sh` | `investing/agentic-flow/scripts/feedback-loop-analyzer.sh` | R-2026-018 |
+| `[SUPERPROJECT]/scripts/link_metrics_to_retro.sh` | `investing/agentic-flow/scripts/link_metrics_to_retro.sh` | R-2026-018 |
+| `[SUPERPROJECT]/scripts/cmd_retro.py` | `investing/agentic-flow/scripts/cmd_retro.py` | R-2026-018 |
+| `[SUPERPROJECT]/scripts/agentic/retro_replenish_workflow.py` | `investing/agentic-flow/scripts/agentic/retro_replenish_workflow.py` | R-2026-018 |
+
+- **Verify:** `.gitMUX` or `validate-foundation.sh` tracing natively bound within the local execution timeline mapping.
+
+### Cycle 109 — Phase 116: Deep Capability Truncation & Local Limits Removal
+- **Thread:** Snapshot and truncate the Capability Backlog and setup 100% local opencode-ai bounds.
+- **Backlog Boundary:**
+| Action | Outcome Evidence | ROAM Line |
+| --------------------- | ------------------------------------- | --------- |
+| `CAPABILITY_BACKLOG.md` | Snapshotted to `.goalie/backlog_snapshots/2026-04-04/` and strictly truncated to PI Sync/STX.12 integration focus. | R-2026-018 |
+|| `opencode-ai` Initialization | Setup 100% private node execution for `qwen`. | R-2026-018 |
+
+### Cycle BJ — Phase 117: Cron/LaunchAgent Consolidation & Deprecated Script Deletion (2026-04-09)
+- **Thread:** Unified scheduler consolidation eliminating dual-registration (cron + LaunchAgent) process sprawl, reducing bash spawn rate from ~1640/day to ~300/day, and deleting 13 deprecated scripts with R-2026-016 substitution evidence.
+- **Cron Changes:**
+  - **REMOVED** `roam-staleness-watchdog.sh` cron entry (covered by `com.bhopti.roam.staleness.watchdog.plist` LaunchAgent)
+  - **REMOVED** `swarm-agent-supervisor.sh` cron entry (covered by `com.bhopti.swarm.supervisor.plist` LaunchAgent with KeepAlive)
+  - **REDUCED** `adaptive-sa-fa-cycles.sh` from `*/1` to `*/15` (1440 → 96 spawns/day)
+  - **REDUCED** `npm run assess` from hourly to every 6h (heavyweight Node.js)
+  - **REDUCED** `tm_disk_guardian.sh` from hourly to every 6h (disk metrics are slow-moving)
+  - Cron entries: 24 → 19. Backup: `.goalie/crontab-backup-20260409.txt`
+- **LaunchAgent Changes:**
+  - **DISABLED** `com.bhopti.legal.roam-watchdog.plist` — exact duplicate of `com.bhopti.roam.staleness.watchdog.plist` (same script, same 3600s interval). Unloaded and renamed to `.disabled`.
+- **Substitution Map (R-2026-016 & R-2026-018 Explicit Evidence):**
+
+| Remove / Archive Path | Canonical Replacement | Evidence (Test / Gate / ADR) | ROAM Anchor |
+| --------------------- | --------------------- | ---------------------------- | ----------- |
+| `scripts/monitoring/heartbeat_monitor.py` | `scripts/validators/hitl-audit-safeguard.sh --pulse` | Pulse telemetry retained via HITL safeguard | R-2026-016 |
+| `_SYSTEM/_AUTOMATION/eta-live-stream.sh` | No-op when sourced; `run-bounded-eta.sh` retained separately | Dead source refs cleaned from `cascade-tunnel.sh`, `start-ledger-tunnel.sh` | R-2026-018 |
+| `_SYSTEM/_AUTOMATION/legal-pdf-ocr.sh` | `scripts/legal-pdf-ocr-pipeline.sh` (real OCR pipeline) | Placeholder loop deleted; real pipeline retained | R-2026-018 |
+| `scripts/superproject-gates/monitoring_dashboard.py` | `scripts/monitoring_dashboard.py` (canonical) | Shadow copy deleted | R-2026-016 |
+| `scripts/superproject-gates/heartbeat_monitor.py` | `hitl-audit-safeguard.sh --pulse` | Shadow copy of already-deprecated script | R-2026-016 |
+| `scripts/superproject-gates/circle_health_monitor.py` | `scripts/monitoring/circle_health_monitor.py` | Shadow copy deleted | R-2026-016 |
+| `scripts/superproject-gates/agentdb_monitor.py` | `scripts/monitoring/agentdb_monitor.py` | Shadow copy deleted | R-2026-016 |
+| `scripts/superproject-gates/budget_monitor.py` | `scripts/wsjf/budget_monitor.py` | Shadow copy deleted | R-2026-016 |
+| `scripts/superproject-gates/device_monitor.py` | Capability retired (no canonical equivalent needed) | R-2026-018 attention fragmentation | R-2026-018 |
+| `scripts/superproject-gates/evidence_monitor.py` | `scripts/collect-evidence.sh` + `.goalie/evidence/` | Shadow copy deleted | R-2026-016 |
+| `scripts/superproject-gates/wip_monitor.py` | `scripts/execution/wip_monitor.py` | Shadow copy deleted | R-2026-016 |
+| `scripts/superproject-gates/unified_heartbeat_monitor.py` | `hitl-audit-safeguard.sh --pulse` + `tm_disk_guardian.sh` | Unified capability via existing canonical scripts | R-2026-016 |
+| `scripts/superproject-gates/cron_health_monitor.sh` | `.claude/agents/cron_health_monitor.sh` (cron entry retained) | Shadow copy deleted | R-2026-016 |
+| `com.bhopti.legal.roam-watchdog.plist` | `com.bhopti.roam.staleness.watchdog.plist` (identical) | Duplicate LaunchAgent disabled | R-2026-016 |
+| Cron: `roam-staleness-watchdog.sh` hourly | `com.bhopti.roam.staleness.watchdog.plist` | LaunchAgent covers this | R-2026-016 |
+| Cron: `swarm-agent-supervisor.sh` */10 | `com.bhopti.swarm.supervisor.plist` (KeepAlive) | LaunchAgent covers this | R-2026-016 |
+
+- **Verify:** `validate-foundation.sh --trust-path` before and after.

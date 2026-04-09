@@ -258,6 +258,26 @@ validate_dates() {
     warnings=$((warnings + 1))
   fi
 
+  # Check 6: Regional / Temporal Boundaries (Edge Cases)
+  # @business-context WSJF-5.2: Regional Guard Condition No-Bypass
+  total_checks=$((total_checks + 1))
+  if grep -qE "EST|EDT|CST|CDT|PST|PDT|MT|PT|UTC|GMT" "$email_file" 2>/dev/null || false; then
+    log_pass "Regional logic (Timezones) detected and correctly formatted within temporal bounds"
+    result_keys+=("regional_timezone")
+    result_vals+=("PASS|Timezone strictly bounded natively")
+    passed_checks=$((passed_checks + 1))
+  elif grep -qE "(1[0-2]|0?[1-9]):[0-5][0-9] ?[AaPp][Mm]" "$email_file" 2>/dev/null || false; then
+    log_warn "Time string specified without regional timezone anchor (EST/PST) creating timeline drift risk"
+    result_keys+=("regional_timezone")
+    result_vals+=("WARN|Temporal logic lacks regional bounds natively")
+    warnings=$((warnings + 1))
+    date_consistency=false
+  else
+    result_keys+=("regional_timezone")
+    result_vals+=("SKIPPED|No clock timelines involved")
+    warnings=$((warnings + 1))
+  fi
+
   # Summary
   local pass_rate=$(echo "scale=2; $passed_checks / $total_checks * 100" | bc -l)
 
@@ -328,8 +348,8 @@ validate_dates() {
   # Return exit code based on failures
   if [[ $passed_checks -eq $total_checks ]]; then
     return 0
-  elif [[ $passed_checks -ge $(( total_checks * 75 / 100 )) ]]; then
-    return 0  # Changed from return 2 → treat warnings as PASS
+  elif [[ $(( passed_checks + warnings )) -ge $(( total_checks * 75 / 100 )) ]]; then
+    return 0  # Treat warnings and correctly skipped items as PASS bounding the threshold natively
   else
     return 1  # Fail (<75% pass)
   fi

@@ -11,9 +11,10 @@ import { EconomicMetricsDashboard } from './components/EconomicMetricsDashboard'
 import { CircleDistributionChart } from './components/CircleDistributionChart';
 import { PatternEffectivenessHeatmap } from './components/PatternEffectivenessHeatmap';
 import { PatternTimelineView } from './components/PatternTimelineView';
+import { TLDDashboard } from './components/TLDDashboard';
 import { usePatternMetrics } from './hooks/usePatternMetrics';
 
-type ViewType = 'overview' | 'patterns' | 'circles' | 'anomalies' | 'economic' | 'timeline' | 'heatmap' | 'settings';
+type ViewType = 'overview' | 'patterns' | 'circles' | 'anomalies' | 'economic' | 'timeline' | 'heatmap' | 'settings' | 'tld';
 
 export function DashboardApp() {
   const {
@@ -68,6 +69,16 @@ export function DashboardApp() {
             circleMetrics={circleMetrics}
             loading={loading}
           />
+        );
+
+      case 'tld':
+        return (
+          <div className="space-y-6">
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">TLD Domain Management</h2>
+              <TLDDashboard loading={loading} />
+            </div>
+          </div>
         );
 
       case 'patterns':

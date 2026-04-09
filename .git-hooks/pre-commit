@@ -2,11 +2,13 @@
 set -e
 
 # Pre-Commit Hook: Code Quality & Security Validation
-# Validates: No secrets, tests pass, linting clean, DoD criteria met
+# Validates: Trust gates (dates + CSQBM + contract audit), then secrets, tests, linting, DoD, break-glass
 #
 # Installation:
 #   chmod +x .git-hooks/pre-commit
 #   git config core.hooksPath .git-hooks
+#
+# Parity: same trust gates as `pre-commit run` (scripts/hooks/run-commit-gates.sh).
 
 # Colors for output
 RED='\033[0;31m'
@@ -14,7 +16,17 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
 echo "🔍 Running pre-commit validation..."
+
+# 0. Shared trust gates (parity with .pre-commit-config.yaml)
+echo -e "\n${YELLOW}[0/6]${NC} Trust gates (dates + CSQBM + contract audit)..."
+if ! bash scripts/hooks/run-commit-gates.sh all; then
+    echo -e "${RED}❌ Trust gates failed${NC}"
+    exit 1
+fi
+echo -e "${GREEN}✅ Trust gates passed${NC}"
 
 # Track failures
 FAILED=0
@@ -23,7 +35,7 @@ FAILED=0
 STAGED_PY_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.py$' || true)
 
 # 1. Check for secrets in code
-echo -e "\n${YELLOW}[1/5]${NC} Checking for secrets..."
+echo -e "\n${YELLOW}[1/6]${NC} Checking for secrets..."
 
 SECRET_PATTERNS=(
     "password\s*=\s*['\"][^'\"]*['\"]"
@@ -55,7 +67,7 @@ fi
 
 # 2. Run linting on staged Python files
 if [ -n "$STAGED_PY_FILES" ]; then
-    echo -e "\n${YELLOW}[2/5]${NC} Running linting checks..."
+    echo -e "\n${YELLOW}[2/6]${NC} Running linting checks..."
     
     # Check if ruff is available
     if command -v ruff &> /dev/null; then
@@ -77,11 +89,11 @@ if [ -n "$STAGED_PY_FILES" ]; then
         echo -e "${YELLOW}⚠️  No linter found (ruff or flake8), skipping${NC}"
     fi
 else
-    echo -e "\n${YELLOW}[2/5]${NC} No Python files staged, skipping linting"
+    echo -e "\n${YELLOW}[2/6]${NC} No Python files staged, skipping linting"
 fi
 
 # 3. Run tests for modified files
-echo -e "\n${YELLOW}[3/5]${NC} Running tests..."
+echo -e "\n${YELLOW}[3/6]${NC} Running tests..."
 
 if [ -n "$STAGED_PY_FILES" ]; then
     # Check if pytest is available
@@ -133,7 +145,7 @@ else
 fi
 
 # 4. Check DoD criteria for modified scripts
-echo -e "\n${YELLOW}[4/5]${NC} Checking DoD criteria..."
+echo -e "\n${YELLOW}[4/6]${NC} Checking DoD criteria..."
 
 DOR_DOD_FILE="tests/DOR_DOD_CRITERIA.yaml"
 
@@ -162,7 +174,7 @@ else
 fi
 
 # 5. Check for break-glass audit violations
-echo -e "\n${YELLOW}[5/5]${NC} Checking break-glass compliance..."
+echo -e "\n${YELLOW}[5/6]${NC} Checking break-glass compliance..."
 
 if [ -f "scripts/break_glass.py" ]; then
     if python3 scripts/break_glass.py --verify; then

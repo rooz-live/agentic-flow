@@ -1,33 +1,22 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # scripts/validators/email/email-gate-lean.sh
-# @business-context WSJF-52: Executes the lean validation strategy tracking structural boundaries against raw email components ensuring unstructured input stays checked flawlessly.
-# @adr ADR-014: Discover/Consolidate THEN Extend protocol ensuring native boundaries block unsafe parameter drops mathematically.
+# Thin delegator — forwards to the canonical email-gate-lean.sh one level up.
+# Preserves backward-compat: accepts positional $1 (old style) OR --file flag (new style).
+# @business-context WSJF-52 / ADR-014: Single authoritative gate; no duplicate logic.
 
 set -euo pipefail
 
-CYAN='\033[0;36m'
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m'
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CANONICAL_GATE="${SCRIPT_DIR}/../email-gate-lean.sh"
 
-echo -e "${CYAN}Evaluating Lean Email Parameter Matrices...${NC}"
-
-TARGET_FILE="${1:-}"
-
-if [[ -z "$TARGET_FILE" || ! -f "$TARGET_FILE" ]]; then
-     echo -e "${RED}[FATAL] Lean Gate triggered lacking valid target payload parameters.${NC}"
-     exit 1
+if [[ ! -f "$CANONICAL_GATE" ]]; then
+    echo "[FATAL] Canonical gate not found: $CANONICAL_GATE" >&2
+    exit 1
 fi
 
-echo "Synthesizing input structural bounds natively..."
-if grep -q -i "WSJF-" "$TARGET_FILE"; then
-     echo -e "${GREEN}[OK] Native priority routing discovered. Validation passed.${NC}"
+# Convert positional-arg convention ($1 = filepath) to --file flag when needed
+if [[ $# -gt 0 && "$1" != "--"* ]]; then
+    exec "$CANONICAL_GATE" --file "$1" "${@:2}"
 else
-     echo -e "${RED}[FATAL] Missing WSJF structural markers natively blocking propagation.${NC}"
-     python3 scripts/emit_metrics.py --source "email-gate" --signal ERRORS --value 1.0 \
-          --metadata '{"state": "UNSTRUCTURED_MALFORMED_INPUT"}' || true
-     exit 1
+    exec "$CANONICAL_GATE" "$@"
 fi
-
-echo -e "${GREEN}[SUCCESS] Email bounds rigorously verified across execution architectures.${NC}"
-exit 0

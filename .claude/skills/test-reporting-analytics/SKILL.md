@@ -11,12 +11,6 @@ last_optimized: 2025-12-03
 dependencies: []
 quick_reference_card: true
 tags: [reporting, analytics, dashboards, metrics, trends, predictive]
-trust_tier: 3
-validation:
-  schema_path: schemas/output.json
-  validator_path: scripts/validate-config.json
-  eval_path: evals/test-reporting-analytics.yaml
-
 ---
 
 # Test Reporting & Analytics

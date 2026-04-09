@@ -1,185 +1,252 @@
 #!/usr/bin/env python3
 """
-Telegram Bot Notifier for Advocate CLI
-Sends trial updates, classification notifications, and evidence status
+Telegram Settlement Notifier
 
-TDD Coverage:
-- test_send_classification_notification()
-- test_send_trial_countdown()
-- test_send_evidence_bundle_status()
-- test_message_formatting()
+DoR: Telegram Bot token from @BotFather, chat ID configured
+DoD: Sends real-time notifications for validation events, settlement milestones
+
+Setup:
+    1. Message @BotFather on Telegram: /newbot
+    2. Get API token
+    3. Create .env file:
+       TELEGRAM_BOT_TOKEN=your_token_here
+       TELEGRAM_CHAT_ID=your_chat_id (or @username)
+
+Usage:
+    ./telegram_notifier.py --event validation_passed --details "WSJF 26.0"
+    ./telegram_notifier.py --event deadline_approaching --details "2 hours remaining"
 """
 
 import os
 import sys
-import json
-import requests
+import click
+import asyncio
 from datetime import datetime
-from typing import Dict, Any, Optional
+from pathlib import Path
+from dotenv import load_dotenv
+from telegram import Bot
+from telegram.error import TelegramError
+
+# Load environment variables
+load_dotenv()
+
 
 class TelegramNotifier:
-    """Send formatted notifications to Telegram bot"""
+    """Real-time settlement notifications via Telegram"""
     
-    def __init__(self, bot_token: Optional[str] = None, chat_id: Optional[str] = None):
-        self.bot_token = bot_token or os.getenv("TELEGRAM_BOT_TOKEN")
-        self.chat_id = chat_id or os.getenv("TELEGRAM_CHAT_ID")
-        
-        if not self.bot_token or not self.chat_id:
-            raise ValueError("TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID must be set")
-        
-        self.api_url = f"https://api.telegram.org/bot{self.bot_token}"
+    # Event types with emoji and urgency
+    EVENT_TYPES = {
+        "validation_passed": {"emoji": "✅", "urgency": "low", "title": "Validation Passed"},
+        "validation_failed": {"emoji": "❌", "urgency": "high", "title": "Validation Failed"},
+        "doug_response_received": {"emoji": "📨", "urgency": "critical", "title": "Doug Responded"},
+        "deadline_approaching": {"emoji": "⏰", "urgency": "high", "title": "Deadline Approaching"},
+        "send_approved": {"emoji": "🚀", "urgency": "medium", "title": "Email Send Approved"},
+        "wsjf_recalculated": {"emoji": "📊", "urgency": "low", "title": "WSJF Recalculated"},
+        "systemic_score_alert": {"emoji": "🔴", "urgency": "high", "title": "Systemic Score Alert"},
+        "signature_error": {"emoji": "⚠️", "urgency": "medium", "title": "Signature Error"},
+        "temporal_error": {"emoji": "🕐", "urgency": "high", "title": "Temporal Error"},
+        "roam_risk_change": {"emoji": "📈", "urgency": "medium", "title": "ROAM Risk Changed"}
+    }
     
-    def send_classification_notification(self, result: Dict[str, Any]) -> bool:
-        """Notify when PDF is classified"""
+    def __init__(self):
+        self.token = os.getenv('TELEGRAM_BOT_TOKEN')
+        self.chat_id = os.getenv('TELEGRAM_CHAT_ID')
         
-        doc_type = result.get("type", "unknown").upper()
-        confidence = result.get("confidence", 0.0)
-        provider = result.get("provider", "unknown").upper()
-        case_num = result.get("case_number", "N/A")
-        reasoning = result.get("reasoning", "No reasoning provided")
+        if not self.token:
+            raise ValueError("TELEGRAM_BOT_TOKEN not set in environment")
+        if not self.chat_id:
+            raise ValueError("TELEGRAM_CHAT_ID not set in environment")
         
-        emoji = self._get_emoji_for_confidence(confidence)
-        
-        message = f"""📄 *PDF Classified*
-
-{emoji} *Type*: {doc_type}
-✓ *Confidence*: {confidence:.1%}
-🤖 *Provider*: {provider}
-🏛️ *Case*: {case_num}
-
-💡 *Reasoning*: {reasoning}
-"""
-        
-        return self._send_message(message, parse_mode="Markdown")
+        self.bot = Bot(token=self.token)
     
-    def send_trial_countdown(self, trials: list) -> bool:
-        """Send trial countdown notification"""
+    async def send_notification(self, event_type: str, details: str = "") -> bool:
+        """
+        Send notification for settlement event
         
-        lines = ["⚖️ *Trial Countdown Update*\n"]
+        Args:
+            event_type: One of EVENT_TYPES keys
+            details: Additional context
         
-        for trial in trials:
-            days = trial.get("days_remaining", "?")
-            name = trial.get("name", "Unknown Trial")
-            date = trial.get("date", "TBD")
-            
-            urgency = "🚨" if isinstance(days, int) and days < 7 else "⏰"
-            lines.append(f"{urgency} *{name}*")
-            lines.append(f"   📅 {date} ({days} days)\n")
+        Returns:
+            bool: True if sent successfully
+        """
+        if event_type not in self.EVENT_TYPES:
+            click.secho(f"❌ Unknown event type: {event_type}", fg='red')
+            return False
         
-        message = "\n".join(lines)
-        
-        return self._send_message(message, parse_mode="Markdown")
-    
-    def send_evidence_bundle_status(self, status: Dict[str, Any]) -> bool:
-        """Send evidence bundle completion status"""
-        
-        total = status.get("total_exhibits", 0)
-        complete = status.get("complete_exhibits", 0)
-        percent = (complete / total * 100) if total > 0 else 0
-        
-        status_emoji = "✅" if percent == 100 else "⚠️"
-        status_text = "Complete" if percent == 100 else "In Progress"
-        
-        message = f"""📁 *Evidence Bundle Status*
-
-{status_emoji} *Status*: {status_text}
-📊 *Completion*: {complete}/{total} exhibits ({percent:.0f}%)
-"""
-        
-        # Add missing exhibits if incomplete
-        if percent < 100:
-            missing = status.get("missing_exhibits", [])
-            if missing:
-                message += "\n❌ *Missing*:\n"
-                for item in missing[:5]:  # Limit to 5
-                    message += f"   • {item}\n"
-        
-        return self._send_message(message, parse_mode="Markdown")
-    
-    def send_api_cost_alert(self, cost: float, threshold: float = 10.0) -> bool:
-        """Alert when API costs exceed threshold"""
-        
-        if cost < threshold:
-            return True  # No alert needed
-        
-        message = f"""💰 *API Cost Alert*
-
-⚠️ Monthly API costs have exceeded ${threshold:.2f}
-
-💵 *Current Cost*: ${cost:.2f}
-🎯 *Threshold*: ${threshold:.2f}
-"""
-        
-        return self._send_message(message, parse_mode="Markdown")
-    
-    def send_custom_message(self, message: str, title: str = "Advocate Notification") -> bool:
-        """Send custom text message"""
-        
-        formatted = f"*{title}*\n\n{message}"
-        return self._send_message(formatted, parse_mode="Markdown")
-    
-    def _send_message(self, text: str, parse_mode: str = "Markdown") -> bool:
-        """Send message to Telegram"""
-        
-        payload = {
-            "chat_id": self.chat_id,
-            "text": text,
-            "parse_mode": parse_mode,
-            "disable_web_page_preview": True
-        }
+        event_info = self.EVENT_TYPES[event_type]
+        message = self._format_message(event_type, event_info, details)
         
         try:
-            response = requests.post(
-                f"{self.api_url}/sendMessage",
-                json=payload,
-                timeout=10
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                text=message,
+                parse_mode='Markdown',
+                disable_web_page_preview=True
             )
-            response.raise_for_status()
+            click.secho(f"✅ Telegram notification sent: {event_type}", fg='green')
             return True
-        except requests.exceptions.RequestException as e:
-            print(f"❌ Telegram API failed: {e}", file=sys.stderr)
+        except TelegramError as e:
+            click.secho(f"❌ Telegram error: {e}", fg='red')
+            return False
+        except Exception as e:
+            click.secho(f"❌ Unexpected error: {e}", fg='red')
             return False
     
-    def _get_emoji_for_confidence(self, confidence: float) -> str:
-        """Map confidence to emoji"""
-        if confidence >= 0.8:
-            return "✅"  # Green check
-        elif confidence >= 0.5:
-            return "⚠️"  # Warning
-        else:
-            return "❌"  # Red X
+    def _format_message(self, event_type: str, event_info: dict, details: str) -> str:
+        """Format notification message with emoji and structure"""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        urgency_icon = {
+            "critical": "🚨",
+            "high": "⚠️",
+            "medium": "ℹ️",
+            "low": "📌"
+        }[event_info["urgency"]]
+        
+        message_parts = [
+            f"{event_info['emoji']} *{event_info['title']}*",
+            f"{urgency_icon} Urgency: {event_info['urgency'].upper()}",
+            f"🕐 Time: `{timestamp}`"
+        ]
+        
+        if details:
+            message_parts.append(f"\n📝 Details:\n```\n{details}\n```")
+        
+        # Add context based on event type
+        context = self._get_event_context(event_type)
+        if context:
+            message_parts.append(f"\n💡 Context: {context}")
+        
+        return "\n".join(message_parts)
+    
+    def _get_event_context(self, event_type: str) -> str:
+        """Get contextual information for event type"""
+        context_map = {
+            "validation_passed": "Email ready for send approval",
+            "validation_failed": "Review suggestions in validation report",
+            "doug_response_received": "Check email and update strategy",
+            "deadline_approaching": "Consider extension request or escalation",
+            "send_approved": "Email sent - monitor delivery confirmation",
+            "wsjf_recalculated": "Priority may have changed - review dashboard",
+            "systemic_score_alert": "Systemic indifference threshold reached",
+            "signature_error": "Signature format incorrect for email type",
+            "temporal_error": "Date/time validation failed - check calendar",
+            "roam_risk_change": "Risk classification updated - reassess strategy"
+        }
+        return context_map.get(event_type, "")
+    
+    async def send_batch_notifications(self, events: list) -> dict:
+        """
+        Send multiple notifications
+        
+        Args:
+            events: List of (event_type, details) tuples
+        
+        Returns:
+            {"sent": int, "failed": int, "results": list}
+        """
+        results = []
+        sent = 0
+        failed = 0
+        
+        for event_type, details in events:
+            success = await self.send_notification(event_type, details)
+            results.append((event_type, success))
+            if success:
+                sent += 1
+            else:
+                failed += 1
+        
+        return {
+            "sent": sent,
+            "failed": failed,
+            "results": results
+        }
+    
+    async def send_validation_summary(self, validation_result: dict) -> bool:
+        """Send comprehensive validation summary"""
+        consensus = validation_result.get("consensus", {})
+        roam = validation_result.get("roam", {})
+        wsjf = validation_result.get("wsjf", {})
+        
+        summary = f"""
+🎯 *Validation Summary*
+
+📊 Consensus: {consensus.get('passed', 0)}/{consensus.get('total', 21)} ({consensus.get('percentage', 0):.1f}%)
+🔍 ROAM Risk: {roam.get('classification', 'UNKNOWN')} ({roam.get('score', 0)}/100)
+⚡ WSJF Score: {wsjf.get('score', 0):.1f} ({wsjf.get('priority', 'UNKNOWN')})
+
+Status: {'✅ APPROVED' if consensus.get('percentage', 0) >= 95 else '❌ NEEDS REVISION'}
+"""
+        
+        try:
+            await self.bot.send_message(
+                chat_id=self.chat_id,
+                text=summary,
+                parse_mode='Markdown'
+            )
+            return True
+        except TelegramError as e:
+            click.secho(f"❌ Failed to send summary: {e}", fg='red')
+            return False
 
 
-def main():
-    """CLI for Telegram notifier"""
-    import argparse
+@click.command()
+@click.option('--event', '-e', required=True,
+              type=click.Choice([
+                  'validation_passed', 'validation_failed', 'doug_response_received',
+                  'deadline_approaching', 'send_approved', 'wsjf_recalculated',
+                  'systemic_score_alert', 'signature_error', 'temporal_error',
+                  'roam_risk_change'
+              ]),
+              help='Event type to notify')
+@click.option('--details', '-d', default="",
+              help='Additional details about the event')
+@click.option('--test', is_flag=True,
+              help='Test connection without sending notification')
+def main(event, details, test):
+    """
+    Send Telegram notification for settlement event
     
-    parser = argparse.ArgumentParser(description="Telegram notifier for Advocate")
-    parser.add_argument("--type", required=True, choices=["classification", "trial", "evidence", "cost", "custom"],
-                        help="Notification type")
-    parser.add_argument("--data", help="JSON data for notification")
-    parser.add_argument("--message", help="Custom message (for --type custom)")
+    Examples:
+        ./telegram_notifier.py -e validation_passed -d "WSJF 26.0"
+        ./telegram_notifier.py -e deadline_approaching -d "2 hours remaining"
+        ./telegram_notifier.py --test
+    """
+    try:
+        notifier = TelegramNotifier()
+        
+        if test:
+            click.echo("Testing Telegram connection...")
+            async def test_connection():
+                try:
+                    me = await notifier.bot.get_me()
+                    click.secho(f"✅ Connected to bot: @{me.username}", fg='green')
+                    click.secho(f"✅ Chat ID: {notifier.chat_id}", fg='green')
+                    return True
+                except TelegramError as e:
+                    click.secho(f"❌ Connection failed: {e}", fg='red')
+                    return False
+            
+            success = asyncio.run(test_connection())
+            sys.exit(0 if success else 1)
+        
+        # Send notification
+        success = asyncio.run(notifier.send_notification(event, details))
+        sys.exit(0 if success else 1)
     
-    args = parser.parse_args()
-    
-    notifier = TelegramNotifier()
-    
-    if args.type == "classification":
-        data = json.loads(args.data)
-        success = notifier.send_classification_notification(data)
-    elif args.type == "trial":
-        data = json.loads(args.data)
-        success = notifier.send_trial_countdown(data)
-    elif args.type == "evidence":
-        data = json.loads(args.data)
-        success = notifier.send_evidence_bundle_status(data)
-    elif args.type == "cost":
-        data = json.loads(args.data)
-        success = notifier.send_api_cost_alert(data["cost"], data.get("threshold", 10.0))
-    elif args.type == "custom":
-        success = notifier.send_custom_message(args.message or "Test notification")
-    
-    sys.exit(0 if success else 1)
+    except ValueError as e:
+        click.secho(f"❌ Configuration error: {e}", fg='red')
+        click.echo("\nSetup instructions:")
+        click.echo("1. Create Telegram bot: Message @BotFather /newbot")
+        click.echo("2. Get your chat ID: Message @userinfobot /start")
+        click.echo("3. Create .env file with:")
+        click.echo("   TELEGRAM_BOT_TOKEN=your_token")
+        click.echo("   TELEGRAM_CHAT_ID=your_chat_id")
+        sys.exit(1)
+    except Exception as e:
+        click.secho(f"❌ Unexpected error: {e}", fg='red')
+        sys.exit(1)
 
 
 if __name__ == "__main__":

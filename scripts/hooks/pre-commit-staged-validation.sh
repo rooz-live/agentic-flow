@@ -25,6 +25,7 @@ if [[ ${#STAGED_EML[@]} -gt 0 ]]; then
   for f in "${STAGED_EML[@]}"; do
     [[ -f "$f" ]] || continue
     bash "$VALIDATOR" "$f" || exit 1
+    bash "scripts/validators/project/legal-fact-check.sh" "$f" || exit 1
   done
 fi
 

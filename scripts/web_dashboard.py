@@ -4,7 +4,7 @@ Agentic Flow Web Dashboard
 Flask-based UI for velocity, flow efficiency, WSJF, and multitenant insights
 """
 
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_from_directory
 from flask_socketio import SocketIO, emit
 import json
 import os
@@ -43,20 +43,41 @@ def get_tenant_from_request():
     host = request.host.split(':')[0]  # Remove port
     return DOMAIN_TENANT_MAP.get(host, 'default')
 
-PROJECT_ROOT = os.environ.get("PROJECT_ROOT", ".")
-GOALIE_DIR = Path(PROJECT_ROOT) / ".goalie"
-METRICS_FILE = GOALIE_DIR / "pattern_metrics.jsonl"
+PROJECT_ROOT = Path(os.environ.get("PROJECT_ROOT", str(Path(__file__).resolve().parent.parent))).resolve()
+GOALIE_DIR = PROJECT_ROOT / ".goalie"
+MONITORING_DASHBOARD_FILE = Path(__file__).resolve().parent / "monitoring" / "dashboard.html"
 
 
-def load_events(hours=168):
-    """Load recent pattern events"""
-    if not METRICS_FILE.exists():
+def _candidate_goalie_dirs():
+    dirs = [
+        GOALIE_DIR,
+        Path.cwd() / ".goalie",
+        Path(__file__).resolve().parent.parent / ".goalie",
+    ]
+    seen = set()
+    unique = []
+    for d in dirs:
+        key = str(d.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(d)
+    return unique
+
+
+def _jsonl_sources(filename):
+    return [d / filename for d in _candidate_goalie_dirs() if (d / filename).exists()]
+
+
+def _load_jsonl(filepath, hours=168):
+    """Load recent events from a JSONL file"""
+    if not filepath.exists():
         return []
-    
+
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
     events = []
-    
-    with open(METRICS_FILE, 'r') as f:
+
+    with open(filepath, 'r') as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -73,7 +94,23 @@ def load_events(hours=168):
                         pass
             except json.JSONDecodeError:
                 continue
-    
+
+    return events
+
+
+def load_events(hours=168):
+    """Load recent pattern events"""
+    events = []
+    for source in _jsonl_sources("pattern_metrics.jsonl"):
+        events.extend(_load_jsonl(source, hours=hours))
+    return events
+
+
+def _load_trading_signals(hours=168):
+    """Load recent trading signals from soxl_soxs_trader output"""
+    events = []
+    for source in _jsonl_sources("trading_signals.jsonl"):
+        events.extend(_load_jsonl(source, hours=hours))
     return events
 
 
@@ -105,13 +142,68 @@ def run_command(cmd):
         return None
 
 
+# ── JSON error handlers (all API errors return JSON, not HTML) ──────────────
+@app.errorhandler(404)
+def not_found(e):
+    return jsonify({'error': 'not_found', 'message': str(e)}), 404
+
+@app.errorhandler(500)
+def internal_error(e):
+    return jsonify({'error': 'internal_server_error', 'message': str(e)}), 500
+
+@app.errorhandler(Exception)
+def unhandled_exception(e):
+    return jsonify({'error': 'unexpected_error', 'message': str(e)}), 500
+
+
+# Serve Vite-built trading dashboard as static files at /trading
+# Local dev: dist/ | Deployed: trading-dashboard/
+TRADING_DIST = Path(PROJECT_ROOT) / "trading-dashboard"
+if not TRADING_DIST.exists():
+    TRADING_DIST = Path(PROJECT_ROOT) / "dist"
+
+@app.route('/trading')
+@app.route('/trading/')
+def trading_dashboard():
+    """Trading dashboard (React/Vite build)"""
+    if (TRADING_DIST / "trading.html").exists():
+        return send_from_directory(str(TRADING_DIST), "trading.html")
+    if (TRADING_DIST / "index.html").exists():
+        return send_from_directory(str(TRADING_DIST), "index.html")
+    return '<h1>Trading dashboard not built</h1><p>Run: <code>npx vite build --base=/trading/ --outDir=dist</code></p>', 404
+
+@app.route('/trading/<path:filename>')
+def trading_assets(filename):
+    """Serve trading dashboard static assets"""
+    from flask import send_from_directory
+    return send_from_directory(str(TRADING_DIST), filename)
+
+@app.route('/assets/<path:filename>')
+def trading_assets_root(filename):
+    """Serve Vite asset bundles referenced with absolute /assets paths."""
+    assets_dir = TRADING_DIST / "assets"
+    if assets_dir.exists():
+        return send_from_directory(str(assets_dir), filename)
+    return send_from_directory(str(TRADING_DIST), filename)
+
 # Routes
 @app.route('/')
 def home():
     """Home dashboard"""
     current_tenant = get_tenant_from_request()
     tenants = get_tenants()
-    return render_template('dashboard.html', tenants=tenants, current_tenant=current_tenant)
+    try:
+        return render_template('dashboard.html', tenants=tenants, current_tenant=current_tenant)
+    except Exception:
+        if MONITORING_DASHBOARD_FILE.exists():
+            return MONITORING_DASHBOARD_FILE.read_text(encoding='utf-8')
+        return (
+            '<h1>Agentic Flow Dashboard</h1>'
+            '<p>The primary dashboard template is unavailable on this host, '
+            'but analytics and trading APIs remain online for contract checks.</p>'
+            '<p>Use <a href="/trading">/trading</a> for live SOXL/SOXS monitoring '
+            'and <a href="/api/health">/api/health</a> for service status.</p>'
+        ), 200
 
 
 @app.route('/patterns')
@@ -145,12 +237,22 @@ def tenants_view():
 # API Endpoints
 @app.route('/api/health')
 def api_health():
-    """System health"""
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now(timezone.utc).isoformat(),
-        'events_count': len(load_events(hours=24))
-    })
+    """System health. Returns 200 (healthy) or 503 (degraded)."""
+    try:
+        events = load_events(hours=24)
+        signal_count = len(events)
+        status = 'healthy' if signal_count >= 0 else 'degraded'
+        return jsonify({
+            'status': status,
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'events_count': signal_count,
+        }), 200
+    except Exception as e:
+        return jsonify({
+            'status': 'degraded',
+            'error': str(e),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+        }), 503
 
 
 @app.route('/api/recommendations')
@@ -197,6 +299,98 @@ def api_flow_efficiency():
         result['filtered_by_tenant'] = tenant_filter
     
     return jsonify(result or {})
+
+
+def _normalize_trading_event(e):
+    """Normalize a trading event to consistent schema for API output.
+    Handles both trading_signals.jsonl (flat) and pattern_metrics.jsonl (nested) formats.
+    """
+    # Normalize timestamp: trading_signals uses 'timestamp', pattern_metrics uses 'ts'
+    ts = e.get('timestamp') or e.get('ts', '')
+    # Normalize symbol/action/confidence from flat or nested metrics
+    symbol = e.get('symbol') or e.get('metrics', {}).get('symbol', '')
+    action = e.get('action') or e.get('metrics', {}).get('action', '')
+    confidence = e.get('confidence') or e.get('metrics', {}).get('confidence')
+    price = e.get('price') or e.get('metrics', {}).get('price')
+    reason = e.get('reason') or e.get('metrics', {}).get('reason', '')
+    indicators = e.get('indicators') or e.get('metrics', {}).get('indicators')
+    return {
+        'timestamp': ts,
+        'symbol': symbol,
+        'action': action,
+        'confidence': confidence,
+        'price': price,
+        'reason': reason,
+        'indicators': indicators,
+        'source': 'trading_signals' if 'indicators' in e else 'pattern_metrics',
+        'pattern': e.get('pattern', ''),
+        'economic': e.get('economic'),
+    }
+
+
+def _dedup_key(e):
+    """Dedup key: same symbol + action + timestamp (to the second) = same signal."""
+    ts = (e.get('timestamp') or e.get('ts', ''))[:19]  # truncate to second
+    sym = e.get('symbol') or e.get('metrics', {}).get('symbol', '')
+    act = e.get('action') or e.get('metrics', {}).get('action', '')
+    return f"{sym}|{act}|{ts}"
+
+
+@app.route('/api/trading')
+def api_trading():
+    """Trading signals and SOXL/SOXS events from both pattern_metrics + trading_signals.
+    Deduplicates cross-source events (same signal logged to both files).
+    Prefers trading_signals.jsonl (richer schema) over pattern_metrics.jsonl.
+    """
+    hours = int(request.args.get('hours', 72))
+    symbol_filter = request.args.get('symbol')  # e.g. SOXL, SOXS
+
+    # Load from both sources; trading_signals first (preferred on dedup)
+    raw_signals = _load_trading_signals(hours=hours)
+    raw_metrics = load_events(hours=hours)
+
+    # Dedup: prefer trading_signals entries (richer indicators)
+    seen = {}
+    for e in raw_signals:
+        key = _dedup_key(e)
+        if key not in seen:
+            seen[key] = e
+    for e in raw_metrics:
+        key = _dedup_key(e)
+        if key not in seen:
+            seen[key] = e
+
+    # Filter to trading-related events
+    trading_events = []
+    for e in seen.values():
+        if (e.get('pattern', '').startswith('trading')
+            or e.get('component') in ('soxl_soxs_trader', 'neural-trader', 'backtest')
+            or e.get('action') in ('BUY', 'SELL', 'HOLD')
+            or e.get('metrics', {}).get('action') in ('BUY', 'SELL', 'HOLD')
+            or any(t in str(e.get('symbol', '')) + str(e.get('metrics', {}).get('symbol', ''))
+                   for t in ('SOXL', 'SOXS', 'SMH', 'SOXX', 'AMD', 'NVDA'))):
+            trading_events.append(_normalize_trading_event(e))
+
+    if symbol_filter:
+        trading_events = [
+            e for e in trading_events
+            if symbol_filter.upper() in str(e.get('symbol', '')).upper()
+        ]
+
+    # Sort by timestamp descending
+    trading_events.sort(key=lambda e: e.get('timestamp', ''), reverse=True)
+
+    status_code = 200 if trading_events else 204 if (hours < 24) else 200
+    body = {
+        'events': trading_events[:100],
+        'count': len(trading_events),
+        'unique_symbols': sorted(set(e['symbol'] for e in trading_events if e.get('symbol'))),
+        'action_summary': {a: sum(1 for e in trading_events if e.get('action') == a)
+                           for a in set(e.get('action', '') for e in trading_events) if a},
+        'filters': {'hours': hours, 'symbol': symbol_filter},
+        'status': 'ok' if trading_events else 'no_data',
+    }
+    return jsonify(body), status_code
 
 
 @app.route('/api/patterns')
@@ -355,7 +549,8 @@ def main():
 ╚══════════════════════════════════════════════════════════════╝
 """)
     
-    socketio.run(app, host=args.host, port=args.port, debug=args.debug)
+    socketio.run(app, host=args.host, port=args.port, debug=args.debug,
+                 allow_unsafe_werkzeug=True)
 
 
 if __name__ == '__main__':

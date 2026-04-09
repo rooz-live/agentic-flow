@@ -12,6 +12,32 @@ NC='\033[0m'
 
 echo -e "${CYAN}Executing Shared Dashboard Metric Baseline Over STX Boundaries...${NC}"
 
+# CSQBM Governance Constraint: Enforce agentdb >96h staleness natively (ADR-005)
+PROJECT_ROOT="$(cd "$(dirname "$(dirname "${BASH_SOURCE[0]}")")/.." && pwd)"
+AGENTDB_PATH="$PROJECT_ROOT/agentdb.db"
+if [ ! -f "$AGENTDB_PATH" ] && [ -f "$PROJECT_ROOT/../../agentdb.db" ]; then
+    AGENTDB_PATH="$PROJECT_ROOT/../../agentdb.db"
+fi
+
+if [ -f "$AGENTDB_PATH" ]; then
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        file_age=$(( $(date +%s) - $(stat -f %m "$AGENTDB_PATH") ))
+    else
+        file_age=$(( $(date +%s) - $(stat -c %Y "$AGENTDB_PATH") ))
+    fi
+    if [ "$file_age" -gt 345600 ]; then
+        echo -e "${RED}[FATAL] CSQBM Governance Halt: agentdb.db staleness >96h. CI blocked via OpenWorm Bounds (ADR-005).${NC}"
+        exit 1
+    fi
+fi
+
+if [ -f "$PROJECT_ROOT/scripts/validators/project/check-csqbm.sh" ]; then
+    if ! bash "$PROJECT_ROOT/scripts/validators/project/check-csqbm.sh" > /dev/null 2>&1; then
+        echo -e "${RED}[FATAL] CSQBM Governance Halt: CSQBM trace missing. CI blocked via OpenWorm Bounds (ADR-005).${NC}"
+        exit 1
+    fi
+fi
+
 # Define CI Test Threshold Bounds
 REQUIRED_KEYS=("SUCCESS" "TRAFFIC" "ERRORS" "SATURATION")
 METRICS_LOG=".goalie/metrics_log.jsonl"

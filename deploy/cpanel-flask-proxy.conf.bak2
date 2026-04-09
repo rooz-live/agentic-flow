@@ -1,0 +1,76 @@
+# cPanel Nginx include for analytics.interface.tag.ooo
+# Drops into: /etc/nginx/conf.d/users/tag/analytics.interface.tag.ooo/
+# Overrides the default Apache proxy for Flask-served routes.
+#
+# Deploy:
+#   sudo mkdir -p /etc/nginx/conf.d/users/tag/analytics.interface.tag.ooo
+#   sudo cp cpanel-flask-proxy.conf /etc/nginx/conf.d/users/tag/analytics.interface.tag.ooo/flask-proxy.conf
+#   sudo nginx -t && sudo systemctl reload nginx
+# Root dashboard route
+location = / {
+    proxy_pass http://127.0.0.1:5000/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+# Trading static assets — served DIRECTLY from filesystem, NOT through Flask.
+# ^~ gives this block highest priority so cPanel's static-file try_files
+# doesn't intercept and return 404 before the proxy can serve them.
+# Built with: vite build --base=/trading/ so JS/CSS refs use /trading/assets/*
+location ^~ /trading/assets/ {
+    alias /opt/wsjf/trading-dashboard/assets/;
+    add_header Cache-Control "public, max-age=31536000, immutable";
+    gzip_static on;
+    access_log off;
+}
+
+# Trading dashboard — serves built Vite SPA + Flask dynamic routes
+location /trading {
+    proxy_pass http://*********:5000/trading;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # WebSocket support for SocketIO
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_read_timeout 86400;
+}
+
+# Trading static assets referenced as absolute /assets/* paths
+location ^~ /assets/ {
+    proxy_pass http://127.0.0.1:5000/assets/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+# API routes — trading data, health, etc.
+location /api/ {
+    proxy_pass http://127.0.0.1:5000/api/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # CORS headers
+    add_header Access-Control-Allow-Origin * always;
+    add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+    add_header Access-Control-Allow-Headers "Content-Type, Authorization" always;
+
+    if ($request_method = OPTIONS) {
+        return 204;
+    }
+}
+
+# Health check shortcut
+location = /health {
+    proxy_pass http://127.0.0.1:5000/api/health;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}

@@ -80,3 +80,21 @@ DEEP_WHY: lookback=120m scanned=3 matched_targets=3
 
 ---
 *This ledger serves as physical evidence of Cycle T13 STX.12 Milestone 2 completion*
+
+## 🛡️ Cycle 67: Safe Cleanup Pass (Substitution Matrix)
+*Scope Split tracking targeting superproject `.gitmodules` consolidation and orphan script cleanup.*
+
+**WSJF Order**: BV (Merge Risk Elimination) + TC (Drift Cost Reduction)
+**Rules**: One submodule/target removed at a time. Trust-path verified before/after. Trace `capability_inventory` natively preventing fragmentation.
+
+### 🗑️ Substitution Row Matrix
+| Candidate Path (Orphan/Submodule) | Destructive Action | Substitution / Capability Retained | ROAM Tracing | DoD |
+|-----------------------------------|-------------------|------------------------------------|--------------|-----|
+| `external/agentic-drift`          | rm / clean        | Active tracking via PI flow        | R-2026-016   | Trust-Pass |
+| `external/lionagi-qe-fleet`       | rm / clean        | QA tracking via `aqe-model-router` | R-2026-016   | Trust-Pass |
+| `external/ruvector`               | rm                | Re-instantiated via `ruvector-node`| R-2026-016   | Trust-Pass |
+| `external/turbo-flow`             | rm / clean        | Absorbed via turbo-runner mapping  | R-2026-016   | Trust-Pass |
+| `external/VisionFlow`             | submodule clean   | Anchored in `docs/architecture/`   | R-2026-016   | Trust-Pass |
+| `rust/ffi/forge`                  | rm                | Merged into `ffi-core`             | R-2026-016   | Trust-Pass |
+| `gitlab-environment-toolkit`      | rm                | Stale STX environment stripped     | R-2026-016   | Trust-Pass |
+| `.integrations/aisp-open-core`    | rehydrate/pin     | Commit `bcd1e48` pointer retained  | R-2026-016   | Trust-Pass |

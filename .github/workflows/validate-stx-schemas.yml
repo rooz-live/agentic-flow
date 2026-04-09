@@ -1,0 +1,39 @@
+name: Validate STX Telemetry Schemas
+
+on:
+  push:
+    paths:
+      - 'scripts/kubernetes/schemas/**.json'
+      - '.goalie/metrics_log.jsonl'
+  pull_request:
+    branches: [ "main", "staging" ]
+
+jobs:
+  validate-schemas:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Runtime Structure
+        uses: actions/checkout@v4
+
+      - name: Formulate Python Interpreter Map
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Bind Agentic Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install jsonschema check-jsonschema
+
+      - name: Check K8s Baseline Schemas Syntactically
+        run: |
+          check-jsonschema --check-metaschema scripts/kubernetes/schemas/stx-baseline-schema.json
+
+      - name: TDD Verification Array Loop
+        run: |
+          # Fails immediately if explicit mock STX data violates the exact structural Kubernetes map
+          echo '{"node_id": "stx-aio-1", "timestamp": "2026-04-05T21:00:00Z", "ipmi_telemetry": {"pmbus_watts": 409, "power_overload_flag": false, "cpu_thermal_celsius": 45}, "hostbill_mapping_usd": 12.50, "tier_classification": "ENTERPRISE_TIER_2"}' > /tmp/valid-stx.json
+          
+          check-jsonschema --schemafile scripts/kubernetes/schemas/stx-baseline-schema.json /tmp/valid-stx.json
+          echo "CSQBM Matrix Passed."

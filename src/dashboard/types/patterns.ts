@@ -135,3 +135,41 @@ export interface FilterOptions {
   modes: string[];
   severity: string[];
 }
+
+/**
+ * TLD (Top-Level Domain) Configuration Types
+ * Domain mappings for dashboard environments
+ */
+export interface TLDConfig {
+  domain: string;
+  environment: 'prod' | 'staging' | 'dev' | 'gateway' | 'evidence' | 'process';
+  port: number;
+  ssl: boolean;
+  protocol: 'https' | 'http';
+  wsjf_score: number;
+  ddd_context: string;
+  k8s_zone: string;
+  status: 'active' | 'pending' | 'maintenance' | 'deprecated';
+  last_sync: string;
+  health_score: number;
+}
+
+export interface TLDTelemetry {
+  timestamp: string;
+  domain: string;
+  requests_per_minute: number;
+  error_rate: number;
+  latency_p95: number;
+  ssl_expiry_days: number;
+  certificate_status: 'valid' | 'expiring' | 'expired' | 'unknown';
+}
+
+export interface TLDDashboardMetrics {
+  total_domains: number;
+  active_domains: number;
+  deprecated_domains: number;
+  health_check_failures: number;
+  avg_wsjf_score: number;
+  environments: Record<string, number>;
+  telemetry_history: TLDTelemetry[];
+}

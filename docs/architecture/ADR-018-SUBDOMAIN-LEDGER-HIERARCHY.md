@@ -1,9 +1,9 @@
 ---
 date: 2026-03-10
 status: accepted
+related_tests: tunnel-url-tracker.sh, cascade-tunnel.sh
 deciders: ["shahrooz"]
 supersedes: null
-tests: ["tunnel-url-tracker.sh", "cascade-tunnel.sh multi-ledger"]
 ---
 
 # ADR-018: Subdomain Selection for Multi-Ledger Tunnel Hierarchy

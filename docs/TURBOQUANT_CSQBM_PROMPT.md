@@ -11,6 +11,7 @@ This header is an **active index**: the fastest “where do I look?” map befor
   - Contains hard gates for: **CSQBM** + **TypeScript typecheck** + **ESLint quiet** (when relevant files changed).
 - **Trust-path repair helper**: `scripts/git/trust-path-repair-agentic-flow-submodule.sh`
 - **Agentic-flow trust bundle**: `investing/agentic-flow/scripts/validate-foundation.sh` (`--trust-path`)
+- **PI Prep bootstrap** (serial lock + optional velocity delta + trust-path): `investing/agentic-flow/scripts/pi-prep-bootstrap.sh` — full order in `docs/WORKFLOW_RETRO_TRUST_BOOTSTRAP.md` (clone path may be `projects/investing/agentic-flow/` under a superproject)
 - **CI strict validation**: `investing/agentic-flow/.github/workflows/strict-validation.yml`
 - **CSQBM (Current-State Query Before Merge)**: `investing/agentic-flow/scripts/validators/project/check-csqbm.sh`
   - CI deterministic mode: `CSQBM_CI_MODE=true` (uses `.agentdb/agentdb.sqlite`, `sqlite3`)

@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+const runTldOnly = process.env.PLAYWRIGHT_TLD_ONLY === '1';
 
 /**
  * Playwright E2E Testing Configuration
@@ -8,6 +9,7 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './tests/e2e',
+  globalSetup: './tests/e2e/global-setup.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -58,12 +60,60 @@ export default defineConfig({
       name: 'Mobile Safari',
       use: { ...devices['iPhone 12'] },
     },
+
+    // Trading dashboard — Vite dev server (local, PORT 5173)
+    // TRADING_URL defaults to /trading.html (how Vite serves the entry file)
+    {
+      name: 'trading-chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: 'http://localhost:5173',
+        // Vite compiles TSX on-demand; first load can take 10-15s on cold start.
+        // globalSetup pre-warms the cache, but keep a generous timeout as safety net.
+        navigationTimeout: 60_000,
+        actionTimeout: 15_000,
+      },
+      testMatch: /trading-dashboard\.spec\.ts/,
+    },
+
+    // Trading on TLD — deployed via Flask on analytics.interface.tag.ooo
+    // Run with: TRADING_URL=/trading/ npx playwright test --project=trading-tld
+    {
+      name: 'trading-tld',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: process.env.TRADING_BASE_URL || 'https://analytics.interface.tag.ooo',
+      },
+      testMatch: /trading-dashboard\.spec\.ts/,
+    },
+    {
+      name: 'analytics-tld-contract',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: process.env.CONTRACT_BASE_URL || 'https://analytics.interface.tag.ooo',
+      },
+      testMatch: /analytics-tld\.contract\.spec\.ts/,
+    },
   ],
 
-  webServer: {
-    command: 'node scripts/monitoring/dashboard_server.js --port=3030',
-    url: 'http://localhost:3030',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120 * 1000,
-  },
+  webServer: runTldOnly ? undefined : [
+    {
+      command: 'node scripts/monitoring/dashboard_server.js --port=3030',
+      url: 'http://localhost:3030',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120 * 1000,
+    },
+    {
+      // Run Vite dev server for trading dashboard — serves trading.html at /trading.html
+      // NOTE: use vite.trading.config.ts (not vite.config.ts) to avoid the
+      // optimizeDeps.include hang: main config lists @cosmograph + @cosmos.gl which
+      // aren't installed, causing Vite's optimizer to hang indefinitely.
+      // Kill stale processes on 5173 first — strictPort:true means Vite exits
+      // immediately if the port is occupied, causing all 13 tests to time out.
+      command: 'lsof -ti:5173 | xargs kill -9 2>/dev/null; npx vite --config vite.trading.config.ts',
+      url: 'http://localhost:5173/trading.html',
+      reuseExistingServer: !process.env.CI,
+      timeout: 60 * 1000,
+    },
+  ],
 });

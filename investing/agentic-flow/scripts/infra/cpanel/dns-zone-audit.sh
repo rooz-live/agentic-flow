@@ -44,6 +44,17 @@ ssh_cmd() {
     ssh -o ConnectTimeout=10 -o BatchMode=yes "$SSH_ALIAS" "$@" 2>/dev/null
 }
 
+# Safe SSH helper: always returns output, never fails the pipeline
+ssh_lines() { ssh_cmd "$@" || true; }
+
+# Safe SSH grep -c: always returns a clean integer
+ssh_count() {
+    local result
+    result=$(ssh_cmd "$@" 2>/dev/null || true)
+    result=$(echo "$result" | tail -1 | tr -dc '0-9')
+    echo "${result:-0}"
+}
+
 log()  { echo "[$(date -u +%H:%M:%S)] $*"; }
 ok()   { echo "  ✓ $*"; }
 warn() { echo "  ⚠ $*"; ISSUES=$((ISSUES + 1)); }
@@ -51,7 +62,7 @@ fail() { echo "  ✗ $*"; ISSUES=$((ISSUES + 1)); }
 
 # ─── 1. Discover all PowerDNS zones ──────────────────────────────────────────
 log "Discovering PowerDNS zones via SSH..."
-ALL_ZONES=$(ssh_cmd "sudo pdnsutil list-all-zones 2>/dev/null" | grep -v '^$' | sort)
+ALL_ZONES=$(ssh_lines "sudo pdnsutil list-all-zones 2>/dev/null" | grep -v '^$' | sort || true)
 
 if [[ -z "$ALL_ZONES" ]]; then
     echo "[ERROR] Could not list zones. Check SSH connectivity to ${SSH_ALIAS}."
@@ -70,17 +81,17 @@ fi
 log "Auditing DNSSEC configuration..."
 
 # Get zones that have DNSSEC keys
-SIGNED_ZONES=$(ssh_cmd "for z in $ALL_ZONES; do sudo pdnsutil show-zone \$z 2>/dev/null | grep -q 'ID = ' && echo \$z; done" || true)
+SIGNED_ZONES=$(ssh_lines "for z in $ALL_ZONES; do sudo pdnsutil show-zone \$z 2>/dev/null | grep -q 'ID = ' && echo \$z; done")
 
 for zone in $SIGNED_ZONES; do
     echo ""
     log "Zone: ${zone}"
 
     # Get zone DNSSEC details
-    ZONE_INFO=$(ssh_cmd "sudo pdnsutil show-zone $zone 2>/dev/null")
+    ZONE_INFO=$(ssh_lines "sudo pdnsutil show-zone $zone 2>/dev/null")
 
     # Extract key info
-    KEY_COUNT=$(echo "$ZONE_INFO" | grep -c 'ID = ' || true)
+    KEY_COUNT=$(echo "$ZONE_INFO" | grep -c 'ID = ' || echo "0")
     NSEC_TYPE=$(echo "$ZONE_INFO" | grep -oP 'Zone has \K.*?semantics' || echo "unknown")
     NSEC3_PARAMS=$(echo "$ZONE_INFO" | grep 'NSEC3PARAM' | head -1 | awk '{print $2}' || true)
 
@@ -142,13 +153,12 @@ for zone in $ALL_ZONES; do
     PARENT=$(echo "$zone" | sed 's/^[^.]*\.//')
     if echo "$ALL_ZONES" | grep -q "^${PARENT}$"; then
         # This is a child zone. Check if it has DNSSEC but parent has no DS for it
-        CHILD_HAS_KEYS=$(ssh_cmd "sudo pdnsutil show-zone $zone 2>/dev/null | grep -c 'ID = '" | tail -1 | tr -dc '0-9')
-        CHILD_HAS_KEYS=${CHILD_HAS_KEYS:-0}
+        CHILD_HAS_KEYS=$(ssh_count "sudo pdnsutil show-zone $zone 2>/dev/null | grep -c 'ID = '")
 
         if [[ "$CHILD_HAS_KEYS" -gt 0 ]]; then
             # Child has DNSSEC keys — check if parent has DS delegation
-            PARENT_HAS_DS=$(ssh_cmd "sudo pdnsutil list-zone $PARENT 2>/dev/null | grep -c 'IN\tDS.*${zone}'" || echo "0")
-            NS_DELEGATION=$(ssh_cmd "sudo pdnsutil list-zone $PARENT 2>/dev/null | grep -c '${zone}.*IN\tNS'" || echo "0")
+            PARENT_HAS_DS=$(ssh_count "sudo pdnsutil list-zone $PARENT 2>/dev/null | grep -c 'IN.*DS.*${zone}'")
+            NS_DELEGATION=$(ssh_count "sudo pdnsutil list-zone $PARENT 2>/dev/null | grep -c '${zone}.*IN.*NS'")
 
             if [[ "$PARENT_HAS_DS" -eq 0 ]]; then
                 fail "Child zone ${zone} has DNSSEC keys but parent ${PARENT} has NO DS record → broken chain"

@@ -574,6 +574,42 @@ GO/NO-GO ledger: `.goalie/go_no_go_ledger.md`
 
 See [Infrastructure Improvements](docs/INFRASTRUCTURE_IMPROVEMENTS.md) for the full consolidation log.
 
+### AgentDB Knowledge Base
+| Metric | Value |
+|--------|-------|
+| **Episodes** | 1,555,809 |
+| **Vector Embeddings** | 18,462 (1536-dim) |
+| **Skills** | 17 with confidence scores |
+| **Causal Experiments** | 13 |
+| **Tables** | 31 |
+| **Location** | `.agentdb/agentdb.db` (1.6 GB) |
+
+Restored 2026-04-10 from backup after the active DB was found disconnected (36KB, 0 episodes).
+Redundant copies removed: 1.46 GB freed.
+
+### Ansible Playbooks (`scripts/infra/ansible/`)
+| Playbook | Target | Mode |
+|----------|--------|------|
+| `cpanel-health.yml` | yo.tag.ooo | Passive (read-only) |
+| `cpanel-firewall.yml` | yo.tag.ooo | Passive (opt-in restart) |
+| `cpanel-ssl-renew.yml` | yo.tag.ooo | Active (AutoSSL trigger) |
+| `stx-health.yml` | stx-aio-0 | Passive |
+| `stx-deploy.yml` | stx-aio-0 | Active (rsync deploy) |
+| `openstack-status.yml` | stx-aio-0 | Passive |
+| `macos-services.yml` | localhost | Passive |
+| `macos-dev-env.yml` | localhost | Passive |
+| `hostbill-sync.yml` | localhost | Active (blocked on API key) |
+
+### Agent Skills Discovery
+8 skills published per [Cloudflare RFC](https://github.com/cloudflare/agent-skills-discovery-rfc) at
+`/.well-known/agent-skills/index.json`. Deploy with `scripts/infra/skills-discovery/deploy-skills.sh`.
+
+### Security Scanning
+- **CodeQL**: GitHub Actions (JS/TS + Python), weekly + on PR
+- **OpenSSF Scorecard**: GitHub Actions, weekly
+- **Semgrep**: Local via `scripts/infra/security/scan-local.sh`
+- **Gitleaks**: Pre-commit hook (active)
+
 ---
 
 ## 🤝 Contributing

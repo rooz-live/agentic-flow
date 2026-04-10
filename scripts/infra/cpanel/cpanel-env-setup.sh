@@ -1,15 +1,32 @@
 #!/bin/bash
-# scripts/cpanel-env-setup.sh
+# scripts/infra/cpanel/cpanel-env-setup.sh
 # Purpose: Synchronize .env configuration across the ecosystem.
 #          Also serves as the AISP env loader — single source of truth for
 #          AISP_ENV, AISP_T_STAGE, workspace roots, domains, case IDs, lanes.
-# Usage:   ./scripts/cpanel-env-setup.sh [--all]
-#          source scripts/cpanel-env-setup.sh  (to load AISP vars into shell)
+#
+# Usage:
+#   source scripts/infra/cpanel/cpanel-env-setup.sh
+#       Export AISP_* vars into the current shell (no credentials)
+#   ./cpanel-env-setup.sh
+#       Interactive setup: generate .env.cpanel if it doesn’t exist
+#   ./cpanel-env-setup.sh --persist
+#       Copy .env.cpanel.example → .env.cpanel, prompt to fill credentials
+#   ./cpanel-env-setup.sh --register-launchd
+#       Register com.agentic-flow.ssl-monitor as a macOS launchd agent
+#   ./cpanel-env-setup.sh --all
+#       Persist + register + propagate
 
 set -e
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+# Resolve to scripts/infra root regardless of where the script lives
+INFRA_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
+PROJECT_ROOT="$( cd "$INFRA_DIR/../.." && pwd )"
+CREDS_DIR="$INFRA_DIR/credentials"
+ENV_CPANEL="$CREDS_DIR/.env.cpanel"
+ENV_EXAMPLE="$CREDS_DIR/.env.cpanel.example"
+PLIST_SRC="$SCRIPT_DIR/com.agentic-flow.ssl-monitor.plist"
+PLIST_DEST="$HOME/Library/LaunchAgents/com.agentic-flow.ssl-monitor.plist"
 
 # ===========================================================================
 # AISP Environment Configuration Block
@@ -53,49 +70,88 @@ if [[ ! -t 0 ]]; then
     export CPANEL_NONINTERACTIVE=1
 fi
 
-# Non-interactive mode: skip secrets prompts, just export AISP vars (verified per plan Phase 5.2)
+# Non-interactive mode: source credentials and exit cleanly (no prompts)
 if [[ "${CPANEL_NONINTERACTIVE:-0}" == "1" ]]; then
-    echo "ℹ️  Non-interactive mode (CPANEL_NONINTERACTIVE=1) — skipping secrets setup"
-    echo "   AISP vars exported. Run without CPANEL_NONINTERACTIVE for full setup."
+    echo "ℹ️  Non-interactive mode — sourcing $ENV_CPANEL (if present), skipping prompts"
+    [[ -f "$ENV_CPANEL" ]] && set -a && source "$ENV_CPANEL" && set +a
     exit 0
 fi
 
-# 1. Update local agentic-flow environment
-echo "Updating local .env in $PROJECT_ROOT..."
-
-# CSQBM Governance Constraint: Trace CPanel Environment Configuration Synchronization
-mkdir -p "$PROJECT_ROOT/.agentic_logs"
-echo "[CSQBM_TRACE] [NEXT: DAY] CPanel Environment Configuration Synchronization at $(date -u +'%Y-%m-%dT%H:%M:%SZ') binding ecosystem parameters to CSQBM boundary" >> "$PROJECT_ROOT/.agentic_logs/daemon.log"
-
-python3 "$SCRIPT_DIR/generate_env_config.py"
-"$SCRIPT_DIR/setup_secrets.sh"
-
-# 2. Propagate if requested
-if [[ "$1" == "--all" ]]; then
-    echo ""
-    echo "--- Propagating Configuration ---"
-
-    # Target 1: agentic-flow-core (Sibling at root level)
-    CORE_DIR="$PROJECT_ROOT/../../agentic-flow-core"
-    if [ -d "$CORE_DIR" ]; then
-        echo "Syncing to agentic-flow-core..."
-        cp "$PROJECT_ROOT/.env" "$CORE_DIR/.env"
-        # Optional: Generate example there too if needed, but copying .env is the request
+# ──────────────────────────────────────────────────────────────────────────────
+# --persist: create .env.cpanel from example if it doesn't exist
+# ──────────────────────────────────────────────────────────────────────────────
+_do_persist() {
+    if [[ -f "$ENV_CPANEL" ]]; then
+        echo "✅  $ENV_CPANEL already exists."
     else
-        echo "Warning: agentic-flow-core directory not found at $CORE_DIR"
+        if [[ ! -f "$ENV_EXAMPLE" ]]; then
+            echo "❌  Example file not found: $ENV_EXAMPLE"
+            exit 1
+        fi
+        cp "$ENV_EXAMPLE" "$ENV_CPANEL"
+        chmod 600 "$ENV_CPANEL"
+        echo "✅  Created $ENV_CPANEL"
+        echo "   Fill in credentials, then re-run:"
+        echo "   source $ENV_CPANEL"
     fi
+    echo "   Current credential status:"
+    while IFS= read -r line; do
+        [[ "$line" =~ ^export\ ([A-Z_]+)=\"(.*)\" ]] || continue
+        key="${BASH_REMATCH[1]}"; val="${BASH_REMATCH[2]}"
+        if [[ -n "$val" ]]; then
+            echo "     ✔ $key  (set)"
+        else
+            echo "     ⚠ $key  (EMPTY — fill in $ENV_CPANEL)"
+        fi
+    done < "$ENV_CPANEL"
+}
 
-    # Target 2: config (Root config directory)
-    # Assuming investing/agentic-flow -> investing -> code -> config
-    CONFIG_DIR="$PROJECT_ROOT/../../config"
-    if [ -d "$CONFIG_DIR" ]; then
-        echo "Syncing to global config..."
-        cp "$PROJECT_ROOT/.env" "$CONFIG_DIR/.env"
-    else
-        echo "Warning: Global config directory not found at $CONFIG_DIR"
+# ──────────────────────────────────────────────────────────────────────────────
+# --register-launchd: install and load the SSL monitor LaunchAgent
+# ──────────────────────────────────────────────────────────────────────────────
+_do_register_launchd() {
+    if [[ ! -f "$PLIST_SRC" ]]; then
+        echo "❌  Plist not found: $PLIST_SRC"
+        exit 1
     fi
+    mkdir -p "$HOME/Library/LaunchAgents"
+    cp "$PLIST_SRC" "$PLIST_DEST"
+    # Unload first to avoid 'already loaded' errors on re-registration
+    launchctl unload "$PLIST_DEST" 2>/dev/null || true
+    launchctl load -w "$PLIST_DEST"
+    echo "✅  SSL monitor registered and loaded: com.agentic-flow.ssl-monitor"
+    echo "   Runs every 4 hours; logs: /tmp/ssl-monitor.log"
+    echo "   Status: launchctl list com.agentic-flow.ssl-monitor"
+}
 
-    echo "Propagation complete."
-fi
-
-echo "Environment setup finished."
+# ──────────────────────────────────────────────────────────────────────────────
+# Argument dispatch
+# ──────────────────────────────────────────────────────────────────────────────
+case "${1:-}" in
+    --persist)
+        _do_persist
+        ;;
+    --register-launchd)
+        _do_register_launchd
+        ;;
+    --all)
+        _do_persist
+        _do_register_launchd
+        echo "✅  Full setup complete."
+        ;;
+    "")
+        # Legacy interactive path: generate .env and run existing sub-scripts
+        echo "Updating local .env in $PROJECT_ROOT..."
+        mkdir -p "$PROJECT_ROOT/.agentic_logs"
+        echo "[CSQBM_TRACE] CPanel env sync at $(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+            >> "$PROJECT_ROOT/.agentic_logs/daemon.log"
+        [[ -f "$SCRIPT_DIR/generate_env_config.py" ]] && python3 "$SCRIPT_DIR/generate_env_config.py"
+        [[ -f "$SCRIPT_DIR/setup_secrets.sh" ]]      && "$SCRIPT_DIR/setup_secrets.sh"
+        echo "Environment setup finished."
+        echo "Run with --persist to create a durable .env.cpanel credential file."
+        ;;
+    *)
+        echo "Usage: $0 [--persist|--register-launchd|--all]"
+        exit 1
+        ;;
+esac

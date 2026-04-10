@@ -3,12 +3,17 @@
 # @business-context WSJF-42: WHM infrastructure automation
 # @adr ADR-018: Security boundary enforcement
 #
-# Usage:
+# PASSIVE (read-only) commands — no gate required:
 #   ./whm-firewall-check.sh status          # Firewall + CSF status
 #   ./whm-firewall-check.sh accounts        # List cPanel accounts
 #   ./whm-firewall-check.sh blocked         # Show blocked IPs
-#   ./whm-firewall-check.sh allow <ip>      # Whitelist an IP
-#   ./whm-firewall-check.sh deny <ip>       # Block an IP
+#
+# ACTIVE (write) commands — require --confirm flag:
+#   ./whm-firewall-check.sh allow <ip> --confirm   # Whitelist an IP
+#   ./whm-firewall-check.sh deny  <ip> --confirm   # Block an IP
+#
+# The --confirm flag prevents accidental invocation from scripts or
+# copy-paste errors. All write actions are logged to .goalie/whm-audit.jsonl.
 
 set -euo pipefail
 
@@ -127,9 +132,18 @@ show_blocked() {
     fi
 }
 
-# Allow/deny IP
+# Allow/deny IP — requires --confirm flag
 manage_ip() {
-    local action="$1" ip="$2"
+    local action="$1" ip="$2" confirmed="${3:-}"
+
+    # ── Write gate: require --confirm to prevent accidental mutations ─────────────
+    if [[ "$confirmed" != "--confirm" ]]; then
+        error "Write operation '${action} ${ip}' requires explicit --confirm flag."
+        error "Usage: $0 ${action} ${ip} --confirm"
+        error "This prevents accidental IP changes from scripts or copy-paste errors."
+        exit 1
+    fi
+
     if [[ -z "${CPANEL_SSH_KEY:-}" ]] || [[ ! -f "${CPANEL_SSH_KEY/#\~/$HOME}" ]]; then
         error "SSH key required for firewall operations. Set CPANEL_SSH_KEY."
         exit 1
@@ -142,7 +156,14 @@ manage_ip() {
         *) error "Unknown action: $action"; exit 1 ;;
     esac
 
-    log "${action^}ing IP ${ip}..."
+    # ── Audit log before execution ────────────────────────────────────────────
+    local audit_dir; audit_dir="${PROJECT_ROOT:-.}/.goalie"
+    mkdir -p "$audit_dir"
+    printf '{"timestamp":"%s","action":"%s","ip":"%s","host":"%s","user":"%s"}\n' \
+        "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$action" "$ip" "$WHM_HOST" "$(whoami)" \
+        >> "$audit_dir/whm-audit.jsonl"
+
+    log "${action^}ing IP ${ip} (confirmed)..."
     ssh -i "${CPANEL_SSH_KEY/#\~/$HOME}" -p "${CPANEL_SSH_PORT:-22}" \
         "${WHM_USER}@${WHM_HOST}" "$csf_cmd" 2>&1 && \
         success "IP ${ip} ${action}ed." || \
@@ -161,25 +182,28 @@ case "${1:-help}" in
         show_blocked
         ;;
     allow)
-        [[ -z "${2:-}" ]] && { error "Usage: $0 allow <ip>"; exit 1; }
-        manage_ip "allow" "$2"
+        [[ -z "${2:-}" ]] && { error "Usage: $0 allow <ip> --confirm"; exit 1; }
+        manage_ip "allow" "$2" "${3:-}"
         ;;
     deny|block)
-        [[ -z "${2:-}" ]] && { error "Usage: $0 deny <ip>"; exit 1; }
-        manage_ip "deny" "$2"
+        [[ -z "${2:-}" ]] && { error "Usage: $0 deny <ip> --confirm"; exit 1; }
+        manage_ip "deny" "$2" "${3:-}"
         ;;
     help|--help|-h)
         echo "WHM Firewall & Account Manager"
         echo ""
         echo "Usage: $0 <command> [args]"
         echo ""
-        echo "Commands:"
+        echo "PASSIVE commands (read-only):"
         echo "  status              Server load, services, CSF firewall"
         echo "  accounts            List cPanel accounts"
         echo "  blocked             Show CSF blocked IPs"
-        echo "  allow <ip>          Whitelist an IP in CSF"
-        echo "  deny <ip>           Block an IP in CSF"
         echo ""
+        echo "ACTIVE commands (require --confirm):"
+        echo "  allow <ip> --confirm    Whitelist an IP in CSF"
+        echo "  deny <ip>  --confirm    Block an IP in CSF"
+        echo ""
+        echo "Write actions are logged to .goalie/whm-audit.jsonl"
         echo "Environment: WHM_HOST, WHM_USER, WHM_API_TOKEN, CPANEL_SSH_KEY"
         ;;
     *)

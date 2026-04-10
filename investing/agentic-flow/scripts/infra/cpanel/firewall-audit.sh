@@ -41,8 +41,8 @@ ssh_cmd() {
 
 log()  { echo "[$(date -u +%H:%M:%S)] $*"; }
 ok()   { echo "  ✓ $*"; }
-warn() { echo "  ⚠ $*"; ((ISSUES++)); }
-fail() { echo "  ✗ $*"; ((ISSUES++)); }
+warn() { echo "  ⚠ $*"; ISSUES=$((ISSUES + 1)); }
+fail() { echo "  ✗ $*"; ISSUES=$((ISSUES + 1)); }
 
 log "Firewall Audit — ${SSH_ALIAS}"
 echo ""

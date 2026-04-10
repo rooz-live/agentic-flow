@@ -46,10 +46,10 @@ run_audit() {
 
     echo "┌─── ${name} ───"
     if [[ -x "$script" ]]; then
-        "$script" "${args[@]}" || ((TOTAL_ISSUES++))
+        "$script" "${args[@]}" || TOTAL_ISSUES=$((TOTAL_ISSUES + 1))
     else
         echo "  ✗ Script not found or not executable: ${script}"
-        ((TOTAL_ISSUES++))
+        TOTAL_ISSUES=$((TOTAL_ISSUES + 1))
     fi
     echo "└───────────────────────────────────────────"
     echo ""

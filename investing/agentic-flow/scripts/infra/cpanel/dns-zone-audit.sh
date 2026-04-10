@@ -46,8 +46,8 @@ ssh_cmd() {
 
 log()  { echo "[$(date -u +%H:%M:%S)] $*"; }
 ok()   { echo "  ✓ $*"; }
-warn() { echo "  ⚠ $*"; ((ISSUES++)); }
-fail() { echo "  ✗ $*"; ((ISSUES++)); }
+warn() { echo "  ⚠ $*"; ISSUES=$((ISSUES + 1)); }
+fail() { echo "  ✗ $*"; ISSUES=$((ISSUES + 1)); }
 
 # ─── 1. Discover all PowerDNS zones ──────────────────────────────────────────
 log "Discovering PowerDNS zones via SSH..."
@@ -98,7 +98,7 @@ for zone in $SIGNED_ZONES; do
                 SALT=$(echo "$NSEC3_PARAMS" | cut -d' ' -f4)
                 ssh_cmd "sudo pdnsutil set-nsec3 ${zone} '${ALGO} 1 ${ITER} ${SALT}' narrow && sudo pdnsutil rectify-zone ${zone} && sudo pdns_control reload" && {
                     ok "Fixed NSEC3 opt-out on ${zone}"
-                    ((FIXES++))
+                    FIXES=$((FIXES + 1))
                 } || fail "Failed to fix NSEC3 on ${zone}"
             fi
         else
@@ -142,7 +142,8 @@ for zone in $ALL_ZONES; do
     PARENT=$(echo "$zone" | sed 's/^[^.]*\.//')
     if echo "$ALL_ZONES" | grep -q "^${PARENT}$"; then
         # This is a child zone. Check if it has DNSSEC but parent has no DS for it
-        CHILD_HAS_KEYS=$(ssh_cmd "sudo pdnsutil show-zone $zone 2>/dev/null | grep -c 'ID = '" || echo "0")
+        CHILD_HAS_KEYS=$(ssh_cmd "sudo pdnsutil show-zone $zone 2>/dev/null | grep -c 'ID = '" | tail -1 | tr -dc '0-9')
+        CHILD_HAS_KEYS=${CHILD_HAS_KEYS:-0}
 
         if [[ "$CHILD_HAS_KEYS" -gt 0 ]]; then
             # Child has DNSSEC keys — check if parent has DS delegation
@@ -155,7 +156,7 @@ for zone in $ALL_ZONES; do
                     log "  → Fixing: Disabling DNSSEC on child zone ${zone}"
                     ssh_cmd "sudo pdnsutil disable-dnssec ${zone} && sudo pdns_control reload" && {
                         ok "Disabled DNSSEC on ${zone}"
-                        ((FIXES++))
+                        FIXES=$((FIXES + 1))
                     } || fail "Failed to disable DNSSEC on ${zone}"
                 fi
             fi

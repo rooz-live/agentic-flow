@@ -43,7 +43,7 @@ check_cert() {
 
     if [[ -z "$CERT_INFO" ]]; then
         echo "  ✗ ${domain}:${port} — could not retrieve certificate"
-        ((ISSUES++))
+        ISSUES=$((ISSUES + 1))
         return
     fi
 
@@ -62,15 +62,15 @@ check_cert() {
     if [[ $DAYS_LEFT -lt 0 ]]; then
         STATUS="EXPIRED"
         echo "  ✗ ${domain} — EXPIRED ${DAYS_LEFT#-} days ago (issuer: ${ISSUER})"
-        ((ISSUES++))
+        ISSUES=$((ISSUES + 1))
     elif [[ $DAYS_LEFT -lt $SSL_CRIT_DAYS ]]; then
         STATUS="CRITICAL"
         echo "  ✗ ${domain} — expires in ${DAYS_LEFT}d (issuer: ${ISSUER})"
-        ((ISSUES++))
+        ISSUES=$((ISSUES + 1))
     elif [[ $DAYS_LEFT -lt $SSL_WARN_DAYS ]]; then
         STATUS="WARNING"
         echo "  ⚠ ${domain} — expires in ${DAYS_LEFT}d (issuer: ${ISSUER})"
-        ((ISSUES++))
+        ISSUES=$((ISSUES + 1))
     else
         STATUS="OK"
         echo "  ✓ ${domain} — ${DAYS_LEFT}d remaining (issuer: ${ISSUER})"

@@ -36,10 +36,20 @@ ssh_cmd() {
     ssh -o ConnectTimeout=10 -o BatchMode=yes "$SSH_ALIAS" "$@" 2>/dev/null
 }
 
+# Safe SSH helpers: never fail the pipeline
+ssh_lines() { ssh_cmd "$@" || true; }
+ssh_count() {
+    local result
+    result=$(ssh_cmd "$@" 2>/dev/null || true)
+    result=$(echo "$result" | tail -1 | tr -dc '0-9')
+    echo "${result:-0}"
+}
+
 log()  { echo "[$(date -u +%H:%M:%S)] $*"; }
 ok()   { echo "  ✓ $*"; }
 warn() { echo "  ⚠ $*"; ISSUES=$((ISSUES + 1)); }
 fail() { echo "  ✗ $*"; ISSUES=$((ISSUES + 1)); }
+info() { echo "  ℹ $*"; }  # informational, does not count as issue
 
 log "Nginx Configuration Audit — ${SSH_ALIAS}"
 echo ""
@@ -67,18 +77,18 @@ fi
 echo ""
 log "Scanning for fragile proxy_pass patterns..."
 
-# Find all proxy_pass directives that use hostnames (not 127.0.0.1/localhost/IPs)
-FRAGILE_CONFIGS=$(ssh_cmd "sudo grep -rn 'proxy_pass.*https\?://' /etc/nginx/conf.d/ 2>/dev/null | grep -vE '(127\.0\.0\.\d+|localhost|\\\$|_backend_)' | grep -vE '^\s*#'" || true)
+# Find all proxy_pass directives that use hostnames (not 127.x.x.x/localhost/IPs)
+FRAGILE_CONFIGS=$(ssh_lines "sudo grep -rn 'proxy_pass.*https\?://' /etc/nginx/conf.d/ 2>/dev/null | grep -vE '(127\.0\.0\.[0-9]+|localhost|\\\$|_backend_)' | grep -vE '^\s*#'")
 
 if [[ -n "$FRAGILE_CONFIGS" ]]; then
     while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
         CONFIG_FILE=$(echo "$line" | cut -d: -f1)
         LINE_NUM=$(echo "$line" | cut -d: -f2)
         CONTENT=$(echo "$line" | cut -d: -f3-)
 
         # Check if the same config block has a resolver directive
-        HAS_RESOLVER=$(ssh_cmd "sudo grep -c 'resolver ' '$CONFIG_FILE'" | tail -1 | tr -dc '0-9')
-        HAS_RESOLVER=${HAS_RESOLVER:-0}
+        HAS_RESOLVER=$(ssh_count "sudo grep -c 'resolver ' '$CONFIG_FILE'")
 
         if [[ "$HAS_RESOLVER" -eq 0 ]]; then
             warn "Fragile proxy_pass (no resolver): ${CONFIG_FILE}:${LINE_NUM}"
@@ -95,16 +105,20 @@ fi
 echo ""
 log "Checking upstream block resolution..."
 
-UPSTREAM_HOSTS=$(ssh_cmd "sudo grep -rhoP 'upstream\s+\K\S+' /etc/nginx/conf.d/ 2>/dev/null | sort -u" || true)
-UPSTREAM_SERVERS=$(ssh_cmd "sudo grep -rhoP 'server\s+\K[^:;\s]+' /etc/nginx/conf.d/ 2>/dev/null | grep -v '^\d' | sort -u" || true)
+# Extract upstream hostnames from "upstream NAME {" blocks only (not server directives in general)
+UPSTREAM_SERVERS=$(ssh_lines "sudo grep -rhoP 'upstream\s+\K[a-zA-Z][a-zA-Z0-9._-]+' /etc/nginx/conf.d/ 2>/dev/null | sort -u")
 
-# Check that key hostnames in server directives resolve
+# Check that upstream block hostnames resolve on the server
 for host in $UPSTREAM_SERVERS; do
-    # Skip IPs, variables, unix sockets, short tokens, nginx syntax fragments
-    if [[ "$host" =~ ^[0-9] || "$host" =~ ^\$ || "$host" =~ ^unix: || "$host" == "localhost" || ${#host} -lt 4 || "$host" =~ ^[{}_] || ! "$host" =~ \. ]]; then
-        continue
-    fi
-    RESOLVES=$(ssh_cmd "getent hosts $host 2>/dev/null | head -1" || true)
+    # Skip variables, IPs, unix sockets, short tokens, entries without a dot
+    [[ -z "$host" ]] && continue
+    [[ "$host" =~ ^[0-9] ]] && continue
+    [[ "$host" =~ ^\$ ]] && continue
+    [[ "$host" =~ ^unix: ]] && continue
+    [[ "$host" == "localhost" ]] && continue
+    [[ ${#host} -lt 4 ]] && continue
+    [[ ! "$host" =~ \. ]] && continue
+    RESOLVES=$(ssh_lines "getent hosts $host 2>/dev/null | head -1")
     if [[ -n "$RESOLVES" ]]; then
         ok "Upstream '${host}' resolves"
     else
@@ -116,7 +130,8 @@ done
 echo ""
 log "Checking PHP-FPM status..."
 
-PHP_FPM_RUNNING=$(ssh_cmd "sudo systemctl is-active ea-php*-php-fpm 2>/dev/null | head -1" || echo "unknown")
+PHP_FPM_RUNNING=$(ssh_lines "sudo systemctl is-active ea-php84-php-fpm 2>/dev/null" | head -1)
+PHP_FPM_RUNNING=${PHP_FPM_RUNNING:-unknown}
 if [[ "$PHP_FPM_RUNNING" == "active" ]]; then
     ok "PHP-FPM is running"
 else
@@ -124,7 +139,7 @@ else
 fi
 
 # Check critical PHP extensions for Passbolt
-PASSBOLT_EXTS=$(ssh_cmd "/opt/cpanel/ea-php84/root/usr/bin/php -m 2>/dev/null" || true)
+PASSBOLT_EXTS=$(ssh_lines "/opt/cpanel/ea-php84/root/usr/bin/php -m 2>/dev/null")
 for ext in gnupg gd intl mbstring curl openssl; do
     if echo "$PASSBOLT_EXTS" | grep -qi "^${ext}$"; then
         ok "PHP extension: ${ext}"
@@ -136,11 +151,9 @@ done
 # ─── 6. Check for recently modified configs (drift detection) ─────────────────
 echo ""
 log "Checking for recently modified Nginx configs (last 24h)..."
-RECENT_CHANGES=$(ssh_cmd "sudo find /etc/nginx/conf.d/ -name '*.conf' -mmin -1440 2>/dev/null" || true)
-if [[ -n "$RECENT_CHANGES" ]]; then
-    echo "$RECENT_CHANGES" | while IFS= read -r f; do
-        warn "Recently modified: ${f}"
-    done
+RECENT_COUNT=$(ssh_count "sudo find /etc/nginx/conf.d/ -name '*.conf' -mmin -1440 2>/dev/null | wc -l")
+if [[ "$RECENT_COUNT" -gt 0 ]]; then
+    info "${RECENT_COUNT} config(s) modified in last 24h (informational, not counted as issue)"
 else
     ok "No Nginx configs changed in last 24h"
 fi

@@ -1,12 +1,33 @@
 ---
 # OpenStack Status Check
-# Usage: ansible-playbook playbooks/openstack-status.yml
-# Runs OpenStack CLI commands against the STX endpoint
-# Requires: openrc sourced or OS_* env vars set
+# Usage: ansible-playbook -i inventory/hosts.yml playbooks/openstack-status.yml
+# Requires: OS_* env vars set (source scripts/infra/credentials/.env.cpanel)
+#           or /etc/platform/openrc present on the remote STX host
 - name: OpenStack Status Check
   hosts: stx
   become: no
   gather_facts: no
+
+  pre_tasks:
+    # ── Preflight: fail fast with an actionable message ──
+    - name: Check OS_AUTH_URL is set
+      assert:
+        that: lookup('env', 'OS_AUTH_URL') != ''
+        fail_msg: |
+          OS_AUTH_URL is not set.
+          Source scripts/infra/credentials/.env.cpanel before running:
+            source scripts/infra/credentials/.env.cpanel
+            ansible-playbook -i inventory/hosts.yml playbooks/openstack-status.yml
+          Or set OS_AUTH_URL=http://<stx-host>:5000/v3 manually.
+      run_once: true
+      delegate_to: localhost
+      ignore_errors: true  # warn only — remote openrc may still work
+      register: auth_check
+
+    - name: Preflight warning (OS_AUTH_URL missing, will try remote openrc)
+      debug:
+        msg: "OS_AUTH_URL not in local env — falling back to /etc/platform/openrc on remote host"
+      when: auth_check is failed
 
   tasks:
     - name: Source openrc and check token

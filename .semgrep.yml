@@ -34,3 +34,39 @@ rules:
     message: "Disabling StrictHostKeyChecking is insecure for production"
     languages: [bash]
     severity: WARNING
+
+  # ── nginx proxy safety ─────────────────────────────────────────────────────────────────
+  - id: nginx-proxy-pass-variable-with-uri
+    pattern-regex: 'proxy_pass\s+\$\w+/\w+'
+    message: >
+      proxy_pass with a variable AND a URI suffix ($backend/path/) silently drops
+      the dynamic URI tail — Flask/backend receives only the static suffix.
+      Use bare $backend (no URI) to pass the original request unchanged.
+    languages: [generic]
+    severity: ERROR
+    paths:
+      include: ["**/*.conf"]
+
+  # ── cPanel / WHM API safety ───────────────────────────────────────────────────────
+  - id: cpanel-api-token-in-url
+    pattern-regex: 'https?://[^"''\s]*:[A-Za-z0-9+/]{20,}@'
+    message: "API token embedded in URL. Use Authorization headers or env vars instead."
+    languages: [bash, python, generic]
+    severity: ERROR
+
+  # ── subprocess safety ───────────────────────────────────────────────────────────
+  - id: subprocess-shell-string
+    patterns:
+      - pattern: subprocess.run($CMD, shell=True, ...)
+      - pattern-not: subprocess.run([...], shell=True, ...)
+    message: >
+      subprocess.run with shell=True and a string is vulnerable to shell injection.
+      Pass a list of args instead: subprocess.run(["cmd", arg1, arg2])
+    languages: [python]
+    severity: ERROR
+
+  - id: os-system-call
+    pattern: os.system(...)
+    message: "os.system() is injection-prone. Use subprocess.run([...]) instead."
+    languages: [python]
+    severity: WARNING

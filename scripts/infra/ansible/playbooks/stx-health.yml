@@ -1,0 +1,67 @@
+---
+# StarlingX Health Check
+# Usage: ansible-playbook playbooks/stx-health.yml
+# Safe: read-only
+- name: StarlingX Health Check
+  hosts: stx
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: System uptime
+      command: uptime
+      register: uptime
+      changed_when: false
+
+    - name: Kubernetes cluster status
+      command: kubectl get nodes --no-headers
+      register: k8s_nodes
+      changed_when: false
+      failed_when: false
+
+    - name: K8s node status
+      debug:
+        msg: "{{ k8s_nodes.stdout_lines | default(['kubectl not available or no cluster']) }}"
+
+    - name: K8s pods in kube-system
+      command: kubectl get pods -n kube-system --no-headers
+      register: k8s_system_pods
+      changed_when: false
+      failed_when: false
+
+    - name: K8s system pod health
+      debug:
+        msg: "{{ k8s_system_pods.stdout_lines | length }} pods in kube-system"
+      when: k8s_system_pods.rc == 0
+
+    - name: OpenStack service list
+      shell: source /etc/platform/openrc && openstack service list -f json 2>/dev/null
+      register: os_services
+      changed_when: false
+      failed_when: false
+
+    - name: IPMI status (if available)
+      command: ipmitool chassis status
+      register: ipmi_status
+      changed_when: false
+      failed_when: false
+
+    - name: Disk usage
+      command: df -h /
+      register: disk
+      changed_when: false
+
+    - name: Docker/containerd status
+      systemd:
+        name: containerd
+      register: containerd_status
+      changed_when: false
+      failed_when: false
+
+    - name: Summary
+      debug:
+        msg:
+          - "{{ uptime.stdout }}"
+          - "K8s nodes: {{ k8s_nodes.stdout_lines | length | default(0) }}"
+          - "Disk: {{ disk.stdout_lines[-1] }}"
+          - "Containerd: {{ containerd_status.status.ActiveState | default('unknown') }}"

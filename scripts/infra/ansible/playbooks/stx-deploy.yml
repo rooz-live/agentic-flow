@@ -1,0 +1,57 @@
+---
+# StarlingX Deployment
+# Usage: ansible-playbook playbooks/stx-deploy.yml
+# WRITE OPERATION: deploys code to STX
+- name: Deploy to StarlingX
+  hosts: stx
+  become: no
+  gather_facts: yes
+
+  vars:
+    local_project: "{{ lookup('env', 'HOME') }}/Documents/code/agentic-flow-core"
+    deploy_path: "{{ stx_deploy_path }}"
+
+  tasks:
+    - name: Pre-deploy health check
+      command: uptime
+      register: pre_health
+      changed_when: false
+
+    - name: Create deploy directory
+      file:
+        path: "{{ deploy_path }}"
+        state: directory
+        mode: '0755'
+
+    - name: Sync project files
+      synchronize:
+        src: "{{ local_project }}/"
+        dest: "{{ deploy_path }}/"
+        rsync_opts:
+          - "--exclude=node_modules"
+          - "--exclude=.git"
+          - "--exclude=*.log"
+          - "--delete"
+      delegate_to: localhost
+
+    - name: Install dependencies (if Node.js available)
+      shell: |
+        if command -v node &>/dev/null; then
+          cd {{ deploy_path }} && npm install --production 2>&1 | tail -3
+        else
+          echo "Node.js not available, skipping"
+        fi
+      register: npm_install
+      changed_when: "'added' in npm_install.stdout"
+
+    - name: Post-deploy verification
+      shell: |
+        echo "Directory: {{ deploy_path }}"
+        echo "Files: $(ls -1 {{ deploy_path }} | wc -l)"
+        echo "Size: $(du -sh {{ deploy_path }} | cut -f1)"
+      register: post_verify
+      changed_when: false
+
+    - name: Report
+      debug:
+        msg: "{{ post_verify.stdout_lines }}"

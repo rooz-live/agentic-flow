@@ -1,0 +1,58 @@
+---
+# HostBill Sync & Billing Check
+# Usage: ansible-playbook playbooks/hostbill-sync.yml
+# BLOCKED: Requires HOSTBILL_API_KEY to be provisioned
+# Set: export HOSTBILL_API_KEY=your_key_here
+- name: HostBill Integration
+  hosts: local
+  gather_facts: no
+  vars:
+    hostbill_api_key: "{{ lookup('env', 'HOSTBILL_API_KEY') }}"
+    hostbill_base_url: "{{ lookup('env', 'HOSTBILL_URL') | default('https://api.hostbill.example.com/v1', true) }}"
+    infra_scripts: "{{ lookup('env', 'HOME') }}/Documents/code/scripts/infra/hostbill"
+
+  tasks:
+    - name: Check API key is set
+      assert:
+        that: hostbill_api_key | length > 0
+        fail_msg: >
+          HOSTBILL_API_KEY not set. This playbook is BLOCKED until the API key is provisioned.
+          Export it: export HOSTBILL_API_KEY=your_key_here
+        success_msg: "API key configured ({{ hostbill_api_key[:8] }}...)"
+
+    - name: Run HostBill sync agent
+      command: python3 {{ infra_scripts }}/hostbill-sync-agent.py --check
+      register: sync_result
+      when: hostbill_api_key | length > 0
+      changed_when: false
+      failed_when: false
+      environment:
+        HOSTBILL_API_KEY: "{{ hostbill_api_key }}"
+        HOSTBILL_URL: "{{ hostbill_base_url }}"
+
+    - name: Run HostBill telemetry
+      command: python3 {{ infra_scripts }}/hostbill_telemetry.py --status
+      register: telemetry_result
+      when: hostbill_api_key | length > 0
+      changed_when: false
+      failed_when: false
+      environment:
+        HOSTBILL_API_KEY: "{{ hostbill_api_key }}"
+
+    - name: Check StarlingX-HostBill integration
+      command: python3 {{ infra_scripts }}/starlingx_hostbill.py --dry-run
+      register: stx_hostbill
+      when: hostbill_api_key | length > 0
+      changed_when: false
+      failed_when: false
+      environment:
+        HOSTBILL_API_KEY: "{{ hostbill_api_key }}"
+        AF_INTEGRATIONS_WRITE_ALLOWED: "false"
+
+    - name: Report
+      debug:
+        msg:
+          - "Sync: {{ sync_result.stdout_lines | default(['skipped']) | last }}"
+          - "Telemetry: {{ telemetry_result.stdout_lines | default(['skipped']) | last }}"
+          - "STX bridge: {{ stx_hostbill.stdout_lines | default(['skipped']) | last }}"
+      when: hostbill_api_key | length > 0

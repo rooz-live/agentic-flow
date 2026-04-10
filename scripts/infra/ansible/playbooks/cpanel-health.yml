@@ -1,0 +1,86 @@
+---
+# cPanel Server Health Check
+# Usage: ansible-playbook playbooks/cpanel-health.yml
+# Safe: read-only, no changes made
+- name: cPanel Server Health Check
+  hosts: cpanel
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: System uptime and load
+      command: uptime
+      register: uptime_result
+      changed_when: false
+
+    - name: Memory usage
+      command: free -h
+      register: memory_result
+      changed_when: false
+
+    - name: Disk usage
+      command: df -h /
+      register: disk_result
+      changed_when: false
+
+    - name: Check critical services
+      systemd:
+        name: "{{ item }}"
+      register: service_status
+      loop: "{{ cpanel_services }}"
+      changed_when: false
+      failed_when: false
+
+    - name: Report service status
+      debug:
+        msg: "{{ item.item }}: {{ item.status.ActiveState | default('unknown') }}"
+      loop: "{{ service_status.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Check Nginx error log for critical errors (last hour)
+      shell: >
+        awk -v d=$(date -u +%Y/%m/%d) '$0 ~ d && /emerg|crit|alert/' /var/log/nginx/error.log 2>/dev/null | tail -5
+      register: nginx_errors
+      changed_when: false
+      failed_when: false
+
+    - name: Report Nginx errors
+      debug:
+        msg: "{{ nginx_errors.stdout_lines | length }} critical Nginx errors found"
+
+    - name: Check SSL certificate expiry
+      shell: |
+        echo | openssl s_client -servername {{ item }} -connect {{ item }}:443 2>/dev/null | \
+        openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2
+      register: ssl_expiry
+      loop: "{{ cpanel_domains }}"
+      changed_when: false
+      failed_when: false
+
+    - name: Report SSL expiry dates
+      debug:
+        msg: "{{ item.item }}: {{ item.stdout | default('NO CERT') }}"
+      loop: "{{ ssl_expiry.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Check listening ports
+      shell: ss -tlnp | grep -E ':{{ item }} '
+      register: port_check
+      loop: [80, 443, 2083, 2087]
+      changed_when: false
+      failed_when: false
+
+    - name: Report port status
+      debug:
+        msg: "Port {{ item.item }}: {{ 'LISTENING' if item.rc == 0 else 'NOT LISTENING' }}"
+      loop: "{{ port_check.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Summary
+      debug:
+        msg:
+          - "{{ uptime_result.stdout }}"
+          - "Disk: {{ disk_result.stdout_lines[-1] }}"

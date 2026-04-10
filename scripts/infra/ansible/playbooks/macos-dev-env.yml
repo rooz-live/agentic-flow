@@ -1,0 +1,71 @@
+---
+# macOS Developer Environment Check
+# Usage: ansible-playbook playbooks/macos-dev-env.yml
+- name: macOS Dev Environment Verification
+  hosts: local
+  gather_facts: no
+
+  tasks:
+    - name: Check required CLI tools
+      shell: "which {{ item }} && {{ item }} --version 2>&1 | head -1"
+      register: tool_check
+      loop: "{{ required_tools }}"
+      changed_when: false
+      failed_when: false
+
+    - name: Report tool status
+      debug:
+        msg: "{{ item.item }}: {{ item.stdout_lines[-1] | default('NOT INSTALLED') if item.rc == 0 else 'MISSING' }}"
+      loop: "{{ tool_check.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Python packages (infra)
+      shell: pip3 list 2>/dev/null | grep -iE "paramiko|fabric|ansible|openstack"
+      register: pip_packages
+      changed_when: false
+      failed_when: false
+
+    - name: Report Python packages
+      debug:
+        msg: "{{ pip_packages.stdout_lines }}"
+
+    - name: Node.js version
+      command: node --version
+      register: node_version
+      changed_when: false
+      failed_when: false
+
+    - name: Git repo health
+      shell: git -C ~/Documents/code fsck --no-dangling 2>&1 | grep -cE 'bad|broken|missing'
+      register: git_health
+      changed_when: false
+      failed_when: false
+
+    - name: Git repo size
+      shell: du -sh ~/Documents/code/.git | cut -f1
+      register: git_size
+      changed_when: false
+
+    - name: SSH keys present
+      stat:
+        path: "{{ item }}"
+      register: ssh_keys
+      loop:
+        - ~/pem/rooz.pem
+        - ~/.ssh/starlingx_key
+      failed_when: false
+
+    - name: Report SSH keys
+      debug:
+        msg: "{{ item.item }}: {{ 'exists' if item.stat.exists else 'MISSING' }}"
+      loop: "{{ ssh_keys.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Summary
+      debug:
+        msg:
+          - "Tools: {{ tool_check.results | selectattr('rc', 'eq', 0) | list | length }}/{{ required_tools | length }} installed"
+          - "Node: {{ node_version.stdout | default('N/A') }}"
+          - "Git: {{ git_health.stdout }} errors, {{ git_size.stdout }} .git size"

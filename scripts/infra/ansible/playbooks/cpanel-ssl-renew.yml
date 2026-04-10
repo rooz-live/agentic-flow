@@ -1,0 +1,42 @@
+---
+# Trigger AutoSSL Certificate Renewal
+# Usage: ansible-playbook playbooks/cpanel-ssl-renew.yml --extra-vars "target_user=rooz"
+# WRITE OPERATION: triggers Let's Encrypt certificate issuance
+- name: Trigger AutoSSL Renewal
+  hosts: cpanel
+  become: yes
+  gather_facts: no
+  vars:
+    target_user: all  # 'all' or specific cPanel username
+
+  tasks:
+    - name: Check AutoSSL provider
+      command: whmapi1 get_autossl_providers
+      register: autossl_provider
+      changed_when: false
+
+    - name: Show provider
+      debug:
+        msg: "{{ autossl_provider.stdout_lines | select('match', '.*display_name.*') | list }}"
+
+    - name: Trigger AutoSSL for specific user
+      command: /usr/local/cpanel/bin/autossl_check --user={{ target_user }}
+      when: target_user != 'all'
+      register: autossl_result
+
+    - name: Trigger AutoSSL for all users
+      command: /usr/local/cpanel/bin/autossl_check --all
+      when: target_user == 'all'
+      register: autossl_all_result
+
+    - name: Check latest AutoSSL log
+      shell: |
+        LATEST=$(ls -dt /var/cpanel/logs/autossl/*/ 2>/dev/null | head -1)
+        [ -n "$LATEST" ] && cat ${LATEST}txt 2>/dev/null | grep -iE 'success|fail|install|error|renewed' | tail -10
+      register: autossl_log
+      changed_when: false
+      failed_when: false
+
+    - name: Report
+      debug:
+        msg: "{{ autossl_log.stdout_lines | default(['No log entries found']) }}"

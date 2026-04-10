@@ -38,8 +38,8 @@ ssh_cmd() {
 
 log()  { echo "[$(date -u +%H:%M:%S)] $*"; }
 ok()   { echo "  ✓ $*"; }
-warn() { echo "  ⚠ $*"; ((ISSUES++)); }
-fail() { echo "  ✗ $*"; ((ISSUES++)); }
+warn() { echo "  ⚠ $*"; ISSUES=$((ISSUES + 1)); }
+fail() { echo "  ✗ $*"; ISSUES=$((ISSUES + 1)); }
 
 log "Nginx Configuration Audit — ${SSH_ALIAS}"
 echo ""
@@ -77,7 +77,8 @@ if [[ -n "$FRAGILE_CONFIGS" ]]; then
         CONTENT=$(echo "$line" | cut -d: -f3-)
 
         # Check if the same config block has a resolver directive
-        HAS_RESOLVER=$(ssh_cmd "sudo grep -c 'resolver ' '$CONFIG_FILE'" || echo "0")
+        HAS_RESOLVER=$(ssh_cmd "sudo grep -c 'resolver ' '$CONFIG_FILE'" | tail -1 | tr -dc '0-9')
+        HAS_RESOLVER=${HAS_RESOLVER:-0}
 
         if [[ "$HAS_RESOLVER" -eq 0 ]]; then
             warn "Fragile proxy_pass (no resolver): ${CONFIG_FILE}:${LINE_NUM}"
@@ -99,8 +100,8 @@ UPSTREAM_SERVERS=$(ssh_cmd "sudo grep -rhoP 'server\s+\K[^:;\s]+' /etc/nginx/con
 
 # Check that key hostnames in server directives resolve
 for host in $UPSTREAM_SERVERS; do
-    # Skip IPs, variables, unix sockets
-    if [[ "$host" =~ ^[0-9] || "$host" =~ ^\$ || "$host" =~ ^unix: || "$host" == "localhost" ]]; then
+    # Skip IPs, variables, unix sockets, short tokens, nginx syntax fragments
+    if [[ "$host" =~ ^[0-9] || "$host" =~ ^\$ || "$host" =~ ^unix: || "$host" == "localhost" || ${#host} -lt 4 || "$host" =~ ^[{}_] || ! "$host" =~ \. ]]; then
         continue
     fi
     RESOLVES=$(ssh_cmd "getent hosts $host 2>/dev/null | head -1" || true)

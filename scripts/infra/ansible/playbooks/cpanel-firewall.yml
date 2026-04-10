@@ -1,0 +1,77 @@
+---
+# CSF Firewall Audit
+# Usage: ansible-playbook playbooks/cpanel-firewall.yml
+# Safe: read-only audit. Use --extra-vars "csf_restart=true" to restart.
+- name: CSF Firewall Audit
+  hosts: cpanel
+  become: yes
+  gather_facts: no
+  vars:
+    csf_restart: false
+
+  tasks:
+    - name: CSF version
+      command: csf -v
+      register: csf_version
+      changed_when: false
+
+    - name: LFD status
+      systemd:
+        name: lfd
+      register: lfd_status
+      changed_when: false
+      failed_when: false
+
+    - name: CSF TESTING mode
+      shell: grep '^TESTING ' /etc/csf/csf.conf
+      register: csf_testing
+      changed_when: false
+
+    - name: Get TCP_IN allowed ports
+      shell: grep '^TCP_IN' /etc/csf/csf.conf | cut -d'"' -f2
+      register: tcp_in
+      changed_when: false
+
+    - name: Verify required ports in TCP_IN
+      assert:
+        that: "'{{ item }}' in tcp_in.stdout"
+        fail_msg: "Port {{ item }} NOT in CSF TCP_IN"
+        success_msg: "Port {{ item }}: allowed"
+      loop: "{{ cpanel_required_ports | map('string') | list }}"
+      ignore_errors: yes
+
+    - name: Check services listening on critical ports
+      shell: "ss -tlnp | grep -q ':{{ item }} '"
+      register: listen_check
+      loop: [80, 443, 2083, 2087]
+      changed_when: false
+      failed_when: false
+
+    - name: Report listening status
+      debug:
+        msg: "Port {{ item.item }}: {{ 'LISTENING' if item.rc == 0 else 'NOT LISTENING' }}"
+      loop: "{{ listen_check.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Recent CSF blocks (last 10)
+      shell: grep 'Blocked' /var/log/lfd.log 2>/dev/null | tail -10
+      register: recent_blocks
+      changed_when: false
+      failed_when: false
+
+    - name: Report blocks
+      debug:
+        msg: "{{ recent_blocks.stdout_lines | length }} recent blocks found"
+
+    - name: Restart CSF (only when explicitly requested)
+      command: csf -r
+      when: csf_restart | bool
+      register: csf_restart_result
+
+    - name: Summary
+      debug:
+        msg:
+          - "CSF: {{ csf_version.stdout_lines[0] }}"
+          - "LFD: {{ lfd_status.status.ActiveState | default('unknown') }}"
+          - "Testing: {{ csf_testing.stdout }}"

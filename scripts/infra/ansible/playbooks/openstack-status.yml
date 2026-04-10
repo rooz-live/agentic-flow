@@ -1,0 +1,55 @@
+---
+# OpenStack Status Check
+# Usage: ansible-playbook playbooks/openstack-status.yml
+# Runs OpenStack CLI commands against the STX endpoint
+# Requires: openrc sourced or OS_* env vars set
+- name: OpenStack Status Check
+  hosts: stx
+  become: no
+  gather_facts: no
+
+  tasks:
+    - name: Source openrc and check token
+      shell: source /etc/platform/openrc 2>/dev/null && openstack token issue -f json 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('project','N/A'))"
+      register: os_token
+      changed_when: false
+      failed_when: false
+
+    - name: OpenStack project
+      debug:
+        msg: "OpenStack project: {{ os_token.stdout | default('NOT AUTHENTICATED') }}"
+
+    - name: Server list
+      shell: source /etc/platform/openrc 2>/dev/null && openstack server list -f json 2>/dev/null
+      register: os_servers
+      changed_when: false
+      failed_when: false
+
+    - name: Report servers
+      debug:
+        msg: "{{ (os_servers.stdout | from_json | length) if os_servers.rc == 0 else 0 }} servers found"
+
+    - name: Network list
+      shell: source /etc/platform/openrc 2>/dev/null && openstack network list -f json 2>/dev/null
+      register: os_networks
+      changed_when: false
+      failed_when: false
+
+    - name: Compute service list
+      shell: source /etc/platform/openrc 2>/dev/null && openstack compute service list -f json 2>/dev/null
+      register: os_compute
+      changed_when: false
+      failed_when: false
+
+    - name: Volume service list
+      shell: source /etc/platform/openrc 2>/dev/null && openstack volume service list -f json 2>/dev/null
+      register: os_volume
+      changed_when: false
+      failed_when: false
+
+    - name: Summary
+      debug:
+        msg:
+          - "Auth: {{ 'OK (' + os_token.stdout + ')' if os_token.rc == 0 else 'FAILED' }}"
+          - "Servers: {{ (os_servers.stdout | from_json | length) if os_servers.rc == 0 else 'N/A' }}"
+          - "Networks: {{ (os_networks.stdout | from_json | length) if os_networks.rc == 0 else 'N/A' }}"

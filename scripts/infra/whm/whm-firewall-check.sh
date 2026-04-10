@@ -26,6 +26,28 @@ success() { echo -e "${GREEN}[✓]${NC} $*"; }
 warn() { echo -e "${YELLOW}[⚠]${NC} $*"; }
 error() { echo -e "${RED}[✗]${NC} $*" >&2; }
 
+# --help / -h must work even without credentials
+case "${1:-}" in
+    help|--help|-h)
+        echo "WHM Firewall & Account Manager"
+        echo ""
+        echo "Usage: $0 <command> [args]"
+        echo ""
+        echo "PASSIVE commands (read-only):"
+        echo "  status              Server load, services, CSF firewall"
+        echo "  accounts            List cPanel accounts"
+        echo "  blocked             Show CSF blocked IPs"
+        echo ""
+        echo "ACTIVE commands (require --confirm):"
+        echo "  allow <ip> --confirm    Whitelist an IP in CSF"
+        echo "  deny <ip>  --confirm    Block an IP in CSF"
+        echo ""
+        echo "Write actions are logged to .goalie/whm-audit.jsonl"
+        echo "Environment: WHM_HOST, WHM_USER, WHM_API_TOKEN, CPANEL_SSH_KEY"
+        exit 0
+        ;;
+esac
+
 if [[ -z "${WHM_API_TOKEN:-}" ]]; then
     error "WHM_API_TOKEN not set. Source credentials/.env.cpanel or export it."
     exit 1

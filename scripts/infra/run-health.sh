@@ -26,6 +26,32 @@ CREDS_FILE="$SCRIPT_DIR/credentials/.env.cpanel"
 TIMESTAMP="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 JSON_MODE=false
 TARGET="${1:-all}"
+
+# ── Help / usage ──────────────────────────────────────────────────────────────
+if [[ "$TARGET" == "--help" || "$TARGET" == "-h" || "$TARGET" == "help" ]]; then
+    cat <<'EOF'
+Usage: run-health.sh [target] [--json]
+
+Targets (all run passive/read-only checks only):
+  all        Run every health check (default)
+  cpanel     cPanel/WHM health (services, SSL, ports)
+  stx        STX node + OpenStack status
+  hostbill   HostBill sync status (dry-run)
+  local      macOS services + dev-env checks
+  --json     Run all targets, emit JSON summary to stdout
+
+Prerequisites:
+  source scripts/infra/credentials/.env.cpanel   # load credentials
+  pip install ansible                             # or brew install ansible
+
+Examples:
+  ./scripts/infra/run-health.sh
+  ./scripts/infra/run-health.sh cpanel
+  ./scripts/infra/run-health.sh --json | jq .
+EOF
+    exit 0
+fi
+
 [[ "${TARGET}" == "--json" ]] && { JSON_MODE=true; TARGET="all"; }
 
 # ── Preflight ─────────────────────────────────────────────────────────────────

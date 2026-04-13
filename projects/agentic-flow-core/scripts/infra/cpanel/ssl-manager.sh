@@ -6,7 +6,9 @@ set -euo pipefail
 # Integrates with ay prod-cycle for DoR/DoD budget/time constraints
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/source-cpanel-env.sh
+source "$SCRIPT_DIR/../lib/source-cpanel-env.sh"
+source_cpanel_env_init "$SCRIPT_DIR"
 GOALIE_DIR="$PROJECT_ROOT/.goalie"
 
 # Multi-domain configuration (supports rooz.live, yo.life, yoservice.com)

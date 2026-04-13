@@ -5,11 +5,9 @@ set -euo pipefail
 # Copies canonical config from repo → server, validates, reloads Nginx
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-
-if [ -f "$PROJECT_ROOT/config/.env.cpanel" ]; then
-    source "$PROJECT_ROOT/config/.env.cpanel"
-fi
+# shellcheck source=../lib/source-cpanel-env.sh
+source "$SCRIPT_DIR/../lib/source-cpanel-env.sh"
+source_cpanel_env_init "$SCRIPT_DIR"
 
 SSH_HOST="${CPANEL_SSH_HOST:-rooz-aws}"
 LOCAL_CONF="$SCRIPT_DIR/flask-proxy.conf"

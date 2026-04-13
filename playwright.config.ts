@@ -94,6 +94,11 @@ export default defineConfig({
       },
       testMatch: /analytics-tld\.contract\.spec\.ts/,
     },
+    {
+      name: 'security-passbolt',
+      testMatch: /passbolt-export-workflow\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
   ],
 
   webServer: runTldOnly ? undefined : [

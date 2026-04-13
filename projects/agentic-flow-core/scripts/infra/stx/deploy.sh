@@ -3,13 +3,22 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
 echo "╔════════════════════════════════════════════════════════════════════╗"
 echo "║          Deploying to StarlingX (stx-aio-0)                        ║"
 echo "╚════════════════════════════════════════════════════════════════════╝"
 echo ""
 
-# Load environment
-source /Users/shahroozbhopti/Documents/code/agentic-flow-core/.env.yolife
+# Load environment (portable checkout)
+if [[ -f "$PROJECT_ROOT/.env.yolife" ]]; then
+  # shellcheck source=/dev/null
+  source "$PROJECT_ROOT/.env.yolife"
+else
+  echo "❌ Missing $PROJECT_ROOT/.env.yolife"
+  exit 1
+fi
 
 # Validate configuration
 if [ -z "$YOLIFE_STX_HOST" ]; then
@@ -22,10 +31,11 @@ if [ ! -f "$YOLIFE_STX_KEY" ]; then
     exit 1
 fi
 
-STX_USER="ubuntu"
+STX_USER="${YOLIFE_STX_USER:-ubuntu}"
 STX_HOST="$YOLIFE_STX_HOST"
 STX_KEY="$YOLIFE_STX_KEY"
-STX_PORT="2222"
+STX_PORT="${YOLIFE_STX_PORTS:-2222}"
+STX_PORT="${STX_PORT%%,*}"
 DEPLOY_PATH="/home/ubuntu/agentic-flow-core"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -43,7 +53,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "Step 1: Creating deployment package"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-cd /Users/shahroozbhopti/Documents/code/agentic-flow-core
+cd "$PROJECT_ROOT"
 
 # Create tarball (exclude node_modules, .git, test files)
 tar -czf agentic-flow-deploy.tar.gz \

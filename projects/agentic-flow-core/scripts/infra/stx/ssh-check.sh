@@ -13,10 +13,10 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 # Load MCP/MPP exit codes
-source "$SCRIPT_DIR/lib/exit-codes.sh"
+source "$PROJECT_ROOT/scripts/lib/exit-codes.sh"
 
 # Output mode
 OUTPUT_MODE="${1:-human}"  # human or --json

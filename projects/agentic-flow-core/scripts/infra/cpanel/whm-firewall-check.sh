@@ -6,11 +6,11 @@ set -euo pipefail
 # Connects via SSH (uses CPANEL_SSH_HOST from .env.cpanel)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-
-if [ -f "$PROJECT_ROOT/config/.env.cpanel" ]; then
-    source "$PROJECT_ROOT/config/.env.cpanel"
-fi
+# shellcheck source=../lib/source-cpanel-env.sh
+source "$SCRIPT_DIR/../lib/source-cpanel-env.sh"
+source_cpanel_env_init "$SCRIPT_DIR"
+GOALIE_DIR="$PROJECT_ROOT/.goalie"
+AUDIT_LOG="${WHM_AUDIT_LOG:-$GOALIE_DIR/whm-audit.jsonl}"
 
 SSH_HOST="${CPANEL_SSH_HOST:-rooz-aws}"
 SSH_OPTS="-o ConnectTimeout=10 -o BatchMode=yes"
@@ -116,6 +116,37 @@ restart_csf() {
     echo -e "${GREEN}✓ CSF restarted${NC}"
 }
 
+audit_whm_action() {
+    mkdir -p "$(dirname "$AUDIT_LOG")"
+    printf '%s\n' "{\"action\":\"$1\",\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"via\":\"ssh\",\"host\":\"${SSH_HOST}\"}" >> "$AUDIT_LOG"
+}
+
+restart_csf_confirmed() {
+    audit_whm_action "csf_restart"
+    restart_csf
+}
+
+whm_api_version() {
+    if [[ -z "${WHM_HOST:-}" || -z "${WHM_TOKEN:-}" ]]; then
+        echo -e "${YELLOW}WHM_HOST / WHM_TOKEN not set — skip whm-api-version${NC}" >&2
+        return 1
+    fi
+    local user="${WHM_USER:-root}"
+    echo -e "${CYAN}━━━ WHM API version (read-only) ━━━${NC}"
+    curl -sS -k -H "Authorization: whm ${user}:${WHM_TOKEN}" \
+        "https://${WHM_HOST}:2087/json-api/version?api.version=1" | head -c 4000
+    echo ""
+}
+
+require_restart_confirm() {
+    if [[ "${2:-}" != "--confirm" && "${WHM_FIREWALL_CONFIRM:-}" != "1" ]]; then
+        echo -e "${RED}Refusing CSF restart without explicit confirmation.${NC}"
+        echo "  Run: $0 restart --confirm"
+        echo "  Or:  export WHM_FIREWALL_CONFIRM=1"
+        exit 1
+    fi
+}
+
 show_usage() {
     cat << EOF
 WHM Firewall (CSF) Check & Management
@@ -123,16 +154,18 @@ WHM Firewall (CSF) Check & Management
 Usage: $0 <command>
 
 Commands:
-  status    Show CSF configuration and status
-  ports     Verify required ports are allowed
-  services  Check if services are listening
-  blocks    Show recent CSF/LFD blocks
-  restart   Restart CSF (applies current rules)
-  full      Run all checks
-  help      Show this help
+  status           Show CSF configuration and status
+  ports            Verify required ports are allowed
+  services         Check if services are listening
+  blocks           Show recent CSF/LFD blocks
+  restart          Restart CSF — requires: restart --confirm (or WHM_FIREWALL_CONFIRM=1)
+  whm-api-version  WHM JSON-API version (read-only; needs WHM_HOST, WHM_TOKEN)
+  full             Run all checks (no restart)
+  help             Show this help
 
 Environment:
-  CPANEL_SSH_HOST  SSH config host name (default: rooz-aws)
+  CPANEL_SSH_HOST   SSH config host name (default: rooz-aws)
+  WHM_AUDIT_LOG     Override JSONL audit path (default: .goalie/whm-audit.jsonl)
 
 EOF
 }
@@ -142,7 +175,11 @@ case "${1:-full}" in
     ports|p)     verify_ports ;;
     services|sv) check_services ;;
     blocks|b)    check_blocks ;;
-    restart|r)   restart_csf ;;
+    restart|r)
+        require_restart_confirm "$@"
+        restart_csf_confirmed
+        ;;
+    whm-api-version|wav) whm_api_version ;;
     full|f)      check_status; verify_ports; check_services; check_blocks ;;
     help|h)      show_usage ;;
     *)           show_usage ;;

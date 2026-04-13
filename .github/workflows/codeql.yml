@@ -1,39 +1,84 @@
-name: "CodeQL Analysis"
+# CodeQL — security-extended + security-and-quality (canonical: agentic-flow-core)
+name: "CodeQL Advanced"
 
 on:
   push:
-    branches: [main]
+    branches: [main, run-it]
   pull_request:
-    branches: [main]
+    branches: [main, run-it]
   schedule:
-    - cron: '0 6 * * 1'  # Weekly Monday 6am UTC
+    - cron: "0 0 * * 0"
+  workflow_dispatch:
+
+env:
+  CODEQL_ACTION_EXTRA_OPTIONS: "--security-extended"
 
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     permissions:
       security-events: write
+      actions: read
       contents: read
+
     strategy:
       fail-fast: false
       matrix:
-        language: [javascript-typescript, python]
+        include:
+          - language: javascript-typescript
+            os: ubuntu-latest
+            build-mode: none
+          - language: python
+            os: ubuntu-latest
+            build-mode: none
+          - language: bash
+            os: ubuntu-latest
+            build-mode: none
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
-          queries: +security-extended
+          build-mode: ${{ matrix.build-mode }}
+          config: |
+            query-filters:
+              - include:
+                  tags contain: security
+              - include:
+                  tags contain: ai-improved
+            paths-ignore:
+              - "**/node_modules/**"
+              - "**/dist/**"
+              - "**/coverage/**"
+              - "**/.goalie/**"
+              - "**/*.test.js"
+              - "**/*.spec.ts"
+              - "scripts/infra/credentials/*"
+              - "config/.env.cpanel"
+          queries: security-extended,security-and-quality
 
-      - name: Autobuild
+      - name: Autobuild (if required)
+        if: matrix.build-mode == 'autobuild'
         uses: github/codeql-action/autobuild@v3
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
           category: "/language:${{ matrix.language }}"
+          output: codeql-results
+          upload: true
+
+      - name: Upload results as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: codeql-results-${{ matrix.language }}
+          path: codeql-results/
+          retention-days: 30

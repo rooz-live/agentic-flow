@@ -6,9 +6,16 @@ set -euo pipefail
 # Logs to .goalie/pattern_metrics.jsonl for WSJF prioritization
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Repo root: scripts/infra/cpanel -> ../../../
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 GOALIE_DIR="$PROJECT_ROOT/.goalie"
-SSL_MANAGER="$SCRIPT_DIR/cpanel-ssl-manager.sh"
+SSL_MANAGER="$SCRIPT_DIR/ssl-manager.sh"
+
+# shellcheck source=../lib/source-cpanel-env.sh
+source "$SCRIPT_DIR/../lib/source-cpanel-env.sh"
+source_cpanel_env_init "$SCRIPT_DIR"
+
+mkdir -p "$GOALIE_DIR"
 
 # Configuration
 CHECK_INTERVAL="${SSL_CHECK_INTERVAL:-3600}"  # 1 hour default
@@ -111,7 +118,7 @@ run_check_cycle() {
                 "$SSL_MANAGER" trigger "$domain"
             else
                 send_alert "SSL Issue: $domain" \
-                    "SSL certificate validation failed for $domain.\nRun: ./scripts/cpanel-ssl-manager.sh trigger $domain"
+                    "SSL certificate validation failed for $domain.\nRun: scripts/infra/cpanel/ssl-manager.sh trigger $domain"
             fi
         else
             # Check expiry

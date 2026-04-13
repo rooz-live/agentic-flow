@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source "$(dirname "${BASH_SOURCE[0]}")/source-project-env.sh" || true
 # ay-backtest.sh - Backtest runner for 382K episodes with parallel execution
 set -euo pipefail
 

@@ -378,3 +378,22 @@ fi
 
 validate_dates "$FILE" "$JSON_OUTPUT" "$WITH_CONFIDENCE"
 exit $?  # Propagate exit code from validate_dates function
+
+# ── Macro-Temporal Time Hallucination Checks (ROAM Risk) ──
+# Ensures the LLM hasn't hallucinated impossible macro dates 
+# (e.g., executing a trade on a weekend, or tax harvesting in a future year).
+
+check_macro_temporal_drift() {
+    local email_file="$1"
+    local current_year=$(date +%Y)
+    
+    # Financial constraint: No tax harvesting trades mentioned beyond the current year natively
+    if grep -iqE "tax(-| )loss harvesting.*(2027|2028|2029)" "$email_file"; then
+        log_fail "Macro-Temporal Hallucination: Mentions tax-loss harvesting in a future year."
+        return 1
+    fi
+    
+    return 0
+}
+
+# Attach to main

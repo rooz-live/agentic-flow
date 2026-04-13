@@ -1,0 +1,55 @@
+name: Passbolt E2E Extraction Test
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'scripts/security/passbolt-export-workflow.ts'
+      - 'playwright.config.ts'
+      - '.github/workflows/test-passbolt-e2e.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test-passbolt:
+    name: Run Passbolt Headless Extraction
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Passbolt Export Workflow
+        env:
+          PASSBOLT_URL: ${{ secrets.PASSBOLT_URL }}
+          PASSBOLT_USER: ${{ secrets.PASSBOLT_USER }}
+          PASSBOLT_PASSPHRASE: ${{ secrets.PASSBOLT_PASSPHRASE }}
+          # Use GitHub Actions runner temp directory for the temporal volume
+          PASSBOLT_KEY_DIR: ${{ runner.temp }}/pem
+        run: |
+          echo "Running Passbolt Playwright Extraction..."
+          npx playwright test --project=security-passbolt
+
+      - name: Verify Key Extraction (Dry Run)
+        run: |
+          if [ -f "${{ runner.temp }}/pem/passbolt-key.asc" ]; then
+            echo "Private key successfully extracted to temporal volume."
+            # Immediately shred/remove the key in CI context after verification
+            shred -u "${{ runner.temp }}/pem/passbolt-key.asc"
+            echo "Key shredded and removed."
+          else
+            echo "::error::Private key was not extracted."
+            exit 1
+          fi

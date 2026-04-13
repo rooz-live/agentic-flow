@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source "$(dirname "${BASH_SOURCE[0]}")/source-project-env.sh" || true
 # Controlled Divergence Testing Framework
 # Purpose: Enable adaptive learning with safety guarantees
 

@@ -5,7 +5,7 @@ set -euo pipefail
 # Features: Alerting, detailed diagnostics, historical logging, response time tracking
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 CONFIG_FILE="$PROJECT_ROOT/config/stx-domains.json"
 LOG_FILE="$PROJECT_ROOT/logs/stx-monitor.log"
 METRICS_FILE="$PROJECT_ROOT/logs/stx-metrics.jsonl"

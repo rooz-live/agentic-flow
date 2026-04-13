@@ -6,13 +6,9 @@ set -euo pipefail
 # Requires: CPANEL_HOST, CPANEL_USER, CPANEL_TOKEN (from .env.cpanel)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INFRA_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-PROJECT_ROOT="$(cd "$INFRA_DIR/../.." && pwd)"
-
-# Load credentials
-if [ -f "$PROJECT_ROOT/config/.env.cpanel" ]; then
-    source "$PROJECT_ROOT/config/.env.cpanel"
-fi
+# shellcheck source=../lib/source-cpanel-env.sh
+source "$SCRIPT_DIR/../lib/source-cpanel-env.sh"
+source_cpanel_env_init "$SCRIPT_DIR"
 
 # Colors
 RED='\033[0;31m'
@@ -28,7 +24,7 @@ CPANEL_TOKEN="${CPANEL_TOKEN:-}"
 check_config() {
     if [ -z "$CPANEL_HOST" ] || [ -z "$CPANEL_USER" ] || [ -z "$CPANEL_TOKEN" ]; then
         echo -e "${RED}Error: cPanel credentials not configured${NC}"
-        echo "Copy config/.env.cpanel.template → config/.env.cpanel and fill in values"
+        echo "Copy config/.env.cpanel.template or credentials/.env.cpanel.example → config/.env.cpanel"
         exit 1
     fi
 }

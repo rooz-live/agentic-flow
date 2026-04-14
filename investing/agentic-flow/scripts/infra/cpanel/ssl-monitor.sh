@@ -14,7 +14,7 @@ if [[ -f "$ENV_FILE" ]]; then
     source "$ENV_FILE"
 else
     SSH_ALIAS="${SSH_ALIAS:-rooz-aws}"
-    MONITOR_DOMAINS="${MONITOR_DOMAINS:-passbolt.yocloud.com yo.tag.ooo bhopti.com rooz.live}"
+    MONITOR_DOMAINS="${MONITOR_DOMAINS:-passbolt.tag.ooo yo.tag.ooo bhopti.com rooz.live}"
     SSL_WARN_DAYS="${SSL_WARN_DAYS:-30}"
     SSL_CRIT_DAYS="${SSL_CRIT_DAYS:-7}"
 fi

@@ -192,7 +192,7 @@ def _project_root() -> str:
 
 
 def _af_path(project_root: str) -> str:
-    return os.path.join(project_root, "scripts", "af")
+    return os.path.join(project_root, "af")
 
 
 def _normalize_af_env(value: Optional[str]) -> str:

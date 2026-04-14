@@ -24,7 +24,7 @@ if [[ -f "$ENV_FILE" ]]; then
 else
     echo "[WARN] No .env.cpanel found; using defaults. Copy .env.cpanel.template → .env.cpanel"
     SSH_ALIAS="${SSH_ALIAS:-rooz-aws}"
-    DNSSEC_ZONES="${DNSSEC_ZONES:-yocloud.com tag.ooo}"
+    DNSSEC_ZONES="${DNSSEC_ZONES:-tag.ooo rooz.live}"
 fi
 
 FIX_MODE=false

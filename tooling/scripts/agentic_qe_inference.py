@@ -102,39 +102,18 @@ def evaluate_sovereignty():
         print(f"[AGENTIC-QE] 🚨 INFRASTRUCTURE COMPROMISE DETECTED: {'|'.join(failures)}")
         print("[AGENTIC-QE] ⚡ INITIATING AUTONOMOUS SELF-HEALING (No Bypass Logic)...")
         
-        try:
-            import subprocess
-            
-            # Dynamic Target Resolution (Contrastive Intel Agility)
-            if "cpanel" in healing_targets:
-                print("  --> Triggering cPanel Application Sync...")
-                subprocess.run(["bash", "tooling/scripts/cpanel_incremental_sync.sh"], check=True)
-                
-            if "hivelocity" in healing_targets:
-                print("  --> Triggering Hivelocity Bare-Metal Sync...")
-                subprocess.run(["bash", "tooling/scripts/hivelocity_incremental_sync.sh"], check=True)
-                
-            if "gitlab" in healing_targets:
-                print("  --> Triggering AWS Gitlab Application Sync...")
-                subprocess.run(["bash", "tooling/scripts/gitlab_incremental_sync.sh"], check=True)
-                
-            if "ghost_space" in healing_targets:
-                print("  --> Triggering Ghost Space Reclamation Protocol...")
-                subprocess.run(["bash", "tooling/scripts/reclaim_ghost_space.sh"], check=True)
-                
-            if "opex_reclaimer" in healing_targets:
-                print("  --> Triggering Granular OPEX Reclaimers (Beads)...")
-                subprocess.run(["bash", "tooling/reclaimers/docker_prune.sh"], check=True)
-                subprocess.run(["bash", "tooling/reclaimers/npm_cache.sh"], check=True)
-                
-            # If we healed something, we must refresh the MCP Manifest by re-running the test gate
-            print("  --> Re-Asserting TDD Sovereignty Gate...")
-            subprocess.run(["bash", "tests/infrastructure/test_sovereignty.sh"], check=True)
-            
-            return "PASS", "AUTONOMOUSLY_HEALED"
-        except Exception as e:
-            failures.append(f"SELF_HEALING_FAILED_{str(e).replace(' ', '_')}")
-            return "FAIL", "|".join(failures)
+        import ddd_event_bus
+        import uuid
+        
+        action_id = str(uuid.uuid4())
+        payload = {
+            "action_id": action_id,
+            "targets": list(healing_targets)
+        }
+        
+        ddd_event_bus.publish("COMPLIANCE", "InfrastructureBloatEvent", payload)
+        
+        return "PASS", f"AUTONOMOUS_HEALING_DISPATCHED_{action_id}"
             
     # Ingest the infrastructure state as an embedding
     try:

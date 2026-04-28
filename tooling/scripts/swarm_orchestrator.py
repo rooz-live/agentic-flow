@@ -155,14 +155,19 @@ def start_orchestrator_loop():
                 economic_modifier = 1.0 + (budget_utilization * 2.5)
                 
                 # Dynamic adjust based on latency, payload, and REAL ECONOMICS
-                for r in valid_scrapes:
+                for r in results:
                     k = r["domain"]
-                    # WSJF Modulated by Economic Demand (Cost of Delay vs API Latency)
-                    cost_of_delay = r["latency"] * economic_modifier
-                    
-                    shift = -1 if cost_of_delay < 1000 else 1 
-                    new_val = max(1, min(12, wsjf_swarm_vectors[k] + shift)) 
-                    wsjf_swarm_vectors[k] = new_val
+                    if r["bytes"] == 0:
+                        # DEAD CHANNEL: Obliterate from WSJF queue
+                        wsjf_swarm_vectors[k] = max(1, wsjf_swarm_vectors[k] - 5)
+                    else:
+                        # WSJF Modulated by Economic Demand (Cost of Delay vs API Latency)
+                        cost_of_delay = r["latency"] * economic_modifier
+                        
+                        # Correct WSJF Logic: Reward efficient channels, penalize drag
+                        shift = 1 if cost_of_delay < 1000 else -1 
+                        new_val = max(1, min(12, wsjf_swarm_vectors[k] + shift)) 
+                        wsjf_swarm_vectors[k] = new_val
                     
                 # Calculate real WSJF based on active targets
                 active_wsjf = sum(wsjf_swarm_vectors.values()) / max(1, len(wsjf_swarm_vectors))

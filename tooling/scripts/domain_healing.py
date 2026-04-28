@@ -27,7 +27,7 @@ def execute_healing(targets):
             
         if "ghost_space" in targets:
             print("  --> [WSJF] Native APFS Time Machine Ghost Block Consolidation...")
-            subprocess.run(["sudo", "tmutil", "thinlocalsnapshots", "/", "100000000000", "4"], check=False)
+            subprocess.run(["sudo", "tmutil", "thinlocalsnapshots", "/", "100000000000", "4"], check=True)
             
         if "opex_reclaimer" in targets:
             print("  --> [WSJF] Executing Native OPEX Reclaimers...")
@@ -49,12 +49,12 @@ def execute_healing(targets):
 
             # 2. Docker Pruning
             print("  --> [WSJF] Native Prune: Docker Boundaries")
-            subprocess.run(["docker", "system", "prune", "-a", "-f", "--volumes"], check=False)
+            subprocess.run(["docker", "system", "prune", "-a", "-f", "--volumes"], check=True)
             
             # 3. NPM Cache
             print("  --> [WSJF] Native Prune: NPM Cache")
-            subprocess.run(["npm", "cache", "clean", "--force"], check=False)
-            shutil.rmtree(os.path.expanduser("~/.npm/_cacache"), ignore_errors=True)
+            subprocess.run(["npm", "cache", "clean", "--force"], check=True)
+            shutil.rmtree(os.path.expanduser("~/.npm/_cacache"))
             
         # Re-Asserting TDD Sovereignty Gate
         print("  --> Re-Asserting TDD Sovereignty Gate...")

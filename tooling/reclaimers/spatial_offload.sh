@@ -23,15 +23,12 @@ mkdir -p "$OFFLOAD_DIR"
 
 echo "--> 🛡️  Initiating Spatial Offloading (ADR-023)..."
 
-# Offload .venv
-if [ -d "$ROOT_DIR/.venv" ] && [ ! -L "$ROOT_DIR/.venv" ]; then
-    echo "  --> Teleporting .venv to physical drive..."
-    mv "$ROOT_DIR/.venv" "$OFFLOAD_DIR/.venv"
-    ln -s "$OFFLOAD_DIR/.venv" "$ROOT_DIR/.venv"
-    echo "  ✅ .venv spatially offloaded."
-fi
+# 🔴 ROAM MITIGATION: DO NOT offload .venv. The Swarm Governance Python
+# runtime must remain on the high-speed internal APFS NVMe drive. 
+# Offloading it to an external USB cord introduces massive I/O latency 
+# that will breach the PEWMA targets and spike Cosmological Gravity.
 
-# Offload node_modules
+# Offload dormant/heavy workspaces (Vite/React/Playwright dependencies)
 if [ -d "$ROOT_DIR/node_modules" ] && [ ! -L "$ROOT_DIR/node_modules" ]; then
     echo "  --> Teleporting node_modules to physical drive..."
     mv "$ROOT_DIR/node_modules" "$OFFLOAD_DIR/node_modules"

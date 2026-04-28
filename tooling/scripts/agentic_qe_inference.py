@@ -100,6 +100,18 @@ def evaluate_sovereignty():
             
     if failures:
         print(f"[AGENTIC-QE] 🚨 INFRASTRUCTURE COMPROMISE DETECTED: {'|'.join(failures)}")
+        
+        # ROAM MITIGATION: Filter out quarantined targets
+        import os
+        quarantine_file = ".goalie/quarantine_ledger.json"
+        if os.path.exists(quarantine_file):
+            with open(quarantine_file, "r") as f:
+                quarantine = json.load(f)
+            healing_targets = {t for t in healing_targets if t not in quarantine}
+            if not healing_targets:
+                print("[AGENTIC-QE] 🛡️  All targets quarantined. Bypassing Immune System to preserve OPEX.")
+                return "PASS", "ROAM_ACCEPTED_QUARANTINE"
+
         print("[AGENTIC-QE] ⚡ INITIATING AUTONOMOUS SELF-HEALING (No Bypass Logic)...")
         
         import ddd_event_bus

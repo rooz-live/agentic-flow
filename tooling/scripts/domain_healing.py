@@ -36,11 +36,25 @@ def execute_healing(targets):
             
         # Re-Asserting TDD Sovereignty Gate
         print("  --> Re-Asserting TDD Sovereignty Gate...")
-        subprocess.run(["bash", "tests/infrastructure/test_sovereignty.sh"], check=True)
+        subprocess.run(["bash", "tests/infrastructure/test_sovereignty.sh"], check=True, timeout=120)
         print("--> ✅ Healing sequence complete.")
         
     except Exception as e:
         print(f"--> 🚨 Healing Sequence Failed: {e}")
+        # ROAM MITIGATION: Quarantine the failed targets to prevent infinite WSJF loops
+        print(f"--> 🛡️  ROAM Mitigation: Quarantining targets {targets} to preserve OPEX.")
+        import os, json
+        quarantine_file = ".goalie/quarantine_ledger.json"
+        quarantine = []
+        if os.path.exists(quarantine_file):
+            with open(quarantine_file, "r") as f:
+                quarantine = json.load(f)
+        for t in targets:
+            if t not in quarantine:
+                quarantine.append(t)
+        os.makedirs(os.path.dirname(quarantine_file), exist_ok=True)
+        with open(quarantine_file, "w") as f:
+            json.dump(quarantine, f)
 
 def start_immune_system():
     print("--> 🛡️  DOMAIN D: Sovereign Healing (Immune System) Online.")

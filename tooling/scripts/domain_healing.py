@@ -31,6 +31,7 @@ def execute_healing(targets):
             
         if "opex_reclaimer" in targets:
             print("  --> Triggering Granular OPEX Reclaimers (Beads)...")
+            subprocess.run(["bash", "tooling/reclaimers/spatial_offload.sh"], check=True, timeout=120)
             subprocess.run(["bash", "tooling/reclaimers/docker_prune.sh"], check=True, timeout=120)
             subprocess.run(["bash", "tooling/reclaimers/npm_cache.sh"], check=True, timeout=120)
             

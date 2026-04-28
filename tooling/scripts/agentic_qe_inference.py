@@ -72,8 +72,10 @@ def evaluate_sovereignty():
     for orchestrator, data in factors.items():
         age = data.get("temporal_age_minutes", 9999)
         
-        # Contrastive Intel: Continuous Degradation Tensor (1.0 = pristine, 0.0 = breached)
-        agility = max(0.0, 1.0 - (age / 1440.0))
+        import math
+        # Contrastive Intel: Exponential Degradation Tensor for Temporal Agility
+        # Staleness is aggressively penalized. Half-life of roughly 360 minutes (6 hours).
+        agility = max(0.0, math.exp(-age / 360.0))
         systemic_agility_scores.append(agility)
         
         if age > 1440:

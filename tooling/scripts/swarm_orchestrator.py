@@ -107,21 +107,13 @@ def ping_domain_playwright(browser, domain: str):
         # Edge drops mapping
         return {"domain": domain, "latency": int((time.time() - start) * 1000), "bytes": 0, "content": ""}
 
-def get_opex_state():
-    db_path = os.path.join(ROOT_DIR, '.goalie', 'budget_logs', 'budget_tracking.db')
-    if not os.path.exists(db_path):
-        return 100.0, 0.0
-    try:
-        conn = sqlite3.connect(db_path)
-        cur = conn.cursor()
-        cur.execute("SELECT allocated_amount, spent_amount FROM budgets WHERE type = 'opex' ORDER BY created_at DESC LIMIT 1")
-        row = cur.fetchone()
-        conn.close()
-        if row:
-            return float(row[0]), float(row[1])
-    except Exception as e:
-        print(f"--> [WARNING] SQLite OPEX Fetch Failed: {e}")
-    return 100.0, 0.0
+import ddd_event_bus
+
+def get_finance_event():
+    event = ddd_event_bus.get_latest_event("FinanceLimitEvent")
+    if event:
+        return event["allocated"], event["spent"], event["utilization"], event["economic_modifier"]
+    return 100.0, 0.0, 0.0, 1.0
 
 def start_orchestrator_loop():
     print("--> 📡 Initiating native pywright Chromium context...")
@@ -151,13 +143,8 @@ def start_orchestrator_loop():
                 else:
                     anomaly_drift = 1.0  # Total drift when no domains are reachable
                 
-                # Genuine SQLite OPEX Query (Market Demand Modeling)
-                allocated_opex, spent_opex = get_opex_state()
-                budget_utilization = (spent_opex / allocated_opex) if allocated_opex > 0 else 0
-                
-                # Injecting Real Economics into WSJF calculation
-                # If budget utilization is high, the Swarm severely penalizes network drag
-                economic_modifier = 1.0 + (budget_utilization * 2.5)
+                # Domain C (Governance): Subscribing to Domain A (Treasury) Event Bus
+                allocated_opex, spent_opex, budget_utilization, economic_modifier = get_finance_event()
                 
                 # Dynamic adjust based on latency, payload, and REAL ECONOMICS
                 for r in results:

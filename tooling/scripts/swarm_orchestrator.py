@@ -1,113 +1,47 @@
 #!/usr/bin/env python3
 """
-Systemic OS: Native Swarm Physics Engine & Sandbox Orchestrator
---------------------------------------------------------------------------------
-Scans for strictly localized .env bounds, injecting the physical node constraints
-(E2B_API_KEY, mock modes) into the physical OS array while mapping live hardware
-state securely into `.goalie/genuine_telemetry.json`.
+Domain C: Swarm Governance & Routing (The Brain)
+Responsibility: Consuming Telemetry (Sensor Mesh) and Financial data (Treasury) 
+to actively sort and mutate the WSJF priority matrix. Emits physical state maps.
 """
-
 import os
 import json
 import time
 import datetime
-import sqlite3
+import uuid
+import ddd_event_bus
 
-# Conditional dependency imports to ensure graceful degradation if virtualenvs aren't synchronized
 try:
     from dotenv import load_dotenv
     import psutil
-    from playwright.sync_api import sync_playwright, TimeoutError
 except ImportError as e:
     print(f"[FATAL] System boundary restricted by missing constraints: {e}")
-    print(f"--> Fix: pip install python-dotenv psutil playwright")
     exit(1)
 
-# Ensure absolute physical targeting
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
 ENV_PATH = os.path.join(ROOT_DIR, '.env')
 TELEMETRY_PATH = os.path.join(ROOT_DIR, '.goalie/genuine_telemetry.json')
 NUMBERS_PATH = os.path.join(ROOT_DIR, 'numbers_csv_extracted.json')
 
-# Load domains for WSJF Swarm tracking
 wsjf_swarm_vectors = {}
 try:
     with open(NUMBERS_PATH, 'r') as f:
         db = json.load(f)
         domains = db.get("extracted_domains", [])
         for i, d in enumerate(domains):
-            wsjf_swarm_vectors[d] = (len(d) % 10) + 1 # Initial mock
+            wsjf_swarm_vectors[d] = 5
 except Exception as e:
     print(f"--> [WARNING] Failed to load domain LEDGER: {e}")
 
 print(f"={'=' * 60}")
-print(f"🚀 SYSTEMIC.OS: SWARM PHYSICS ORCHESTRATOR")
+print(f"🚀 DOMAIN C: SWARM GOVERNANCE (THE BRAIN)")
 print(f"={'=' * 60}")
 
-# 1. Strict DotEnv Hunting Boundary
 if not os.path.exists(ENV_PATH):
     print(f"❌ [BOUNDARY ALERT] .env vault destroyed or missing at {ENV_PATH}")
-    print("--> Swarm orchestration halted to prevent data spillage.")
     exit(1)
 
-print(f"--> Hunting local .env scope at: {ENV_PATH}")
 load_dotenv(dotenv_path=ENV_PATH)
-
-SWARM_MOCK_MODE = os.getenv("SWARM_MOCK_MODE", "1")
-E2B_API_KEY = os.getenv("E2B_API_KEY", "")
-
-# 2. Hard Agentic QE Sandboxing
-if SWARM_MOCK_MODE == "0":
-    print("--> 🛡️  MOCK LIMITS DISMANTLED. Physical execution mode locked.")
-    if not E2B_API_KEY or E2B_API_KEY == "e2b_your_production_key_here":
-         print("❌ [FATAL] E2B_API_KEY is hollow. Provide valid API boundaries inside .env")
-         exit(1)
-    print("--> 🛡️  Titanium Cage Validated: E2B Sandbox array armed.")
-else:
-    print("--> ⚠️  MOCK LIMITS ACTIVE. Using simulated isolation array.")
-
-# 3. Continuous Topological Write Pipeline (<50ms trigger target for Vite Hot Reloads)
-print(f"--> 📡 Initiating native PEWMA / Hardware mapping to: {TELEMETRY_PATH}")
-print(f"{'-' * 60}")
-
-from concurrent.futures import ThreadPoolExecutor
-import math
-
-baseline_vector = [0.5] * 1024
-
-def compute_cosine_distance(text_payload: str) -> float:
-    raw_size = len(text_payload)
-    if raw_size == 0: return 1.0
-    
-    # Genuine Contrastive Intel Agility
-    # Normalize structural density to prevent sine wave phase cancellation
-    density = raw_size / 100000.0
-    
-    incoming_vector = [(0.5 + (math.sin(density * i) * 0.5)) for i in range(1024)]
-    
-    dot_product = sum(a * b for a, b in zip(baseline_vector, incoming_vector))
-    normA = sum(a * a for a in baseline_vector)
-    normB = sum(b * b for b in incoming_vector)
-    
-    if normA == 0 or normB == 0: return 0.5
-    cosine = dot_product / (math.sqrt(normA) * math.sqrt(normB))
-    return abs(1 - cosine)
-
-def ping_domain_playwright(browser, domain: str):
-    start = time.time()
-    try:
-        page = browser.new_page()
-        # Ensure we construct physical URLs
-        url = domain if domain.startswith("http") else f"https://{domain}"
-        page.goto(url, timeout=3000)
-        content = page.content()
-        page.close()
-        return {"domain": domain, "latency": int((time.time() - start) * 1000), "bytes": len(content), "content": content}
-    except Exception as e:
-        # Edge drops mapping
-        return {"domain": domain, "latency": int((time.time() - start) * 1000), "bytes": 0, "content": ""}
-
-import ddd_event_bus
 
 def get_finance_event():
     event = ddd_event_bus.get_latest_event("FinanceLimitEvent")
@@ -116,34 +50,27 @@ def get_finance_event():
     return 100.0, 0.0, 0.0, 1.0
 
 def start_orchestrator_loop():
-    print("--> 📡 Initiating native pywright Chromium context...")
+    print("--> 🧠 Governance Engine Online. Awaiting Telemetry...")
+    
+    # Kickstart the cycle by pushing the initial scrape target
+    initial_batch = list(wsjf_swarm_vectors.keys())[:3]
+    initial_id = str(uuid.uuid4())
+    ddd_event_bus.publish("GOVERNANCE", "ScrapeTargetEvent", {"batch": initial_batch, "action_id": initial_id})
+    last_processed_telemetry_id = None
+    
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            while True:
-                cpu_usage = psutil.cpu_percent(interval=None)
-                memory = psutil.virtual_memory()
-
-                # Fourth-Wave: Route traffic dynamically based on WSJF Economic Demand tensor
-                # We sort the ledger by the highest WSJF score to prioritize critical market channels
-                sorted_channels = sorted(wsjf_swarm_vectors.items(), key=lambda item: item[1], reverse=True)
-                batch = [channel[0] for channel in sorted_channels[:3]]
+        while True:
+            # Domain C (Governance): Subscribing to Domain B (Sensor Mesh)
+            telemetry = ddd_event_bus.get_latest_event("TelemetryDriftEvent")
+            
+            if telemetry and telemetry.get("action_id") != last_processed_telemetry_id:
+                # We have new physical telemetry!
+                results = telemetry.get("results", [])
+                anomaly_drift = telemetry.get("anomalyScore", 1.0)
+                avg_latency = telemetry.get("avg_latency", 9999)
+                active_agents = telemetry.get("valid_scrapes_count", 0)
                 
-                results = []
-                for domain in batch:
-                     res = ping_domain_playwright(browser, domain)
-                     results.append(res)
-                
-                valid_scrapes = [r for r in results if r["bytes"] > 0]
-                avg_latency = int(sum(r["latency"] for r in valid_scrapes) / len(valid_scrapes)) if valid_scrapes else 9999
-                
-                if valid_scrapes:
-                    combined_dom = "".join(r["content"] for r in valid_scrapes)
-                    anomaly_drift = compute_cosine_distance(combined_dom)
-                else:
-                    anomaly_drift = 1.0  # Total drift when no domains are reachable
-                
-                # Domain C (Governance): Subscribing to Domain A (Treasury) Event Bus
+                # Domain C (Governance): Subscribing to Domain A (Treasury)
                 allocated_opex, spent_opex, budget_utilization, economic_modifier = get_finance_event()
                 
                 # Dynamic adjust based on latency, payload, and REAL ECONOMICS
@@ -160,19 +87,22 @@ def start_orchestrator_loop():
                         shift = 1 if cost_of_delay < 1000 else -1 
                         new_val = max(1, min(12, wsjf_swarm_vectors[k] + shift)) 
                         wsjf_swarm_vectors[k] = new_val
-                    
+                        
                 # Calculate real WSJF based on active targets
                 active_wsjf = sum(wsjf_swarm_vectors.values()) / max(1, len(wsjf_swarm_vectors))
                 
-                # Genuine MAPE-K routing (Cloud offload if budget allows but anomaly is high)
+                # Genuine MAPE-K routing
                 lbec_decision = "cloud" if (anomaly_drift > 0.3 and budget_utilization < 0.9) else "local"
+
+                cpu_usage = psutil.cpu_percent(interval=None)
+                memory = psutil.virtual_memory()
 
                 metrics = {
                   "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                   "metrics": {
                     "cpu_utilization": round(cpu_usage, 2),
                     "memory_mapped_mb": round(memory.used / (1024 * 1024), 2),
-                    "active_agents": len(valid_scrapes),
+                    "active_agents": active_agents,
                     "api_latency_ms": avg_latency
                   },
                   "pewma": {
@@ -193,7 +123,7 @@ def start_orchestrator_loop():
                   },
                   "execute": {
                     "status": "RUNNING",
-                    "last_action_id": f"ACT-{int(time.time())}"
+                    "last_action_id": telemetry.get("action_id")
                   },
                   "wsjf_swarm": wsjf_swarm_vectors
                 }
@@ -203,14 +133,21 @@ def start_orchestrator_loop():
                     json.dump(metrics, f, indent=2)
                 os.replace(tmp_path, TELEMETRY_PATH)
 
-                print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] PyWright limits tracked: Scraped {len(batch)} nodes | Cosmological Gravity: {metrics['pewma']['anomalyScore']} | PEWMA Latency: {avg_latency}ms")
+                print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] Swarm Governed: Routed {len(results)} nodes | Gravity: {round(anomaly_drift, 4)} | Economic Mod: {round(economic_modifier, 2)}x")
                 
-                # Modulated loop boundary prevents CloudFlare IP lockouts
-                time.sleep(1.5)
+                # Push the next sequence of work onto the Event Bus
+                sorted_channels = sorted(wsjf_swarm_vectors.items(), key=lambda item: item[1], reverse=True)
+                next_batch = [channel[0] for channel in sorted_channels[:3]]
+                next_id = str(uuid.uuid4())
+                
+                ddd_event_bus.publish("GOVERNANCE", "ScrapeTargetEvent", {"batch": next_batch, "action_id": next_id})
+                
+                last_processed_telemetry_id = telemetry.get("action_id")
+                
+            time.sleep(0.5)
 
     except KeyboardInterrupt:
-        print("\n\n--> 🛡️  Agentic QE array halted. Physical Playwright scraping disconnected.")
-        exit(0)
+        print("\n\n--> 🧠 Governance Engine halted.")
 
 if __name__ == "__main__":
     start_orchestrator_loop()

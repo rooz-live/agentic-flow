@@ -26,14 +26,35 @@ def execute_healing(targets):
             subprocess.run(["bash", "tooling/scripts/gitlab_incremental_sync.sh"], check=True, timeout=120)
             
         if "ghost_space" in targets:
-            print("  --> Triggering Ghost Space Reclamation Protocol...")
-            subprocess.run(["bash", "tooling/scripts/reclaim_ghost_space.sh"], check=True, timeout=120)
+            print("  --> [WSJF] Native APFS Time Machine Ghost Block Consolidation...")
+            subprocess.run(["sudo", "tmutil", "thinlocalsnapshots", "/", "100000000000", "4"], check=False)
             
         if "opex_reclaimer" in targets:
-            print("  --> Triggering Granular OPEX Reclaimers (Beads)...")
-            subprocess.run(["bash", "tooling/reclaimers/spatial_offload.sh"], check=True, timeout=120)
-            subprocess.run(["bash", "tooling/reclaimers/docker_prune.sh"], check=True, timeout=120)
-            subprocess.run(["bash", "tooling/reclaimers/npm_cache.sh"], check=True, timeout=120)
+            print("  --> [WSJF] Executing Native OPEX Reclaimers...")
+            
+            # 1. Native Spatial Offload (ADR-023)
+            import os, shutil
+            offload_dir = "/Volumes/cPanelBackups/spatial_offload/agentic_flow"
+            root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+            
+            if os.path.ismount("/Volumes/cPanelBackups"):
+                os.makedirs(offload_dir, exist_ok=True)
+                nm_path = os.path.join(root_dir, "node_modules")
+                if os.path.isdir(nm_path) and not os.path.islink(nm_path):
+                    print("  --> [WSJF] Native Spatial Offload: Teleporting node_modules...")
+                    shutil.move(nm_path, os.path.join(offload_dir, "node_modules"))
+                    os.symlink(os.path.join(offload_dir, "node_modules"), nm_path)
+            else:
+                print("  --> [WSJF] Native Spatial Offload: Bypassed (Umbilical Unmounted)")
+
+            # 2. Docker Pruning
+            print("  --> [WSJF] Native Prune: Docker Boundaries")
+            subprocess.run(["docker", "system", "prune", "-a", "-f", "--volumes"], check=False)
+            
+            # 3. NPM Cache
+            print("  --> [WSJF] Native Prune: NPM Cache")
+            subprocess.run(["npm", "cache", "clean", "--force"], check=False)
+            shutil.rmtree(os.path.expanduser("~/.npm/_cacache"), ignore_errors=True)
             
         # Re-Asserting TDD Sovereignty Gate
         print("  --> Re-Asserting TDD Sovereignty Gate...")

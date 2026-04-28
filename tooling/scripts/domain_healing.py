@@ -15,24 +15,24 @@ def execute_healing(targets):
     try:
         if "cpanel" in targets:
             print("  --> Triggering cPanel Application Sync...")
-            subprocess.run(["bash", "tooling/scripts/cpanel_incremental_sync.sh"], check=True)
+            subprocess.run(["bash", "tooling/scripts/cpanel_incremental_sync.sh"], check=True, timeout=120)
             
         if "hivelocity" in targets:
             print("  --> Triggering Hivelocity Bare-Metal Sync...")
-            subprocess.run(["bash", "tooling/scripts/hivelocity_incremental_sync.sh"], check=True)
+            subprocess.run(["bash", "tooling/scripts/hivelocity_incremental_sync.sh"], check=True, timeout=120)
             
         if "gitlab" in targets:
             print("  --> Triggering AWS Gitlab Application Sync...")
-            subprocess.run(["bash", "tooling/scripts/gitlab_incremental_sync.sh"], check=True)
+            subprocess.run(["bash", "tooling/scripts/gitlab_incremental_sync.sh"], check=True, timeout=120)
             
         if "ghost_space" in targets:
             print("  --> Triggering Ghost Space Reclamation Protocol...")
-            subprocess.run(["bash", "tooling/scripts/reclaim_ghost_space.sh"], check=True)
+            subprocess.run(["bash", "tooling/scripts/reclaim_ghost_space.sh"], check=True, timeout=120)
             
         if "opex_reclaimer" in targets:
             print("  --> Triggering Granular OPEX Reclaimers (Beads)...")
-            subprocess.run(["bash", "tooling/reclaimers/docker_prune.sh"], check=True)
-            subprocess.run(["bash", "tooling/reclaimers/npm_cache.sh"], check=True)
+            subprocess.run(["bash", "tooling/reclaimers/docker_prune.sh"], check=True, timeout=120)
+            subprocess.run(["bash", "tooling/reclaimers/npm_cache.sh"], check=True, timeout=120)
             
         # Re-Asserting TDD Sovereignty Gate
         print("  --> Re-Asserting TDD Sovereignty Gate...")

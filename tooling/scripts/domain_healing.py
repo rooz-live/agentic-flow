@@ -81,7 +81,11 @@ def start_immune_system():
                 action_id = event.get("action_id")
                 
                 print(f"[IMMUNE] Pathogen Detected. Action ID: {action_id}")
-                execute_healing(targets)
+                # ROAM MITIGATION: Dispatch to an isolated thread to prevent synchronous Event Bus deadlock
+                import threading
+                healing_thread = threading.Thread(target=execute_healing, args=(targets,), daemon=True)
+                healing_thread.start()
+                print(f"[IMMUNE] Healing sequence dispatched asynchronously to preserve execution bandwidth.")
                 
                 last_processed_id = action_id
                 

@@ -41,20 +41,8 @@ def execute_healing(targets):
         
     except Exception as e:
         print(f"--> 🚨 Healing Sequence Failed: {e}")
-        # ROAM MITIGATION: Quarantine the failed targets to prevent infinite WSJF loops
-        print(f"--> 🛡️  ROAM Mitigation: Quarantining targets {targets} to preserve OPEX.")
-        import os, json
-        quarantine_file = ".goalie/quarantine_ledger.json"
-        quarantine = []
-        if os.path.exists(quarantine_file):
-            with open(quarantine_file, "r") as f:
-                quarantine = json.load(f)
-        for t in targets:
-            if t not in quarantine:
-                quarantine.append(t)
-        os.makedirs(os.path.dirname(quarantine_file), exist_ok=True)
-        with open(quarantine_file, "w") as f:
-            json.dump(quarantine, f)
+        print(f"--> 🛑 FATAL BLOCK: Physical Execution Deadlock on {targets}.")
+        print("--> ⚠️  TDD FIRST PRINCIPLES: No bypass logic permitted. System remains RED until manually resolved.")
 
 def start_immune_system():
     print("--> 🛡️  DOMAIN D: Sovereign Healing (Immune System) Online.")

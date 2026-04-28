@@ -1,5 +1,7 @@
 import { Zap, Brain, Rocket } from 'lucide-react';
 
+
+
 const Hero = () => {
   return (
     <section className="relative min-h-screen flex items-center justify-center px-6 py-20 overflow-hidden">

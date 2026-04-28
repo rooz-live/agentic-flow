@@ -12,6 +12,7 @@ export type CircleRole =
 export type TaskState =
   | "PENDING"
   | "RUNNING"
+  | "SOFT_PENDING" // Hard deps resolved, waiting on soft deps
   | "COMPLETED"
   | "FAILED"
   | "ABORTED"
@@ -26,6 +27,9 @@ export interface CircleTask {
   dependencies: string[]; // Strict tasks that must resolve
   softDependencies?: string[]; // Soft tasks that determine topology but may fail gracefully
   state: TaskState;
+  // Telemetry Gate: Async validation hook to prevent Completion Theater
+  // If provided, resolveTask will await this before marking COMPLETED
+  telemetryValidator?: () => Promise<boolean>;
 }
 
 export class CrossCircleDependencyManager extends EventEmitter {
@@ -47,32 +51,51 @@ export class CrossCircleDependencyManager extends EventEmitter {
   }
 
   /**
-   * Perform Topological Sort (Kahn's Algorithm) to determine execution order
-   * Returns an array of task arrays representing parallel execution tiers
+   * Perform Topological Sort (Kahn's Algorithm) with Soft-Dependency Tier Splitting.
+   * Hard dependencies block tier progression; soft dependencies don't.
+   * Returns an array of task arrays representing parallel execution tiers.
    */
   public resolveTopology(): string[][] {
-    const inDegree: Map<string, number> = new Map();
+    const hardInDegree: Map<string, number> = new Map(); // Strict deps that block
+    const softInDegree: Map<string, number> = new Map();  // Soft deps that don't block
+    const softPressure: Map<string, number> = new Map();  // Track soft dep count for telemetry
     this.adjacency.clear();
 
     // Initialize maps
     for (const task of Array.from(this.tasks.values())) {
-      inDegree.set(task.id, 0);
+      hardInDegree.set(task.id, 0);
+      softInDegree.set(task.id, 0);
+      softPressure.set(task.id, (task.softDependencies || []).length);
       if (!this.adjacency.has(task.id)) {
         this.adjacency.set(task.id, []);
       }
     }
 
-    // Build Graph
+    // Build Graph - split hard and soft dep tracking
     for (const task of Array.from(this.tasks.values())) {
-      const allDeps = [...task.dependencies, ...(task.softDependencies || [])];
-      for (const depId of allDeps) {
+      // Hard dependencies block tier progression
+      for (const depId of task.dependencies) {
         if (!this.tasks.has(depId)) {
           throw new Error(
             `Graph Violation: Task ${task.id} depends on unknown Task ${depId}`,
           );
         }
-        inDegree.set(task.id, (inDegree.get(task.id) || 0) + 1);
-
+        hardInDegree.set(task.id, (hardInDegree.get(task.id) || 0) + 1);
+        if (!this.adjacency.has(depId)) {
+          this.adjacency.set(depId, []);
+        }
+        this.adjacency.get(depId)!.push(task.id);
+      }
+      
+      // Soft dependencies tracked but don't block
+      for (const depId of (task.softDependencies || [])) {
+        if (!this.tasks.has(depId)) {
+          throw new Error(
+            `Graph Violation: Task ${task.id} depends on unknown Task ${depId}`,
+          );
+        }
+        softInDegree.set(task.id, (softInDegree.get(task.id) || 0) + 1);
+        // Still add to adjacency for cascade tracking
         if (!this.adjacency.has(depId)) {
           this.adjacency.set(depId, []);
         }
@@ -82,42 +105,73 @@ export class CrossCircleDependencyManager extends EventEmitter {
 
     const tiers: string[][] = [];
     let queue: string[] = [];
+    const processed = new Set<string>();
 
-    // Seed initial tier (tasks with 0 dependencies)
-    for (const [taskId, degree] of Array.from(inDegree.entries())) {
+    // Seed initial tier (tasks with 0 hard dependencies)
+    for (const [taskId, degree] of Array.from(hardInDegree.entries())) {
       if (degree === 0) queue.push(taskId);
     }
 
-    let processedCount = 0;
-
     while (queue.length > 0) {
-      tiers.push([...queue]); // Push the current parallel execution tier
+      const currentTier: string[] = [];
       const nextQueue: string[] = [];
 
       for (const taskId of queue) {
-        processedCount++;
-        const edges = this.adjacency.get(taskId) || [];
-        for (const destinationId of edges) {
-          const newDegree = inDegree.get(destinationId)! - 1;
-          inDegree.set(destinationId, newDegree);
-          if (newDegree === 0) {
-            nextQueue.push(destinationId);
+        if (processed.has(taskId)) continue;
+        processed.add(taskId);
+        
+        // Check if soft deps are still pending
+        const softDepsRemaining = softInDegree.get(taskId) || 0;
+        if (softDepsRemaining > 0) {
+          // Hard deps resolved, but soft deps pending
+          const taskObj = this.tasks.get(taskId);
+          if (taskObj && taskObj.state === "PENDING") {
+            taskObj.state = "SOFT_PENDING";
+            this.emit("circle:soft_tier_ready", { task: taskObj, softDepsRemaining });
           }
         }
+        currentTier.push(taskId);
+        
+        const edges = this.adjacency.get(taskId) || [];
+        for (const destinationId of edges) {
+          const targetTask = this.tasks.get(destinationId);
+          if (!targetTask) continue;
+          
+          // Check if this is a hard or soft dependency edge
+          const isHardDep = targetTask.dependencies.includes(taskId);
+          const isSoftDep = (targetTask.softDependencies || []).includes(taskId);
+          
+          if (isHardDep) {
+            const newHardDegree = hardInDegree.get(destinationId)! - 1;
+            hardInDegree.set(destinationId, newHardDegree);
+            if (newHardDegree === 0) {
+              nextQueue.push(destinationId);
+            }
+          } else if (isSoftDep) {
+            const newSoftDegree = softInDegree.get(destinationId)! - 1;
+            softInDegree.set(destinationId, newSoftDegree);
+            // Soft deps don't block tier progression, but we track them
+          }
+        }
+      }
+      
+      if (currentTier.length > 0) {
+        tiers.push(currentTier);
       }
       queue = nextQueue;
     }
 
-    if (processedCount !== this.tasks.size) {
+    if (processed.size !== this.tasks.size) {
+      const unprocessed = Array.from(this.tasks.keys()).filter(id => !processed.has(id));
       throw new Error(
-        "Graph Violation: Circular dependency detected in Circle Matrix!",
+        `Graph Violation: Circular dependency detected in Circle Matrix! Unprocessed: ${unprocessed.join(', ')}`,
       );
     }
 
     return tiers;
   }
 
-  public resolveTask(taskId: string, success: boolean) {
+  public async resolveTask(taskId: string, success: boolean): Promise<void> {
     const task = this.tasks.get(taskId);
     if (!task) return;
 
@@ -130,6 +184,35 @@ export class CrossCircleDependencyManager extends EventEmitter {
     }
 
     if (success) {
+      // Telemetry Gate: Prevent Completion Theater by validating physical execution
+      if (task.telemetryValidator) {
+        try {
+          const telemetryPassed = await task.telemetryValidator();
+          if (!telemetryPassed) {
+            // Syntax check passed, but telemetry failed = Completion Theater detected
+            task.state = "WARNING_MITIGATED";
+            this.emit("circle:telemetry_failed", {
+              task,
+              reason: "telemetry_validator_returned_false",
+              message: "Task marked success but telemetry validation failed. Completion Theater detected."
+            });
+            // Still cascade to strict dependencies as this is effectively a WARNING
+            this.abortTopologicalDescendants(task.id, false);
+            return;
+          }
+        } catch (err) {
+          // Telemetry validation threw error = system failure
+          task.state = "WARNING_MITIGATED";
+          this.emit("circle:telemetry_error", {
+            task,
+            error: err,
+            reason: "telemetry_validator_threw_error"
+          });
+          this.abortTopologicalDescendants(task.id, false);
+          return;
+        }
+      }
+      
       task.state = "COMPLETED";
       this.emit("circle:complete", task);
     } else {

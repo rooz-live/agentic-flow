@@ -1,1 +1,0 @@
-ay-yo-continuous-improvement.sh

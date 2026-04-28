@@ -31,8 +31,9 @@ fi
 : "${EXIT_MEMORY_EXHAUSTED:=${EX_MEMORY_EXHAUSTED:-240}}"
 
 # Configuration
-SWARM_NAME="${1:-legal-coordination-swarm}"
-MAX_AGENTS="${2:-5}"
+SWARM_NAME="${1:-phase1-core-infra}"
+MAX_AGENTS="${2:-8}"
+ADR_PHASE="${3:-1}"  # ADR-022: Track phase for swarm persistence
 if ! [[ "$MAX_AGENTS" =~ ^[0-9]+$ ]] || [[ "$MAX_AGENTS" -lt 1 ]]; then
     echo "Invalid MAX_AGENTS: $MAX_AGENTS (must be positive integer)" >&2
     exit "$EXIT_INVALID_ARGS"

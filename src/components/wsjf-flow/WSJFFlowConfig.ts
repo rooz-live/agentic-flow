@@ -18,9 +18,17 @@ export interface WSJFNodeData {
   cod?: number;
   jobSize?: number;
   tier?: 1 | 2 | 3;
-  phase?: 'spectrum' | 'signal' | 'goap' | 'FOUNDATION' | 'LEARNING' | 'TRANSFER' | 'OPTIMIZATION' | 'EMERGENCE';
-  status?: 'pending' | 'in_progress' | 'completed';
+  phase?: 'spectrum' | 'signal' | 'goap' | 'FOUNDATION' | 'LEARNING' | 'TRANSFER' | 'OPTIMIZATION' | 'EMERGENCE' | 'STANDUP' | 'WSJF_SELECT' | 'DoR' | 'EXECUTE' | 'VERIFY' | 'COMMIT';
+  status?: 'pending' | 'in_progress' | 'completed' | 'blocked';
   circle?: string;
+}
+
+export interface GovernanceNodeData {
+  label: string;
+  phase: 'STANDUP' | 'WSJF_SELECT' | 'DoR' | 'EXECUTE' | 'VERIFY' | 'COMMIT';
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked';
+  owner?: string;
+  duration?: string;
 }
 
 export interface GOAPNodeData {
@@ -58,6 +66,14 @@ export const NODE_COLORS = {
     OPTIMIZATION: '#d946ef',
     EMERGENCE: '#ec4899',
   },
+  governance: {
+    STANDUP: '#facc15',
+    WSJF_SELECT: '#f97316',
+    DoR: '#3b82f6',
+    EXECUTE: '#8b5cf6',
+    VERIFY: '#14b8a6',
+    COMMIT: '#22c55e',
+  },
   testing: {
     sft: '#22d3ee',       // cyan - spectrum phase
     rl: '#f97316',        // orange - signal phase
@@ -69,6 +85,7 @@ export const NODE_COLORS = {
     pending: '#9ca3af',
     in_progress: '#3b82f6',
     completed: '#22c55e',
+    blocked: '#ef4444',
   }
 };
 
@@ -115,9 +132,15 @@ export const defaultWSJFNodes: Node<WSJFNodeData>[] = [
   // Output nodes
   {
     id: 'output-rank',
-    type: 'output',
+    type: 'default',
     position: { x: 200, y: 300 },
     data: { label: 'Prioritized Ranking', status: 'completed' },
+  },
+  {
+    id: 'de-novo-appeal',
+    type: 'output',
+    position: { x: 200, y: 400 },
+    data: { label: 'De Novo Appeal (Blossom Law)', wsjfScore: 11.5, cod: 100, jobSize: 8.7, status: 'in_progress', tier: 1 },
   },
 ];
 
@@ -129,6 +152,7 @@ export const defaultWSJFEdges: Edge[] = [
   { id: 'e-cod-wsjf', source: 'calc-cod', target: 'calc-wsjf' },
   { id: 'e-size-wsjf', source: 'input-size', target: 'calc-wsjf' },
   { id: 'e-wsjf-rank', source: 'calc-wsjf', target: 'output-rank', animated: true },
+  { id: 'e-rank-denovo', source: 'output-rank', target: 'de-novo-appeal', animated: true, style: { stroke: '#22c55e', strokeWidth: 3 } },
 ];
 
 // GOAP Planning Flow Nodes
@@ -313,9 +337,58 @@ export const testingFlowEdges: Edge[] = [
   { id: 'e-forward-output', source: 'test-forward', target: 'test-output', animated: true },
 ];
 
+// Governance Lifecycle Flow Nodes
+export const governanceFlowNodes: Node<GovernanceNodeData>[] = [
+  {
+    id: 'gov-standup',
+    type: 'governance',
+    position: { x: 100, y: 0 },
+    data: { label: 'STANDUP', phase: 'STANDUP', status: 'completed', owner: 'MiroFish_Sim', duration: '15m' },
+  },
+  {
+    id: 'gov-wsjf',
+    type: 'governance',
+    position: { x: 100, y: 100 },
+    data: { label: 'WSJF SELECT', phase: 'WSJF_SELECT', status: 'completed', owner: 'MAPE-K Router', duration: 'Continuous' },
+  },
+  {
+    id: 'gov-dor',
+    type: 'governance',
+    position: { x: 100, y: 200 },
+    data: { label: 'Definition of Ready (DoR)', phase: 'DoR', status: 'in_progress', owner: 'Legal Bounds Check' },
+  },
+  {
+    id: 'gov-execute',
+    type: 'governance',
+    position: { x: 100, y: 300 },
+    data: { label: 'EXECUTE', phase: 'EXECUTE', status: 'pending', owner: 'Worker Queue' },
+  },
+  {
+    id: 'gov-verify',
+    type: 'governance',
+    position: { x: 100, y: 400 },
+    data: { label: 'VERIFY', phase: 'VERIFY', status: 'pending', owner: 'VisionClaw AI' },
+  },
+  {
+    id: 'gov-commit',
+    type: 'governance',
+    position: { x: 100, y: 500 },
+    data: { label: 'COMMIT', phase: 'COMMIT', status: 'pending', owner: 'Ledger Audit Log' },
+  },
+];
+
+export const governanceFlowEdges: Edge[] = [
+  { id: 'e-standup-wsjf', source: 'gov-standup', target: 'gov-wsjf', animated: false, style: { stroke: '#22c55e', strokeWidth: 2 } },
+  { id: 'e-wsjf-dor', source: 'gov-wsjf', target: 'gov-dor', animated: false, style: { stroke: '#22c55e', strokeWidth: 2 } },
+  { id: 'e-dor-exec', source: 'gov-dor', target: 'gov-execute', animated: true, style: { stroke: '#3b82f6', strokeWidth: 2 } },
+  { id: 'e-exec-ver', source: 'gov-execute', target: 'gov-verify', animated: true },
+  { id: 'e-ver-commit', source: 'gov-verify', target: 'gov-commit', animated: true },
+];
+
 // Export all configurations
 export const flowConfigs = {
   wsjf: { nodes: defaultWSJFNodes, edges: defaultWSJFEdges },
+  governance: { nodes: governanceFlowNodes, edges: governanceFlowEdges },
   goap: { nodes: goapFlowNodes, edges: goapFlowEdges },
   testing: { nodes: testingFlowNodes, edges: testingFlowEdges },
 };

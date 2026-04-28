@@ -3,8 +3,10 @@
  */
 
 import React from 'react';
-import { LucideIcon, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+
 import { cn } from '../../utils/cn';
+import { LucideIcon, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+
 
 interface MetricCardProps {
   title: string;

@@ -2288,3 +2288,12 @@
 | `wsjf/temporal_budget_tracker.py` | `.py` | Types of temporal budgets |
 | `wsjf/wsjf_calculator.py` | `.py` | WSJF calculation components |
 | `wsjf/wsjf_rotation_orchestrator.py` | `.py` | Add parent directory to path for imports |
+
+## [DEPRECATED] 2026-04-15 - WSJF 9.8 Obfuscation & Duplication Legacy Consolidation
+- Tombstoned `ay-*.sh` ecosystem (52+ files) to `scripts/legacy/ay-shells/`.
+- Tombstoned `stx_phase2_manual_rpm.sh` and `deploy_ubuntu_on_stx_fixed.sh` to `scripts/legacy/`.
+- Reason: Duplicate internal logic mapping driving cognitive drift overhead without modern MAPEK coverage.
+
+## [DEPRECATED] 2026-04-15 - WSJF 7.4 Transition Architecture
+- Tombstoned `validate-emails-robust.sh`, `analyze_process_health.py`, and `monitoring_dashboard.py` to `scripts/legacy/`.
+- Reason: Capabilities subsumed natively by TSX dashboard / React component state.

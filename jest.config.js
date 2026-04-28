@@ -33,7 +33,14 @@ module.exports = {
   testMatch: [
     "**/*.test.js",
     "**/*.test.ts",
+    "**/*.test.tsx",
     "**/__tests__/**/*.js"
+  ],
+
+  // Exclude E2E tests from Unit Test scope
+  testPathIgnorePatterns: [
+    "/node_modules/",
+    "/tests/e2e/"
   ],
   
   // Transform configuration

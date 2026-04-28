@@ -40,6 +40,7 @@ pub struct ValidationCheckSpec {
     pub has_legal_citation: bool,
     pub has_pro_se_signature: bool,
     pub has_attachment_ref: bool,
+    pub has_10_day_temporal_compliance: bool,
 }
 
 /// A document to validate.
@@ -105,18 +106,17 @@ impl DocumentValidationDomain {
                 "supported_check_types": [
                     "placeholder_scan", "legal_citation_check", "pro_se_signature",
                     "attachment_reference", "format_compliance", "date_consistency",
-                    "recipient_validation", "subject_line_check"
+                    "recipient_validation", "subject_line_check", "de_novo_temporal_boundary",
+                    "direct_mail_referral_check"
                 ]
             })
         })
     }
 
-    fn random_check(rng: &mut impl Rng, difficulty: f32, idx: usize) -> ValidationCheckSpec {
-        let check_names = [
-            "placeholder_scan", "legal_citation_check", "pro_se_signature",
-            "attachment_reference", "format_compliance", "date_consistency",
-            "recipient_validation", "subject_line_check",
-        ];
+    fn random_check(&self, rng: &mut impl Rng, difficulty: f32, idx: usize) -> ValidationCheckSpec {
+        let schema = self.get_inference_schema();
+        let supported_checks = schema["supported_check_types"].as_array().expect("Schema must have supported_check_types");
+        let check_names: Vec<&str> = supported_checks.iter().filter_map(|v| v.as_str()).collect();
 
         let severity = match rng.gen_range(0..3) {
             0 => Severity::Critical,
@@ -137,21 +137,38 @@ impl DocumentValidationDomain {
         let has_sig = rng.gen::<f32>() > difficulty * 0.2;
         let has_attach = rng.gen::<f32>() < 0.3;
 
+        let check_name = check_names[idx % check_names.len()].into();
+        let is_de_novo = check_name == "de_novo_temporal_boundary";
+        
+        // If it's a De Novo check, enforce temporal compliance strictly. Failure here often results in Blocked or Fail.
+        let has_10_day_temporal_compliance = if is_de_novo {
+           rng.gen::<f32>() > difficulty * 0.6 // the harder the difficulty, the higher chance they omit it
+        } else {
+           true // irrelevant for other checks
+        };
+
+        let mut final_expected_verdict = expected_verdict;
+        if is_de_novo && !has_10_day_temporal_compliance {
+            // Strict jurisdictional temporal limit missed! Overrides pass to blocked/fail
+            final_expected_verdict = if rng.gen::<f32>() < 0.5 { Verdict::Blocked } else { Verdict::Fail };
+        }
+
         ValidationCheckSpec {
-            check_name: check_names[idx % check_names.len()].into(),
+            check_name,
             severity,
-            expected_verdict,
+            expected_verdict: final_expected_verdict,
             has_placeholder,
             has_legal_citation: has_citation,
             has_pro_se_signature: has_sig,
             has_attachment_ref: has_attach,
+            has_10_day_temporal_compliance,
         }
     }
 
-    fn random_document(rng: &mut impl Rng, difficulty: f32, idx: usize) -> DocumentSpec {
+    fn random_document(&self, rng: &mut impl Rng, difficulty: f32, idx: usize) -> DocumentSpec {
         let n_checks = rng.gen_range(4..=10);
         let checks: Vec<ValidationCheckSpec> = (0..n_checks)
-            .map(|j| Self::random_check(rng, difficulty, idx * 100 + j))
+            .map(|j| self.random_check(rng, difficulty, idx * 100 + j))
             .collect();
 
         let placeholder_count = if rng.gen::<f32>() < difficulty * 0.5 {
@@ -188,7 +205,7 @@ impl Domain for DocumentValidationDomain {
             .map(|i| {
                 let n_docs = rng.gen_range(1..=5);
                 let documents: Vec<DocumentSpec> = (0..n_docs)
-                    .map(|j| Self::random_document(&mut rng, difficulty, i * 100 + j))
+                    .map(|j| self.random_document(&mut rng, difficulty, i * 100 + j))
                     .collect();
 
                 Task {
@@ -439,6 +456,7 @@ mod tests {
                     has_legal_citation: true,
                     has_pro_se_signature: true,
                     has_attachment_ref: false,
+                    has_10_day_temporal_compliance: true,
                 },
                 ValidationCheckSpec {
                     check_name: "placeholder".into(),
@@ -448,10 +466,23 @@ mod tests {
                     has_legal_citation: false,
                     has_pro_se_signature: false,
                     has_attachment_ref: false,
+                    has_10_day_temporal_compliance: true,
                 },
             ],
         };
         assert_eq!(doc.expected_verdict(), Verdict::Fail);
         assert_eq!(doc.expected_pass_rate(), 0.5);
+    }
+    
+    #[test]
+    fn test_direct_mail_inference_schema() {
+        let domain = DocumentValidationDomain::new();
+        let schema = domain.get_inference_schema();
+        let supported_checks = schema["supported_check_types"].as_array().expect("Should be an array");
+        
+        let has_direct_mail = supported_checks.iter()
+            .any(|v| v.as_str() == Some("direct_mail_referral_check"));
+            
+        assert!(has_direct_mail, "Inference schema must support 'direct_mail_referral_check' for Daylite capabilities.");
     }
 }

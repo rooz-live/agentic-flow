@@ -3,18 +3,11 @@
  */
 
 import React from 'react';
-import {
-  Play,
-  CheckCircle,
-  XCircle,
-  Clock,
-  Loader2,
-  Zap,
-  Layers,
-  Activity
-} from 'lucide-react';
+
 import { cn } from '../../utils/cn';
 import { PatternExecutionStatus as IPatternExecutionStatus } from '../types/patterns';
+import { Play, CheckCircle, XCircle, Clock, Loader2, Zap, Layers, Activity } from 'lucide-react';
+
 
 interface PatternExecutionStatusProps {
   statuses: IPatternExecutionStatus[];

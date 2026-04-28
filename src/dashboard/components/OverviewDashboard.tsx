@@ -3,20 +3,14 @@
  */
 
 import React from 'react';
-import {
-  Activity,
-  AlertTriangle,
-  TrendingUp,
-  Clock,
-  Users,
-  Target,
-  Zap
-} from 'lucide-react';
+
 import { MetricCard } from './MetricCard';
 import { PatternExecutionStatus } from './PatternExecutionStatus';
 import { AnomalyList } from './AnomalyList';
 import { CircleDistributionChart } from './CircleDistributionChart';
 import { DashboardMetrics, AnomalyDetection, PatternExecutionStatus as IPatternExecutionStatus, CircleMetrics } from '../types/patterns';
+import { Activity, AlertTriangle, TrendingUp, Clock, Users, Target, Zap } from 'lucide-react';
+
 
 interface OverviewDashboardProps {
   metrics: DashboardMetrics | null;

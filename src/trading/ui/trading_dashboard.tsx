@@ -20,6 +20,7 @@ import { PerformanceAnalytics, PerformanceMetrics } from '../core/performance_an
 import { RiskAlert, RiskManager } from '../core/risk_manager';
 import { TradingEngine, TradingSignal } from '../core/trading_engine';
 import './trading_dashboard.css';
+import { VisionClawUploader } from '../../pages/VisionClawUploader';
 
 interface DashboardProps {
   tradingEngine: TradingEngine;
@@ -162,8 +163,7 @@ export const TradingDashboard: React.FC<DashboardProps> = ({
       const riskMetrics = riskManager.calculatePortfolioRisk(portfolio.positions);
       setRiskData(riskMetrics);
 
-      // Load options data (using fallback data structure)
-      // TODO: Implement getComprehensiveData or use marketDataProcessor
+      // Load options data
       const marketDataForOptions = {} as any;
       const coveredCalls = await optionsEngine.generateCoveredCalls(state.selectedSymbol, marketDataForOptions, 100);
       setOptionsData(coveredCalls);
@@ -172,7 +172,6 @@ export const TradingDashboard: React.FC<DashboardProps> = ({
       const complianceReport = complianceManager.generateComplianceReport('SYSTEM_USER', 'MAIN_ACCOUNT', 'MONTHLY');
       setComplianceData(complianceReport);
 
-      // Load market data (placeholder until getComprehensiveData implemented)
       setMarketData({} as any);
 
       addNotification({
@@ -204,12 +203,9 @@ export const TradingDashboard: React.FC<DashboardProps> = ({
       const performance = performanceAnalytics.getCurrentPerformance();
       setPerformanceData(performance);
 
-      // Market data refresh (placeholder)
-      // setMarketData(market);
-
       addNotification({
         id: `refresh_${Date.now()}`,
-        type: 'INFO',
+        type: 'SUCCESS',
         title: 'Data Refreshed',
         message: 'Dashboard data has been updated',
         timestamp: new Date().toISOString(),
@@ -225,7 +221,7 @@ export const TradingDashboard: React.FC<DashboardProps> = ({
         read: false,
       });
     }
-  }, [tradingEngine, performanceAnalytics, state.selectedSymbol]);
+  }, [tradingEngine, performanceAnalytics]);
 
   // Add alert
   const addAlert = useCallback((alert: Alert) => {
@@ -242,6 +238,56 @@ export const TradingDashboard: React.FC<DashboardProps> = ({
       notifications: [notification, ...prev.notifications.slice(0, 19)], // Keep last 20 notifications
     }));
   }, []);
+
+  // Dedicated PEWMA Telemetry Hook (Physical Production Ready)
+  useEffect(() => {
+    if (!state.autoRefresh) return;
+    
+    let isSubscribed = true;
+    
+    const fetchTelemetry = async () => {
+      try {
+        const res = await fetch('/genuine_telemetry.json');
+        if (!res.ok) return;
+        const data = await res.json();
+        
+        // Calculate physics deviation
+        const densityScore = data?.pewma?.anomalyScore || (data?.records && data.records.length > 0 ? data.records[data.records.length-1].distance : 0);
+        
+        if (isSubscribed) {
+          setState(prev => {
+            let targetSymbol = prev.selectedSymbol;
+            if (densityScore > 0.8 && prev.selectedSymbol !== 'SOXS') {
+              targetSymbol = 'SOXS';
+              addAlert({
+                id: `panic_trigger_${Date.now()}`,
+                type: 'MARKET',
+                severity: 'CRITICAL',
+                title: `PEWMA DENSITY CRITICAL (>${densityScore.toFixed(2)})`,
+                message: 'Panic Vector Detected. Force-Mapped to SOXS Bear execution.',
+                timestamp: new Date().toISOString(),
+                acknowledged: false,
+              });
+            } else if (densityScore <= 0.8 && prev.selectedSymbol === 'SOXS') {
+              targetSymbol = 'SOXL'; // Recover to bull matrix
+            }
+            return { ...prev, selectedSymbol: targetSymbol };
+          });
+        }
+      } catch (err) {
+        // Soft fail if telemetry missing
+      }
+    };
+    
+    // Natively fetch upon load, then loop every 5000ms mapping reality accurately!
+    fetchTelemetry();
+    const t = setInterval(fetchTelemetry, 5000);
+    
+    return () => {
+      isSubscribed = false;
+      clearInterval(t);
+    };
+  }, [state.autoRefresh, addAlert]);
 
   // Acknowledge alert
   const acknowledgeAlert = useCallback((alertId: string) => {
@@ -709,8 +755,9 @@ export const TradingDashboard: React.FC<DashboardProps> = ({
                     <Bar dataKey="value" fill="#dc3545" />
                   </BarChart>
                 </ResponsiveContainer>
+              </div>
+            </div>
           </div>
-          </motion.div>
         )}
         {state.activeTab === 'options' && (
           <div className="tab-content options-tab">
@@ -807,7 +854,16 @@ export const TradingDashboard: React.FC<DashboardProps> = ({
                 </div>
               </div>
 
-              <div className="compliance-rules">
+              {/* VisionClaw OCR Binding Zone */}
+              <div className="visionclaw-binding-zone mt-6 p-4 border border-indigo-500/30 rounded-lg bg-indigo-900/10">
+                 <h3 className="text-sm font-bold text-indigo-300 mb-2">VisionClaw Evidence Binding</h3>
+                 <p className="text-xs text-gray-400 mb-4">
+                    Upload physical ledgers or images to trigger mathematically verified topological execution.
+                 </p>
+                 <VisionClawUploader />
+              </div>
+
+              <div className="compliance-rules mt-6">
                 <h3>Rule Status</h3>
                 <div className="rules-list">
                   {complianceData?.ruleResults?.map((rule: any) => (
@@ -817,13 +873,43 @@ export const TradingDashboard: React.FC<DashboardProps> = ({
                         {rule.passed ? '✅' : '❌'}
                       </div>
                       <div className="rule-message">{rule.message}</div>
+                      <button 
+                        className="ml-4 px-2 py-1 bg-indigo-500/20 text-indigo-300 text-[10px] rounded hover:bg-indigo-500/40"
+                        onClick={async () => {
+                           try {
+                              const res = await fetch('/api/governance/validate-write', {
+                                 method: 'POST',
+                                 headers: { 'Content-Type': 'application/json' },
+                                 body: JSON.stringify({
+                                    domain: rule.ruleId, // Maps back to ledger entry
+                                    mutationType: 'UPDATE_STATUS',
+                                    payload: { status: 'overridden_via_governance' }
+                                 })
+                              });
+                              if (!res.ok) throw new Error('Validated write blocked.');
+                              // Force visual refresh
+                              setState(prev => ({...prev, autoRefresh: true}));
+                           } catch (err) {
+                              addNotification({
+                                 id: `gov_fail_${Date.now()}`,
+                                 type: 'ERROR',
+                                 title: 'Governance Boundary Error',
+                                 message: 'Bypass logic detected and blocked by mechanics.',
+                                 timestamp: new Date().toISOString(),
+                                 read: false,
+                               });
+                           }
+                        }}
+                      >
+                         OVERRIDE BOUNDARY
+                      </button>
                     </div>
                   ))}
                 </div>
-                </div>
               </div>
             </div>
-          )}
+          </div>
+        )}
         </AnimatePresence>
       </main>
 

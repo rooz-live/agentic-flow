@@ -6,19 +6,11 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import {
-  Globe,
-  Shield,
-  Activity,
-  Server,
-  AlertTriangle,
-  CheckCircle,
-  Clock,
-  TrendingUp,
-  ExternalLink
-} from 'lucide-react';
+
 import { TLDConfig, TLDTelemetry, TLDDashboardMetrics } from '../types/patterns';
 import { cn } from '../../utils/cn';
+import { Globe, Shield, Activity, Server, AlertTriangle, CheckCircle, Clock, TrendingUp, ExternalLink } from 'lucide-react';
+
 
 interface TLDDashboardProps {
   configs?: TLDConfig[];

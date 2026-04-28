@@ -17,17 +17,11 @@ import {
   Legend,
   ResponsiveContainer
 } from 'recharts';
-import {
-  TrendingUp,
-  TrendingDown,
-  DollarSign,
-  BarChart3,
-  Calendar,
-  Filter,
-  Download
-} from 'lucide-react';
+
 import { PatternMetric, TimeSeriesData } from '../types/patterns';
 import { cn } from '../../utils/cn';
+import { TrendingUp, TrendingDown, DollarSign, BarChart3, Calendar, Filter, Download } from 'lucide-react';
+
 
 interface EconomicMetricsDashboardProps {
   metrics: PatternMetric[];

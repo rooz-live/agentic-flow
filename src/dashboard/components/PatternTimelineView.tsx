@@ -12,20 +12,11 @@ import {
   TimelineDot,
   TimelineOppositeContent
 } from '@mui/lab';
-import {
-  ZoomIn,
-  ZoomOut,
-  Filter,
-  Download,
-  Play,
-  Clock,
-  AlertTriangle,
-  CheckCircle,
-  XCircle,
-  Pause
-} from 'lucide-react';
+
 import { PatternMetric } from '../types/patterns';
 import { cn } from '../../utils/cn';
+import { ZoomIn, ZoomOut, Filter, Download, Play, Clock, AlertTriangle, CheckCircle, XCircle, Pause } from 'lucide-react';
+
 
 interface PatternTimelineViewProps {
   metrics: PatternMetric[];

@@ -1,26 +1,33 @@
-# ETF Strategy Mapping Algorithm
+# ETF Topology Mapping Algorithm
 
-## The AI Stack Flow
-1. **Claude/Ruflo/Neural Trader:** Gathers real-time ticker data for simulation.
-2. **OSINT Parser:** Scrapes every relevant headline related to the ETF strategy.
-3. **MiroFish:** Simulates how each parsed signal mathematically impacts the asset price.
-4. **OBLITERATUS (Llama.cpp --mmap 1):** Uncensored kernel-level model weights crunch the topology matrices safely inside the MAPE-K Titanium Cages.
+The Economic Reactor does not process natural language; it calculates gravity and pressure inside a 1024-dimensional topological matrix dynamically.
 
-## The Output Algorithm (`trading_dashboard.tsx`)
-The mapping logic dictates an active/passive bounds evaluation.
+## 1. The Fuel (VisionClaw Intake)
+When a raw chart or geopolitical intelligence feed is dropped into `VisionClawUploader.tsx`:
+1. **OCR Scraping:** Generates the DOM snapshot payload string ($S$).
+2. **Identity-Locked Generation:** We mathematically strip standard formatting and extract strict Semantic Context ($C$).
 
-```typescript
-function calculateETFVector(osintVectors: number[], baselineMatrix: number[]): number {
-  // 1. Calculate Panic Distance (Cosine Similarity)
-  const distance = calculateTopologicalDelta(osintVectors, baselineMatrix);
-  
-  // 2. Evaluate against Titanium Bounds (Circuit Breakers)
-  if (distance > 1.8) {
-     return 0; // CIRCUIT_TRIPPED - Halt trading
-  }
-  
-  // 3. Map to WSJF Queue
-  const wsjfScore = distance * 100; // Simulated
-  return wsjfScore;
-}
+## 2. The Semantic Crunch (MiroFish)
+The $C$ is piped into `multimodal-embedding.ts` via the LLama API array.
+```math
+V_{incoming} = embed(C)
 ```
+Where $V_{incoming}$ is a $[1..1024]$ vector representation.
+
+### Euclidean Risk Distance
+We define absolute "Panic" not by reading if the text says "crash", but by measuring its geometric distance against the Systemic Baseline Vector ($V_{base}$ being a $1024$-dim array of perfectly mundane market events).
+
+```math
+P_{panic} = \sqrt{\sum_{i=1}^{1024} (V_{incoming, i} - V_{base, i})^2}
+```
+
+## 3. The Titanium Box (Circuit Breakers)
+Before $P_{panic}$ triggers real capital reallocation, the `CircuitBreakerNode` intercepts:
+- If $P_{panic} > 1.8$, **[CONTAINMENT BREACH]** is natively fired, starving the execution layer and halting any trades (ADR-092 mechanical constraint protection).
+- If Local Edge density reaches $MAX\_CALLS\_PER\_SESSION$, it flags `LBEC_OFFLOAD_STATUS = true`, dynamically wrapping the execution state into a Cloud API router (`tag.ooo`) rather than hanging locally.
+
+## 4. The Action Execution (Dashboard Binding)
+When $P_{panic} \leq 1.8$, the execution array maps the vector distance directly to the Multi-Agent Trading configuration:
+* If $0.1 < P_{panic} \leq 0.5$: Execute Neutral/Rebalancing ETF sequences.
+* If $0.5 < P_{panic} \leq 1.0$: Fire "Adverse" Short/Inverse ETF logic limits immediately. 
+* If $1.0 < P_{panic} \leq 1.8$: Trigger "Severe" Hedging & Offload algorithms natively across `trading_dashboard.tsx`.

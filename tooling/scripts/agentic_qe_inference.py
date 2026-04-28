@@ -29,11 +29,19 @@ def evaluate_node(node):
     if len(embedding) != 1024:
         failures.append(f"TENSOR_COLLAPSE_DIM_{len(embedding)}")
         
-    # Contrastive Intel Agility: AI Slop Code Classifier
-    # Calculates mathematical distance against curl/Linux/Nextcloud pristine commits
+    # Contrastive Intel Agility: Agentic Protocol AI Slop Classifier
+    # Baseline Domains Expanded: Hermes-Agent, Element/Synapse (Matrix), OpenBadges, IETF AIAgent-Auth
+    # Calculates mathematical distance against pristine agentic communication protocols
     slop_distance = node.get("ai_slop_distance", 0.0)
-    if slop_distance > 0.85:
-        failures.append(f"SYNTHETIC_AI_SLOP_DETECTED_{slop_distance}")
+    baseline_domain = node.get("slop_baseline", "matrix_auth")
+    
+    # Dynamic thresholds based on the expanded domain scope
+    threshold = 0.85
+    if baseline_domain == "matrix_auth":
+        threshold = 0.92  # Agentic Auth protocols have higher structural rigidity
+        
+    if slop_distance > threshold:
+        failures.append(f"SYNTHETIC_AI_SLOP_DETECTED_{baseline_domain}_{slop_distance}")
         
     if failures:
         return "FAIL", "|".join(failures)

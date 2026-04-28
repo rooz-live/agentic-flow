@@ -1,4 +1,4 @@
-import { Terminal, Rocket, Package, GitBranch } from 'lucide-react';
+
 
 const installSteps = [
   {
@@ -151,6 +151,8 @@ const QuickStart = () => {
 {`import { ReflexionMemory } from 'agentic-flow/agentdb';
 import { ModelRouter } from 'agentic-flow/router';
 import * as reasoningbank from 'agentic-flow/reasoningbank';`}
+import { Terminal, Rocket, Package, GitBranch } from 'lucide-react';
+
                 </code>
               </pre>
             </div>

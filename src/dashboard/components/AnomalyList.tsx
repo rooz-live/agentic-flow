@@ -3,18 +3,11 @@
  */
 
 import React from 'react';
-import {
-  AlertTriangle,
-  AlertCircle,
-  AlertOctagon,
-  Info,
-  ExternalLink,
-  Clock,
-  CheckCircle,
-  XCircle
-} from 'lucide-react';
+
 import { cn } from '../../utils/cn';
 import { AnomalyDetection } from '../types/patterns';
+import { AlertTriangle, AlertCircle, AlertOctagon, Info, ExternalLink, Clock, CheckCircle, XCircle } from 'lucide-react';
+
 
 interface AnomalyListProps {
   anomalies: AnomalyDetection[];

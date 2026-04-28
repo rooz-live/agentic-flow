@@ -25,18 +25,18 @@ export class LlamaEdgePhysicsEngine {
     // Build the structural C++ parameters mapped to hardware-level execution
     const args = [
       "-m", modelPath,
-      "--mmap", payload.executionBounds.mmapNode ? "1" : "0", 
+      "--mmap", "1", // Hard-enforced local physical paging isolation 
       "--n-predict", payload.executionBounds.maxTokens.toString(),
       "--temp", payload.executionBounds.temperature.toString(),
       "-p", payload.systemPrompt
     ];
 
     try {
-      // Execute deterministically on the metal (using mock logic if binary doesn't physically link)
-      // return child_process.execFileSync(binaryPath, args, { encoding: 'utf-8' });
-      return JSON.stringify(["SPY_SELL_85", "TLT_HOLD"]); 
+      // Execute deterministically on the metal mapping natively to the SSD paging bounds 
+      const rawOutput = child_process.execFileSync(binaryPath, args, { encoding: 'utf-8' });
+      return rawOutput.trim();
     } catch (err) {
-      console.error("[INFERENCE] Edge execution crashed. Ensure native arm64 binary is compiled.");
+      console.error("[INFERENCE CAUTION] Edge execution crashed. The physics topology dictates failure if binary is unlinked. Bounding failure gracefully.");
       throw err;
     }
   }

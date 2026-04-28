@@ -127,7 +127,11 @@ def start_orchestrator_loop():
                 cpu_usage = psutil.cpu_percent(interval=None)
                 memory = psutil.virtual_memory()
 
-                batch = list(wsjf_swarm_vectors.keys())[:3] # Deterministic subset, no random.sample
+                # Fourth-Wave: Route traffic dynamically based on WSJF Economic Demand tensor
+                # We sort the ledger by the highest WSJF score to prioritize critical market channels
+                sorted_channels = sorted(wsjf_swarm_vectors.items(), key=lambda item: item[1], reverse=True)
+                batch = [channel[0] for channel in sorted_channels[:3]]
+                
                 results = []
                 for domain in batch:
                      res = ping_domain_playwright(browser, domain)

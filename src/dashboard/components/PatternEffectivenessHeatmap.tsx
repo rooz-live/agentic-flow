@@ -151,7 +151,7 @@ export function PatternEffectivenessHeatmap({
         <div className="h-96 flex items-center justify-center">
           <div className="text-center">
             <div className="w-16 h-16 bg-gray-200 rounded-full mx-auto mb-4 flex items-center justify-center">
-              <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-8 h-8 text-orange-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
             </div>
@@ -173,7 +173,7 @@ export function PatternEffectivenessHeatmap({
           <select
             value={selectedMetric}
             onChange={(e) => setSelectedMetric(e.target.value as any)}
-            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
           >
             <option value="effectiveness">Effectiveness</option>
             <option value="frequency">Frequency</option>
@@ -208,7 +208,7 @@ export function PatternEffectivenessHeatmap({
                 key={circle}
                 className={cn(
                   "flex-1 min-w-20 px-2 text-center text-xs font-medium text-gray-700 cursor-pointer",
-                  selectedCircle === circle && "bg-blue-50 rounded"
+                  selectedCircle === circle && "bg-orange-50 rounded"
                 )}
                 onClick={() => setSelectedCircle(selectedCircle === circle ? null : circle)}
               >
@@ -227,7 +227,7 @@ export function PatternEffectivenessHeatmap({
                 <div
                   className={cn(
                     "w-48 pr-2 text-sm font-medium text-gray-900 truncate cursor-pointer",
-                    selectedPattern === pattern && "bg-blue-50 rounded"
+                    selectedPattern === pattern && "bg-orange-50 rounded"
                   )}
                   onClick={() => setSelectedPattern(selectedPattern === pattern ? null : pattern)}
                   title={pattern}
@@ -248,9 +248,9 @@ export function PatternEffectivenessHeatmap({
                     <div
                       key={circle}
                       className={cn(
-                        "flex-1 min-w-20 h-8 m-px rounded cursor-pointer border border-gray-200 flex items-center justify-center text-xs font-medium transition-all hover:ring-2 hover:ring-blue-400",
-                        isHighlighted && "ring-2 ring-blue-400",
-                        !cell && "text-gray-400"
+                        "flex-1 min-w-20 h-8 m-px rounded cursor-pointer border border-gray-200 flex items-center justify-center text-xs font-medium transition-all hover:ring-2 hover:ring-orange-400",
+                        isHighlighted && "ring-2 ring-orange-400",
+                        !cell && "text-orange-200"
                       )}
                       style={{ backgroundColor: color }}
                       onClick={() => {
@@ -281,9 +281,9 @@ export function PatternEffectivenessHeatmap({
 
       {/* Detailed information panel */}
       {selectedPattern && selectedCircle && (
-        <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+        <div className="mt-6 p-4 bg-orange-50 border border-orange-200 rounded-lg">
           <div className="flex items-center justify-between mb-2">
-            <h4 className="font-medium text-blue-900">
+            <h4 className="font-medium text-orange-300">
               {selectedPattern} in {selectedCircle}
             </h4>
             <button
@@ -291,7 +291,7 @@ export function PatternEffectivenessHeatmap({
                 setSelectedPattern(null);
                 setSelectedCircle(null);
               }}
-              className="text-blue-600 hover:text-blue-800"
+              className="text-orange-600 hover:text-orange-800"
             >
               ×
             </button>
@@ -300,22 +300,22 @@ export function PatternEffectivenessHeatmap({
           {(() => {
             const cell = getCell(selectedPattern, selectedCircle);
             if (!cell) {
-              return <p className="text-sm text-blue-700">No data available for this combination</p>;
+              return <p className="text-sm text-orange-700">No data available for this combination</p>;
             }
 
             return (
               <div className="grid grid-cols-3 gap-4 text-sm">
                 <div>
-                  <p className="text-blue-700">Effectiveness</p>
-                  <p className="font-medium text-blue-900">{formatValue(cell.effectiveness)}</p>
+                  <p className="text-orange-700">Effectiveness</p>
+                  <p className="font-medium text-orange-300">{formatValue(cell.effectiveness)}</p>
                 </div>
                 <div>
-                  <p className="text-blue-700">Frequency</p>
-                  <p className="font-medium text-blue-900">{cell.frequency} executions</p>
+                  <p className="text-orange-700">Frequency</p>
+                  <p className="font-medium text-orange-300">{cell.frequency} executions</p>
                 </div>
                 <div>
-                  <p className="text-blue-700">Economic Impact</p>
-                  <p className="font-medium text-blue-900">{formatValue(cell.economicImpact)}</p>
+                  <p className="text-orange-700">Economic Impact</p>
+                  <p className="font-medium text-orange-300">{formatValue(cell.economicImpact)}</p>
                 </div>
               </div>
             );

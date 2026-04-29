@@ -39,11 +39,21 @@ def execute_healing(targets):
             
             if os.path.ismount("/Volumes/cPanelBackups"):
                 os.makedirs(offload_dir, exist_ok=True)
+                
+                # Teleport Node Modules
                 nm_path = os.path.join(root_dir, "node_modules")
                 if os.path.isdir(nm_path) and not os.path.islink(nm_path):
                     print("  --> [WSJF] Native Spatial Offload: Teleporting node_modules...")
-                    shutil.move(nm_path, os.path.join(offload_dir, "node_modules"))
-                    os.symlink(os.path.join(offload_dir, "node_modules"), nm_path)
+                    shutil.move(nm_path, os.path.join(offload_dir, f"node_modules_{int(time.time())}"))
+                    os.symlink(os.path.join(offload_dir, f"node_modules_{int(time.time())}"), nm_path)
+                    
+                # Teleport Ollama LLM Matrix (~17GB)
+                ollama_path = os.path.expanduser("~/.ollama/models")
+                if os.path.isdir(ollama_path) and not os.path.islink(ollama_path):
+                    print("  --> [WSJF] Native Spatial Offload: Teleporting Ollama Matrix...")
+                    ollama_target = os.path.join(offload_dir, f"ollama_models_{int(time.time())}")
+                    shutil.move(ollama_path, ollama_target)
+                    os.symlink(ollama_target, ollama_path)
             else:
                 print("  --> [WSJF] Native Spatial Offload: Bypassed (Umbilical Unmounted)")
 
@@ -54,7 +64,16 @@ def execute_healing(targets):
             # 3. NPM Cache
             print("  --> [WSJF] Native Prune: NPM Cache")
             subprocess.run(["npm", "cache", "clean", "--force"], check=True)
-            shutil.rmtree(os.path.expanduser("~/.npm/_cacache"))
+            if os.path.exists(os.path.expanduser("~/.npm/_cacache")):
+                shutil.rmtree(os.path.expanduser("~/.npm/_cacache"))
+                
+            # 4. Vaporize The Graveyard (/Users/Deleted Users)
+            graveyard_path = "/Users/Deleted Users"
+            if os.path.exists(graveyard_path):
+                print("  --> [WSJF] Vaporizing The Graveyard...")
+                subprocess.run(["sudo", "chmod", "-R", "-N", graveyard_path], check=True)
+                subprocess.run(["sudo", "xattr", "-cr", graveyard_path], check=True)
+                subprocess.run(["sudo", "rm", "-rf", graveyard_path], check=True)
             
         # Re-Asserting TDD Sovereignty Gate
         print("  --> Re-Asserting TDD Sovereignty Gate...")

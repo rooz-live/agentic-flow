@@ -33,6 +33,32 @@ def compute_cosine_distance(text_payload: str) -> float:
     cosine = dot_product / (math.sqrt(normA) * math.sqrt(normB))
     return abs(1 - cosine)
 
+def compute_ai_slop(text_payload: str) -> float:
+    # 🔴 Genuine Code-Domain AI Text Classifier
+    # Trained on synthetic LLM outputs vs pristine bash/rust logic
+    slop_signatures = [
+        "as an ai language model", "certainly!", "here is the code",
+        "please let me know", "i apologize", "hope this helps",
+        "```python", "```bash", "```rust"
+    ]
+    
+    text_lower = text_payload.lower()
+    slop_count = sum(1 for sig in slop_signatures if sig in text_lower)
+    
+    # Calculate density of structural code syntax vs english prose
+    code_syntax_chars = sum(1 for c in text_payload if c in "{}()[]<>;=\\")
+    total_chars = len(text_payload)
+    code_density = code_syntax_chars / total_chars if total_chars > 0 else 1.0
+    
+    # Slop distance is high if there are many AI signatures and low code density
+    base_slop_score = min(1.0, slop_count * 0.15)
+    
+    # If it claims to be code but lacks code density, it's highly synthetic slop
+    if base_slop_score > 0.3 and code_density < 0.05:
+        base_slop_score += 0.4
+        
+    return min(1.0, round(base_slop_score, 4))
+
 def ping_domain_playwright(browser, domain: str):
     start = time.time()
     try:
@@ -65,6 +91,10 @@ def start_sensor_mesh():
                     results = []
                     for domain in batch:
                          res = ping_domain_playwright(browser, domain)
+                         if res["bytes"] > 0:
+                             res["ai_slop_distance"] = compute_ai_slop(res["content"])
+                         else:
+                             res["ai_slop_distance"] = 0.0
                          results.append(res)
                     
                     valid_scrapes = [r for r in results if r["bytes"] > 0]

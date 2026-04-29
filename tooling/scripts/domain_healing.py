@@ -76,8 +76,12 @@ def execute_healing(targets):
                 subprocess.run(["sudo", "rm", "-rf", graveyard_path], check=True)
             
         # Re-Asserting TDD Sovereignty Gate
-        print("  --> Re-Asserting TDD Sovereignty Gate...")
-        subprocess.run(["bash", "tests/infrastructure/test_sovereignty.sh"], check=True, timeout=120)
+        print("  --> Re-Asserting Native TDD Sovereignty Gate...")
+        import sys
+        sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../tests/infrastructure')))
+        import test_sovereignty
+        test_sovereignty.assert_sovereignty()
+        
         print("--> ✅ Healing sequence complete.")
         
     except Exception as e:

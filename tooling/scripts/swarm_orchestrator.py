@@ -9,7 +9,19 @@ import json
 import time
 import datetime
 import uuid
+import asyncio
+import sys
+import sqlite3
 import ddd_event_bus
+import subprocess
+
+# Inject Wave 4 Agentic AST Indexing
+try:
+    sys.path.append(os.path.join(os.path.dirname(__file__), "beads"))
+    from ast_semantic_indexer import ASTSemanticChunker
+except ImportError as e:
+    print(f"[FATAL] AST Chunker Missing: {e}")
+
 
 try:
     from dotenv import load_dotenv
@@ -42,8 +54,6 @@ if not os.path.exists(ENV_PATH):
     exit(1)
 
 load_dotenv(dotenv_path=ENV_PATH)
-
-import sqlite3
 
 def get_finance_event():
     # 🔴 NO BYPASS THEATER: Physically query the OPEX database for genuine capital burn rates
@@ -79,14 +89,21 @@ def get_finance_event():
         print(f"--> [FATAL] Swarm Orchestrator OPEX DB Query Failed: {e}")
         return 100.0, 0.0, 0.0, 1.0
 
-def start_orchestrator_loop():
-    print("--> 🧠 Governance Engine Online. Awaiting Telemetry...")
+async def start_orchestrator_loop():
+    print("--> 🧠 Governance Engine Online (Async Mode). Awaiting Telemetry...")
     
     # Kickstart the cycle by pushing the initial scrape target
     initial_batch = list(wsjf_swarm_vectors.keys())[:3]
     initial_id = str(uuid.uuid4())
     ddd_event_bus.publish("GOVERNANCE", "ScrapeTargetEvent", {"batch": initial_batch, "action_id": initial_id})
     last_processed_telemetry_id = None
+    
+    # Generate Baseline Contrastive Intel
+    ast_indexer = ASTSemanticChunker(ROOT_DIR)
+    ast_indexer.execute_indexing()
+    ast_node_count = len(ast_indexer.chunks)
+    print(f"--> 🧬 Contrastive Intel Agility: {ast_node_count} AST nodes indexed for mxbai-embed-large.")
+
     
     try:
         while True:
@@ -163,6 +180,10 @@ def start_orchestrator_loop():
                   "mapek": {
                       "lbec_decision": lbec_decision
                   },
+                  "contrastive_intel": {
+                      "ast_semantic_nodes": ast_node_count,
+                      "temporal_agility_status": "SYNCHRONIZED"
+                  },
                   "plan": {
                     "proposed_action": "SELL_CASCADE" if ml_anomaly_detected else "HOLD_NOMINAL_SPREAD",
                     "wsjf_score": round(active_wsjf, 1),
@@ -189,12 +210,24 @@ def start_orchestrator_loop():
                 
                 ddd_event_bus.publish("GOVERNANCE", "ScrapeTargetEvent", {"batch": next_batch, "action_id": next_id})
                 
-                last_processed_telemetry_id = telemetry.get("action_id")
+                if ml_anomaly_detected:
+                    print(f"  🚨 [SWARM] OPEX Anomaly Detected. Dispatching Domain Healing Bead...")
+                    bead_path = os.path.join(ROOT_DIR, "tooling", "scripts", "beads", "domain_healing.py")
+                    if os.path.exists(bead_path):
+                        proc = await asyncio.create_subprocess_exec(
+                            sys.executable, bead_path, json.dumps(next_batch),
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE
+                        )
+                        # Fire and forget / background concurrent healing
+                        asyncio.create_task(proc.communicate())
                 
-            time.sleep(0.5)
-
-    except KeyboardInterrupt:
-        print("\n\n--> 🧠 Governance Engine halted.")
+            await asyncio.sleep(0.5)
+    except Exception as e:
+        print(f"[FATAL] Orchestrator loop crashed: {e}")
 
 if __name__ == "__main__":
-    start_orchestrator_loop()
+    try:
+        asyncio.run(start_orchestrator_loop())
+    except KeyboardInterrupt:
+        print("\n\n--> 🧠 Governance Engine halted.")

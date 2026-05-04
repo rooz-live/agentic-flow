@@ -109,6 +109,14 @@ def sovereign_quarantine(target_node):
     except Exception:
         learner.log_execution("FAIL", int((time.time() - start_time) * 1000), target_node, "FORENSIC_SYNC_FAILED")
 
+    # Check for Arbitrage Lock from O-GOV VIP
+    lock_file = os.path.join(ROOT_DIR, '.goalie', 'ARBITRAGE_LOCK.tmp')
+    if os.path.exists(lock_file):
+        print(f"  🔒 [ARBITRAGE LOCK ENGAGED] CFO Override Active. Bypassing SELL_CASCADE.")
+        print(f"  📉 Holding physical node '{target_node}' to capitalize on disruption.")
+        learner.log_execution("PASS", int((time.time() - start_time) * 1000), target_node, "LIQUIDATION_BYPASSED_VIA_ARBITRAGE_LOCK")
+        return
+
     print(f"  🔥 [LIQUIDATION] Forensic yield achieved. Triggering SELL_CASCADE via STX API for node: {target_node}...")
     
     # 3. Liquidation (Vaporize) via REST API

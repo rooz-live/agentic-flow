@@ -58,8 +58,8 @@ export const SwarmCosmograph: React.FC<SwarmCosmographProps> = ({
   // Transform swarm data into graph nodes and links
   const { nodes, links } = useMemo(() => {
     const graphNodes = swarmData.map((agent) => ({
-      id: agent.agent_id,
       ...agent,
+      id: agent.agent_id,
       // Node size based on tasks completed
       size: Math.max(5, Math.min(30, agent.tasks_completed / 50)),
       // Color based on role

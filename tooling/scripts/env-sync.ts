@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* env-sync: propagate active env -> templates (mask secrets) */
 import { readFileSync, writeFileSync } from "fs";
-import { globSync } from "glob";
+import { sync as globSync } from "glob";
 import { resolve } from "path";
 
 type Catalog = Record<string, { secret?: boolean; default?: string; desc?: string }>;

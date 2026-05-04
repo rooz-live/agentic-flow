@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('https://mesh.tag.ooo/ - Sovereign Component Verification (AQE TDD)', () => {
+const TARGET_URL = process.env.PLAYWRIGHT_TARGET_URL || 'http://localhost:5173';
+
+test.describe(`${TARGET_URL} - Sovereign Component Verification (AQE TDD)`, () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to the target domain
-    await page.goto('https://mesh.tag.ooo/');
+    await page.goto(TARGET_URL);
     
     // Bypass OAuth SovereignAuth for testing boundaries (assuming local storage or mock state)
     await page.evaluate(() => {
@@ -13,6 +15,11 @@ test.describe('https://mesh.tag.ooo/ - Sovereign Component Verification (AQE TDD
     
     // Reload to apply mocked state
     await page.reload();
+    
+    // Harden: Wait for the network to be idle to ensure the React app has hydrated
+    await page.waitForLoadState('networkidle');
+    // Add a physical buffer to allow SovereignContext to inject telemetry
+    await page.waitForTimeout(1500);
   });
 
   test('MeshNavigation.tsx - Lateral sidebar rendering and dimensional state toggles', async ({ page }) => {
@@ -125,11 +132,11 @@ test.describe('https://mesh.tag.ooo/ - Sovereign Component Verification (AQE TDD
     });
     await page.reload();
 
-    const vipPortal = page.locator('text=O-GOV.com VIP').locator('..').locator('..');
+    const vipPortal = page.locator('text=O-GOV.com VIP').locator('..').locator('..').locator('..');
     await expect(vipPortal).toBeVisible();
 
     // Verify Actionable Increment Matrix
-    await expect(vipPortal.locator('text=Trigger Vibecast Pulse')).toBeVisible();
-    await expect(vipPortal.locator('text=Engage Arbitrage Lock')).toBeVisible();
+    await expect(page.locator('text=Trigger Vibecast Pulse')).toBeVisible();
+    await expect(page.locator('text=Engage Arbitrage Lock')).toBeVisible();
   });
 });

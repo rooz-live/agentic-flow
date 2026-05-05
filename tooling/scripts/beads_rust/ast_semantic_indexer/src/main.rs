@@ -16,9 +16,6 @@ const STX_ENDPOINT: &str = "https://stx.tag.ooo:8774/v2.1";
 const STX_IMAGE_REF: &str = "edge-node-playwright";
 const STX_FLAVOR_REF: &str = "m1.medium";
 
-extern "C" {
-    fn tree_sitter_python() -> Language;
-}
 
 #[derive(Debug, serde::Deserialize)]
 struct OllamaResponse {
@@ -48,7 +45,7 @@ async fn generate_mxbai_embedding(client: &reqwest::Client, content: &str) -> Re
 }
 
 fn extract_ast_structure(source_code: &str) -> Result<usize, anyhow::Error> {
-    let language = unsafe { tree_sitter_python() };
+    let language = tree_sitter_python::language();
     let mut parser = Parser::new();
     parser.set_language(language)?;
     

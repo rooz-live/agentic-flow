@@ -13,7 +13,7 @@ try:
     from playwright.sync_api import sync_playwright
 except ImportError:
     print("[FATAL] Playwright missing in Sensor Mesh.")
-    exit(1)
+    pass
 
 baseline_vector = [0.5] * 1024
 

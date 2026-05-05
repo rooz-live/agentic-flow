@@ -319,6 +319,7 @@ function RoamRisks() {
 import { SwarmNodesDashboard } from './pages/SwarmNodesDashboard';
 import { LegalCaseDashboard } from './pages/LegalCaseDashboard';
 import { Activity, Server, ShieldAlert, Zap, AlertTriangle, CheckCircle2, RotateCcw } from 'lucide-react';
+import { VibecastIncrementPortal } from './components/VibecastIncrementPortal';
 
 
 // Global App Shell
@@ -359,6 +360,7 @@ export default function App() {
               <Route path="/infrastructure/swarm-nodes" element={<SwarmNodesDashboard />} />
               
               {/* External Client Onboarding / Advisory Matrix */}
+              <Route path="/ingress/whatsapp" element={<VibecastIncrementPortal />} />
               
               {/* Legal Case Management */}
               <Route path="/legal/cases" element={<LegalCaseDashboard />} />

@@ -1,65 +1,66 @@
-import os
+#!/usr/bin/env python3
+"""
+Sovereign Inference Execution Bead: Execute With Lean Learning
+This script acts as a wrapper around subprocess execution, injecting 
+a physical Execution Tensor into `opex.db` to document the TTFB 
+(Time to First Byte) and status of the executed command.
+"""
+import sys
+import subprocess
+import time
 import sqlite3
-import datetime
-import json
-import uuid
+import os
+
+OPEX_DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../.goalie/opex.db'))
 
 class BuildMeasureLearnCycle:
-    def __init__(self, domain="SOVEREIGNTY_EVAL", db_path=None):
+    def __init__(self, domain="SOVEREIGNTY_EVAL"):
         self.domain = domain
-        if db_path is None:
-            # Point to the actual OPEX SQLite database
-            root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../'))
-            self.db_path = os.path.join(root_dir, '.goalie', 'budget_logs', 'budget_tracking.db')
-        else:
-            self.db_path = db_path
-            
-        self._ensure_table_exists()
 
-    def _ensure_table_exists(self):
+    def log_execution(self, status, ttfb, target, reason=""):
         try:
-            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(OPEX_DB_PATH)
             cur = conn.cursor()
-            
-            # Ensure the OPEX database has an inference ledger table
-            cur.execute('''
-                CREATE TABLE IF NOT EXISTS qe_inference_ledger (
-                    id TEXT PRIMARY KEY,
-                    domain TEXT,
-                    status TEXT,
-                    ttfb_ms REAL,
-                    tensor_hash TEXT,
-                    roam_category TEXT,
-                    created_at TIMESTAMP
-                )
-            ''')
+            cur.execute("CREATE TABLE IF NOT EXISTS execution_tensors (id INTEGER PRIMARY KEY, domain TEXT, action TEXT, target TEXT, status TEXT, ttfb_ms INTEGER, timestamp REAL, reason TEXT)")
+            cur.execute(
+                "INSERT INTO execution_tensors (domain, action, target, status, ttfb_ms, timestamp, reason) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (self.domain, "LEAN_LEARNING_EXECUTE", target, status, ttfb, time.time(), reason)
+            )
             conn.commit()
             conn.close()
-        except Exception as e:
-            print(f"[Lean Learning] Warning: Could not initialize ledger - {e}")
+            print(f"  ✅ [OPEX LEDGER] Logged '{target}' execution. Status: {status}. Burn: {ttfb}ms.")
+        except Exception as db_err:
+            print(f"  ❌ DBOS Ledger Sync Failed: {db_err}")
 
-    def log_execution(self, status, ttfb_ms=0.0, tensor_hash="UNKNOWN", roam_category="RESOLVED"):
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cur = conn.cursor()
-            record_id = str(uuid.uuid4())
-            timestamp = datetime.datetime.now(datetime.timezone.utc).isoformat()
+def execute_and_log(command):
+    start_time = time.time()
+    
+    print(f"--> [LEARNING_BEAD] Executing: {' '.join(command)}")
+    
+    try:
+        # Run the command
+        result = subprocess.run(command, capture_output=True, text=True)
+        status = "PASS" if result.returncode == 0 else "FAIL"
+        
+        # Calculate capital burn (Time elapsed in ms)
+        ttfb = int((time.time() - start_time) * 1000)
+        
+        learner = BuildMeasureLearnCycle()
+        learner.log_execution(status, ttfb, command[0])
+        
+        if status == "FAIL":
+            print(f"  [ERROR] {result.stderr}")
+            sys.exit(result.returncode)
             
-            cur.execute('''
-                INSERT INTO qe_inference_ledger (id, domain, status, ttfb_ms, tensor_hash, roam_category, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (record_id, self.domain, status, float(ttfb_ms), tensor_hash, roam_category, timestamp))
-            
-            conn.commit()
-            conn.close()
-            print(f"[{self.domain}] Inference tensor {tensor_hash} mathematically logged to OPEX SQLite Ledger.")
-            return record_id
-        except Exception as e:
-            print(f"[{self.domain}] Warning: Could not log to ledger - {e}")
-            return None
+        return result.stdout
+        
+    except Exception as e:
+        print(f"  ❌ Execution Failed: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    # Test execution boundary
-    learner = BuildMeasureLearnCycle(domain="TEST_GATE")
-    learner.log_execution("PASS", 12.5, "test_tensor_hash", "VERIFIED")
+    if len(sys.argv) < 2:
+        print("Usage: execute_with_lean_learning.py <command>")
+        sys.exit(1)
+        
+    execute_and_log(sys.argv[1:])

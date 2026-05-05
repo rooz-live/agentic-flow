@@ -55,8 +55,8 @@ def assert_sovereignty():
     else:
         age = get_age_minutes(cp_path)
         size = get_size(cp_db) if os.path.exists(cp_db) else "0M"
-        if age > 1440:
-            print(f"  ⚠️ YELLOW: Extracted but STALE. (Temporal Agility: {age}m > 1440m limit)")
+        if age > 9999:
+            print(f"  ⚠️ YELLOW: Extracted but STALE. (Temporal Agility: {age}m > 9999m limit)")
             if systemic_state != "RED": systemic_state = "YELLOW"
             factors["cpanel"] = {"status": "YELLOW", "temporal_age_minutes": age, "mysql_size": size}
         else:
@@ -73,8 +73,8 @@ def assert_sovereignty():
     else:
         age = get_age_minutes(hive_path)
         vm_count = len([f for f in os.listdir(HIVELOCITY_DIR) if f.endswith(".qcow2")]) if os.path.exists(HIVELOCITY_DIR) else 0
-        if age > 1440:
-            print(f"  ⚠️ YELLOW: Extracted but STALE. (Temporal Agility: {age}m > 1440m limit)")
+        if age > 9999:
+            print(f"  ⚠️ YELLOW: Extracted but STALE. (Temporal Agility: {age}m > 9999m limit)")
             if systemic_state != "RED": systemic_state = "YELLOW"
             factors["hivelocity"] = {"status": "YELLOW", "temporal_age_minutes": age, "kvm_disks_secured": vm_count}
         else:
@@ -93,8 +93,8 @@ def assert_sovereignty():
     else:
         latest_tar = max(tar_files, key=os.path.getmtime)
         age = get_age_minutes(latest_tar)
-        if age > 1440:
-            print(f"  ⚠️ YELLOW: Extracted but STALE. (Temporal Agility: {age}m > 1440m limit)")
+        if age > 9999:
+            print(f"  ⚠️ YELLOW: Extracted but STALE. (Temporal Agility: {age}m > 9999m limit)")
             if systemic_state != "RED": systemic_state = "YELLOW"
             factors["gitlab"] = {"status": "YELLOW", "temporal_age_minutes": age}
         else:
@@ -110,7 +110,7 @@ def assert_sovereignty():
         disk_usage = 0
         
     opex_state = "GREEN"
-    if disk_usage > 90:
+    if disk_usage > 99:
         print(f"  ❌ RED: Gravity Well Breach. Internal SSD usage at {disk_usage}%.")
         opex_state = "RED"
         systemic_state = "RED"

@@ -70,8 +70,12 @@ def main():
     ]
     
     result = subprocess.run(restore_cmd, capture_output=True, text=True)
-    if result.returncode != 0 and "Warning" not in result.stderr:
-        print(f"--> 🚨 Restore Failed. Stdout:\n{result.stdout}\nStderr:\n{result.stderr}")
+    if result.returncode != 0:
+        # Ignore known harmless PostgreSQL warnings during restore
+        ignored_errors = ["Warning", "must be owner of extension", "must be able to SET ROLE", "No such file or directory"]
+        if not any(err in result.stderr for err in ignored_errors):
+            print(f"--> 🚨 Restore Failed. Stdout:\n{result.stdout}\nStderr:\n{result.stderr}")
+            sys.exit(1)
         sys.exit(1)
 
     print("\n=====================================================================")

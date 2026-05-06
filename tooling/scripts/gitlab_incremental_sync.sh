@@ -59,24 +59,24 @@ if [ -z "$GITLAB_TOKEN" ]; then
     fi
 fi
 
-GITLAB_HOST="${GITLAB_HOST:-gitlab.rooz.live}"
+GITLAB_HOST="${STX_TARGET_HOST:-yo.tag.ooo}"
 SSH_USER="ubuntu"
-if [ -n "${YOLIFE_GITLAB_KEY:-}" ]; then
-    EXPANDED_KEY="${YOLIFE_GITLAB_KEY/#\~/$HOME}"
+if [ -n "${YOLIFE_STX_KEY:-}" ]; then
+    EXPANDED_KEY="${YOLIFE_STX_KEY/#\~/$HOME}"
     SSH_KEY_OPT="-i $EXPANDED_KEY"
 else
-    SSH_KEY_OPT=""
+    SSH_KEY_OPT="-i $HOME/pem/stx-aio-0.pem"
 fi
 SSH_CMD="ssh -4 -p 2222 $SSH_KEY_OPT -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
 
 echo "--> [1/5] Triggering Native GitLab Backup..."
-eval "$SSH_CMD $SSH_USER@$GITLAB_HOST 'sudo gitlab-backup create STRATEGY=copy BACKUP=sovereignty_$(date +%s) 2>/dev/null || true'"
+eval "$SSH_CMD $SSH_USER@$GITLAB_HOST 'sudo docker exec gitlab-web-1 gitlab-backup create STRATEGY=copy BACKUP=sovereignty_$(date +%s) 2>/dev/null || true'"
 BACKUP_TRIGGER_RESULT=$?
 
 echo "--> [2/5] Executing Sudo-RSYNC to extract the AWS payload..."
 RSYNC_CMD="/usr/local/bin/rsync -avz --progress --delete --rsync-path='sudo rsync' -e \"ssh -4 -p 2222 $SSH_KEY_OPT -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=15\""
 
-eval "caffeinate -i -m -s -d $RSYNC_CMD $SSH_USER@$GITLAB_HOST:/var/opt/gitlab/backups/ $BACKUP_DIR/"
+eval "caffeinate -i -m -s -d $RSYNC_CMD $SSH_USER@$GITLAB_HOST:/data/docker/volumes/gitlab_gitlab_backups/_data/ $BACKUP_DIR/"
 RSYNC_RESULT=$?
 
 echo "--> [3/5] Ensuring CI/CD Observability (glab CLI v2.0)..."
@@ -96,7 +96,7 @@ if [ -n "$GITLAB_TOKEN" ]; then
     
     # Configure glab auth
     if ! glab auth status &> /dev/null; then
-        echo "gitlab.com" | glab auth login --hostname "$GITLAB_HOST" --token "$GITLAB_TOKEN" 2>/dev/null || true
+        glab auth login --hostname "$GITLAB_HOST" --token "$GITLAB_TOKEN" 2>/dev/null || true
     fi
     
     # Verify auth worked
@@ -155,7 +155,7 @@ phase_gate_entry = {
     "pipeline_status": "$PIPELINE_STATUS",
     "backup_trigger": $BACKUP_TRIGGER_RESULT,
     "rsync_result": $RSYNC_RESULT,
-    "glab_installed": $GLAB_INSTALL_NEEDED,
+    "glab_installed": "$GLAB_INSTALL_NEEDED" == "true",
     "masked_token_prefix": "${GITLAB_TOKEN:0:4}" if "$GITLAB_TOKEN" else "NONE"
 }
 

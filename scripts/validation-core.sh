@@ -301,6 +301,55 @@ init_directories() {
 }
 
 # =============================================================================
+# CANONICAL GATE LOGIC (Deduplication Guardrails)
+# =============================================================================
+
+core_check_dependencies() {
+    local missing=()
+    for cmd in "$@"; do
+        if ! command -v "$cmd" &> /dev/null; then
+            missing+=("$cmd")
+        fi
+    done
+    
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo -e "\033[0;31m✗\033[0m [FATAL] Missing dependencies: ${missing[*]}"
+        echo "Please install them to pass the verification gate."
+        return 1
+    fi
+    return 0
+}
+
+core_generate_artifact() {
+    local gate_name="$1"
+    local target="$2"
+    local exit_code="$3"
+    local run_id
+    local hash_val
+    local artifact_dir
+    local artifact_path
+
+    run_id=$(date +%s)
+    hash_val=$(git rev-parse HEAD 2>/dev/null || echo "no-git")
+    # Always drop in the root .goalie/evidence
+    artifact_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/.goalie/evidence"
+    mkdir -p "$artifact_dir"
+    artifact_path="$artifact_dir/${gate_name}_${run_id}.json"
+    
+    cat <<EOF > "$artifact_path"
+{
+  "gate": "$gate_name",
+  "target": "$target",
+  "run_id": "$run_id",
+  "hash": "$hash_val",
+  "exit_code": $exit_code,
+  "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+}
+EOF
+    echo -e "\033[0;32m✓\033[0m Artifact physically generated: $artifact_path"
+}
+
+# =============================================================================
 # 3. LOGGING FUNCTION
 # =============================================================================
 # Logs validation events to a file

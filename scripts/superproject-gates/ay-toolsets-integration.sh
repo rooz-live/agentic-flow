@@ -27,7 +27,7 @@ print_header() {
     echo -e "${NC}"
 }
 
-check_dependencies() {
+local_check_dependencies() {
     echo -e "${BOLD}Checking dependencies...${NC}"
     
     local missing=0

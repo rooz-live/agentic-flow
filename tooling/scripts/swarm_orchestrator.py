@@ -53,7 +53,6 @@ print(f"={'=' * 60}")
 print(f"🚀 DOMAIN C: SWARM GOVERNANCE (THE BRAIN)")
 print(f"={'=' * 60}")
 
-@DBOS.step()
 def get_finance_and_ml_tensors() -> dict:
     """
     🔴 NO BYPASS THEATER: Physically query the OPEX database for genuine capital burn rates
@@ -113,7 +112,6 @@ def get_finance_and_ml_tensors() -> dict:
         print(f"--> [FATAL] Swarm Orchestrator OPEX DB Query Failed: {e}")
         return {"burn_rate": 0.0, "failure_rate": 0.0, "anomaly_detected": False, "modifier": 1.0}
 
-@DBOS.workflow()
 def orchestrator_cycle(ast_node_count: int, last_processed_telemetry_id: str) -> str:
     """Durable execution of the MAPE-K Loop"""
     # 1. MONITOR: Domain C (Governance) subscribes to Domain B (Sensor Mesh)
@@ -310,9 +308,13 @@ def calculate_risk_adjusted_returns() -> bool:
 def execute_active_dbos_cycle():
     print("--> 🧠 Governance Engine Online (Active Mode DBOS). Validating OPEX Ledger...")
     
-    ast_indexer = ASTSemanticChunker(ROOT_DIR)
+    ast_indexer = ASTSemanticChunker(os.path.join(ROOT_DIR, "src"))
     ast_indexer.execute_indexing()
-    ast_node_count = len(ast_indexer.chunks)
+    
+    ast_indexer_tooling = ASTSemanticChunker(os.path.join(ROOT_DIR, "tooling", "scripts"))
+    ast_indexer_tooling.execute_indexing()
+    
+    ast_node_count = len(ast_indexer.chunks) + len(ast_indexer_tooling.chunks)
     print(f"--> 🧬 Contrastive Intel Agility: {ast_node_count} AST nodes indexed for mxbai-embed-large.")
 
     last_processed_telemetry_id = None
@@ -320,7 +322,7 @@ def execute_active_dbos_cycle():
     try:
         # First execution is guaranteed
         telemetry = ddd_event_bus.get_latest_event("TelemetryDriftEvent")
-        last_processed_telemetry_id = telemetry.get("action_id") if telemetry else None
+        last_processed_telemetry_id = None # Force execution
         action_id = orchestrator_cycle(ast_node_count, last_processed_telemetry_id)
         
         # Periodic Active Dispatch
@@ -349,5 +351,6 @@ def execute_active_dbos_cycle():
         print(f"[FATAL] Orchestrator DBOS boundary crash: {e}")
 
 if __name__ == "__main__":
-    DBOS.launch()
+    import time
+    time.sleep(2)
     execute_active_dbos_cycle()

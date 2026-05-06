@@ -250,9 +250,39 @@ jobs:
           
           echo "Meta-orchestrator traces successfully bound to CI matrix."
 
+  duplicate-gate-check:
+    name: Duplicate Gate Logic Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Canonical Gate Constraints
+        run: |
+          set -euo pipefail
+          echo "Scanning for scattered gate policy evaluations..."
+          
+          # Detect scattered CSQBM checks that are not delegated.
+          # Only validate-foundation.sh and actual validators should contain the primary evaluation logic.
+          # Exclude .github and collect-evidence/gate-one-pass which are now shims.
+          SCATTERED=$(grep -r "CSQBM_STATUS=\"PASS\"" scripts/ 2>/dev/null | grep -v "collect-evidence.sh" || true)
+          if [ -n "$SCATTERED" ]; then
+            echo "FAILED: Duplicate CSQBM evaluation found outside canonical shims!"
+            echo "$SCATTERED"
+            exit 1
+          fi
+          
+          # Detect raw AgentDB stat checks outside validate-foundation
+          AGENT_SCATTERED=$(grep -r "stat -f \"%m\" .*/agentdb.sqlite" scripts/ 2>/dev/null | grep -v "validate-foundation.sh" || true)
+          if [ -n "$AGENT_SCATTERED" ]; then
+            echo "FAILED: Duplicate AgentDB freshness check found outside validate-foundation.sh!"
+            echo "$AGENT_SCATTERED"
+            exit 1
+          fi
+          
+          echo "SUCCESS: No duplicate gate logic blocks found. Canonical module constraint satisfied."
+
   summary:
     name: Validation Summary
-    needs: [bash-syntax-validation, adr-prd-coherence, roam-staleness-check, exit-code-validation, bats-testing, csqbm-validation, meta-orchestrator-validation]
+    needs: [bash-syntax-validation, adr-prd-coherence, roam-staleness-check, exit-code-validation, bats-testing, csqbm-validation, meta-orchestrator-validation, duplicate-gate-check]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -268,6 +298,7 @@ jobs:
           echo "BATS Testing:       ${{ needs.bats-testing.result }}"
           echo "CSQBM Validation:   ${{ needs.csqbm-validation.result }}"
           echo "Meta-Orchestrator:  ${{ needs.meta-orchestrator-validation.result }}"
+          echo "Duplicate Gates:    ${{ needs.duplicate-gate-check.result }}"
           echo "========================================"
 
           # Fail if any required job failed
@@ -275,6 +306,7 @@ jobs:
              [[ "${{ needs.adr-prd-coherence.result }}" == "failure" ]] || \
              [[ "${{ needs.roam-staleness-check.result }}" == "failure" ]] || \
              [[ "${{ needs.csqbm-validation.result }}" == "failure" ]] || \
+             [[ "${{ needs.duplicate-gate-check.result }}" == "failure" ]] || \
              [[ "${{ needs.meta-orchestrator-validation.result }}" == "failure" ]]; then
             echo "CRITICAL VALIDATION FAILED"
             exit 1

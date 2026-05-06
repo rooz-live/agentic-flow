@@ -34,7 +34,7 @@ for func in "${CORE_FUNCTIONS[@]}"; do
     if [ -f "$POLICY_FILE" ]; then
         CANONICAL_REGEX=$(jq -r '.canonical_owners | join("|")' "$POLICY_FILE" | sed 's/\./\\./g')
     else
-        CANONICAL_REGEX='scripts/(one\.sh|validate-foundation\.sh|validation-core\.sh|ci/check-gate-dedupe\.sh)'
+        CANONICAL_REGEX='scripts/(one\.sh|ci/check-gate-dedupe\.sh)'
     fi
     
     # Filter out canonical owners

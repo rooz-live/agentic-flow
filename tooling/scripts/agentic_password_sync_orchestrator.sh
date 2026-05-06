@@ -71,20 +71,31 @@ EOF
     exit 1
 fi
 
+echo "  [+] Extracting 'cpanel-root-yo-tag-ooo' from Vault..."
+CPANEL_PASS=$(op item get "cpanel-root-yo-tag-ooo" --fields password 2>/dev/null || true)
+
 # 3. Synchronize to .env.integration
 echo "  [+] Synchronizing secure variables to .env.integration..."
 touch "$ENV_FILE"
 
 # Safe sed replacement for GITLAB_TOKEN
 if grep -q "^GITLAB_TOKEN=" "$ENV_FILE"; then
-    # Cross-platform sed for macOS/Linux
     sed -i.bak "s|^GITLAB_TOKEN=.*|GITLAB_TOKEN=\"${GLAB_TOKEN}\"|" "$ENV_FILE"
     rm -f "${ENV_FILE}.bak"
 else
     echo "GITLAB_TOKEN=\"${GLAB_TOKEN}\"" >> "$ENV_FILE"
 fi
 
-echo "  ✅ GitLab token synchronized successfully."
+if [ -n "$CPANEL_PASS" ]; then
+    if grep -q "^CPANEL_ROOT_PASS=" "$ENV_FILE"; then
+        sed -i.bak "s|^CPANEL_ROOT_PASS=.*|CPANEL_ROOT_PASS=\"${CPANEL_PASS}\"|" "$ENV_FILE"
+        rm -f "${ENV_FILE}.bak"
+    else
+        echo "CPANEL_ROOT_PASS=\"${CPANEL_PASS}\"" >> "$ENV_FILE"
+    fi
+fi
+
+echo "  ✅ Tokens synchronized successfully."
 
 # 4. Generate Physical Artifact
 cat <<EOF > "$ARTIFACT_DIR/password_sync_orchestrator_${ts}.json"
@@ -92,7 +103,7 @@ cat <<EOF > "$ARTIFACT_DIR/password_sync_orchestrator_${ts}.json"
   "run_id": "password-sync-${ts}",
   "utc": "${ts}",
   "exit_code": 0,
-  "synchronized_items": ["gitlab-rooz-live-token"],
+  "synchronized_items": ["gitlab-rooz-live-token", "cpanel-root-yo-tag-ooo"],
   "target": ".env.integration",
   "summary": "PASS (Tokens Bridged)"
 }

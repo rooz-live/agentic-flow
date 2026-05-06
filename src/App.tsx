@@ -16,6 +16,13 @@ import { TradingDashboardAPI } from './trading/ui/TradingDashboardAPI';
 import { DirectMailValidator } from './dashboard/components/DirectMailValidator';
 import { InfraAgenticsOODA } from './dashboard/components/InfraAgenticsOODA';
 
+import { MeshNavigation } from './components/MeshNavigation';
+import { MultiAgentCleanRoom } from './components/MultiAgentCleanRoom';
+import { RegressionSweep } from './components/RegressionSweep';
+import { SovereignAuth } from './components/SovereignAuth';
+import { TelemetryDashboard } from './components/TelemetryDashboard';
+import { TensorLedger } from './components/TensorLedger';
+
 // @ts-ignore
 import rawTelemetry from '../.goalie/genuine_telemetry.json';
 
@@ -61,77 +68,7 @@ function MainSystemOverview() {
   );
 }
 
-function TelemetryDashboard() {
-  const [temporalLimit, setTemporalLimit] = useState(1000);
-  const [inferenceResult, setInferenceResult] = useState('');
-  const [governanceBlocked, setGovernanceBlocked] = useState(false);
 
-  const performOfflineInference = async () => {
-    try {
-      const response = await fetch(API_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          command: `!turboquant ${temporalLimit}`,
-          requested_minutes: temporalLimit
-        })
-      });
-      const data = await response.json();
-      if (data.status === 'governance_drop' || temporalLimit > 5000) {
-        setGovernanceBlocked(true);
-        setInferenceResult('WSJF R-2026-018: Attention Fragmented. Zoom limit severely exceeds 5000 minute array constraints. Request blocked natively by Governance Admission.');
-      } else {
-        setGovernanceBlocked(false);
-        setInferenceResult(JSON.stringify(data.chunks, null, 2) || "Inference Matrix Accepted.");
-      }
-    } catch (err) {
-      setGovernanceBlocked(true);
-      setInferenceResult('Offline Network Proxy unreachable. Verify tld-config bounds are bound.');
-    }
-  };
-
-  return (
-    <PageTransition title="Offline Inference Matrix">
-      <div className="p-8 max-w-4xl">
-        <div className="bg-slate-900/60 backdrop-blur-xl border border-slate-700/50 rounded-2xl p-6 shadow-xl mb-6">
-          <label className="text-xs uppercase tracking-widest text-indigo-400 font-bold mb-3 block">Temporal Zoom Boundaries</label>
-          <div className="flex gap-4 items-center">
-            <input
-              type="number"
-              value={temporalLimit}
-              onChange={(e) => setTemporalLimit(Number(e.target.value))}
-              className="bg-black/50 text-white outline-none border border-slate-700 focus:border-indigo-500 transition-colors px-4 py-3 rounded-xl w-64 shadow-inner"
-            />
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={performOfflineInference}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-xl shadow-[0_0_15px_rgba(79,70,229,0.4)] font-medium transition-colors"
-            >
-              Request Trace
-            </motion.button>
-          </div>
-        </div>
-
-        <motion.div
-          animate={{ opacity: inferenceResult ? 1 : 0 }}
-          className={`p-6 backdrop-blur-xl border rounded-2xl shadow-xl
-            ${governanceBlocked
-              ? 'border-red-500/30 bg-red-950/20 shadow-[0_0_25px_rgba(239,68,68,0.1)]'
-              : 'border-emerald-500/30 bg-emerald-950/20 shadow-[0_0_25px_rgba(16,185,129,0.1)]'}`}
-        >
-          <div className="flex items-center gap-3 mb-4">
-            {governanceBlocked ? <ShieldAlert className="text-red-400 w-5 h-5" /> : <Activity className="text-emerald-400 w-5 h-5" />}
-            <span className={`text-sm font-semibold tracking-wider ${governanceBlocked ? 'text-red-400' : 'text-emerald-400'}`}>
-              {governanceBlocked ? 'CRITICAL BOUNDARY ENFORCED' : 'TRACE ACTIVE'}
-            </span>
-          </div>
-          <pre className="text-sm font-mono text-slate-300 whitespace-pre-wrap leading-relaxed">{inferenceResult}</pre>
-        </motion.div>
-      </div>
-    </PageTransition>
-  );
-}
 
 function HostBillBilling() {
   const [telemetry] = useState<any>(() => {
@@ -323,22 +260,42 @@ import { VibecastIncrementPortal } from './components/VibecastIncrementPortal';
 import { DirectToCodeView } from './pages/DirectToCodeView';
 
 
+function SovereignRootController({ activeView }: { activeView: string | null }) {
+  if (activeView === 'fintech') return <TelemetryDashboard />;
+  if (activeView === 'deftech') return <TensorLedger />;
+  if (activeView === 'vibecast') return <VibecastIncrementPortal />;
+  if (activeView === 'legtech') return (
+    <div className="space-y-8 flex-1 h-full w-full">
+      <MultiAgentCleanRoom />
+      <RegressionSweep />
+    </div>
+  );
+  return <MainSystemOverview />;
+}
+
 // Global App Shell
 export default function App() {
+  const operatorRole = localStorage.getItem('sovereign_operator_role');
+  const activeView = localStorage.getItem('sovereign_active_view');
+
+  if (!operatorRole) {
+    return <SovereignAuth />;
+  }
+
   return (
     <Router>
       <div className="flex h-screen w-full bg-[#09090b] font-sans selection:bg-zinc-500/30 text-zinc-100 overflow-hidden">
         {/* Command Palette - Horizontally Lateral Navigation */}
         <CommandPaletteMesh />
 
-        <HierarchicalMeshNav />
+        <MeshNavigation />
         <main className="flex-1 relative overflow-y-auto scrollbar-hide">
           {/* Subtle noise texture overlay for premium depth */}
           <div className="absolute inset-0 opacity-[0.03] pointer-events-none mix-blend-overlay" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=%220 0 200 200%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22noiseFilter%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.85%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23noiseFilter)%22/%3E%3C/svg%3E")' }}></div>
 
           <AnimatePresence mode="wait">
             <Routes>
-              <Route path="/" element={<MainSystemOverview />} />
+              <Route path="/" element={<SovereignRootController activeView={activeView} />} />
               
               {/* Core Matrix Topology */}
               <Route path="/wsjf" element={<WSJFNowNextLater />} />

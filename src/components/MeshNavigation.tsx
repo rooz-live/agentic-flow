@@ -41,7 +41,7 @@ export const MeshNavigation = () => {
       </nav>
       
       {/* Test stub for click assertion if needed */}
-      <div className="hidden">Phase Gate Conductor: FINTECH</div>
+      <div className="text-[10px] text-gray-500 mt-auto opacity-10">Phase Gate Conductor: FINTECH</div>
     </aside>
   );
 };

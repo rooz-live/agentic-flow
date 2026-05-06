@@ -3,10 +3,8 @@ import React from 'react';
 export const TelemetryDashboard = () => {
   return (
     <div className="p-8 space-y-6 w-full h-full">
-      <div className="border-b border-white/10 pb-4">
-        <h2 className="text-2xl font-bold text-emerald-400 tracking-wide">The Ultimate Yield Curve</h2>
-        <p className="text-gray-400">Capital Yield rendering</p>
-      </div>
+      <h2 className="text-2xl font-bold text-emerald-400 tracking-wide border-b border-white/10 pb-4">The Ultimate Yield Curve</h2>
+      <p className="text-gray-400">Capital Yield rendering</p>
 
       <div className="bg-black/50 border border-white/10 rounded-2xl p-4 h-[400px]">
         {/* Mocking the recharts container for Playwright physical assertion */}

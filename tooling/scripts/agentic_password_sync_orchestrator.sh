@@ -53,7 +53,7 @@ fi
 
 # 2. Extract GitLab Token
 echo "  [+] Extracting 'gitlab-rooz-live-token' from Vault..."
-GLAB_TOKEN=$(op item get "gitlab-rooz-live-token" --fields password 2>/dev/null || true)
+GLAB_TOKEN=$(op item get "gitlab-rooz-live-token" --fields password --reveal 2>/dev/null || true)
 
 if [ -z "$GLAB_TOKEN" ]; then
     echo "  ❌ Failed to retrieve 'gitlab-rooz-live-token'. Ensure item exists."
@@ -72,7 +72,7 @@ EOF
 fi
 
 echo "  [+] Extracting 'cpanel-root-yo-tag-ooo' from Vault..."
-CPANEL_PASS=$(op item get "cpanel-root-yo-tag-ooo" --fields password 2>/dev/null || true)
+CPANEL_PASS=$(op item get "cpanel-root-yo-tag-ooo" --fields password --reveal 2>/dev/null || true)
 
 # 3. Synchronize to .env.integration
 echo "  [+] Synchronizing secure variables to .env.integration..."

@@ -121,7 +121,7 @@ done
 
 # ─── Preflight checks ────────────────────────────────────────────────────────
 
-check_dependencies() {
+local_check_dependencies() {
     local missing=()
 
     if [[ "$(uname)" != "Darwin" ]]; then

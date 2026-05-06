@@ -48,7 +48,7 @@ log() {
 }
 
 # Check dependencies
-check_dependencies() {
+local_check_dependencies() {
     log "INFO" "Checking dependencies..."
     
     # Check Node.js

@@ -32,7 +32,7 @@ log_warning() { echo -e "${YELLOW}⚠${NC} $*"; }
 log_error() { echo -e "${RED}✗${NC} $*" >&2; }
 
 # Check if statistical thresholds library exists
-check_dependencies() {
+local_check_dependencies() {
     if [[ ! -f "$SCRIPT_DIR/lib/statistical-thresholds.sh" ]]; then
         log_warning "Statistical thresholds library not found"
         log_info "Creating placeholder at scripts/lib/statistical-thresholds.sh"

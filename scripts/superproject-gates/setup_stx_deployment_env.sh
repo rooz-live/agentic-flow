@@ -146,7 +146,7 @@ ensure_password() {
 }
 
 # Check required dependencies
-check_dependencies() {
+local_check_dependencies() {
     print_header "Dependency Check"
     
     local missing_deps=0

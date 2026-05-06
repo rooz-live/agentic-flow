@@ -68,7 +68,7 @@ log_stats() {
 # Helper Functions
 ################################################################################
 
-check_dependencies() {
+local_check_dependencies() {
     local missing=()
     
     for cmd in tar gzip pigz md5sum; do

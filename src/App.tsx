@@ -320,6 +320,7 @@ import { SwarmNodesDashboard } from './pages/SwarmNodesDashboard';
 import { LegalCaseDashboard } from './pages/LegalCaseDashboard';
 import { Activity, Server, ShieldAlert, Zap, AlertTriangle, CheckCircle2, RotateCcw } from 'lucide-react';
 import { VibecastIncrementPortal } from './components/VibecastIncrementPortal';
+import { DirectToCodeView } from './pages/DirectToCodeView';
 
 
 // Global App Shell
@@ -361,6 +362,7 @@ export default function App() {
               
               {/* External Client Onboarding / Advisory Matrix */}
               <Route path="/ingress/whatsapp" element={<VibecastIncrementPortal />} />
+              <Route path="/ingress/code-sync" element={<DirectToCodeView />} />
               
               {/* Legal Case Management */}
               <Route path="/legal/cases" element={<LegalCaseDashboard />} />

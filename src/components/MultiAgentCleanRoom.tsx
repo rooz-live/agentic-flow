@@ -3,10 +3,8 @@ import React from 'react';
 export const MultiAgentCleanRoom = () => {
   return (
     <div className="p-8 space-y-6">
-      <div className="border-b border-white/10 pb-4">
-        <h2 className="text-2xl font-bold text-white tracking-wide">Multi-Agent Clean Room</h2>
-        <p className="text-gray-400">Agent A/B/C Ingress boundary validation</p>
-      </div>
+      <h2 className="text-2xl font-bold text-white tracking-wide border-b border-white/10 pb-4">Multi-Agent Clean Room</h2>
+      <p className="text-gray-400">Agent A/B/C Ingress boundary validation</p>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-emerald-950/20 border border-emerald-500/30 p-6 rounded-2xl">

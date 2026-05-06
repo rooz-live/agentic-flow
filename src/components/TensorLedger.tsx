@@ -3,11 +3,9 @@ import React from 'react';
 export const TensorLedger = () => {
   return (
     <div className="p-8 space-y-6 w-full h-full">
-      <div className="border-b border-white/10 pb-4 flex justify-between items-center">
-        <div>
-          <h2 className="text-2xl font-bold text-red-400 tracking-wide">Systemic Ledger</h2>
-          <p className="text-gray-400">Auditor DBOS drillable E2E data table depth probes</p>
-        </div>
+      <h2 className="text-2xl font-bold text-red-400 tracking-wide border-b border-white/10 pb-4">Systemic Ledger</h2>
+      <div className="flex justify-between items-center w-full">
+        <p className="text-gray-400">Auditor DBOS drillable E2E data table depth probes</p>
         <button className="bg-red-500/20 text-red-400 px-4 py-2 rounded-lg border border-red-500/30 hover:bg-red-500/30 transition-colors text-sm font-bold">
           Rerun Node
         </button>

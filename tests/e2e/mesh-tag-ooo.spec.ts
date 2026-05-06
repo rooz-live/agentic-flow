@@ -16,8 +16,8 @@ test.describe(`${TARGET_URL} - Sovereign Component Verification (AQE TDD)`, () =
     // Reload to apply mocked state
     await page.reload();
     
-    // Harden: Wait for the network to be idle to ensure the React app has hydrated
-    await page.waitForLoadState('networkidle');
+    // Harden: Wait for the DOM to ensure the React app has hydrated
+    await page.waitForLoadState('domcontentloaded');
     // Add a physical buffer to allow SovereignContext to inject telemetry
     await page.waitForTimeout(1500);
   });

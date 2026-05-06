@@ -101,36 +101,28 @@ cmd_audit() {
     local found_pc=0
 
     # Search Python, Rust, and TS files for annotation tags
-    # Note: uses grep -rq to avoid pipefail SIGPIPE with find|xargs|grep -lq
-    echo "Running grep for annotation tags..."
+    # Note: Using git grep prevents hanging on symlinks/caches and is significantly faster.
+    echo "Running git grep for annotation tags..."
 
-    if grep -rq "@business-context" --include="*.py" --include="*.rs" --include="*.ts" \
-         --exclude-dir=".*" --exclude-dir="venv" --exclude-dir="node_modules" --exclude-dir="dist" \
-         "${PROJECT_ROOT}/src" "${PROJECT_ROOT}/rust" 2>/dev/null; then
+    if git -C "${PROJECT_ROOT}" grep -q "@business-context" -- src/ rust/ 2>/dev/null; then
         found_bc=1
     else
         log_warn "Missing @business-context annotations."; missing_contexts=$((missing_contexts + 1))
     fi
 
-    if grep -rq "@adr " --include="*.py" --include="*.rs" --include="*.ts" \
-         --exclude-dir=".*" --exclude-dir="venv" --exclude-dir="node_modules" --exclude-dir="dist" \
-         "${PROJECT_ROOT}/src" "${PROJECT_ROOT}/rust" 2>/dev/null; then
+    if git -C "${PROJECT_ROOT}" grep -q "@adr" -- src/ rust/ 2>/dev/null; then
         found_adr=1
     else
         log_warn "Missing @adr annotations."; missing_contexts=$((missing_contexts + 1))
     fi
 
-    if grep -rq "@constraint" --include="*.py" --include="*.rs" --include="*.ts" \
-         --exclude-dir=".*" --exclude-dir="venv" --exclude-dir="node_modules" --exclude-dir="dist" \
-         "${PROJECT_ROOT}/src" "${PROJECT_ROOT}/rust" 2>/dev/null; then
+    if git -C "${PROJECT_ROOT}" grep -q "@constraint" -- src/ rust/ 2>/dev/null; then
         found_con=1
     else
         log_warn "Missing @constraint annotations."; missing_contexts=$((missing_contexts + 1))
     fi
 
-    if grep -rq "@planned-change" --include="*.py" --include="*.rs" --include="*.ts" \
-         --exclude-dir=".*" --exclude-dir="venv" --exclude-dir="node_modules" --exclude-dir="dist" \
-         "${PROJECT_ROOT}/src" "${PROJECT_ROOT}/rust" 2>/dev/null; then
+    if git -C "${PROJECT_ROOT}" grep -q "@planned-change" -- src/ rust/ 2>/dev/null; then
         found_pc=1
     else
         log_warn "Missing @planned-change annotations."; missing_contexts=$((missing_contexts + 1))

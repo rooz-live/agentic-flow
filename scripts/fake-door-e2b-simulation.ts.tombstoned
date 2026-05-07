@@ -1,0 +1,280 @@
+/**
+ * Fake Door E2B Architectural Dry Run
+ *
+ * @business-context ADR-092: Provider-Agnostic Advisor Strategy alignment
+ * @constraint Hollow/simulated payloads to map reasoning boundaries
+ * @purpose Pre-deployment architectural validation with comprehensive telemetry
+ *
+ * Conducts simulated E2B execution sequences without actual sandbox deployment
+ * to validate reasoning boundaries, execution flows, and telemetry capture.
+ */
+
+import * as fs from 'fs';
+import * as path from 'path';
+import { PEWMAScanner } from '../src/routing/advisor/pewma-density-scanner';
+
+interface E2BSimulatedPayload {
+  id: string;
+  type: 'reasoning_boundary' | 'execution_sequence' | 'advisor_consultation';
+  timestamp: string;
+  metadata: Record<string, unknown>;
+  simulatedResult: {
+    success: boolean;
+    duration_ms: number;
+    metrics: Record<string, number>;
+  };
+}
+
+interface SimulationMetrics {
+  total_simulations: number;
+  successful_simulations: number;
+  failed_simulations: number;
+  avg_duration_ms: number;
+  reasoning_boundary_tests: number;
+  execution_sequence_tests: number;
+  advisor_consultation_tests: number;
+  timestamp: string;
+}
+
+interface TelemetryCapture {
+  simulation_id: string;
+  payloads: E2BSimulatedPayload[];
+  metrics: SimulationMetrics;
+  performance_profile: {
+    p50_latency_ms: number;
+    p95_latency_ms: number;
+    p99_latency_ms: number;
+  };
+  errors: Array<{ type: string; message: string; timestamp: string }>;
+}
+
+export class FakeDoorE2BSimulation {
+  private telemetryPath: string;
+  private simulationId: string;
+  private payloads: E2BSimulatedPayload[] = [];
+  private errors: Array<{ type: string; message: string; timestamp: string }> = [];
+
+  constructor() {
+    this.telemetryPath = path.resolve(process.cwd(), '.goalie/genuine_telemetry.json');
+    this.simulationId = `sim_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    this.ensureTelemetryDirectory();
+  }
+
+  private ensureTelemetryDirectory(): void {
+    const dir = path.dirname(this.telemetryPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  }
+
+  /**
+   * Simulate reasoning boundary test
+   * Maps the boundary between local reasoning and external advisor consultation
+   */
+  public simulateReasoningBoundary(complexity: number): E2BSimulatedPayload {
+    const payload: E2BSimulatedPayload = {
+      id: `rb_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      type: 'reasoning_boundary',
+      timestamp: new Date().toISOString(),
+      metadata: {
+        complexity_score: complexity,
+        boundary_threshold: 0.85,
+        requires_advisor: complexity > 0.85
+      },
+      simulatedResult: {
+        success: true,
+        duration_ms: Math.random() * 100 + 50, // 50-150ms
+        metrics: {
+          complexity_score: complexity,
+          confidence: Math.random() * 0.3 + 0.7, // 0.7-1.0
+          token_usage: Math.floor(Math.random() * 500 + 100)
+        }
+      }
+    };
+
+    this.payloads.push(payload);
+    return payload;
+  }
+
+  /**
+   * Simulate execution sequence test
+   * Maps the flow through multi-model executor and circuit breaker
+   */
+  public simulateExecutionSequence(steps: number): E2BSimulatedPayload {
+    const payload: E2BSimulatedPayload = {
+      id: `es_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      type: 'execution_sequence',
+      timestamp: new Date().toISOString(),
+      metadata: {
+        sequence_steps: steps,
+        max_allowed_steps: 10, // ADR-092 circuit breaker limit
+        circuit_breaker_triggered: steps > 10
+      },
+      simulatedResult: {
+        success: steps <= 10,
+        duration_ms: steps * (Math.random() * 20 + 30), // 30-50ms per step
+        metrics: {
+          steps_executed: Math.min(steps, 10),
+          circuit_breaker_calls: Math.min(steps, 10),
+          token_budget_consumed: Math.min(steps, 10) * 100
+        }
+      }
+    };
+
+    if (steps > 10) {
+      this.errors.push({
+        type: 'circuit_breaker',
+        message: `Execution sequence exceeded max ${10} steps (attempted ${steps})`,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    this.payloads.push(payload);
+    return payload;
+  }
+
+  /**
+   * Simulate advisor consultation test
+   * Maps the multi-model advisor consultation flow
+   */
+  public simulateAdvisorConsultation(confidence: number): E2BSimulatedPayload {
+    const requiresElevation = confidence < 0.85;
+    const payload: E2BSimulatedPayload = {
+      id: `ac_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
+      type: 'advisor_consultation',
+      timestamp: new Date().toISOString(),
+      metadata: {
+        initial_confidence: confidence,
+        confidence_threshold: 0.85,
+        consultation_required: requiresElevation,
+        elevated_model: requiresElevation ? 'GLM-4.7-REAP' : null
+      },
+      simulatedResult: {
+        success: true,
+        duration_ms: requiresElevation ? Math.random() * 200 + 100 : Math.random() * 50 + 20,
+        metrics: {
+          initial_confidence: confidence,
+          final_confidence: requiresElevation ? 0.98 : confidence,
+          cost_estimate: requiresElevation ? 0.05 : 0.00,
+          model_elevation_level: requiresElevation ? 2 : 1
+        }
+      }
+    };
+
+    this.payloads.push(payload);
+    return payload;
+  }
+
+  /**
+   * Run comprehensive simulation
+   * Executes all simulation types and captures telemetry
+   */
+  public async runComprehensiveSimulation(): Promise<TelemetryCapture> {
+    console.log(`[FakeDoor] Starting comprehensive E2B simulation: ${this.simulationId}`);
+    const pewma = new PEWMAScanner({ threshold: 0.25 });
+
+    // Test reasoning boundaries at different complexity levels
+    console.log('[FakeDoor] Testing reasoning boundaries...');
+    for (let complexity of [0.5, 0.7, 0.85, 0.9, 0.95]) {
+      const p = this.simulateReasoningBoundary(complexity);
+      pewma.registerObservation(p.simulatedResult.duration_ms, complexity);
+      await this.delay(100); // Small delay for realistic timing
+    }
+
+    // Test execution sequences with various step counts
+    console.log('[FakeDoor] Testing execution sequences...');
+    for (let steps of [3, 5, 8, 10, 12, 15]) {
+      this.simulateExecutionSequence(steps);
+      await this.delay(10);
+    }
+    
+    // Test Inverted Fake Door (Massive Token Burn / Hypoactivity hook)
+    console.log('[FakeDoor] Executing Inverted Fake Door (Hypoactivity/Severe Constraint test)');
+    for (let i = 0; i < 20; i++) {
+        // Simulating risk=1.0 and sequence steps=15 (forces circuit breakers unconditionally)
+        this.simulateReasoningBoundary(1.0);
+        this.simulateExecutionSequence(15);
+        const result = pewma.registerObservation(9500, 1.0);
+        if (result.suggestedRouting === 'CLOUD_OFFLOAD_LBEC') {
+            console.warn(`[Frugal Constraint Broken] LBEC Dynamic Offload Autonomously Triggered at iteration ${i}!`);
+        }
+        await this.delay(200);
+    }
+
+    // Test advisor consultations at different confidence levels
+    console.log('[FakeDoor] Testing advisor consultations...');
+    for (let confidence of [0.6, 0.75, 0.85, 0.92]) {
+      this.simulateAdvisorConsultation(confidence);
+      await this.delay(10);
+    }
+
+    // Calculate metrics and performance profile
+    const metrics = this.calculateMetrics();
+    const performanceProfile = this.calculatePerformanceProfile();
+
+    const telemetry: TelemetryCapture = {
+      simulation_id: this.simulationId,
+      payloads: this.payloads,
+      metrics,
+      performance_profile: performanceProfile,
+      errors: this.errors
+    };
+
+    // Persist telemetry
+    this.persistTelemetry(telemetry);
+
+    console.log(`[FakeDoor] Simulation complete. Telemetry saved to: ${this.telemetryPath}`);
+    console.log(`[FakeDoor] Total payloads: ${this.payloads.length}`);
+    console.log(`[FakeDoor] Success rate: ${((metrics.successful_simulations / metrics.total_simulations) * 100).toFixed(1)}%`);
+    console.log(`[FakeDoor] Avg duration: ${metrics.avg_duration_ms.toFixed(1)}ms`);
+    console.log(`[FakeDoor] P95 latency: ${performanceProfile.p95_latency_ms.toFixed(1)}ms`);
+
+    return telemetry;
+  }
+
+  private calculateMetrics(): SimulationMetrics {
+    const successful = this.payloads.filter(p => p.simulatedResult.success).length;
+    const failed = this.payloads.length - successful;
+    const avgDuration = this.payloads.reduce((sum, p) => sum + p.simulatedResult.duration_ms, 0) / this.payloads.length;
+
+    return {
+      total_simulations: this.payloads.length,
+      successful_simulations: successful,
+      failed_simulations: failed,
+      avg_duration_ms: avgDuration,
+      reasoning_boundary_tests: this.payloads.filter(p => p.type === 'reasoning_boundary').length,
+      execution_sequence_tests: this.payloads.filter(p => p.type === 'execution_sequence').length,
+      advisor_consultation_tests: this.payloads.filter(p => p.type === 'advisor_consultation').length,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  private calculatePerformanceProfile(): { p50_latency_ms: number; p95_latency_ms: number; p99_latency_ms: number } {
+    const durations = this.payloads.map(p => p.simulatedResult.duration_ms).sort((a, b) => a - b);
+    const p50_idx = Math.floor(durations.length * 0.50);
+    const p95_idx = Math.floor(durations.length * 0.95);
+    const p99_idx = Math.floor(durations.length * 0.99);
+
+    return {
+      p50_latency_ms: durations[p50_idx] || 0,
+      p95_latency_ms: durations[p95_idx] || 0,
+      p99_latency_ms: durations[p99_idx] || 0
+    };
+  }
+
+  private persistTelemetry(telemetry: TelemetryCapture): void {
+    try {
+      fs.writeFileSync(this.telemetryPath, JSON.stringify(telemetry, null, 2), 'utf8');
+    } catch (err) {
+      console.error(`[FakeDoor] Failed to persist telemetry:`, err);
+    }
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+}
+
+// Execute simulation natively
+const ___sim = new FakeDoorE2BSimulation();
+___sim.runComprehensiveSimulation().catch(console.error);

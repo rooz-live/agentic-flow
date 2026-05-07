@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/one.sh"
 # ═══════════════════════════════════════════════════════════════════════════════
 # mail-capture-validate.sh — Mail.app ↔ Advocacy Pipeline Integration
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -121,41 +122,6 @@ done
 
 # ─── Preflight checks ────────────────────────────────────────────────────────
 
-local_check_dependencies() {
-    local missing=()
-
-    if [[ "$(uname)" != "Darwin" ]]; then
-        echo -e "${YELLOW}⚠ Not macOS — Mail.app integration disabled; --file mode only${RESET}"
-        if [[ "$MODE" != "file" && "$MODE" != "auto" ]]; then
-            MODE="file"
-        fi
-    fi
-
-    command -v python3 >/dev/null 2>&1 || missing+=("python3")
-    command -v osascript >/dev/null 2>&1 || true  # only on macOS
-
-    if [[ -d "$VENV" ]]; then
-        # shellcheck disable=SC1091
-        source "${VENV}/bin/activate" 2>/dev/null || true
-    elif [[ -d "${PROJECT_ROOT}/venv" ]]; then
-        source "${PROJECT_ROOT}/venv/bin/activate" 2>/dev/null || true
-    fi
-
-    python3 -c "import click" 2>/dev/null || missing+=("click")
-    python3 -c "import textual" 2>/dev/null || missing+=("textual")
-
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        echo -e "${YELLOW}⚠ Optional deps missing: ${missing[*]} — 33-role council validation skipped${RESET}" >&2
-        PYTHON_COUNCIL_AVAILABLE=false
-        if [[ "$JSON_OUTPUT" == "true" ]]; then
-            echo '{"result":"SKIP","reason":"missing deps: '"${missing[*]}"'","validator":"mail-capture-validate"}'
-        fi
-    else
-        PYTHON_COUNCIL_AVAILABLE=true
-    fi
-
-    mkdir -p "$CAPTURE_DIR" "$REPORT_DIR"
-}
 
 # ─── AppleScript: list Mail.app drafts ────────────────────────────────────────
 

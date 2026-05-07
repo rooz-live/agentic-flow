@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/one.sh"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # AY Toolsets Integration Wrapper
@@ -27,51 +28,6 @@ print_header() {
     echo -e "${NC}"
 }
 
-local_check_dependencies() {
-    echo -e "${BOLD}Checking dependencies...${NC}"
-    
-    local missing=0
-    
-    # Check npm/node
-    if ! command -v npm >/dev/null 2>&1; then
-        echo -e "  ${YELLOW}⚠${NC}  npm not found"
-        missing=1
-    else
-        echo -e "  ${GREEN}✓${NC}  npm available"
-    fi
-    
-    # Check agentic-qe
-    if ! command -v npx >/dev/null 2>&1 || ! npx agentic-qe --version >/dev/null 2>&1; then
-        echo -e "  ${YELLOW}⚠${NC}  agentic-qe not found"
-        echo -e "     Install: ${CYAN}npx install -g agentic-qe@latest${NC}"
-        missing=1
-    else
-        echo -e "  ${GREEN}✓${NC}  agentic-qe available"
-    fi
-    
-    # Check claude-flow
-    if ! command -v npx >/dev/null 2>&1 || ! npx claude-flow@v3alpha --version >/dev/null 2>&1; then
-        echo -e "  ${YELLOW}⚠${NC}  claude-flow not found"
-        echo -e "     Install: ${CYAN}npm install claude-flow@v3alpha${NC}"
-        missing=1
-    else
-        echo -e "  ${GREEN}✓${NC}  claude-flow available"
-    fi
-    
-    # Check llm-observatory (optional)
-    if [ -d "$PROJECT_ROOT/node_modules/@llm-observatory" ]; then
-        echo -e "  ${GREEN}✓${NC}  @llm-observatory/sdk installed"
-    else
-        echo -e "  ${YELLOW}⚠${NC}  @llm-observatory/sdk not installed (optional)"
-        echo -e "     Install: ${CYAN}npm install @llm-observatory/sdk${NC}"
-    fi
-    
-    if [ $missing -eq 1 ]; then
-        echo ""
-        echo -e "${YELLOW}Some dependencies are missing. Install them for full functionality.${NC}"
-        echo ""
-    fi
-}
 
 run_toolsets() {
     local run_id="${1:-run_$(date +%s)}"

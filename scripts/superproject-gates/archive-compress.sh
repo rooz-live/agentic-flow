@@ -1,4 +1,5 @@
 #!/bin/bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/one.sh"
 ################################################################################
 # Archive Compression Script
 # 
@@ -68,23 +69,6 @@ log_stats() {
 # Helper Functions
 ################################################################################
 
-local_check_dependencies() {
-    local missing=()
-    
-    for cmd in tar gzip pigz md5sum; do
-        if ! command -v $cmd &> /dev/null; then
-            missing+=("$cmd")
-        fi
-    done
-    
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        log_error "Missing dependencies: ${missing[*]}"
-        log_info "Install with: brew install ${missing[*]}"
-        exit 1
-    fi
-    
-    log_success "All dependencies available"
-}
 
 get_dir_size_gb() {
     local dir="$1"

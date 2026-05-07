@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/one.sh"
 #
 # setup_stx_deployment_env.sh
 #
@@ -146,60 +147,6 @@ ensure_password() {
 }
 
 # Check required dependencies
-local_check_dependencies() {
-    print_header "Dependency Check"
-    
-    local missing_deps=0
-    
-    # Required dependencies
-    if command -v sshpass >/dev/null 2>&1; then
-        print_status "ok" "sshpass installed: $(sshpass -V 2>&1 | head -1)"
-    else
-        print_status "error" "sshpass NOT installed (required for password auth)"
-        echo "  Install: brew install hudochenkov/sshpass/sshpass"
-        ((missing_deps++))
-    fi
-    
-    if command -v ssh >/dev/null 2>&1; then
-        print_status "ok" "ssh installed: $(ssh -V 2>&1)"
-    else
-        print_status "error" "ssh NOT installed"
-        ((missing_deps++))
-    fi
-    
-    if command -v nc >/dev/null 2>&1; then
-        print_status "ok" "nc (netcat) installed"
-    else
-        print_status "warn" "nc (netcat) not installed (optional, for connectivity tests)"
-    fi
-    
-    # Optional dependencies
-    if command -v openstack >/dev/null 2>&1; then
-        print_status "ok" "openstack-client installed"
-    else
-        print_status "warn" "openstack-client not installed (optional)"
-    fi
-    
-    if command -v op >/dev/null 2>&1; then
-        print_status "ok" "1Password CLI installed"
-    else
-        print_status "warn" "1Password CLI (op) not installed (recommended for secrets)"
-    fi
-    
-    if command -v jq >/dev/null 2>&1; then
-        print_status "ok" "jq installed"
-    else
-        print_status "warn" "jq not installed (optional, for JSON parsing)"
-    fi
-    
-    if [[ $missing_deps -gt 0 ]]; then
-        print_status "error" "Missing $missing_deps required dependencies"
-        return 1
-    else
-        print_status "ok" "All required dependencies satisfied"
-        return 0
-    fi
-}
 
 # Validate SSH key permissions
 check_ssh_key() {

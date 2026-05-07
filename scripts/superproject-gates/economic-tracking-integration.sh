@@ -1,4 +1,5 @@
 #!/bin/bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/one.sh"
 
 # Economic Tracking Integration Script
 # 
@@ -48,29 +49,6 @@ log() {
 }
 
 # Check dependencies
-local_check_dependencies() {
-    log "INFO" "Checking dependencies..."
-    
-    # Check Node.js
-    if ! command -v node &> /dev/null; then
-        log "ERROR" "Node.js is required but not installed"
-        exit 1
-    fi
-    
-    # Check TypeScript
-    if ! command -v npx &> /dev/null; then
-        log "ERROR" "TypeScript/npx is required but not installed"
-        exit 1
-    fi
-    
-    # Check if economics module exists
-    if [ ! -d "$ECONOMICS_MODULE" ]; then
-        log "ERROR" "Economics module not found at $ECONOMICS_MODULE"
-        exit 1
-    fi
-    
-    log "INFO" "Dependencies check passed"
-}
 
 # Initialize economic tracking
 initialize_economic_tracking() {

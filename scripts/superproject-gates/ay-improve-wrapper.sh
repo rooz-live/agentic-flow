@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/one.sh"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ay improve - Unified Continuous Improvement Interface
@@ -32,38 +33,6 @@ log_warning() { echo -e "${YELLOW}⚠${NC} $*"; }
 log_error() { echo -e "${RED}✗${NC} $*" >&2; }
 
 # Check if statistical thresholds library exists
-local_check_dependencies() {
-    if [[ ! -f "$SCRIPT_DIR/lib/statistical-thresholds.sh" ]]; then
-        log_warning "Statistical thresholds library not found"
-        log_info "Creating placeholder at scripts/lib/statistical-thresholds.sh"
-        mkdir -p "$SCRIPT_DIR/lib"
-        cat > "$SCRIPT_DIR/lib/statistical-thresholds.sh" <<'EOF'
-#!/usr/bin/env bash
-# Placeholder - replace with actual statistical-thresholds.sh
-
-get_circuit_breaker() { echo "0.7"; }
-get_degradation_threshold() { echo "0.9|0|0|0|0|0|0"; }
-get_cascade_threshold() { echo "5|15|0|0"; }
-get_wsjf_scores() { echo "5.0|5.0|5.0|0|0.5"; }
-get_divergence() { echo "0.1|0.5|1.0|0"; }
-get_equity_threshold() { echo "70|0|0"; }
-EOF
-        chmod +x "$SCRIPT_DIR/lib/statistical-thresholds.sh"
-    fi
-    
-    # Check for required scripts
-    local missing=()
-    [[ ! -f "$SCRIPT_DIR/ay-continuous-improve.sh" ]] && missing+=("ay-continuous-improve.sh")
-    [[ ! -f "$SCRIPT_DIR/monitor-divergence.sh" ]] && missing+=("monitor-divergence.sh")
-    [[ ! -f "$SCRIPT_DIR/ay-wsjf-iterate.sh" ]] && missing+=("ay-wsjf-iterate.sh")
-    
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        log_error "Missing required scripts: ${missing[*]}"
-        return 1
-    fi
-    
-    return 0
-}
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Commands

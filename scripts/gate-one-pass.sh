@@ -28,7 +28,7 @@ if [ "$GATE_TARGET" == "trust-path" ]; then
         # Eliminate Completion Theater: Generate Physical Artifact
         RUN_ID=$(date +%s)
         HASH=$(git rev-parse HEAD 2>/dev/null || echo "no-git")
-        ARTIFACT_DIR="$ROOT_DIR/.goalie/gate-runs"
+        ARTIFACT_DIR="$ROOT_DIR/.goalie/evidence"
         mkdir -p "$ARTIFACT_DIR"
         ARTIFACT_PATH="$ARTIFACT_DIR/gate_one_pass_${RUN_ID}.json"
         
@@ -42,11 +42,28 @@ if [ "$GATE_TARGET" == "trust-path" ]; then
   "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 }
 EOF
+        ln -sf "gate_one_pass_${RUN_ID}.json" "$ARTIFACT_DIR/last_gate_one_pass.json"
         echo "✅ trust-path gate passed. Artifact physically generated: $ARTIFACT_PATH"
     else
         echo "❌ validate-foundation.sh not found."
         exit 1
     fi
+elif [ "$GATE_TARGET" == "verify-contract" ]; then
+    echo "--> Running Sovereignty Contract Verification..."
+    EVIDENCE_FILE="${2:-}"
+    if [ -z "$EVIDENCE_FILE" ] || [ ! -f "$EVIDENCE_FILE" ]; then
+        echo "❌ Contract Verification Failed: Evidence file not found ($EVIDENCE_FILE)"
+        exit 1
+    fi
+    if ! grep -q '"exit_code": 0' "$EVIDENCE_FILE"; then
+        echo "❌ Contract Verification Failed: exit_code is not 0 in $EVIDENCE_FILE"
+        exit 1
+    fi
+    if ! grep -q '"hash":' "$EVIDENCE_FILE"; then
+        echo "❌ Contract Verification Failed: hash missing in $EVIDENCE_FILE"
+        exit 1
+    fi
+    echo "✅ Contract Verified: Artifact physically confirmed ($EVIDENCE_FILE)."
 else
     echo "❌ Unknown gate target: $GATE_TARGET"
     exit 1

@@ -22,7 +22,7 @@ echo "🔍 Auditing Codebase for Duplicate Gate Logic..."
 
 for func in "${CORE_FUNCTIONS[@]}"; do
     # Find all declarations of this function in bash scripts
-    DECLARATIONS=$(git grep -l -E "^${func}\(\) \{" -- "*.sh" 2>/dev/null || true)
+    DECLARATIONS=$(git grep -l -E "(^|[[:space:]_])${func}\(\) \{" -- "*.sh" 2>/dev/null || true)
     
     # If using Python defs
     PY_DECLARATIONS=$(git grep -l -E "^def ${func}\(" -- "*.py" 2>/dev/null || true)

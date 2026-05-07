@@ -1,4 +1,5 @@
 #!/bin/bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/one.sh"
 
 # Federation Startup Script for Agentic-Flow
 # 
@@ -41,34 +42,6 @@ log_error() {
 }
 
 # Check dependencies
-check_dependencies() {
-    log_info "Checking dependencies..."
-    
-    # Check Node.js
-    if ! command -v node &> /dev/null; then
-        log_error "Node.js is not installed or not in PATH"
-        exit 1
-    fi
-    
-    # Check npm/npx
-    if ! command -v npx &> /dev/null; then
-        log_error "npx is not installed or not in PATH"
-        exit 1
-    fi
-    
-    # Check TypeScript
-    if ! command -v npx ts-node &> /dev/null; then
-        log_error "ts-node is not available via npx"
-        exit 1
-    fi
-    
-    # Check agentic-jujutsu
-    if ! command -v npx agentic-jujutsu &> /dev/null; then
-        log_warning "agentic-jujutsu not found, using mock"
-    fi
-    
-    log_success "Dependencies check passed"
-}
 
 # Validate environment
 validate_environment() {

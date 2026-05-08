@@ -354,3 +354,185 @@ class ReliableActor:
 5. **Consolidate .env files** → Reduce confusion
 
 **Target State:** All N-1 (Now) items complete by end of week.
+
+---
+
+## Long-horizon slice — trust-thread + gate proof (append-only)
+
+### 2026-05-07T04:30Z — Plan (≤15 min)
+
+**Hypothesis:** The `dgm-prototype` / `cargo` path failed because the Rust workspace listed members whose `Cargo.toml` no longer existed (`tooling/scripts/beads_rust/domain_healing`, `extraction_bead`). Dropping those members restores a loadable workspace so `tests/test-dgm-prototype.sh` and trust-path can pass with real binaries.
+
+**Success criteria**
+
+- `bash scripts/ci/check-gate-dedupe.sh` → exit 0
+- `TRUST_FORCE_RERUN=1 bash scripts/one.sh trust-path` → exit 0 **and** a new `gate_one_pass_*.json` plus symlink `.goalie/evidence/last_gate_one_pass.json`
+- `bash scripts/one.sh verify-contract .goalie/evidence/last_gate_one_pass.json` → exit 0
+
+**Stop conditions (autonomy budget)**
+
+- Max files touched this slice: 2 code paths (`projects/investing/agentic-flow/Cargo.toml` workspace list; this doc append).
+- Max commits: 0 (no commit in this pass; working tree left for a human-scoped commit if desired).
+- If any gate above fails twice with the same root cause → stop, write RCA + smallest fix; no scope creep to UI/plugins/secrets.
+- No secrets in repo; no prod mutations; no force-push.
+
+**Stop conditions (human — [FA]/[SA] only)**
+
+- Policy/security/irreversible infra, merge to protected branch, customer data/billing: require explicit human.
+
+---
+
+### Execute (unattended)
+
+| Command | Result | Notes |
+|--------|--------|--------|
+| Fix `Cargo.toml` workspace members | Removed two missing paths | Restores `cargo metadata` / `cargo run -p dgm-prototype --bin dgm-gate` |
+| `bash tests/test-dgm-prototype.sh` (via trust bundle) | PASS | DGM integration tests green |
+| `bash scripts/ci/check-gate-dedupe.sh` | exit 0 | No duplicate gate logic flagged |
+| `TRUST_FORCE_RERUN=1 bash scripts/one.sh trust-path` | exit 0 | See evidence bundle below |
+| `bash scripts/one.sh verify-contract .goalie/evidence/last_gate_one_pass.json` | exit 0 | Contract + artifact confirmed |
+
+**Evidence bundle (resume here if the session dies — do not trust chat memory)**
+
+- Canonical symlink: `.goalie/evidence/last_gate_one_pass.json` → `gate_one_pass_1778106508.json`
+- Detailed log from a background capture: `.goalie/evidence/trust-path-run.log` (trust-path also echoed `EXIT: 0` at end)
+- **Checkpoint — `git status -sb`:** superproject `git status` was observed to run **very slowly** on this tree (tens of seconds); prefer `git diff --stat <paths>` for scoped checks. Full status snapshot not inlined to avoid blocking the slice.
+
+**First ~ stderr signal worth tracking (not a failing gate):** coherence subprocess reported `Terminated: 15` (exit 143) in `.goalie/evidence/trust-path-run.log`; bundle still concluded `Trust bundle: ALL GREEN`. Treat as ROAM follow-up: ensure `validate_coherence.py` either completes under policy or fails closed consistently—do not “paper over” with stdout-only green.
+
+---
+
+### Verify (gates only; no new features)
+
+- Dedupe: PASS
+- Trust-path: PASS (artifact on disk)
+- Verify-contract: PASS
+
+**Env files (existence only — contents not audited)**
+
+- Workspace root `.env` — present
+- Workspace root `.env.integration` — present
+- `projects/investing/agentic-flow/.env` — present
+- `projects/investing/agentic-flow/.env.integration` — present
+
+**Tooling note:** `glab` is on PATH at `/usr/local/bin/glab` (not a blocker locally).
+
+---
+
+### Retro (~5 min)
+
+**What changed**
+
+- Rust workspace manifest repaired by removing dead workspace member entries; DGM gate tests and trust-path can execute real `cargo run` again.
+
+**What did not fail this slice**
+
+- Gate dedupe, trust-path, contract verification (all exit 0 with symlinked artifact).
+
+**Next smallest merge-sized slices (pick one; descending CoD if multi-team)**
+
+1. **Coherence gate honesty:** align trust policy with coherence exit 143 / SIGTERM (timeout vs warn) so “green” never contradicts subprocess death.
+2. **`check-gate-dedupe.sh` / policy:** if you intend a dedicated commit, stage only `scripts/ci/check-gate-dedupe.sh` + run the trio again after rebase.
+3. **Rebase hygiene:** use your stash recipe on superproject + submodules *before* `git rebase origin/main`; do not rebase with tens of `??` learning dirs unless you accept noise—stash or `.gitignore` review is [FA] when secrets could be under stray paths.
+4. **Domain probes:** `verify-domain-probes.sh` path drift — locate the canonical script name in-repo or restore from history; out of scope for this slice.
+
+**Encoding the cadence (prefer script over narrative):** keep “plan → run → artifact → stop” as **one** shell entry (`scripts/one.sh trust-path` + `verify-contract`); long-form doctrine stays in docs like this section; CI and `gate-one-pass` remain the single mechanical truth.
+
+---
+
+### Blocked on human (exactly one)
+
+Do you want the next increment to **run the full superproject + submodule stash → `git fetch` → `git rebase origin/main` → stash pop** sequence locally (you drive it), **or** should agents only produce a **checklist + evidence paths** and avoid touching your dirty submodule/`??` tree until you clean or ignore the learning artifacts?
+
+*(No 1Password / Passbolt / token edits from agents; rotate credentials only in your vault workflow.)*
+
+---
+
+## 2026-05-08 Slice: Sovereign Workspaces + Long-Horizon Wrapper (append-only)
+
+### Plan
+- **Hypothesis:** Long-horizon execution should be script-first (not chat-first): one wrapper that enforces `plan -> run -> artifact -> stop` and delegates gate truth to canonical `scripts/one.sh`.
+- **Success criteria:**
+  - `scripts/long-horizon-slice.sh` exists and is executable.
+  - It writes checkpoint + stderr + summary JSON under `.goalie/evidence/slices/`.
+  - It runs exactly: dedupe -> trust-path -> verify-contract.
+- **Stop rules:** max 2 files touched, max 0 commits this slice, stop after same gate fails twice.
+
+### Execute
+- Added `scripts/long-horizon-slice.sh`.
+- Script captures:
+  - `git status -sb`
+  - first 30 lines of stderr on failure
+  - artifact pointer (`.goalie/evidence/last_gate_one_pass.json`)
+
+### Verify
+- Script creation completed; executable bit set.
+- Existing trust artifacts remain in `.goalie/evidence/`.
+
+### Retro
+- **What changed:** operationalized long-horizon cadence in one script aligned with gate-one-pass language.
+- **What failed:** none in this slice.
+- **Next slice:** run `bash scripts/long-horizon-slice.sh`, then decide rebase window.
+
+### Sovereign Workspaces (operator rule)
+- UI-only: root IDE at `src` or `packages/ui`.
+- Rust-core-only: root IDE at `rust/core`.
+- Cross-context: use a multi-root `.code-workspace` with only active folders.
+
+### Blocked on human (single)
+- Should I create and commit three dedicated workspace files next (`ui.code-workspace`, `rust-core.code-workspace`, `cross-context-minimal.code-workspace`) or keep this as a procedural rule only?
+
+---
+
+## 2026-05-08 Slice: Dedicated Sovereign Workspace Files (append-only)
+
+### Plan
+- **Hypothesis:** Constraining editor scope with dedicated `.code-workspace` files reduces context thrash and root-ocean drift while keeping long-horizon execution policy script-backed.
+- **Success criteria:**
+  - Three workspace configs exist for UI-only, Rust-core-only, and cross-context-minimal workflows.
+  - Locations are deterministic and non-root-cluttered.
+  - Secret/OIDC/Passbolt operations remain procedural-only stubs (no automation mutation).
+- **Stop rules:** max 4 files touched, max 0 commits, no secret writes, no prod mutations, no force push.
+
+### Execute
+- Added workspace files:
+  - `config/workspaces/ui.code-workspace`
+  - `config/workspaces/rust-core.code-workspace`
+  - `config/workspaces/cross-context-minimal.code-workspace`
+- Preserved policy: 1Password/OIDC/Passbolt stay manual/[FA]/[SA] gated only.
+
+### Verify
+- File existence and structure created successfully.
+- Typecheck/lint re-run recorded for this slice.
+
+### Retro
+- **What changed:** Dedicated workspace launch targets are now encoded in-repo.
+- **What failed:** none specific to workspace files.
+- **Next slice:** run trust gate trio via `scripts/long-horizon-slice.sh` once backend spawn reliability is stable.
+
+### Blocked on human (single)
+- Do you want these workspace files opened automatically via a helper script (e.g. `scripts/open-sovereign-workspace.sh <ui|rust|cross>`) in the next slice, or keep launch manual to avoid tool lock-in?
+
+---
+
+## 2026-05-08 Slice: Tiny Sovereign Workspace Launcher (append-only)
+
+### Plan
+- **Hypothesis:** a tiny launcher reduces friction and enforces sovereign workspace isolation in daily use.
+- **Success criteria:** one script supports `ui`, `rust`, `cross` aliases and opens the corresponding `.code-workspace` file.
+- **Stop rules:** max 2 files touched, max 0 commits, no secrets/prod changes.
+
+### Execute
+- Added `scripts/open-sovereign-workspace.sh`.
+- Resolution order for editor CLIs: `cursor` -> `windsurf` -> `code`.
+
+### Verify
+- Script exists, executable, and validates target workspace path before opening.
+
+### Retro
+- **What changed:** launch ergonomics improved without changing policy boundaries.
+- **What failed:** none specific to launcher.
+- **Next slice:** run trust trio via `scripts/long-horizon-slice.sh` when backend spawn is stable.
+
+### Blocked on human (single)
+- Keep launcher aliases as `ui|rust|cross`, or rename to `frontend|core|minimal` for your preferred vocabulary?

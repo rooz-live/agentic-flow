@@ -5,6 +5,7 @@ import { AuthPage } from './pages/AuthPage';
 import { EnginePage } from './pages/EnginePage';
 import { CapabilitiesPage } from './pages/CapabilitiesPage';
 import { GovernancePage } from './pages/GovernancePage';
+import { AdminDashboard } from './pages/AdminDashboard';
 import { WhopAuthProvider } from './contexts/WhopAuthContext';
 import { RequireAuth } from './components/RequireAuth';
 import './App.css';
@@ -22,6 +23,7 @@ export const App = () => {
             <Route path="engine" element={<RequireAuth><EnginePage /></RequireAuth>} />
             <Route path="capabilities" element={<RequireAuth><CapabilitiesPage /></RequireAuth>} />
             <Route path="governance" element={<RequireAuth><GovernancePage /></RequireAuth>} />
+            <Route path="admin" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
           </Route>
         </Routes>
       </BrowserRouter>

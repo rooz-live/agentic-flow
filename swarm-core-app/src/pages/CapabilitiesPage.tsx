@@ -4,6 +4,7 @@ import { HypertrophyAI } from '../components/HypertrophyAI';
 import { GenerativeUIController } from '../components/GenerativeUIController';
 import { MultiAgentCleanRoom } from '../components/MultiAgentCleanRoom';
 import { CanvasBoard } from '../components/CanvasBoard';
+import { WhopPackages } from '../components/WhopPackages';
 
 export const CapabilitiesPage: React.FC = () => {
     return (
@@ -16,6 +17,7 @@ export const CapabilitiesPage: React.FC = () => {
                 <GenerativeUIController />
                 <MultiAgentCleanRoom />
                 <CanvasBoard />
+                <WhopPackages />
             </section>
         </div>
     );

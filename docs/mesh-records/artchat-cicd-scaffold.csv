@@ -1,0 +1,205 @@
+filename,content
+scripts/build-zips.sh,"#!/bin/bash
+# ArtChat 24-Domain Ecosystem — Versioned Zip Builder
+# Usage: bash scripts/build-zips.sh [patch|minor|major]
+
+set -e
+
+VERSION_FILE="".version""
+VERSIONS_DIR=""versions""
+mkdir -p ""$VERSIONS_DIR""
+
+# Read current version or init
+if [ -f ""$VERSION_FILE"" ]; then
+  CURRENT=$(cat ""$VERSION_FILE"")
+else
+  CURRENT=""0.0.0""
+fi
+
+IFS='.' read -r MAJOR MINOR PATCH <<< ""$CURRENT""
+
+# Bump version
+case ""${1:-patch}"" in
+  major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+  minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+  patch) PATCH=$((PATCH + 1)) ;;
+  *) echo ""Usage: $0 [patch|minor|major]""; exit 1 ;;
+esac
+
+NEW_VERSION=""$MAJOR.$MINOR.$PATCH""
+DATE=$(date +%Y-%m-%d)
+ZIP_NAME=""v${NEW_VERSION}_${DATE}.zip""
+
+echo ""$NEW_VERSION"" > ""$VERSION_FILE""
+
+# Create zip of all domain files
+zip -r ""$VERSIONS_DIR/$ZIP_NAME"" \
+  domains/ \
+  shared/ \
+  REDIRECT_REFERENCE.md \
+  README.md \
+  -x ""*.DS_Store"" ""*/._*""
+
+echo ""✅ Created $VERSIONS_DIR/$ZIP_NAME (v$NEW_VERSION)""
+echo ""📦 $(du -h ""$VERSIONS_DIR/$ZIP_NAME"" | cut -f1)""
+
+# Prune old versions (keep last 10)
+cd ""$VERSIONS_DIR""
+ls -t *.zip 2>/dev/null | tail -n +11 | xargs -r rm
+echo ""🗂️  Versions retained: $(ls *.zip | wc -l)""
+"
+scripts/deploy.sh,"#!/bin/bash
+# ArtChat 24-Domain Ecosystem — SFTP Deploy to cPanel
+# Usage: bash scripts/deploy.sh [domain|all]
+# Requires: SFTP_HOST, SFTP_USER, SFTP_PASS env vars (or SSH key)
+
+set -e
+
+SFTP_HOST=""${SFTP_HOST:?Set SFTP_HOST env var}""
+SFTP_USER=""${SFTP_USER:?Set SFTP_USER env var}""
+SFTP_PORT=""${SFTP_PORT:-22}""
+
+DOMAINS=(
+  720.chat amp.vote artchat.art chatfans.fans decisioncall.com
+  eneu.org epic.cab goodreadr.com iconoclash.dev mbo.bio
+  nextwavenetwork.com paylicious.com quoteparty.com splitcite.com
+  summerjobswap.com tag.vote yo.life yocloud.com yoservice.com
+)
+
+deploy_domain() {
+  local domain=""$1""
+  local local_dir=""domains/$domain""
+  # cPanel document root pattern — adjust if yours differs
+  local remote_dir=""/home/$SFTP_USER/public_html/$domain""
+
+  if [ ! -d ""$local_dir"" ]; then
+    echo ""⚠️  Skip $domain — no local directory""
+    return
+  fi
+
+  echo ""🚀 Deploying $domain...""
+  sftp -P ""$SFTP_PORT"" -b - ""$SFTP_USER@$SFTP_HOST"" <<EOF
+cd $remote_dir
+put $local_dir/index.html index.html
+put $local_dir/.htaccess .htaccess
+bye
+EOF
+  echo ""✅ $domain deployed""
+}
+
+if [ ""${1:-all}"" = ""all"" ]; then
+  for d in ""${DOMAINS[@]}""; do deploy_domain ""$d""; done
+  echo ""🎉 All domains deployed""
+else
+  deploy_domain ""$1""
+fi
+"
+.github/workflows/deploy.yml,"name: Deploy to cPanel
+on:
+  push:
+    branches: [main]
+    paths: ['domains/**']
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build version zip
+        run: bash scripts/build-zips.sh patch
+
+      - name: Deploy changed domains
+        env:
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_PORT: ${{ secrets.SFTP_PORT }}
+        run: |
+          # Install SSH key
+          mkdir -p ~/.ssh
+          echo ""${{ secrets.SFTP_PRIVATE_KEY }}"" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p ${{ secrets.SFTP_PORT }} ${{ secrets.SFTP_HOST }} >> ~/.ssh/known_hosts
+
+          # Detect changed domains and deploy only those
+          CHANGED=$(git diff --name-only HEAD~1 HEAD -- domains/ | cut -d'/' -f2 | sort -u)
+          for domain in $CHANGED; do
+            bash scripts/deploy.sh ""$domain""
+          done
+
+      - name: Commit version bump
+        run: |
+          git config user.name ""GitHub Actions""
+          git config user.email ""actions@github.com""
+          git add .version versions/
+          git commit -m ""chore: bump version"" || true
+          git push
+"
+.gitignore,".DS_Store
+*.swp
+*.swo
+*~
+.env
+.env.local
+node_modules/
+.vscode/
+.idea/
+"
+.version,1.0.0
+Makefile,"# ArtChat Domain Management
+.PHONY: zip deploy deploy-one validate
+
+zip:                    ## Create versioned zip (patch bump)
+	bash scripts/build-zips.sh patch
+
+zip-minor:              ## Create versioned zip (minor bump)
+	bash scripts/build-zips.sh minor
+
+zip-major:              ## Create versioned zip (major bump)
+	bash scripts/build-zips.sh major
+
+deploy:                 ## Deploy ALL domains via SFTP
+	bash scripts/deploy.sh all
+
+deploy-one:             ## Deploy single domain: make deploy-one D=720.chat
+	bash scripts/deploy.sh $(D)
+
+validate:               ## Check all checkout URLs are valid
+	bash scripts/validate.sh
+
+help:                   ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' Makefile | sort | awk 'BEGIN {FS = "":.*?## ""}; {printf ""\033[36m%-20s\033[0m %s\n"", $$1, $$2}'
+"
+scripts/validate.sh,"#!/bin/bash
+# Validate all checkout URLs return 200
+set -e
+
+URLS=(
+  ""https://whop.com/checkout/plan_WqXDaZLgvPv4G/?session=ch_zkQHkjKc3s8AA1N""
+  ""https://whop.com/checkout/plan_hqdgnRJSzMvBH/?session=ch_nlCr8enLRUReRGj""
+  ""https://whop.com/checkout/plan_3ppQM4AM8RAim/?session=ch_6OBePTnO0DhGgJl""
+  ""https://whop.com/checkout/plan_kgmqlNkYeKQCy/?session=ch_vQ20BMOikmSA2h2""
+  ""https://whop.com/checkout/plan_Dq08GRMfjoEoB/?session=ch_jXkLRzpxVR6Bl8d""
+  ""https://whop.com/checkout/plan_OHaghPC6Ri2GA/?session=ch_mlVaqgzhqPCwCvG""
+  ""https://whop.com/checkout/plan_no8oc1YGrf2jm/?session=ch_ekdzQgvBIhdiRsn""
+)
+
+echo ""🔍 Validating checkout URLs...""
+FAIL=0
+for url in ""${URLS[@]}""; do
+  STATUS=$(curl -s -o /dev/null -w ""%{http_code}"" ""$url"")
+  if [ ""$STATUS"" -eq 200 ]; then
+    echo ""  ✅ $STATUS — $url""
+  else
+    echo ""  ❌ $STATUS — $url""
+    FAIL=$((FAIL + 1))
+  fi
+done
+
+if [ ""$FAIL"" -eq 0 ]; then
+  echo ""🎉 All checkout URLs valid""
+else
+  echo ""⚠️  $FAIL URL(s) failed validation""
+  exit 1
+fi
+"

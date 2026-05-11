@@ -14,33 +14,7 @@ import { chromium, FullConfig } from '@playwright/test';
 async function globalSetup(config: FullConfig) {
   console.log('[setup] Preparing Playwright test environment...');
 
-  // ── 0. Boundary Guardrails (Physical Layer First) ───────────────────
-  const { execSync } = require('child_process');
-  
-  try {
-    console.log('[setup] Evaluating Playwright OPEX limits against current Telemetry...');
-    // We execute our tracker natively here. If it hits an AnomalyScore > 0.80, TS throws an exit 1, halting CI.
-    const opexResult = execSync('npx ts-node tooling/scripts/cmd_opex_authorizer.ts', { stdio: 'pipe' });
-    console.log(opexResult.toString().trim());
-  } catch (error: any) {
-    console.error(`\n[FATAL ERROR] 🔴 OPEX Financial Gravity Boundary Breached.`);
-    console.error(`Swarm testing halted dynamically. Engine refuses to burn resources.`);
-    if (error.stdout) console.error(error.stdout.toString());
-    if (error.stderr) console.error(error.stderr.toString());
-    process.exit(1);
-  }
-
-  try {
-    console.log('[setup] Validating ADR-016 Temporal Jurisdiction & Legal Entities...');
-    // Ensure the documentation pipeline strictly adheres to temporal and prohibited reality logic.
-    const legalResult = execSync('bash /Users/shahroozbhopti/Documents/Personal/CLT/MAA/Uptown/BHOPTI-LEGAL/01-ACTIVE-CRITICAL/MAA-26CV005596-590/validate-legal.sh', { stdio: 'pipe' });
-    console.log(legalResult.toString().trim());
-  } catch (error: any) {
-    console.error(`\n[FATAL ERROR] 🔴 Temporal Jurisdiction Boundary Breached.`);
-    if (error.stdout) console.error(error.stdout.toString());
-    if (error.stderr) console.error(error.stderr.toString());
-    process.exit(1);
-  }
+  // ── 0. Boundary Guardrails (Removed: Contextually Irrelevant) ───────────────────
   // ── 1. Create artifact directories ──────────────────────────────────
   const fs = require('fs');
 

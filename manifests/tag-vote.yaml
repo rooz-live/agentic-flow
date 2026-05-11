@@ -1,0 +1,107 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: tag-vote-gateway
+  namespace: default
+spec:
+  gatewayClassName: nginx
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 80
+    allowedRoutes:
+      namespaces:
+        from: Same
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: tag-vote-route
+  namespace: default
+spec:
+  parentRefs:
+  - name: tag-vote-gateway
+  hostnames:
+  - "tag.vote"
+  - "www.tag.vote"
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: tag-vote-service
+      port: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tag-vote-service
+  namespace: default
+spec:
+  selector:
+    app: tag-vote-ui
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tag-vote-deployment
+  namespace: default
+  labels:
+    app: tag-vote-ui
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: tag-vote-ui
+  template:
+    metadata:
+      labels:
+        app: tag-vote-ui
+    spec:
+      initContainers:
+      # Native Kubernetes v1.35 Sidecar!
+      # Using restartPolicy: Always makes it run continuously alongside the main container.
+      - name: quic-agentdb-sidecar
+        image: envoyproxy/envoy:v1.30.0
+        restartPolicy: Always
+        ports:
+        - containerPort: 4433
+          protocol: UDP
+        volumeMounts:
+        - name: agentdb-volume
+          mountPath: /var/lib/agentdb
+      containers:
+      - name: tag-vote-ui
+        # Assuming the Swarm UI container is packaged here
+        image: ghcr.io/sovereign-swarm/gen-ui:latest
+        ports:
+        - containerPort: 8080
+        volumeMounts:
+        - name: agentdb-volume
+          mountPath: /var/lib/agentdb
+        env:
+        - name: TENANT_ID
+          value: "tagvote"
+        - name: K8S_V135_NATIVE
+          value: "true"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "500m"
+      volumes:
+      - name: agentdb-volume
+        ephemeral:
+          volumeClaimTemplate:
+            spec:
+              accessModes: [ "ReadWriteOncePod" ] # K8s v1.35 Native SQLite Guardian!
+              resources:
+                requests:
+                  storage: 1Gi

@@ -10,6 +10,7 @@ import { WhopAuthProvider } from './contexts/WhopAuthContext';
 import { RequireAuth } from './components/RequireAuth';
 import { ArtChatPage } from './pages/ArtChatPage';
 import { OnboardingPage } from './pages/OnboardingPage';
+import { JobBoardEmployerPage } from './pages/JobBoardEmployerPage';
 import './App.css';
 
 export const App = () => {
@@ -28,6 +29,7 @@ export const App = () => {
             <Route path="admin" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
             <Route path="artchat" element={<ArtChatPage />} />
             <Route path="onboarding" element={<OnboardingPage />} />
+            <Route path="employer-dashboard" element={<JobBoardEmployerPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

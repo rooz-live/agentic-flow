@@ -536,3 +536,69 @@ Do you want the next increment to **run the full superproject + submodule stash 
 
 ### Blocked on human (single)
 - Keep launcher aliases as `ui|rust|cross`, or rename to `frontend|core|minimal` for your preferred vocabulary?
+
+---
+
+## 2026-05-08 Slice: WSJF Wave4 Workflow Upgrade (append-only)
+
+### Plan
+- **Hypothesis:** A small WSJF executor with evidence output prevents ad-hoc prioritization drift and keeps `next bead` selection auditable.
+- **Success criteria:**
+  - Versioned backlog file exists in repo.
+  - WSJF runner emits ranked output and evidence artifact with run_id.
+  - No secret/prod mutation pathways introduced.
+- **Stop rules:** max 3 files touched, max 0 commits, if execution fails twice with same substrate symptom, stop and write RCA.
+
+### Execute
+- Added `config/wsjf/wave4_backlog.json` (seed backlog with now/next/later buckets).
+- Added `scripts/wsjf/upgrade_wave4_workflow.py` (computes WSJF+leverage and writes JSON evidence artifact).
+
+### Verify
+- Script static review complete.
+- Runtime execution hit repeated substrate issue (`Execution backend unavailable` / hanging shell tasks with no body output) and was stopped per rule after repeated attempts.
+
+### Retro
+- **What changed:** WSJF workflow is now codified and ready to run once execution substrate stabilizes.
+- **What failed:** runtime verification of artifact emission blocked by command backend instability.
+- **Smallest next fix:** re-run `python3 scripts/wsjf/upgrade_wave4_workflow.py --backlog config/wsjf/wave4_backlog.json --evidence-dir .goalie/evidence/wsjf` in a stable terminal and capture produced artifact path.
+
+### Blocked on human (single)
+- Should we keep this WSJF runner as Python-only (portable, no Node deps), or add a tiny shell wrapper (`scripts/wsjf/upgrade_wave4_workflow.sh`) for operator ergonomics in next slice?
+
+---
+
+## 2026-05-08 Slice: SummerJobSwap WSJF Backlog Codified (append-only)
+
+### Plan
+- **Hypothesis:** Encoding SummerJobSwap priorities as a scored WSJF backlog creates deterministic, auditable next-bead selection and prevents narrative drift.
+- **Success criteria:**
+  - Backlog file created with now/next/later buckets and WSJF factors.
+  - Selector command attempted against this backlog.
+  - No secret/prod mutation scope touched.
+- **Stop rules:** max 2 files touched, max 0 commits, if selector runtime fails twice with substrate symptoms, stop and record RCA.
+
+### Execute
+- Added `config/wsjf/summerjobswap_backlog.json` with nine prioritized streams:
+  1. trust baseline
+  2. core funnel determinism
+  3. auth/secrets hygiene
+  4. two-sided onboarding
+  5. matching quality v1
+  6. messaging/notifications
+  7. community integrations (flagged)
+  8. CRM/forum adapters
+  9. ecosystem integrations post-retention
+- Ran selector:
+  `python3 scripts/wsjf/upgrade_wave4_workflow.py --backlog config/wsjf/summerjobswap_backlog.json --evidence-dir .goalie/evidence/wsjf`
+
+### Verify
+- Selector process invocation completed without emitted stdout in this substrate.
+- No new artifact file observed via directory check in this run.
+
+### Retro
+- **What changed:** SummerJobSwap priorities are now executable backlog data, not prose-only.
+- **What failed:** selector evidence emission remains non-deterministic in current execution substrate.
+- **Next smallest fix:** run selector from an external stable terminal and capture emitted artifact path into inbox record.
+
+### Blocked on human (single)
+- Do you want me to add a tiny shell wrapper that force-writes fallback evidence (`summary_<run_id>.json`) when selector emits no artifact, or keep strict fail-closed behavior?

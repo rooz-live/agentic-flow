@@ -1,19 +1,19 @@
 # DDD/TDD/ADR Coherence Validation Report
-**Generated:** 2026-05-06 12:50:44
+**Generated:** 2026-05-08 12:21:31
 **Project:** `/Users/shahroozbhopti/Documents/code`
 **Files Scanned:** 1524
 **Automation Level:** Level 0 (Manual)
 
 ## ❌ Overall: FAIL
-`████░░░░░░░░░░░░░░░░░░░░░░░░░░` **15.4%** (479/3119 checks)
+`████░░░░░░░░░░░░░░░░░░░░░░░░░░` **15.3%** (476/3117 checks)
 
 ## Layer Health
 
 | Layer | Health | Files | Gaps | Strengths |
 |:------|:------:|:-----:|:----:|:----------|
-| **PRD** | 🔴 27% | 500 | 668 | 500 PRD document(s) found |
+| **PRD** | 🔴 26% | 500 | 669 | 500 PRD document(s) found |
 | **ADR** | 🔴 5% | 500 | 498 | 500 ADR document(s) found |
-| **DDD** | 🔴 10% | 500 | 1 | 500 domain file(s) found |
+| **DDD** | 🔴 8% | 500 | 1 | 500 domain file(s) found |
 | **TDD** | 🟡 75% | 24 | 5 | 24 test file(s) found |
 
 ## Cross-Layer Coherence
@@ -308,6 +308,11 @@
   💡 Add missing sections: objective, requirements, acceptance criteria, success metric
 - ✅ [WARNING] PRD has measurable success metrics: Quantifiable metrics: 1 pattern(s) found `INBOX_ZERO_ROADMAP.md`
 - ❌ [INFO] PRD defines DoR and DoD: DoR: ✗, DoD: ✗ `INBOX_ZERO_ROADMAP.md`
+- ❌ [WARNING] PRD has required sections: 1/4 sections present (missing: objective, requirements, success metric) `INCREMENT.md`
+  💡 Add missing sections: objective, requirements, success metric
+- ❌ [WARNING] PRD has measurable success metrics: Quantifiable metrics: 0 pattern(s) found `INCREMENT.md`
+  💡 Add measurable criteria like '≥85% consensus' or 'response within 48 hours'
+- ❌ [INFO] PRD defines DoR and DoD: DoR: ✗, DoD: ✗ `INCREMENT.md`
 - ❌ [WARNING] PRD has required sections: 0/4 sections present (missing: objective, requirements, acceptance criteria, success metric) `INDEX.md`
   💡 Add missing sections: objective, requirements, acceptance criteria, success metric
 - ✅ [WARNING] PRD has measurable success metrics: Quantifiable metrics: 3 pattern(s) found `INDEX.md`
@@ -2120,10 +2125,6 @@
   💡 Add missing sections: objective, requirements, acceptance criteria, success metric
 - ✅ [WARNING] PRD has measurable success metrics: Quantifiable metrics: 2 pattern(s) found `temp_agentic_qe/docs/PHASE2-INTEGRATION-TESTS-DELIVERED.md`
 - ❌ [INFO] PRD defines DoR and DoD: DoR: ✗, DoD: ✗ `temp_agentic_qe/docs/PHASE2-INTEGRATION-TESTS-DELIVERED.md`
-- ❌ [WARNING] PRD has required sections: 3/4 sections present (missing: objective) `temp_agentic_qe/docs/PHASE2-VALIDATION-REPORT.md`
-  💡 Add missing sections: objective
-- ✅ [WARNING] PRD has measurable success metrics: Quantifiable metrics: 2 pattern(s) found `temp_agentic_qe/docs/PHASE2-VALIDATION-REPORT.md`
-- ❌ [INFO] PRD defines DoR and DoD: DoR: ✗, DoD: ✗ `temp_agentic_qe/docs/PHASE2-VALIDATION-REPORT.md`
 - ❌ [WARNING] PRD has required sections: 0/4 sections present (missing: objective, requirements, acceptance criteria, success metric) `temp_agentic_qe/docs/learning-system-integration-tests-report.md`
   💡 Add missing sections: objective, requirements, acceptance criteria, success metric
 - ✅ [WARNING] PRD has measurable success metrics: Quantifiable metrics: 3 pattern(s) found `temp_agentic_qe/docs/learning-system-integration-tests-report.md`
@@ -2473,6 +2474,10 @@
 - ❌ [INFO] ADR has explicit status: Status: NOT FOUND `INBOX_ZERO_ROADMAP.md`
   💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
 - ❌ [INFO] ADR has date: No date found `INBOX_ZERO_ROADMAP.md`
+- ❌ [WARNING] ADR has required sections: 1/4 sections (missing: context, decision, consequences) `INCREMENT.md`
+- ❌ [INFO] ADR has explicit status: Status: NOT FOUND `INCREMENT.md`
+  💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
+- ❌ [INFO] ADR has date: No date found `INCREMENT.md`
 - ❌ [WARNING] ADR has required sections: 2/4 sections (missing: context, consequences) `INDEX.md`
 - ❌ [INFO] ADR has explicit status: Status: NOT FOUND `INDEX.md`
   💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
@@ -4125,10 +4130,6 @@
 - ❌ [INFO] ADR has explicit status: Status: NOT FOUND `temp_agentic_qe/docs/PHASE2-INTEGRATION-TESTS-DELIVERED.md`
   💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
 - ❌ [INFO] ADR has date: No date found `temp_agentic_qe/docs/PHASE2-INTEGRATION-TESTS-DELIVERED.md`
-- ❌ [WARNING] ADR has required sections: 1/4 sections (missing: context, decision, consequences) `temp_agentic_qe/docs/PHASE2-VALIDATION-REPORT.md`
-- ❌ [INFO] ADR has explicit status: Status: NOT FOUND `temp_agentic_qe/docs/PHASE2-VALIDATION-REPORT.md`
-  💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
-- ✅ [INFO] ADR has date: Date present `temp_agentic_qe/docs/PHASE2-VALIDATION-REPORT.md`
 - ❌ [WARNING] ADR has required sections: 1/4 sections (missing: context, decision, consequences) `temp_agentic_qe/docs/learning-system-integration-tests-report.md`
 - ❌ [INFO] ADR has explicit status: Status: NOT FOUND `temp_agentic_qe/docs/learning-system-integration-tests-report.md`
   💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
@@ -4211,6 +4212,7 @@
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `automated_roam_swarm_orchestrator.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `chrome_devtools_mcp_server.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `cicd_promotion_gates.py`
+- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `clean_unify.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `cmd_prod_cycle.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `compliance-scanner.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `comprehensive_email_automation.py`
@@ -4221,16 +4223,19 @@
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `dt_schema.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `dynamic_context_loader.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `dynamic_mcp_manager.py`
+- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `find_large_dirs.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `fix-gov.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `fix-lucide-revert.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `fix-lucide.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `fix-nav.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `fix-palette.py`
+- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `fix_remnants.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `hivelocity_device_check.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `hivelocity_setup_monitoring.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `kms_setup.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `legal_research_dashboard.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `multi_org_sor_analyzer.py`
+- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `offload_envs.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `passbolt_env_loader.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `passbolt_integration.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `patch-budget.py`
@@ -4247,13 +4252,6 @@
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `reverse_recruiting_orchestrator.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `reverse_recruiting_swarm.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `rewrite_governance.py`
-- ✅ [WARNING] Module 'risk_analytics' has public API exports: __all__ or imports defined `risk_analytics/__init__.py`
-- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `risk_analytics/device_diagnostics.py`
-- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `risk_analytics/device_state.py`
-- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `risk_analytics/gate_override.py`
-- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `risk_analytics/heartbeat_anomaly.py`
-- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `risk_analytics/neural_integration.py`
-- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `risk_analytics/risk_scoring.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `roam_wsjf_analyzer.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `rooz_live_workflow_orchestrator.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `secure_key_manager.py`
@@ -4269,6 +4267,7 @@
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `test_variant_controls.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `test_write_status.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `token_tracker.py`
+- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `unify_gates.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `validate_legal_patterns_cli.py`
 - ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `validation_dashboard_tui.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `validation_tui_dashboard.py`
@@ -4277,8 +4276,8 @@
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `vite.trading.config.ts`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `wholeness_validation_framework.py`
 - ❌ [CRITICAL] DDD aggregate root present: 0 aggregate root(s) detected
-- ✅ [WARNING] DDD value object present: 48 value object(s) detected
-- ✅ [WARNING] DDD service present: 53 service(s) detected
+- ✅ [WARNING] DDD value object present: 41 value object(s) detected
+- ✅ [WARNING] DDD service present: 50 service(s) detected
 
 ### TDD Checks
 
@@ -4319,7 +4318,7 @@
 
 ## Recommendations
 
-- ⚠️ PRD health is 27% — address 668 gap(s)
+- ⚠️ PRD health is 26% — address 669 gap(s)
 -   → [WARNING] PRD has required sections: 0/4 sections present (missing: objective, requirements, acceptance criteria, success metric)
 -   → [WARNING] PRD has required sections: 1/4 sections present (missing: objective, acceptance criteria, success metric)
 -   → [WARNING] PRD has measurable success metrics: Quantifiable metrics: 0 pattern(s) found
@@ -4327,7 +4326,7 @@
 -   → [WARNING] ADR has required sections: 1/4 sections (missing: status, context, consequences)
 -   → [WARNING] ADR has required sections: 1/4 sections (missing: context, decision, consequences)
 -   → [WARNING] ADR has required sections: 3/4 sections (missing: consequences)
-- ⚠️ DDD health is 10% — address 1 gap(s)
+- ⚠️ DDD health is 8% — address 1 gap(s)
 -   → [CRITICAL] DDD aggregate root present: 0 aggregate root(s) detected
 -   → [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 1 tests)
 -   → [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 1 tests)
@@ -4339,9 +4338,9 @@
 | Phase | Coherence Action |
 |:------|:-----------------|
 | **Observe** | Scanned 1524 files across 4 layers |
-| **Orient** | Health: PRD=27%, ADR=5%, DDD=10%, TDD=75% |
+| **Orient** | Health: PRD=26%, ADR=5%, DDD=8%, TDD=75% |
 | **Decide** | Verdict: FAIL at 15% |
 | **Act** | 14 recommendations to implement |
 
 ---
-*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-05-06 12:50:44*
+*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-05-08 12:21:31*

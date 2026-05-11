@@ -109,14 +109,12 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 120 * 1000,
     },
-    /*
     {
-      // Run Vite dev server for trading dashboard — serves trading.html at /trading.html
-      command: 'lsof -ti:5173 | xargs kill -9 2>/dev/null; npx vite --config vite.trading.config.ts',
-      url: 'http://127.0.0.1:5173/trading.html',
+      // Run Vite dev server for swarm-core-app
+      command: 'lsof -ti:5173 | xargs kill -9 2>/dev/null; npm run dev --prefix swarm-core-app',
+      url: 'http://localhost:5173',
       reuseExistingServer: !process.env.CI,
       timeout: 60 * 1000,
     },
-    */
   ],
 });

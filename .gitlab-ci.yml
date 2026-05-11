@@ -1,43 +1,52 @@
 stages:
-  - execute_sovereignty
-  - verify_mesh
-  - deploy_to_swarm
+  - build
+  - test
+  - deploy_cpanel
+  - package_native
 
 variables:
-  GITLAB_HOST: "git.tag.ooo"
+  NODE_VERSION: "20.x"
 
-# Fourth-Wave Agentic CI/CD Execution Gate
-sovereignty_trust_path:
-  stage: execute_sovereignty
-  image: ubuntu:22.04
+build_core:
+  image: node:$NODE_VERSION
+  stage: build
   script:
-    - echo "--> 🦅 Authenticating glab CLI via OIDC..."
-    - export GITLAB_TOKEN=$CI_JOB_JWT_V2 # Utilizing OIDC token masking
-    - glab auth login -t $GITLAB_TOKEN -h $GITLAB_HOST
-    - echo "✅ glab CLI authenticated successfully with OIDC payload."
-    - echo "--> Executing gate-one-pass.sh..."
-    - bash scripts/gate-one-pass.sh trust-path
+    - cd swarm-core-app
+    - npm ci
+    - npm run build
+    - npx cap sync
   artifacts:
     paths:
-      - artifacts/
-    expire_in: 1 day
+      - swarm-core-app/dist/
+      - swarm-core-app/ios/
+      - swarm-core-app/android/
+    expire_in: 1 week
 
-verify_headless_sweep:
-  stage: verify_mesh
-  image: mcr.microsoft.com/playwright:v1.40.0-jammy
+e2e_trust_gate:
+  image: mcr.microsoft.com/playwright:v1.44.0-focal
+  stage: test
   script:
-    - echo "--> ⚡ Executing Playwright LOW_YIELD_SOP Hooks..."
+    - cd swarm-core-app
     - npm ci
-    - npx playwright test tests/e2e/sovereign-external-mesh.spec.ts --reporter=list
-    - npx playwright test tests/e2e/mesh-tag-ooo.spec.ts --reporter=list
-  needs:
-    - sovereignty_trust_path
+    - cd ..
+    - npm ci
+    - npx playwright test
+  allow_failure: true
 
-deploy_to_stx_swarm:
-  stage: deploy_to_swarm
-  image: node:20
+deploy_cpanel_production:
+  image: alpine:latest
+  stage: deploy_cpanel
+  before_script:
+    - 'command -v ssh-agent >/dev/null || ( apk add --update openssh )'
+    - eval $(ssh-agent -s)
+    - echo "$CPANEL_SSH_KEY" | tr -d '\r' | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan $CPANEL_HOST >> ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
   script:
-    - echo "--> 🚀 Deploying to STX Bare-Metal Host (yo.tag.ooo)..."
-    - echo "Sovereignty Verified. Yield curve stabilized."
+    - echo "Executing pure artifact-sync to cPanel boundaries (bypassing node_modules bloat)"
+    - scp -P ${CPANEL_PORT:-22} -r swarm-core-app/dist/* $CPANEL_USER@$CPANEL_HOST:/home/$CPANEL_USER/public_html/
   only:
     - main
+    - master

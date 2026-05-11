@@ -5,7 +5,9 @@
  * they must be able to seamlessly jump to JobSwap or ArtChat without downloading a new app.
  * Impact: ROI [Extreme] - Maximizes user lifetime value across the entire domain matrix.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import WhopAPI from '@whop/sdk';
+import './MeshNavigation.css';
 
 // Central Domain Registry for Native Mesh
 const DOMAIN_NODES = [
@@ -21,63 +23,64 @@ const DOMAIN_NODES = [
   { id: 'ytag', name: 'YouTube TAG', icon: '▶️', color: '#FF0000', url: 'https://youtube.tag.vote' }
 ];
 
-/**
- * [UI/UX] Lateral Mesh Navigation
- * Implementation of Glassmorphism, Dynamic Pills, and Domain Traversability.
- */
 export const MeshNavigation: React.FC = () => {
-    // Execute jump (Using window.location for actual cross-domain traversal or native Capacitor bridging)
-    window.location.assign(traversalUrl.toString());
-  };
+    const [activeNode, setActiveNode] = useState('decibel');
+    const [whopClient, setWhopClient] = useState<unknown>(null);
 
-  return (
-    <nav style={{
-      width: '100%',
-      padding: '1.5rem',
-      background: 'rgba(15, 15, 20, 0.8)',
-      backdropFilter: 'blur(24px)',
-      borderBottom: '1px solid rgba(255, 255, 255, 0.05)',
-      display: 'flex',
-      gap: '1rem',
-      justifyContent: 'center',
-      flexWrap: 'wrap',
-      position: 'sticky',
-      top: 0,
-      zIndex: 1000
-    }}>
-      {DOMAIN_NODES.map(node => (
-        <button
-          key={node.id}
-          onClick={() => handleTraversal(node.id, node.url)}
-          style={{
-            background: activeNode === node.id ? `rgba(${hexToRgb(node.color)}, 0.15)` : 'transparent',
-            border: `1px solid ${activeNode === node.id ? node.color : 'rgba(255, 255, 255, 0.1)'}`,
-            color: activeNode === node.id ? '#fff' : '#8892b0',
-            padding: '0.6rem 1.4rem',
-            borderRadius: '30px',
-            cursor: 'pointer',
-            fontSize: '0.85rem',
-            fontWeight: 600,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.5rem',
-            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            boxShadow: activeNode === node.id ? `0 0 20px rgba(${hexToRgb(node.color)}, 0.2)` : 'none',
-            transform: activeNode === node.id ? 'scale(1.05)' : 'scale(1)'
-          }}
-        >
-          <span style={{ fontSize: '1.1rem' }}>{node.icon}</span>
-          {node.name}
-        </button>
-      ))}
-    </nav>
-  );
+    useEffect(() => {
+        // Seeker Circle: Initialize Physical Whop SDK for cross-domain telemetry
+        const initWhop = async () => {
+            try {
+                // @ts-expect-error
+                const client = new WhopAPI({ token: import.meta.env.VITE_WHOP_API_KEY || 'whp_mock_token_77x' });
+                setWhopClient(client);
+            } catch (e) {
+                console.warn("[SEEKER CIRCLE] Failed to initialize physical Whop SDK", e);
+            }
+        };
+        initWhop();
+    }, []);
+
+    const handleTraversal = async (nodeId: string, url: string) => {
+        setActiveNode(nodeId);
+        console.log(`[LATERAL TRAVERSAL] Engaging mesh jump to: ${url}`);
+        
+        const affiliateId = localStorage.getItem('whop_affiliate_id') || 'swrm_default_720';
+        
+        // Use SDK to securely log the referral attempt if physical client exists
+        if (whopClient) {
+            console.log(`[SEEKER] Logging cross-domain traversal via Whop SDK for: ${affiliateId}`);
+            // In physical prod, we would execute: await whopClient.affiliates.track({ affiliateId, destination: url });
+        }
+
+        const traversalUrl = new URL(url);
+        traversalUrl.searchParams.append('ref', affiliateId);
+        traversalUrl.searchParams.append('source', 'mesh_navigation');
+        
+        window.location.assign(traversalUrl.toString());
+    };
+
+    return (
+        <nav className="mesh-nav-container">
+            {DOMAIN_NODES.map(node => (
+                <div key={node.id} className="nav-dropdown-container">
+                    <button
+                        onClick={() => handleTraversal(node.id, node.url)}
+                        className={`nav-dropdown-button nav-node-${node.id} ${activeNode === node.id ? 'active' : ''}`}
+                    >
+                        <span className="nav-icon">{node.icon}</span>
+                        {node.name} ▾
+                    </button>
+                    {/* Vertically Integrated Subaltern Dropdown */}
+                    <div className="nav-dropdown-menu">
+                        <button onClick={(e) => { e.stopPropagation(); handleTraversal(node.id, `${node.url}/gen-ui`) }} className="nav-sub-btn">🎨 Gen-UI Matrix</button>
+                        <button onClick={(e) => { e.stopPropagation(); handleTraversal(node.id, `${node.url}/subaltern`) }} className="nav-sub-btn">🌐 Subaltern Auth</button>
+                        <button onClick={(e) => { e.stopPropagation(); handleTraversal(node.id, `${node.url}/roam`) }} className="nav-sub-btn">📊 ROAM Telemetry</button>
+                    </div>
+                </div>
+            ))}
+        </nav>
+    );
 };
 
-// Extracted UI utility for Generative Token injection
-function hexToRgb(hex: string) {
-  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-  return result ? 
-    `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` 
-    : '255, 255, 255';
-}
+

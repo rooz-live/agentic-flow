@@ -8,6 +8,8 @@ import { GovernancePage } from './pages/GovernancePage';
 import { AdminDashboard } from './pages/AdminDashboard';
 import { WhopAuthProvider } from './contexts/WhopAuthContext';
 import { RequireAuth } from './components/RequireAuth';
+import { ArtChatPage } from './pages/ArtChatPage';
+import { OnboardingPage } from './pages/OnboardingPage';
 import './App.css';
 
 export const App = () => {
@@ -21,9 +23,11 @@ export const App = () => {
             
             {/* Protected Top-Level Boundaries */}
             <Route path="engine" element={<RequireAuth><EnginePage /></RequireAuth>} />
-            <Route path="capabilities" element={<RequireAuth><CapabilitiesPage /></RequireAuth>} />
+            <Route path="capabilities" element={<CapabilitiesPage />} />
             <Route path="governance" element={<RequireAuth><GovernancePage /></RequireAuth>} />
             <Route path="admin" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
+            <Route path="artchat" element={<ArtChatPage />} />
+            <Route path="onboarding" element={<OnboardingPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

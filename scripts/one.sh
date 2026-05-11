@@ -50,7 +50,49 @@ check_csqbm() {
     return 0
 }
 
-# If executed directly (not sourced), run gate-one-pass
+# If executed directly (not sourced), parse commands
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    exec bash "$ROOT_DIR/scripts/gate-one-pass.sh" "$@"
+    CMD="${1:-help}"
+    
+    case "$CMD" in
+        trust-path|verify-contract)
+            exec bash "$ROOT_DIR/scripts/gate-one-pass.sh" "$@"
+            ;;
+        ci)
+            echo "====================================================================="
+            echo "🦅 INITIATING ONE.SH CANONICAL CI EXECUTION LEDGER"
+            echo "====================================================================="
+            
+            EXIT_CODE=0
+            
+            echo "--> Assessor Circle: Verifying Definition of Ready (DoR)..."
+            bash "$ROOT_DIR/scripts/utils/auto-dor.sh" || EXIT_CODE=$?
+            
+            if [ $EXIT_CODE -eq 0 ]; then
+                echo "--> Assessor Circle: Verifying ROAM Staleness Constraints..."
+                bash "$ROOT_DIR/scripts/utils/roam-staleness-check.sh" || EXIT_CODE=$?
+            fi
+            
+            if [ $EXIT_CODE -eq 0 ]; then
+                echo "--> Assessor Circle: Playwright E2E Physical Validation..."
+                npm ci || EXIT_CODE=$?
+                npx playwright install --with-deps || EXIT_CODE=$?
+                npx playwright test || EXIT_CODE=$?
+            fi
+            
+            echo "--> Recording Execution to Append-Only Ledger..."
+            generate_artifact "ci_execution_ledger" $EXIT_CODE
+            
+            if [ $EXIT_CODE -ne 0 ]; then
+                echo "❌ CI Execution Failed. Ledger mathematically sealed."
+                exit $EXIT_CODE
+            fi
+            
+            echo "✅ CI Execution Passed. Strict Holacracy compliance verified."
+            ;;
+        help|*)
+            echo "Usage: ./scripts/one.sh <trust-path|verify-contract|ci>"
+            exit 1
+            ;;
+    esac
 fi

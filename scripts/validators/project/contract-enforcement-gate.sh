@@ -208,10 +208,11 @@ cmd_verify() {
 
     # Health check gate
     log_info "Checking Health Scripts..."
-    { "${PROJECT_ROOT}/scripts/health-check.sh" > /dev/null || log_warn "Health Check warned."; } &
-    local health_pid=$!
-    ( sleep 15; kill -9 $health_pid 2>/dev/null ) &
-    wait $health_pid 2>/dev/null || true
+    "${PROJECT_ROOT}/scripts/health-check.sh" || {
+        local health_rc=$?
+        log_error "Health Check FAILED (exit ${health_rc}). Trust gate cannot pass with degraded substrate."
+        return 1
+    }
 
     # Coherence validation gate
     cmd_coherence

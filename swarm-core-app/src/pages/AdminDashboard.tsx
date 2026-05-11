@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import './AdminDashboard.css';
 
 /**
  * [RCA TRACE]
@@ -11,25 +12,39 @@ export const AdminDashboard: React.FC = () => {
 
     const handleProvision = async () => {
         setStatus('Provisioning (MCP Harness Active)...');
-        // Simulate UAPI injection delay via MPP
-        await new Promise(r => setTimeout(r, 1500));
-        setStatus(`SUCCESS: ${subdomain}.o-gov.com generated via TensorLedger.`);
+        try {
+            const response = await fetch('http://localhost:3001/api/provision', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ subdomain })
+            });
+            const data = await response.json();
+            
+            if (response.ok) {
+                setStatus(data.message);
+            } else {
+                setStatus(`ERROR: ${data.error || 'Failed to provision node'}`);
+            }
+        } catch (error) {
+            const e = error as Error;
+            setStatus(`ERROR: Connection to Node.js bridge failed - ${e.message}`);
+        }
     };
 
     return (
-        <div style={{ maxWidth: '900px', margin: '0 auto', padding: '2rem', fontFamily: "'Inter', sans-serif" }}>
-            <h1 style={{ fontSize: '2.5rem', marginBottom: '0.5rem', background: 'linear-gradient(135deg, #10b981 0%, #3b82f6 100%)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+        <div className="admin-dashboard-container">
+            <h1 className="admin-title">
                 Unified Swarm Administration
             </h1>
-            <p style={{ color: '#94a3b8', marginBottom: '2rem', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '1rem' }}>
+            <p className="admin-subtitle">
                 app/network/platform/software • MCP • MPP • ROAM Analysis: Active
             </p>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
+            <div className="admin-grid">
                 {/* Network Layer: Subdomain Generation */}
-                <div style={{ background: '#0f172a', padding: '1.5rem', borderRadius: '12px', border: '1px solid #1e293b' }}>
-                    <h3 style={{ margin: '0 0 1rem 0', color: '#f8fafc' }}>Subdomain Generation Harness</h3>
-                    <p style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '1rem' }}>
+                <div className="admin-panel">
+                    <h3 className="admin-panel-title">Subdomain Generation Harness</h3>
+                    <p className="admin-panel-desc">
                         Executes cPanel UAPI commands to physically allocate DNS and routing boundaries.
                     </p>
                     <input 
@@ -37,33 +52,29 @@ export const AdminDashboard: React.FC = () => {
                         placeholder="e.g., subaltern" 
                         value={subdomain}
                         onChange={(e) => setSubdomain(e.target.value)}
-                        style={{ width: '100%', padding: '0.8rem', borderRadius: '6px', border: '1px solid #334155', background: '#020617', color: '#fff', marginBottom: '1rem' }}
+                        className="admin-input"
                     />
                     <button 
                         onClick={handleProvision}
                         disabled={!subdomain}
-                        style={{
-                            width: '100%', padding: '0.8rem', borderRadius: '6px', border: 'none',
-                            background: subdomain ? '#3b82f6' : '#334155', color: '#fff', fontWeight: 'bold',
-                            cursor: subdomain ? 'pointer' : 'not-allowed', transition: 'all 0.2s'
-                        }}
+                        className={`admin-btn ${subdomain ? 'admin-btn-active' : 'admin-btn-disabled'}`}
                     >
                         Provision Subdomain (cPanel UAPI)
                     </button>
                     {status !== 'Idle' && (
-                        <div style={{ marginTop: '1rem', fontSize: '0.8rem', color: status.includes('SUCCESS') ? '#10b981' : '#f59e0b' }}>
+                        <div className={`admin-status ${status.includes('SUCCESS') ? 'admin-status-success' : 'admin-status-pending'}`}>
                             STATUS: {status}
                         </div>
                     )}
                 </div>
 
                 {/* Platform Layer: DDD Telemetry */}
-                <div style={{ background: '#0f172a', padding: '1.5rem', borderRadius: '12px', border: '1px solid #1e293b' }}>
-                    <h3 style={{ margin: '0 0 1rem 0', color: '#f8fafc' }}>DDD Structural Sovereignty</h3>
-                    <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '0.85rem', color: '#cbd5e1' }}>
-                        <li style={{ marginBottom: '0.8rem' }}>🟢 <strong>Auth Bounded Context:</strong> Whop SDK Linked</li>
-                        <li style={{ marginBottom: '0.8rem' }}>🟢 <strong>Telemetry Domain:</strong> TensorLedger Synced</li>
-                        <li style={{ marginBottom: '0.8rem' }}>🟢 <strong>Git Pipeline:</strong> Fileman UAPI Bridged</li>
+                <div className="admin-panel">
+                    <h3 className="admin-panel-title">DDD Structural Sovereignty</h3>
+                    <ul className="admin-list">
+                        <li className="admin-list-item">🟢 <strong>Auth Bounded Context:</strong> Whop SDK Linked</li>
+                        <li className="admin-list-item">🟢 <strong>Telemetry Domain:</strong> TensorLedger Synced</li>
+                        <li className="admin-list-item">🟢 <strong>Git Pipeline:</strong> Fileman UAPI Bridged</li>
                         <li>🟢 <strong>ROAM Status:</strong> All Critical Risks Mitigated</li>
                     </ul>
                 </div>

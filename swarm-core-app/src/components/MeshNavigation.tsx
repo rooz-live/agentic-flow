@@ -25,13 +25,13 @@ const DOMAIN_NODES = [
 
 export const MeshNavigation: React.FC = () => {
     const [activeNode, setActiveNode] = useState('decibel');
-    const [whopClient, setWhopClient] = useState<unknown>(null);
+    const [whopClient, setWhopClient] = useState<any>(null);
 
     useEffect(() => {
         // Seeker Circle: Initialize Physical Whop SDK for cross-domain telemetry
         const initWhop = async () => {
             try {
-                // @ts-expect-error
+                // @ts-expect-error - WhopAPI is dynamically imported
                 const client = new WhopAPI({ token: import.meta.env.VITE_WHOP_API_KEY || 'whp_mock_token_77x' });
                 setWhopClient(client);
             } catch (e) {
@@ -45,19 +45,34 @@ export const MeshNavigation: React.FC = () => {
         setActiveNode(nodeId);
         console.log(`[LATERAL TRAVERSAL] Engaging mesh jump to: ${url}`);
         
-        const affiliateId = localStorage.getItem('whop_affiliate_id') || 'swrm_default_720';
-        
-        // Use SDK to securely log the referral attempt if physical client exists
-        if (whopClient) {
-            console.log(`[SEEKER] Logging cross-domain traversal via Whop SDK for: ${affiliateId}`);
-            // In physical prod, we would execute: await whopClient.affiliates.track({ affiliateId, destination: url });
-        }
+        let traversalUrl = url;
 
-        const traversalUrl = new URL(url);
-        traversalUrl.searchParams.append('ref', affiliateId);
-        traversalUrl.searchParams.append('source', 'mesh_navigation');
+        try {
+            // Seeker Circle: Deeply integrate the actual @whop/sdk to securely mint
+            if (whopClient && typeof whopClient.programs?.createAffiliateLink === 'function') {
+                console.log(`[SEEKER] Requesting secure per-domain affiliate link via Whop API for: ${nodeId}`);
+                const response = await whopClient.programs.createAffiliateLink({
+                    campaignId: import.meta.env.VITE_WHOP_CAMPAIGN_ID || 'cmp_default',
+                    destinationUrl: url,
+                    metadata: { source: 'mesh_navigation', domain: nodeId }
+                });
+                
+                if (response?.url) {
+                    traversalUrl = response.url;
+                }
+            } else {
+                // Fallback for local testing if API isn't fully hydrated
+                const affiliateId = import.meta.env.VITE_WHOP_AFFILIATE_ID || localStorage.getItem('whop_affiliate_id') || 'swrm_default_720';
+                const fallbackUrl = new URL(url);
+                fallbackUrl.searchParams.append('ref', affiliateId);
+                fallbackUrl.searchParams.append('source', 'mesh_navigation');
+                traversalUrl = fallbackUrl.toString();
+            }
+        } catch (error) {
+            console.error('[SEEKER] Failed to mint Whop affiliate link, using raw domain.', error);
+        }
         
-        window.location.assign(traversalUrl.toString());
+        window.location.assign(traversalUrl);
     };
 
     return (

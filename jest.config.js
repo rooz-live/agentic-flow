@@ -37,12 +37,10 @@ module.exports = {
     "**/__tests__/**/*.js"
   ],
 
-  // Exclude E2E tests and process-governor (hangs Jest event loop — rate limiter's
-  // while(true) + sleep() loop blocks indefinitely under mocked OS conditions)
+  // Exclude E2E tests from unit test scope
   testPathIgnorePatterns: [
     "/node_modules/",
-    "/tests/e2e/",
-    "process-governor\.test"
+    "/tests/e2e/"
   ],
   
   // Transform configuration

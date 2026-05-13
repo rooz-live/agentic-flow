@@ -21,54 +21,85 @@ import { spawn } from 'child_process';
 import { ingestGovernorEvent } from './processGovernorBridge';
 import { getThresholdManager, DynamicThresholds } from './dynamicThresholdManager';
 
-// Configuration with safe defaults (optimized for high CPU load scenarios)
-export const AF_CPU_HEADROOM_TARGET = parseFloat(process.env.AF_CPU_HEADROOM_TARGET || '0.40'); 
-export const AF_BATCH_SIZE = parseInt(process.env.AF_BATCH_SIZE || '3', 10);
-export const AF_MAX_WIP = parseInt(process.env.AF_MAX_WIP || '6', 10);
-export const AF_BACKOFF_MIN_MS = parseInt(process.env.AF_BACKOFF_MIN_MS || '200', 10);
-export const AF_BACKOFF_MAX_MS = parseInt(process.env.AF_BACKOFF_MAX_MS || '30000', 10);
-export const AF_BACKOFF_MULTIPLIER = parseFloat(process.env.AF_BACKOFF_MULTIPLIER || '2.0');
+// Lazy configuration — reads process.env on every access so tests can override values.
+// Previously these were module-level consts which captured env vars at import time,
+// causing Jest tests to hang when rate-limiting couldn't be disabled.
+function _env(key: string, fallback: string): string { return process.env[key] || fallback; }
+function _envInt(key: string, fallback: string): number { return parseInt(_env(key, fallback), 10); }
+function _envFloat(key: string, fallback: string): number { return parseFloat(_env(key, fallback)); }
+function _envBool(key: string): boolean { return process.env[key] !== 'false'; }
 
-// Token bucket rate limiting (enhanced)
-export const AF_RATE_LIMIT_ENABLED = process.env.AF_RATE_LIMIT_ENABLED !== 'false';
-export const AF_TOKENS_PER_SECOND = parseInt(process.env.AF_TOKENS_PER_SECOND || '5', 10); // Reduced from 10 to 5 ops/sec ceiling
-export const AF_MAX_BURST = parseInt(process.env.AF_MAX_BURST || '10', 10); // Reduced from 20 to 10
-export const AF_TOKEN_REFILL_INTERVAL_MS = parseInt(process.env.AF_TOKEN_REFILL_INTERVAL_MS || '200', 10); // Refill every 200ms
+// Accessor object — every property reads process.env lazily
+const C = {
+  get AF_CPU_HEADROOM_TARGET() { return _envFloat('AF_CPU_HEADROOM_TARGET', '0.40'); },
+  get AF_BATCH_SIZE() { return _envInt('AF_BATCH_SIZE', '3'); },
+  get AF_MAX_WIP() { return _envInt('AF_MAX_WIP', '6'); },
+  get AF_BACKOFF_MIN_MS() { return _envInt('AF_BACKOFF_MIN_MS', '200'); },
+  get AF_BACKOFF_MAX_MS() { return _envInt('AF_BACKOFF_MAX_MS', '30000'); },
+  get AF_BACKOFF_MULTIPLIER() { return _envFloat('AF_BACKOFF_MULTIPLIER', '2.0'); },
+  get AF_RATE_LIMIT_ENABLED() { return _envBool('AF_RATE_LIMIT_ENABLED'); },
+  get AF_TOKENS_PER_SECOND() { return _envInt('AF_TOKENS_PER_SECOND', '5'); },
+  get AF_MAX_BURST() { return _envInt('AF_MAX_BURST', '10'); },
+  get AF_TOKEN_REFILL_INTERVAL_MS() { return _envInt('AF_TOKEN_REFILL_INTERVAL_MS', '200'); },
+  get AF_ENHANCED_BACKOFF_START_MS() { return _envInt('AF_ENHANCED_BACKOFF_START_MS', '250'); },
+  get AF_ENHANCED_BACKOFF_FACTOR() { return _envFloat('AF_ENHANCED_BACKOFF_FACTOR', '2.0'); },
+  get AF_ENHANCED_BACKOFF_JITTER() { return _envFloat('AF_ENHANCED_BACKOFF_JITTER', '0.20'); },
+  get AF_ENHANCED_BACKOFF_CEILING_MS() { return _envInt('AF_ENHANCED_BACKOFF_CEILING_MS', '60000'); },
+  get AF_MICRO_BATCH_SIZE() { return _envInt('AF_MICRO_BATCH_SIZE', '10'); },
+  get AF_MICRO_BATCH_FLUSH_INTERVAL_MS() { return _envInt('AF_MICRO_BATCH_FLUSH_INTERVAL_MS', '5000'); },
+  get AF_MICRO_BATCH_DROP_OLDEST() { return _envBool('AF_MICRO_BATCH_DROP_OLDEST'); },
+  get AF_ADAPTIVE_POLL_MIN_MS() { return _envInt('AF_ADAPTIVE_POLL_MIN_MS', '50'); },
+  get AF_ADAPTIVE_POLL_MAX_MS() { return _envInt('AF_ADAPTIVE_POLL_MAX_MS', '5000'); },
+  get AF_ADAPTIVE_THROTTLING_ENABLED() { return _envBool('AF_ADAPTIVE_THROTTLING_ENABLED'); },
+  get AF_PREDICTIVE_THROTTLING() { return _envBool('AF_PREDICTIVE_THROTTLING'); },
+  get AF_DEPENDENCY_ANALYSIS_ENABLED() { return _envBool('AF_DEPENDENCY_ANALYSIS_ENABLED'); },
+  get AF_BATCH_MAPPING_ENABLED() { return _envBool('AF_BATCH_MAPPING_ENABLED'); },
+  get AF_EXECUTION_ORDER_OPTIMIZATION() { return _envBool('AF_EXECUTION_ORDER_OPTIMIZATION'); },
+  get AF_LOAD_HISTORY_SIZE() { return _envInt('AF_LOAD_HISTORY_SIZE', '30'); },
+  get AF_MAX_BATCH_SIZE() { return _envInt('AF_MAX_BATCH_SIZE', '50'); },
+  get AF_CPU_WARNING_THRESHOLD() { return _envFloat('AF_CPU_WARNING_THRESHOLD', '0.65'); },
+  get AF_CPU_CRITICAL_THRESHOLD() { return _envFloat('AF_CPU_CRITICAL_THRESHOLD', '0.80'); },
+  get AF_CIRCUIT_BREAKER_ENABLED() { return _envBool('AF_CIRCUIT_BREAKER_ENABLED'); },
+  get AF_CIRCUIT_BREAKER_THRESHOLD() { return _envInt('AF_CIRCUIT_BREAKER_THRESHOLD', '5'); },
+  get AF_CIRCUIT_BREAKER_WINDOW_MS() { return _envInt('AF_CIRCUIT_BREAKER_WINDOW_MS', '10000'); },
+  get AF_CIRCUIT_BREAKER_COOLDOWN_MS() { return _envInt('AF_CIRCUIT_BREAKER_COOLDOWN_MS', '30000'); },
+  get AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS() { return _envInt('AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS', '3'); },
+};
 
-// Enhanced exponential backoff (Phase 1.1)
-export const AF_ENHANCED_BACKOFF_START_MS = parseInt(process.env.AF_ENHANCED_BACKOFF_START_MS || '250', 10);
-export const AF_ENHANCED_BACKOFF_FACTOR = parseFloat(process.env.AF_ENHANCED_BACKOFF_FACTOR || '2.0');
-export const AF_ENHANCED_BACKOFF_JITTER = parseFloat(process.env.AF_ENHANCED_BACKOFF_JITTER || '0.20'); // 20% jitter
-export const AF_ENHANCED_BACKOFF_CEILING_MS = parseInt(process.env.AF_ENHANCED_BACKOFF_CEILING_MS || '60000', 10); // 60s ceiling
-
-// Micro-batching configuration (Phase 1.1)
-export const AF_MICRO_BATCH_SIZE = parseInt(process.env.AF_MICRO_BATCH_SIZE || '10', 10);
-export const AF_MICRO_BATCH_FLUSH_INTERVAL_MS = parseInt(process.env.AF_MICRO_BATCH_FLUSH_INTERVAL_MS || '5000', 10); // 5s flush interval
-export const AF_MICRO_BATCH_DROP_OLDEST = process.env.AF_MICRO_BATCH_DROP_OLDEST !== 'false';
-
-// Adaptive polling configuration (Phase 1.1)
-export const AF_ADAPTIVE_POLL_MIN_MS = parseInt(process.env.AF_ADAPTIVE_POLL_MIN_MS || '50', 10);
-export const AF_ADAPTIVE_POLL_MAX_MS = parseInt(process.env.AF_ADAPTIVE_POLL_MAX_MS || '5000', 10);
-
-// Advanced throttling features (Phase 1.1)
-export const AF_ADAPTIVE_THROTTLING_ENABLED = process.env.AF_ADAPTIVE_THROTTLING_ENABLED !== 'false';
-export const AF_PREDICTIVE_THROTTLING = process.env.AF_PREDICTIVE_THROTTLING !== 'false';
-export const AF_DEPENDENCY_ANALYSIS_ENABLED = process.env.AF_DEPENDENCY_ANALYSIS_ENABLED !== 'false';
-export const AF_BATCH_MAPPING_ENABLED = process.env.AF_BATCH_MAPPING_ENABLED !== 'false';
-export const AF_EXECUTION_ORDER_OPTIMIZATION = process.env.AF_EXECUTION_ORDER_OPTIMIZATION !== 'false';
-export const AF_LOAD_HISTORY_SIZE = parseInt(process.env.AF_LOAD_HISTORY_SIZE || '30', 10);
-export const AF_MAX_BATCH_SIZE = parseInt(process.env.AF_MAX_BATCH_SIZE || '50', 10);
-
-// CPU load thresholds (Phase 1.1)
-export const AF_CPU_WARNING_THRESHOLD = parseFloat(process.env.AF_CPU_WARNING_THRESHOLD || '0.65'); // 65%
-export const AF_CPU_CRITICAL_THRESHOLD = parseFloat(process.env.AF_CPU_CRITICAL_THRESHOLD || '0.80'); // 80%
-
-// Circuit breaker configuration
-export const AF_CIRCUIT_BREAKER_ENABLED = process.env.AF_CIRCUIT_BREAKER_ENABLED !== 'false';
-export const AF_CIRCUIT_BREAKER_THRESHOLD = parseInt(process.env.AF_CIRCUIT_BREAKER_THRESHOLD || '5', 10);
-export const AF_CIRCUIT_BREAKER_WINDOW_MS = parseInt(process.env.AF_CIRCUIT_BREAKER_WINDOW_MS || '10000', 10);
-export const AF_CIRCUIT_BREAKER_COOLDOWN_MS = parseInt(process.env.AF_CIRCUIT_BREAKER_COOLDOWN_MS || '30000', 10);
-export const AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS = parseInt(process.env.AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS || '3', 10);
+// Re-export individual names for backward compatibility (now lazy via getters)
+export const AF_CPU_HEADROOM_TARGET = undefined as unknown as number; // Use C.AF_CPU_HEADROOM_TARGET
+export const AF_BATCH_SIZE = undefined as unknown as number;
+export const AF_MAX_WIP = undefined as unknown as number;
+export const AF_BACKOFF_MIN_MS = undefined as unknown as number;
+export const AF_BACKOFF_MAX_MS = undefined as unknown as number;
+export const AF_BACKOFF_MULTIPLIER = undefined as unknown as number;
+export const AF_RATE_LIMIT_ENABLED = undefined as unknown as boolean;
+export const AF_TOKENS_PER_SECOND = undefined as unknown as number;
+export const AF_MAX_BURST = undefined as unknown as number;
+export const AF_TOKEN_REFILL_INTERVAL_MS = undefined as unknown as number;
+export const AF_ENHANCED_BACKOFF_START_MS = undefined as unknown as number;
+export const AF_ENHANCED_BACKOFF_FACTOR = undefined as unknown as number;
+export const AF_ENHANCED_BACKOFF_JITTER = undefined as unknown as number;
+export const AF_ENHANCED_BACKOFF_CEILING_MS = undefined as unknown as number;
+export const AF_MICRO_BATCH_SIZE = undefined as unknown as number;
+export const AF_MICRO_BATCH_FLUSH_INTERVAL_MS = undefined as unknown as number;
+export const AF_MICRO_BATCH_DROP_OLDEST = undefined as unknown as boolean;
+export const AF_ADAPTIVE_POLL_MIN_MS = undefined as unknown as number;
+export const AF_ADAPTIVE_POLL_MAX_MS = undefined as unknown as number;
+export const AF_ADAPTIVE_THROTTLING_ENABLED = undefined as unknown as boolean;
+export const AF_PREDICTIVE_THROTTLING = undefined as unknown as boolean;
+export const AF_DEPENDENCY_ANALYSIS_ENABLED = undefined as unknown as boolean;
+export const AF_BATCH_MAPPING_ENABLED = undefined as unknown as boolean;
+export const AF_EXECUTION_ORDER_OPTIMIZATION = undefined as unknown as boolean;
+export const AF_LOAD_HISTORY_SIZE = undefined as unknown as number;
+export const AF_MAX_BATCH_SIZE = undefined as unknown as number;
+export const AF_CPU_WARNING_THRESHOLD = undefined as unknown as number;
+export const AF_CPU_CRITICAL_THRESHOLD = undefined as unknown as number;
+export const AF_CIRCUIT_BREAKER_ENABLED = undefined as unknown as boolean;
+export const AF_CIRCUIT_BREAKER_THRESHOLD = undefined as unknown as number;
+export const AF_CIRCUIT_BREAKER_WINDOW_MS = undefined as unknown as number;
+export const AF_CIRCUIT_BREAKER_COOLDOWN_MS = undefined as unknown as number;
+export const AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS = undefined as unknown as number;
 
 export enum CircuitBreakerState {
   CLOSED = 'CLOSED',
@@ -164,9 +195,9 @@ const state: GovernorState = {
   queuedWork: 0,
   completedWork: 0,
   failedWork: 0,
-  currentBackoff: AF_ENHANCED_BACKOFF_START_MS,
+  currentBackoff: C.AF_ENHANCED_BACKOFF_START_MS,
   lastLoadCheck: Date.now(),
-  availableTokens: AF_MAX_BURST,
+  availableTokens: C.AF_MAX_BURST,
   lastTokenRefill: Date.now(),
   circuitBreaker: {
     state: CircuitBreakerState.CLOSED,
@@ -191,10 +222,10 @@ const state: GovernorState = {
   incidentBuffer: [],
   incidents: [],
   metrics: {
-    tokens_available: AF_MAX_BURST,
+    tokens_available: C.AF_MAX_BURST,
     throttle_events: 0,
-    backoff_ms: AF_ENHANCED_BACKOFF_START_MS,
-    poll_ms: AF_ADAPTIVE_POLL_MIN_MS,
+    backoff_ms: C.AF_ENHANCED_BACKOFF_START_MS,
+    poll_ms: C.AF_ADAPTIVE_POLL_MIN_MS,
     batch_depth: 0,
     dropped_events: 0,
     queue_depth: 0,
@@ -352,13 +383,13 @@ function getIdlePercentage(): number {
 
 /**
  * Phase 1.1: Enhanced token bucket with interval-based refilling
- * Refills tokens at a fixed rate (AF_TOKEN_REFILL_INTERVAL_MS)
+ * Refills tokens at a fixed rate (C.AF_TOKEN_REFILL_INTERVAL_MS)
  * This reduces CPU overhead from constant refill calculations
  */
 function refillTokens(): void {
-  if (!AF_RATE_LIMIT_ENABLED) {
-    state.availableTokens = AF_MAX_BURST;
-    state.metrics.tokens_available = AF_MAX_BURST;
+  if (!C.AF_RATE_LIMIT_ENABLED) {
+    state.availableTokens = C.AF_MAX_BURST;
+    state.metrics.tokens_available = C.AF_MAX_BURST;
     return;
   }
 
@@ -366,15 +397,15 @@ function refillTokens(): void {
   const elapsedMs = now - state.lastTokenRefill;
 
   // Only refill if enough time has passed (reduces overhead)
-  if (elapsedMs >= AF_TOKEN_REFILL_INTERVAL_MS) {
-    const intervals = Math.floor(elapsedMs / AF_TOKEN_REFILL_INTERVAL_MS);
-    const tokensToAdd = (AF_TOKENS_PER_SECOND * AF_TOKEN_REFILL_INTERVAL_MS / 1000) * intervals;
+  if (elapsedMs >= C.AF_TOKEN_REFILL_INTERVAL_MS) {
+    const intervals = Math.floor(elapsedMs / C.AF_TOKEN_REFILL_INTERVAL_MS);
+    const tokensToAdd = (C.AF_TOKENS_PER_SECOND * C.AF_TOKEN_REFILL_INTERVAL_MS / 1000) * intervals;
     
     state.availableTokens = Math.min(
       state.availableTokens + tokensToAdd,
-      AF_MAX_BURST
+      C.AF_MAX_BURST
     );
-    state.lastTokenRefill = now - (elapsedMs % AF_TOKEN_REFILL_INTERVAL_MS);
+    state.lastTokenRefill = now - (elapsedMs % C.AF_TOKEN_REFILL_INTERVAL_MS);
     
     // Update metrics
     state.metrics.tokens_available = state.availableTokens;
@@ -391,12 +422,12 @@ function consumeToken(): boolean {
 }
 
 export function isCircuitClosed(): boolean {
-  if (!AF_CIRCUIT_BREAKER_ENABLED) return true;
+  if (!C.AF_CIRCUIT_BREAKER_ENABLED) return true;
 
   const cb = state.circuitBreaker;
   const now = Date.now();
 
-  if (now - cb.windowStart > AF_CIRCUIT_BREAKER_WINDOW_MS) {
+  if (now - cb.windowStart > C.AF_CIRCUIT_BREAKER_WINDOW_MS) {
     cb.failures = 0;
     cb.windowStart = now;
   }
@@ -405,19 +436,19 @@ export function isCircuitClosed(): boolean {
     case CircuitBreakerState.CLOSED:
       return true;
     case CircuitBreakerState.OPEN:
-      if (now - cb.lastStateChange >= AF_CIRCUIT_BREAKER_COOLDOWN_MS) {
+      if (now - cb.lastStateChange >= C.AF_CIRCUIT_BREAKER_COOLDOWN_MS) {
         cb.state = CircuitBreakerState.HALF_OPEN;
         cb.halfOpenRequests = 0;
         cb.lastStateChange = now;
         logIncident('CIRCUIT_HALF_OPEN', {
-          cooldownMs: AF_CIRCUIT_BREAKER_COOLDOWN_MS,
+          cooldownMs: C.AF_CIRCUIT_BREAKER_COOLDOWN_MS,
           previousFailures: cb.failures,
         });
         return true;
       }
       return false;
     case CircuitBreakerState.HALF_OPEN:
-      if (cb.halfOpenRequests < AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS) {
+      if (cb.halfOpenRequests < C.AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS) {
         cb.halfOpenRequests++;
         return true;
       }
@@ -428,11 +459,11 @@ export function isCircuitClosed(): boolean {
 }
 
 export function recordSuccess(): void {
-  if (!AF_CIRCUIT_BREAKER_ENABLED) return;
+  if (!C.AF_CIRCUIT_BREAKER_ENABLED) return;
   const cb = state.circuitBreaker;
   cb.successes++;
   if (cb.state === CircuitBreakerState.HALF_OPEN) {
-    if (cb.successes >= AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS) {
+    if (cb.successes >= C.AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS) {
       cb.state = CircuitBreakerState.CLOSED;
       cb.failures = 0;
       cb.successes = 0;
@@ -444,7 +475,7 @@ export function recordSuccess(): void {
 }
 
 export function recordFailure(): void {
-  if (!AF_CIRCUIT_BREAKER_ENABLED) return;
+  if (!C.AF_CIRCUIT_BREAKER_ENABLED) return;
   const cb = state.circuitBreaker;
   const now = Date.now();
   cb.failures++;
@@ -456,7 +487,7 @@ export function recordFailure(): void {
     cb.lastStateChange = now;
     logIncident('CIRCUIT_OPEN', { trigger: 'half-open-failure', failures: cb.failures });
   } else if (cb.state === CircuitBreakerState.CLOSED) {
-    if (cb.failures >= AF_CIRCUIT_BREAKER_THRESHOLD) {
+    if (cb.failures >= C.AF_CIRCUIT_BREAKER_THRESHOLD) {
       cb.state = CircuitBreakerState.OPEN;
       cb.lastStateChange = now;
       logIncident('CIRCUIT_OPEN', { trigger: 'threshold-exceeded', failures: cb.failures });
@@ -488,7 +519,7 @@ async function waitForCapacity(count: number = 1): Promise<void> {
   state.adaptiveThrottlingLevel = throttlingLevel;
   
   // Apply adaptive delays based on throttling level
-  const adaptiveDelay = Math.floor((1 - throttlingLevel) * AF_BACKOFF_MIN_MS);
+  const adaptiveDelay = Math.floor((1 - throttlingLevel) * C.AF_BACKOFF_MIN_MS);
   
   while (true) {
     // 1. Circuit Breaker
@@ -498,14 +529,14 @@ async function waitForCapacity(count: number = 1): Promise<void> {
     }
 
     // 2. Predictive Load Check (if enabled)
-    if (AF_PREDICTIVE_THROTTLING) {
+    if (C.AF_PREDICTIVE_THROTTLING) {
       const predictiveScore = calculatePredictiveLoadScore();
       state.predictiveLoadScore = predictiveScore;
       
-      if (predictiveScore > AF_CPU_CRITICAL_THRESHOLD) {
+      if (predictiveScore > C.AF_CPU_CRITICAL_THRESHOLD) {
         logIncident('PREDICTIVE_THROTTLING', {
           predictiveScore,
-          threshold: AF_CPU_CRITICAL_THRESHOLD,
+          threshold: C.AF_CPU_CRITICAL_THRESHOLD,
           activeWork: state.activeWork
         });
         await sleep(adaptiveDelay * 2); // Longer delay for predicted high load
@@ -514,8 +545,8 @@ async function waitForCapacity(count: number = 1): Promise<void> {
     }
 
     // 3. Enhanced Token Bucket (Rate Limit) with adaptive throttling
-    const adjustedTokensPerSecond = Math.floor(AF_TOKENS_PER_SECOND * throttlingLevel);
-    const adjustedMaxBurst = Math.floor(AF_MAX_BURST * throttlingLevel);
+    const adjustedTokensPerSecond = Math.floor(C.AF_TOKENS_PER_SECOND * throttlingLevel);
+    const adjustedMaxBurst = Math.floor(C.AF_MAX_BURST * throttlingLevel);
     
     // For batch > 1, we might consume multiple tokens
     const tokensNeeded = Math.ceil(count * throttlingLevel);
@@ -532,7 +563,7 @@ async function waitForCapacity(count: number = 1): Promise<void> {
     }
 
     // 4. Adaptive WIP Limit based on system load
-    const adaptiveMaxWip = Math.floor(AF_MAX_WIP * throttlingLevel);
+    const adaptiveMaxWip = Math.floor(C.AF_MAX_WIP * throttlingLevel);
     if (state.activeWork + count > adaptiveMaxWip) {
       logIncident('ADAPTIVE_THROTTLING', {
         activeWork: state.activeWork,
@@ -551,8 +582,8 @@ async function waitForCapacity(count: number = 1): Promise<void> {
     const cpuLoad = getCpuLoad();
     const loadRatio = cpuLoad / 100;
     const pollInterval = Math.floor(
-      AF_ADAPTIVE_POLL_MIN_MS + 
-      (AF_ADAPTIVE_POLL_MAX_MS - AF_ADAPTIVE_POLL_MIN_MS) * loadRatio
+      C.AF_ADAPTIVE_POLL_MIN_MS + 
+      (C.AF_ADAPTIVE_POLL_MAX_MS - C.AF_ADAPTIVE_POLL_MIN_MS) * loadRatio
     );
     state.metrics.poll_ms = pollInterval;
     
@@ -561,10 +592,10 @@ async function waitForCapacity(count: number = 1): Promise<void> {
       const idlePercent = getIdlePercentage();
       
       // Adaptive target based on throttling level
-      const targetIdlePercent = AF_CPU_HEADROOM_TARGET * 100 * throttlingLevel;
+      const targetIdlePercent = C.AF_CPU_HEADROOM_TARGET * 100 * throttlingLevel;
       
       // Multi-tier CPU load response with enhanced backoff
-      if (cpuLoad > AF_CPU_CRITICAL_THRESHOLD * 100) {
+      if (cpuLoad > C.AF_CPU_CRITICAL_THRESHOLD * 100) {
         logIncident('CPU_OVERLOAD', {
           idlePercent,
           cpuLoad,
@@ -575,16 +606,16 @@ async function waitForCapacity(count: number = 1): Promise<void> {
         });
         
         // Phase 1.1: Enhanced exponential backoff with jitter
-        const jitter = Math.random() * AF_ENHANCED_BACKOFF_JITTER;
+        const jitter = Math.random() * C.AF_ENHANCED_BACKOFF_JITTER;
         const backoffWithJitter = state.currentBackoff * (1 + jitter);
         await sleep(backoffWithJitter);
         state.currentBackoff = Math.min(
-          state.currentBackoff * AF_ENHANCED_BACKOFF_FACTOR * 1.5, // Faster escalation for critical
-          AF_ENHANCED_BACKOFF_CEILING_MS
+          state.currentBackoff * C.AF_ENHANCED_BACKOFF_FACTOR * 1.5, // Faster escalation for critical
+          C.AF_ENHANCED_BACKOFF_CEILING_MS
         );
         state.metrics.backoff_ms = state.currentBackoff;
         continue;
-      } else if (cpuLoad > AF_CPU_WARNING_THRESHOLD * 100) {
+      } else if (cpuLoad > C.AF_CPU_WARNING_THRESHOLD * 100) {
         logIncident('CPU_OVERLOAD', {
           idlePercent,
           cpuLoad,
@@ -596,8 +627,8 @@ async function waitForCapacity(count: number = 1): Promise<void> {
         
         await sleep(state.currentBackoff);
         state.currentBackoff = Math.min(
-          state.currentBackoff * AF_ENHANCED_BACKOFF_FACTOR,
-          AF_ENHANCED_BACKOFF_CEILING_MS
+          state.currentBackoff * C.AF_ENHANCED_BACKOFF_FACTOR,
+          C.AF_ENHANCED_BACKOFF_CEILING_MS
         );
         state.metrics.backoff_ms = state.currentBackoff;
         continue;
@@ -616,7 +647,7 @@ async function waitForCapacity(count: number = 1): Promise<void> {
         continue;
       } else {
         // Reset backoff on healthy load
-        state.currentBackoff = AF_ENHANCED_BACKOFF_START_MS;
+        state.currentBackoff = C.AF_ENHANCED_BACKOFF_START_MS;
         state.metrics.backoff_ms = state.currentBackoff;
       }
     }
@@ -663,7 +694,7 @@ function updateLoadHistory(): void {
   state.loadHistory.push(entry);
   
   // Keep only the recent history
-  if (state.loadHistory.length > AF_LOAD_HISTORY_SIZE) {
+  if (state.loadHistory.length > C.AF_LOAD_HISTORY_SIZE) {
     state.loadHistory.shift();
   }
 }
@@ -685,7 +716,7 @@ function calculatePredictiveLoadScore(): number {
 }
 
 function calculateAdaptiveThrottlingLevel(): number {
-  if (!AF_ADAPTIVE_THROTTLING_ENABLED) return 1.0;
+  if (!C.AF_ADAPTIVE_THROTTLING_ENABLED) return 1.0;
   
   const currentLoad = getCpuLoad() / 100;
   const predictiveScore = calculatePredictiveLoadScore();
@@ -696,11 +727,11 @@ function calculateAdaptiveThrottlingLevel(): number {
   // Calculate throttling level: 1.0 = no throttling, 0.1 = maximum throttling
   let throttlingLevel = 1.0;
   
-  if (combinedLoad > AF_CPU_CRITICAL_THRESHOLD) {
+  if (combinedLoad > C.AF_CPU_CRITICAL_THRESHOLD) {
     throttlingLevel = 0.1; // Severe throttling
-  } else if (combinedLoad > AF_CPU_WARNING_THRESHOLD) {
+  } else if (combinedLoad > C.AF_CPU_WARNING_THRESHOLD) {
     throttlingLevel = 0.3; // Moderate throttling
-  } else if (combinedLoad > AF_CPU_HEADROOM_TARGET) {
+  } else if (combinedLoad > C.AF_CPU_HEADROOM_TARGET) {
     throttlingLevel = 0.6; // Light throttling
   }
   
@@ -709,7 +740,7 @@ function calculateAdaptiveThrottlingLevel(): number {
 
 // Process dependency analysis and batch optimization
 function analyzeProcessDependencies(items: any[]): ProcessDependency[] {
-  if (!AF_DEPENDENCY_ANALYSIS_ENABLED) {
+  if (!C.AF_DEPENDENCY_ANALYSIS_ENABLED) {
     return items.map((item, index) => ({
       id: `item-${index}`,
       dependencies: [],
@@ -736,7 +767,7 @@ function analyzeProcessDependencies(items: any[]): ProcessDependency[] {
 }
 
 function optimizeExecutionOrder(dependencies: ProcessDependency[]): ProcessDependency[] {
-  if (!AF_EXECUTION_ORDER_OPTIMIZATION) return dependencies;
+  if (!C.AF_EXECUTION_ORDER_OPTIMIZATION) return dependencies;
   
   // Topological sort to respect dependencies
   const sorted: ProcessDependency[] = [];
@@ -772,9 +803,9 @@ function optimizeExecutionOrder(dependencies: ProcessDependency[]): ProcessDepen
 }
 
 function createOptimalBatches<T>(items: T[], dependencies: ProcessDependency[]): T[][] {
-  if (!AF_BATCH_MAPPING_ENABLED) {
-    return Array.from({ length: Math.ceil(items.length / AF_BATCH_SIZE) }, (_, i) =>
-      items.slice(i * AF_BATCH_SIZE, (i + 1) * AF_BATCH_SIZE)
+  if (!C.AF_BATCH_MAPPING_ENABLED) {
+    return Array.from({ length: Math.ceil(items.length / C.AF_BATCH_SIZE) }, (_, i) =>
+      items.slice(i * C.AF_BATCH_SIZE, (i + 1) * C.AF_BATCH_SIZE)
     );
   }
   
@@ -782,7 +813,7 @@ function createOptimalBatches<T>(items: T[], dependencies: ProcessDependency[]):
   const orderedDeps = optimizeExecutionOrder(dependencies);
   let currentBatch: T[] = [];
   let currentBatchResources = 0;
-  const maxBatchResources = AF_MAX_BATCH_SIZE;
+  const maxBatchResources = C.AF_MAX_BATCH_SIZE;
   
   for (const dep of orderedDeps) {
     const itemIndex = parseInt(dep.id.split('-')[1]);
@@ -790,7 +821,7 @@ function createOptimalBatches<T>(items: T[], dependencies: ProcessDependency[]):
     
     // Check if adding this item would exceed batch resource limits
     if (currentBatchResources + dep.resourceWeight > maxBatchResources ||
-        currentBatch.length >= AF_MAX_BATCH_SIZE) {
+        currentBatch.length >= C.AF_MAX_BATCH_SIZE) {
       if (currentBatch.length > 0) {
         batches.push(currentBatch);
         currentBatch = [];
@@ -814,7 +845,7 @@ export async function runBatched<T, R>(
   processor: (item: T, index: number) => Promise<R>,
   options?: { batchSize?: number; maxRetries?: number; }
 ): Promise<R[]> {
-  const batchSize = options?.batchSize || AF_BATCH_SIZE;
+  const batchSize = options?.batchSize || C.AF_BATCH_SIZE;
   const maxRetries = options?.maxRetries || 3;
   const results: R[] = [];
 
@@ -856,7 +887,7 @@ export async function runBatched<T, R>(
           lastError = err as Error;
           if (retry < maxRetries) {
             // Enhanced exponential backoff with jitter and adaptive scaling
-            const baseBackoff = AF_BACKOFF_MIN_MS * Math.pow(2, retry);
+            const baseBackoff = C.AF_BACKOFF_MIN_MS * Math.pow(2, retry);
             const adaptiveScaling = 1 + (1 - state.adaptiveThrottlingLevel); // Scale backoff based on load
             const jitter = Math.random() * 0.2; // 20% jitter
             const retryBackoff = Math.floor(baseBackoff * adaptiveScaling * (1 + jitter));
@@ -897,7 +928,7 @@ export async function runBatched<T, R>(
     // Adaptive delay between batches based on system load
     if (batchIndex < batches.length - 1) { // Not the last batch
       const interBatchDelay = Math.floor(
-        (1 - state.adaptiveThrottlingLevel) * AF_BACKOFF_MIN_MS
+        (1 - state.adaptiveThrottlingLevel) * C.AF_BACKOFF_MIN_MS
       );
       if (interBatchDelay > 0) {
         await sleep(interBatchDelay);
@@ -952,9 +983,9 @@ export function reset(): void {
   state.queuedWork = 0;
   state.completedWork = 0;
   state.failedWork = 0;
-  state.currentBackoff = AF_ENHANCED_BACKOFF_START_MS;
+  state.currentBackoff = C.AF_ENHANCED_BACKOFF_START_MS;
   state.lastLoadCheck = Date.now();
-  state.availableTokens = AF_MAX_BURST;
+  state.availableTokens = C.AF_MAX_BURST;
   state.lastTokenRefill = Date.now();
   state.circuitBreaker = {
     state: CircuitBreakerState.CLOSED,
@@ -973,10 +1004,10 @@ export function reset(): void {
   state.incidentBuffer = [];
   state.incidents = [];
   state.metrics = {
-    tokens_available: AF_MAX_BURST,
+    tokens_available: C.AF_MAX_BURST,
     throttle_events: 0,
-    backoff_ms: AF_ENHANCED_BACKOFF_START_MS,
-    poll_ms: AF_ADAPTIVE_POLL_MIN_MS,
+    backoff_ms: C.AF_ENHANCED_BACKOFF_START_MS,
+    poll_ms: C.AF_ADAPTIVE_POLL_MIN_MS,
     batch_depth: 0,
     dropped_events: 0,
     queue_depth: 0,
@@ -984,40 +1015,9 @@ export function reset(): void {
   };
 }
 
-export const config = {
-  // Original config
-  AF_CPU_HEADROOM_TARGET,
-  AF_BATCH_SIZE,
-  AF_MAX_WIP,
-  AF_BACKOFF_MIN_MS,
-  AF_BACKOFF_MAX_MS,
-  AF_BACKOFF_MULTIPLIER,
-  AF_RATE_LIMIT_ENABLED,
-  AF_TOKENS_PER_SECOND,
-  AF_MAX_BURST,
-  AF_CIRCUIT_BREAKER_ENABLED,
-  AF_CIRCUIT_BREAKER_THRESHOLD,
-  AF_CIRCUIT_BREAKER_WINDOW_MS,
-  AF_CIRCUIT_BREAKER_COOLDOWN_MS,
-  AF_CIRCUIT_BREAKER_HALF_OPEN_REQUESTS,
-  // Phase 1.1: Enhanced config
-  AF_TOKEN_REFILL_INTERVAL_MS,
-  AF_ENHANCED_BACKOFF_START_MS,
-  AF_ENHANCED_BACKOFF_FACTOR,
-  AF_ENHANCED_BACKOFF_JITTER,
-  AF_ENHANCED_BACKOFF_CEILING_MS,
-  AF_MICRO_BATCH_SIZE,
-  AF_MICRO_BATCH_FLUSH_INTERVAL_MS,
-  AF_MICRO_BATCH_DROP_OLDEST,
-  AF_ADAPTIVE_POLL_MIN_MS,
-  AF_ADAPTIVE_POLL_MAX_MS,
-  AF_ADAPTIVE_THROTTLING_ENABLED,
-  AF_PREDICTIVE_THROTTLING,
-  AF_DEPENDENCY_ANALYSIS_ENABLED,
-  AF_BATCH_MAPPING_ENABLED,
-  AF_EXECUTION_ORDER_OPTIMIZATION,
-  AF_LOAD_HISTORY_SIZE,
-  AF_MAX_BATCH_SIZE,
-  AF_CPU_WARNING_THRESHOLD,
-  AF_CPU_CRITICAL_THRESHOLD,
-};
+// Re-export config as a lazy proxy — reads from C (process.env) on every access
+export const config = new Proxy(C, {
+  get(target, prop) {
+    return (target as any)[prop];
+  }
+});

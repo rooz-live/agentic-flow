@@ -12,7 +12,7 @@
 set -euo pipefail
 
 REPO_URL="${REPO_URL:-https://github.com/rooz-live/agentic-flow.git}"
-REPO_PATH="${REPO_PATH:-/home/ogov/repositories/agentic-flow}"
+REPO_PATH="${REPO_PATH:-/home/tag/repositories/agentic-flow}"
 BRANCH="${BRANCH:-main}"
 
 echo "═══════════════════════════════════════════════════"

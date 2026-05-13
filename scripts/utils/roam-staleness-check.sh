@@ -25,12 +25,9 @@ echo ""
 
 cd "$PROJECT_ROOT"
 
-# Find all ROAM files (excluding node_modules, .git, archive, dist)
+# Find all ROAM files tracked by git to prevent massive filesystem hangs
 echo "Scanning for ROAM files..."
-ROAM_FILES=$(find . \
-  \( -name "node_modules" -o -name ".git" -o -name "archive" -o -name "dist" -o -name ".goalie" -o -name "external" -o -name ".archived-temp" \) -prune -o \
-  -type f \( -name "ROAM-*.md" -o -name "*-roam.md" -o -name "ROAM.md" \) -print \
-  2>/dev/null)
+ROAM_FILES=$(git ls-files '*ROAM*.md' '*roam*.md' 2>/dev/null || echo "")
 
 if [ -z "$ROAM_FILES" ]; then
   echo -e "${YELLOW}⚠️  No ROAM files found${NC}"

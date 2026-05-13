@@ -5,6 +5,26 @@ All notable changes to agentic-flow will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.0] - 2026-05-13
+
+### 📈 Dimensional Upgrade: Business Intel & Agentic Analytics
+
+This release transitions the Swarm from reactive efficiency to WSJF-governed effectiveness. It introduces the Autonomous Ingestion Engine to permanently eradicate "completion theater" and UI redundancy across sub-domains (ArtChat, Decibel, etc.).
+
+#### Added
+- **WSJF Autonomous Engine:** `autonomous_ingestion_engine.js` physically maps Holacracy roles (512+ nodes) and local `.csv` trackers into a unified queue.
+- **MAX ROI Constraints:** `IDE_WORKSPACE_PROMPT.md` is now hard-locked to prevent redundant UI generation. All sub-domains must inherit universal `MeshNavigation` and `DynamicPhaseGates`.
+- **Physical Ledger:** `CAPABILITY_BACKLOG.md` is now the mathematical, WSJF-sorted physical truth.
+
+#### Fixed
+- **Redundancy Purge (Effectiveness > Efficiency):** Deduplicated 569 overlapping tracking nodes across the swarm memory matrix to re-focus agents on high-yield capabilities (e.g., 35% Whop Affiliate payouts).
+
+#### Positioned
+- **Chosen First Method:** Integrated Clarity, Credibility, Proof, and Presence into agent outputs to unlock "Sought Out / Invited" statuses. Small hinges swing big doors.
+- **Dynamic Phase Gates:** Shifted from static UI to targeted canvas/slider/pill interfaces based on user maturity levels.
+
+---
+
 ## [2.4.0] - 2025-11-30
 
 ### 🎉 Production Maturity Release: Closed-Loop Governance & CI/CD

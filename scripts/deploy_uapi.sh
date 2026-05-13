@@ -17,6 +17,7 @@ DOMAINS_DIR="/Users/shahroozbhopti/Documents/code/TLD"
 
 echo "🚀 Initiating UAPI Deployment to WHM Host: $WHM_HOST on Port 2087..."
 
+shopt -s dotglob
 for EXT_PATH in "$DOMAINS_DIR"/*; do
     if [ -d "$EXT_PATH" ]; then
         EXT=$(basename "$EXT_PATH")
@@ -25,9 +26,17 @@ for EXT_PATH in "$DOMAINS_DIR"/*; do
                 NAME=$(basename "$DOMAIN_PATH")
                 RAW_FQDN="$NAME.$EXT"
                 FQDN=$(echo "$RAW_FQDN" | tr '[:upper:]' '[:lower:]') # Force lowercase for case-sensitive Linux cPanel paths
-                TARGET_DIR="/home/$CPANEL_ACCT/$FQDN/public_html"
+                # Dynamically resolve cPanel user from .env mapping
+                MAPPED_USER=$(echo "$CPANEL_USERS_MAPPING" | jq -r ".\"$FQDN\"")
+                if [ "$MAPPED_USER" == "null" ] || [ -z "$MAPPED_USER" ]; then
+                    CPANEL_ACCT="admin"
+                    TARGET_DIR="/home/admin/public_html/$FQDN"
+                else
+                    CPANEL_ACCT="$MAPPED_USER"
+                    TARGET_DIR="/home/$CPANEL_ACCT/public_html"
+                fi
                 
-                echo "📡 Uploading $FQDN payload to $TARGET_DIR..."
+                echo "📡 Uploading $FQDN payload to $TARGET_DIR (User: $CPANEL_ACCT)..."
                 
                 for FILE in "$DOMAIN_PATH"/*; do
                     if [ -f "$FILE" ]; then

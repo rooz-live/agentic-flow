@@ -58,12 +58,22 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
         trust-path|verify-contract)
             exec bash "$ROOT_DIR/scripts/gate-one-pass.sh" "$@"
             ;;
+        ingest)
+            echo "====================================================================="
+            echo "🔄 ORCHESTRATOR CIRCLE: AUTONOMOUS INGESTION ENGINE"
+            echo "====================================================================="
+            bash "$ROOT_DIR/scripts/ingest-backlog.sh"
+            generate_artifact "backlog_ingestion" $?
+            ;;
         ci)
             echo "====================================================================="
             echo "🦅 INITIATING ONE.SH CANONICAL CI EXECUTION LEDGER"
             echo "====================================================================="
             
             EXIT_CODE=0
+            
+            echo "--> Orchestrator Circle: Ingesting backlog & ROAM risks..."
+            bash "$ROOT_DIR/scripts/ingest-backlog.sh" || echo "⚠️  Ingestion failed (non-blocking)"
             
             echo "--> Assessor Circle: Verifying Definition of Ready (DoR)..."
             bash "$ROOT_DIR/scripts/utils/auto-dor.sh" || EXIT_CODE=$?
@@ -100,7 +110,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             echo "✅ CI Execution Passed. Strict Holacracy compliance verified."
             ;;
         help|*)
-            echo "Usage: ./scripts/one.sh <trust-path|verify-contract|ci>"
+            echo "Usage: ./scripts/one.sh <trust-path|verify-contract|ci|ingest>"
             exit 1
             ;;
     esac

@@ -12,38 +12,36 @@
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
 import { TUIMonitor } from '../../src/monitoring/tui-monitor';
 
-// Mock blessed to avoid terminal rendering in tests
-jest.mock('blessed', () => ({
-  default: {
-    screen: jest.fn(() => ({
-      key: jest.fn(),
-      render: jest.fn(),
-      destroy: jest.fn(),
-    })),
-    box: jest.fn(() => ({
-      setContent: jest.fn(),
-    })),
-    listtable: jest.fn(() => ({
-      setData: jest.fn(),
-    })),
-    list: jest.fn(() => ({
-      clearItems: jest.fn(),
-      addItem: jest.fn(),
-    })),
-    log: jest.fn(() => ({
-      log: jest.fn(),
-    })),
-  },
+// Mock blessed — the source uses `import blessed from 'blessed'` which with
+// esModuleInterop compiles to `blessed_1.default`. The mock must expose
+// functions at the top level AND on __esModule/default for both import styles.
+const mockScreen = jest.fn(() => ({
+  key: jest.fn(),
+  render: jest.fn(),
+  destroy: jest.fn(),
+  append: jest.fn(),
 }));
+const mockBox = jest.fn(() => ({ setContent: jest.fn() }));
+const mockListtable = jest.fn(() => ({ setData: jest.fn() }));
+const mockList = jest.fn(() => ({ clearItems: jest.fn(), addItem: jest.fn() }));
+const mockLog = jest.fn(() => ({ log: jest.fn() }));
+
+jest.mock('blessed', () => {
+  const mod = {
+    screen: mockScreen,
+    box: mockBox,
+    listtable: mockListtable,
+    list: mockList,
+    log: mockLog,
+  };
+  return { __esModule: true, default: mod, ...mod };
+});
 
 // Mock blessed-contrib
-jest.mock('blessed-contrib', () => ({
-  default: {
-    bar: jest.fn(() => ({
-      setData: jest.fn(),
-    })),
-  },
-}));
+jest.mock('blessed-contrib', () => {
+  const mod = { bar: jest.fn(() => ({ setData: jest.fn() })) };
+  return { __esModule: true, default: mod, ...mod };
+});
 
 // Mock SwarmBindingCoordinator
 jest.mock('../../src/swarm/binding-coordinator', () => ({
@@ -310,7 +308,7 @@ describe('TUIMonitor', () => {
 
   describe('keyboard controls', () => {
     it('should handle quit key', () => {
-      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+      const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => undefined as never);
       
       // Simulate 'q' key press
       // (In real test, would trigger key handler)
@@ -349,7 +347,7 @@ describe('TUIMonitor', () => {
     });
 
     it('should handle Ctrl+C', () => {
-      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+      const exitSpy = jest.spyOn(process, 'exit').mockImplementation(() => undefined as never);
       
       // Ctrl+C should exit
       

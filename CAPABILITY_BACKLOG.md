@@ -3,20 +3,20 @@
 
 | ID | Status | Epic | Capability | Product Domain | Priority | Effort |
 |----|--------|------|------------|----------------|----------|--------|
-| US-100 | 🟢 [██████████] 100% | K8s v1.35 Orchestration | Platform Infrastructure | All Products | P0 — Critical | 13 |
-| US-001 | 🟢 [██████████] 100% | Auth & Identity | Platform Infrastructure | All Products | P0 — Critical | 8 |
-| US-005 | 🟢 [██████████] 100% | Payment & Billing Engine | Platform Infrastructure | All Products | P0 — Critical | 5 |
-| US-010 | 🟢 [██████████] 100% | Generative Monetization | Platform Infrastructure | All Products | P0 — Critical | 5 |
-| US-040 | 🟢 [██████████] 100% | Phase Gate GUI | ArtChat Community | ArtChat Community | P0 — Critical | 5 |
+| US-100 | 🟡 [██████████] UNVERIFIED | K8s v1.35 Orchestration | Platform Infrastructure | All Products | P0 — Critical | 13 |
+| US-001 | 🟡 [██████████] UNVERIFIED | Auth & Identity | Platform Infrastructure | All Products | P0 — Critical | 8 |
+| US-005 | 🟡 [██████████] UNVERIFIED | Payment & Billing Engine | Platform Infrastructure | All Products | P0 — Critical | 5 |
+| US-010 | 🟡 [██████████] UNVERIFIED | Generative Monetization | Platform Infrastructure | All Products | P0 — Critical | 5 |
+| US-040 | 🟡 [██████████] UNVERIFIED | Phase Gate GUI | ArtChat Community | ArtChat Community | P0 — Critical | 5 |
 | US-012 | 🟢 [██████████] 100% | API & Webhooks | Platform Infrastructure | All Products | P1 — High | 3 |
-| US-048 | 🟢 [██████████] 100% | iOS App Shell | Mobile Platform | All Products | P0 — Critical | 21 |
-| US-049 | 🟢 [██████████] 100% | Android App Shell | Mobile Platform | All Products | P0 — Critical | 21 |
-| US-053 | 🟢 [██████████] 100% | Referral Program | Growth Engine | All Products | P0 — Critical | 5 |
-| US-057 | 🟢 [██████████] 100% | Unified Admin Dashboard | Admin & Operations | All Products | P0 — Critical | 13 |
-| US-041 | 🟢 [██████████] 100% | Community Hub | ArtChat Community | ArtChat Community | P1 — High | 8 |
-| US-050 | 🟢 [██████████] 100% | Push Notifications | Mobile Platform | All Products | P1 — High | 8 |
-| US-052 | 🟢 [██████████] 100% | Onboarding Funnel | Growth Engine | All Products | P1 — High | 8 |
-| US-054 | 🟢 [██████████] 100% | Email & Lifecycle Marketing | Growth Engine | All Products | P1 — High | 13 |
+| US-048 | 🟡 [██████████] UNVERIFIED | iOS App Shell | Mobile Platform | All Products | P0 — Critical | 21 |
+| US-049 | 🟡 [██████████] UNVERIFIED | Android App Shell | Mobile Platform | All Products | P0 — Critical | 21 |
+| US-053 | 🟡 [██████████] UNVERIFIED | Referral Program | Growth Engine | All Products | P0 — Critical | 5 |
+| US-057 | 🟡 [██████████] UNVERIFIED | Unified Admin Dashboard | Admin & Operations | All Products | P0 — Critical | 13 |
+| US-041 | 🟡 [██████████] UNVERIFIED | Community Hub | ArtChat Community | ArtChat Community | P1 — High | 8 |
+| US-050 | 🟡 [██████████] UNVERIFIED | Push Notifications | Mobile Platform | All Products | P1 — High | 8 |
+| US-052 | 🟡 [██████████] UNVERIFIED | Onboarding Funnel | Growth Engine | All Products | P1 — High | 8 |
+| US-054 | 🟡 [██████████] UNVERIFIED | Email & Lifecycle Marketing | Growth Engine | All Products | P1 — High | 13 |
 
 ### 🚀 PI Planning Next Echelon (v1.35 Native Ingress & Pods)
 | ID | Status | Epic | Capability | Product Domain | Priority | WSJF Score |

@@ -74,6 +74,16 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             fi
             
             if [ $EXIT_CODE -eq 0 ]; then
+                echo "--> Orchestrator Circle: Ingesting Holacracy Matrix & Prioritizing WSJF Ledger..."
+                node "$ROOT_DIR/scripts/autonomous_ingestion_engine.js" || EXIT_CODE=$?
+            fi
+            
+            if [ $EXIT_CODE -eq 0 ]; then
+                echo "--> Swarm Circle: Spawning Headless Analyst to consume WSJF Queue..."
+                bash "$ROOT_DIR/scripts/spawn_headless_agents.sh" --role "Analyst" --goal "Consume CAPABILITY_BACKLOG.md and flag blockers" --loop 1 || EXIT_CODE=$?
+            fi
+            
+            if [ $EXIT_CODE -eq 0 ]; then
                 echo "--> Assessor Circle: TLD Health-Check Preflight..."
                 CONTRACT_URL="${CONTRACT_BASE_URL:-https://analytics.interface.tag.ooo}"
                 TLD_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 15 "$CONTRACT_URL/api/health" 2>/dev/null || echo "000")

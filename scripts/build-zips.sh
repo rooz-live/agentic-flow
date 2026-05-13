@@ -11,18 +11,25 @@ ZIP_NAME="swarm_access_node_$TIMESTAMP.zip"
 mkdir -p "$BUILD_DIR"
 
 # Package the core Generative UI and cross-domain maps
-echo "   -> Compiling shared/"
-zip -r "$BUILD_DIR/$ZIP_NAME" shared/ -q
+echo "   -> Building React Gen-UI App..."
+cd swarm-core-app && npm run build && cd ..
 
-echo "   -> Compiling Whop SDK hooks and Orchestration telemetry"
-zip -r "$BUILD_DIR/$ZIP_NAME" scripts/ -q
+echo "   -> Compiling UI payload (dist/)"
+cd swarm-core-app/dist && zip -r "../../$BUILD_DIR/$ZIP_NAME" . -q && cd ../..
 
 # Store mapping for CPanel
+GENERATIONAL_HASH=$(shasum "$BUILD_DIR/$ZIP_NAME" | awk '{print $1}')
+
 cat << EOF > "$BUILD_DIR/LATEST_DEPLOY.txt"
 $ZIP_NAME
-GENERATIONAL_HASH: $(shasum "$BUILD_DIR/$ZIP_NAME" | awk '{print $1}')
-DOMAINS_MAPPED: decibel.co, artchat.art, summerjobswap.com, epic.cab, discord.720.chat, facebook.720.chat, youtube.tag.vote
+GENERATIONAL_HASH: $GENERATIONAL_HASH
+DOMAINS_MAPPED: decible.co, artchat.art, summerjobswap.com, 720.chat, tag.vote, amp.vote, epic.cab
 EOF
 
-echo "✅ Generation Compiled: $BUILD_DIR/$ZIP_NAME"
-echo "🌐 Next Step: SFTP drop '$ZIP_NAME' to CPanel root directory to push to all 24 domains."
+# Integrate Versioning deeply into the WSJF/PI Planning Ledger (San Gen Shugi)
+if [ -f "$WORKSPACE_ROOT/PROGRESS.md" ]; then
+    echo "- [VERSIONING] PI Increment Hash: $GENERATIONAL_HASH ($TIMESTAMP)" >> "$WORKSPACE_ROOT/PROGRESS.md"
+fi
+
+echo "✅ Generation Compiled: $BUILD_DIR/$ZIP_NAME (Hash: $GENERATIONAL_HASH)"
+echo "🌐 Next Step: SFTP drop '$ZIP_NAME' to CPanel root directory to push to all active domains."

@@ -16,8 +16,10 @@ const stxUser = 'ubuntu';
 const stxPort = '2222';
 const sshKey = process.env.YOLIFE_STX_KEY || '/Users/shahroozbhopti/pem/stx-aio-0.pem';
 const kvmHost = '192.168.122.237';
-const cpanelMasterPass = 'L_kg2rTsbb*9hDVvBC';
-
+import { execSync } from 'child_process';
+const cpanelMasterPass = process.env.CPANEL_PASSWORD && process.env.CPANEL_PASSWORD.startsWith('op://') 
+    ? execSync(`op read "${process.env.CPANEL_PASSWORD}"`).toString().trim() 
+    : 'L_kg2rTsbb*9hDVvBC';
 const distPath = path.resolve(__dirname, '../swarm-core-app/dist');
 const zipPath = path.resolve(__dirname, '../deploy.zip');
 
@@ -72,7 +74,7 @@ async function deploy() {
 
         // Upload ZIP to public_html via Fileman API from STX
         const uploadUrl = `https://${kvmHost}:2083/execute/Fileman/upload_files`;
-        const uploadCurl = `curl -s -u ${cpanelUser}:'${cpanelMasterPass}' -F "dir=public_html" -F "file-1=@/tmp/deploy.zip" '${uploadUrl}' -k`;
+        const uploadCurl = `curl -s -u ${cpanelUser}:'${cpanelMasterPass}' -F "dir=public_html" -F "file-1=@/tmp/deploy.zip" -F "overwrite=1" '${uploadUrl}' -k`;
         
         // Extract ZIP via Fileman API from STX
         const extractUrl = `https://${kvmHost}:2083/json-api/cpanel?cpanel_jsonapi_apiversion=2&cpanel_jsonapi_module=Fileman&cpanel_jsonapi_func=fileop&op=extract&sourcefiles=public_html/deploy.zip&destfile=public_html/`;

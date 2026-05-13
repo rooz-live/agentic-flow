@@ -28,4 +28,7 @@ echo "🔗 Reconfiguring epic.cab Telegram Forwarder..."
 uapi --user=epiccab SubDomain addsubdomain domain=telegram rootdomain=epic.cab dir=public_html/telegram > /dev/null
 uapi --user=epiccab Mime add_redirect domain=telegram.epic.cab src=/ redirect=https://t.me/+6RUdERX1EKo2YTRh type=permanent > /dev/null
 
+echo "🛡️ Enforcing physical edge cryptography (AutoSSL) for pur.tag.vote..."
+whmapi1 enqueue_autossl_check user=tagvote
+
 echo "✅ Missing nodes successfully joined to the Sovereign Swarm!"

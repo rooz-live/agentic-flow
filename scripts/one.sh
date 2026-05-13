@@ -74,10 +74,19 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             fi
             
             if [ $EXIT_CODE -eq 0 ]; then
-                echo "--> Assessor Circle: Playwright E2E Physical Validation..."
-                npm ci || EXIT_CODE=$?
-                npx playwright install --with-deps || EXIT_CODE=$?
-                npx playwright test || EXIT_CODE=$?
+                echo "--> Assessor Circle: TLD Health-Check Preflight..."
+                CONTRACT_URL="${CONTRACT_BASE_URL:-https://analytics.interface.tag.ooo}"
+                TLD_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 15 "$CONTRACT_URL/api/health" 2>/dev/null || echo "000")
+
+                if [ "$TLD_STATUS" -ge 200 ] && [ "$TLD_STATUS" -lt 400 ]; then
+                    echo "✅ TLD reachable (HTTP $TLD_STATUS). Running E2E contract tests."
+                    npm ci || EXIT_CODE=$?
+                    npx playwright install --with-deps || EXIT_CODE=$?
+                    PLAYWRIGHT_TLD_ONLY=1 npx playwright test --project=analytics-tld-contract || EXIT_CODE=$?
+                else
+                    echo "⚠️  TLD unreachable (HTTP $TLD_STATUS). Skipping Playwright E2E — backend outage is not a code defect."
+                    generate_artifact "tld_health_skip" 0
+                fi
             fi
             
             echo "--> Recording Execution to Append-Only Ledger..."

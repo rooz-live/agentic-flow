@@ -110,8 +110,8 @@ export default defineConfig({
       timeout: 120 * 1000,
     },
     {
-      // Run Vite dev server for swarm-core-app
-      command: 'lsof -ti:5173 | xargs kill -9 2>/dev/null; npm run dev --prefix swarm-core-app',
+      // Run Vite dev server for local trading dashboard development
+      command: 'lsof -ti:5173 | xargs kill -9 2>/dev/null; npx vite --port 5173',
       url: 'http://localhost:5173',
       reuseExistingServer: !process.env.CI,
       timeout: 60 * 1000,

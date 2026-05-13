@@ -18,9 +18,12 @@ const execAsync = (command: string, options?: ExecOptions): Promise<{ stdout: st
   return execPromise(command, { maxBuffer: 10 * 1024 * 1024, ...options }) as Promise<{ stdout: string; stderr: string }>; // 10MB buffer
 };
 
-// Helper to sanitize JSON output that may contain Infinity values
+// Helper to sanitize JSON output that may contain Infinity values or non-JSON prefixes
 const sanitizeJson = (jsonStr: string): string => {
-  return jsonStr.replace(/:\s*Infinity/g, ': null').replace(/:\s*-Infinity/g, ': null');
+  // Strip non-JSON prefixes like [AF-MOCK] lines before the actual JSON
+  const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+  const extracted = jsonMatch ? jsonMatch[0] : jsonStr;
+  return extracted.replace(/:\s*Infinity/g, ': null').replace(/:\s*-Infinity/g, ': null');
 };
 
 // Test Configuration

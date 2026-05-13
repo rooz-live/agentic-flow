@@ -58,6 +58,9 @@ module.exports = {
   },
   
   // Module resolution
+  moduleNameMapper: {
+    "^@/(.*)$": "<rootDir>/src/$1"
+  },
   moduleFileExtensions: ["js", "ts", "json", "node"],
   
   // Setup files

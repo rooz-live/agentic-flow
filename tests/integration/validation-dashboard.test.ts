@@ -12,7 +12,7 @@
  * DoD: Both integration test cases pass, JSON schema enforced
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from '@jest/globals';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

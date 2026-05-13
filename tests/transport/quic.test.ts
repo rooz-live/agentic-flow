@@ -315,7 +315,7 @@ describe('QUIC Transport Layer', () => {
 
     it('should throw error when writing to finished stream', async () => {
       const conn = await connectionPool.getConnection('localhost:8443');
-      const [send] = await connection.openBi();
+      const [send] = await conn.openBi();
 
       await send.finish();
 
@@ -393,7 +393,7 @@ describe('QUIC Transport Layer', () => {
 
     it('should handle high throughput', async () => {
       const conn = await connectionPool.getConnection('localhost:8443');
-      const [send] = await connection.openBi();
+      const [send] = await conn.openBi();
 
       const largeData = new Uint8Array(1_000_000); // 1 MB
 
@@ -486,9 +486,10 @@ describe('QUIC Transport Layer', () => {
 
       // Write large data in chunks
       const chunkSize = 64 * 1024; // 64 KB chunks
-      const totalSize = 1_000_000; // 1 MB total
+      const numChunks = 16; // 16 * 64KB = 1,048,576 bytes
+      const totalSize = chunkSize * numChunks;
 
-      for (let i = 0; i < totalSize / chunkSize; i++) {
+      for (let i = 0; i < numChunks; i++) {
         await send.write(new Uint8Array(chunkSize));
       }
 

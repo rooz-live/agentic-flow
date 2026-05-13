@@ -45,7 +45,15 @@ module.exports = {
   
   // Transform configuration
   transform: {
-    "^.+\\.tsx?$": "ts-jest",
+    "^.+\\.tsx?$": ["ts-jest", {
+      tsconfig: {
+        esModuleInterop: true,
+        module: "commonjs",
+        moduleResolution: "node",
+        resolveJsonModule: true,
+        jsx: "react-jsx",
+      }
+    }],
     "^.+\\.jsx?$": "babel-jest"
   },
   

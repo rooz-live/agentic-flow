@@ -65,6 +65,14 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             bash "$ROOT_DIR/scripts/ingest-backlog.sh"
             generate_artifact "backlog_ingestion" $?
             ;;
+        dispatch)
+            echo "====================================================================="
+            echo "🎯 ORCHESTRATOR CIRCLE: WSJF TASK DISPATCHER"
+            echo "====================================================================="
+            shift || true
+            bash "$ROOT_DIR/scripts/wsjf-dispatch.sh" "$@"
+            generate_artifact "wsjf_dispatch" $?
+            ;;
         ci)
             echo "====================================================================="
             echo "🦅 INITIATING ONE.SH CANONICAL CI EXECUTION LEDGER"
@@ -110,7 +118,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             echo "✅ CI Execution Passed. Strict Holacracy compliance verified."
             ;;
         help|*)
-            echo "Usage: ./scripts/one.sh <trust-path|verify-contract|ci|ingest>"
+            echo "Usage: ./scripts/one.sh <trust-path|verify-contract|ci|ingest|dispatch>"
             exit 1
             ;;
     esac

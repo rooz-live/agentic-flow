@@ -10,23 +10,20 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals';
-import { TUIMonitor } from '../../src/monitoring/tui-monitor';
 
-// Mock blessed — the source uses `import blessed from 'blessed'` which with
-// esModuleInterop compiles to `blessed_1.default`. The mock must expose
-// functions at the top level AND on __esModule/default for both import styles.
-const mockScreen = jest.fn(() => ({
-  key: jest.fn(),
-  render: jest.fn(),
-  destroy: jest.fn(),
-  append: jest.fn(),
-}));
-const mockBox = jest.fn(() => ({ setContent: jest.fn() }));
-const mockListtable = jest.fn(() => ({ setData: jest.fn() }));
-const mockList = jest.fn(() => ({ clearItems: jest.fn(), addItem: jest.fn() }));
-const mockLog = jest.fn(() => ({ log: jest.fn() }));
-
+// Mock blessed — factory must be self-contained because jest.mock is hoisted
 jest.mock('blessed', () => {
+  const fn = (global as any).jest ? (global as any).jest.fn : require('@jest/globals').jest.fn;
+  const mockScreen = fn(() => ({
+    key: fn(),
+    render: fn(),
+    destroy: fn(),
+    append: fn(),
+  }));
+  const mockBox = fn(() => ({ setContent: fn() }));
+  const mockListtable = fn(() => ({ setData: fn() }));
+  const mockList = fn(() => ({ clearItems: fn(), addItem: fn() }));
+  const mockLog = fn(() => ({ log: fn() }));
   const mod = {
     screen: mockScreen,
     box: mockBox,
@@ -39,9 +36,12 @@ jest.mock('blessed', () => {
 
 // Mock blessed-contrib
 jest.mock('blessed-contrib', () => {
-  const mod = { bar: jest.fn(() => ({ setData: jest.fn() })) };
+  const fn = (global as any).jest ? (global as any).jest.fn : require('@jest/globals').jest.fn;
+  const mod = { bar: fn(() => ({ setData: fn() })) };
   return { __esModule: true, default: mod, ...mod };
 });
+
+import { TUIMonitor } from '../../src/monitoring/tui-monitor';
 
 // Mock SwarmBindingCoordinator
 jest.mock('../../src/swarm/binding-coordinator', () => ({

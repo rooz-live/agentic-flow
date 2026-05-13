@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from '@jest/globals';
-import { PortfolioAnalyzer, type OHLCV, type Option } from '../../src/trading/portfolio-analyzer';
+import { PortfolioAnalyzer, type OHLCV, type Option } from '../../../src/trading/portfolio-analyzer';
 
 describe('PortfolioAnalyzer', () => {
   let mockOHLCV: OHLCV[];

@@ -429,12 +429,15 @@ export class TUIMonitor {
   }
 
   private getHealthBar(score: number): string {
+    // Normalize: accept both 0-1 and 0-100 ranges
+    const normalized = score > 1 ? score / 100 : score;
+    const clamped = Math.max(0, Math.min(1, normalized));
     const width = 10;
-    const filled = Math.round(score * width);
+    const filled = Math.round(clamped * width);
     const bar = '█'.repeat(filled) + '░'.repeat(width - filled);
     
-    const color = score > 0.7 ? 'green' : score > 0.4 ? 'yellow' : 'red';
-    return `{${color}-fg}${bar}{/${color}-fg} ${(score * 100).toFixed(0)}%`;
+    const color = clamped > 0.7 ? 'green' : clamped > 0.4 ? 'yellow' : 'red';
+    return `{${color}-fg}${bar}{/${color}-fg} ${(clamped * 100).toFixed(0)}%`;
   }
 
   private getTimeAgo(timestamp: string): string {

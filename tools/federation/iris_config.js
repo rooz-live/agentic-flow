@@ -106,6 +106,46 @@ const IntegrationConfigSchema = zod_1.z.object({
     }),
 });
 // ============================================================================
+// Default Configuration
+// ============================================================================
+const DEFAULT_IRIS_BRIDGE_CONFIG = {
+    retry: {
+        maxAttempts: 3,
+        baseDelayMs: 1000,
+        maxDelayMs: 30000,
+        backoffMultiplier: 2,
+        jitter: true,
+    },
+    circuitBreaker: {
+        failureThreshold: 5,
+        recoveryTimeoutMs: 30000,
+        monitoringPeriodMs: 60000,
+        halfOpenMaxCalls: 3,
+    },
+    performance: {
+        enableMetrics: true,
+        enableTracing: false,
+        memoryThresholdMb: 512,
+        executionTimeoutMs: 30000,
+        enableResourceMonitoring: true,
+    },
+    validation: {
+        enableInputSanitization: true,
+        enableCommandWhitelist: false,
+        allowedCommands: [],
+        maxArgsLength: 100,
+        enableOutputValidation: true,
+    },
+    concurrency: {
+        maxConcurrentCommands: 10,
+        resourcePoolSize: 20,
+        queueTimeoutMs: 30000,
+        enablePriorityQueue: false,
+    },
+    enableEnterpriseFeatures: false,
+    logLevel: 'info',
+};
+// ============================================================================
 // Configuration Manager Class
 // ============================================================================
 class IrisConfigManager {
@@ -124,19 +164,19 @@ class IrisConfigManager {
     getDefaultConfigPath() {
         const envPath = process.env.IRIS_CONFIG_PATH;
         if (envPath) {
-            return path_1.default.resolve(envPath);
+            return path_1.resolve(envPath);
         }
         const cwd = process.cwd();
         const possiblePaths = [
-            path_1.default.join(cwd, 'config/iris/bridge.yaml'),
-            path_1.default.join(cwd, 'config/iris/bridge.yml'),
-            path_1.default.join(cwd, '.iris/bridge.yaml'),
-            path_1.default.join(cwd, '.iris/bridge.yml'),
-            path_1.default.join(cwd, 'iris-config.yaml'),
-            path_1.default.join(cwd, 'iris-config.yml'),
+            path_1.join(cwd, 'config/iris/bridge.yaml'),
+            path_1.join(cwd, 'config/iris/bridge.yml'),
+            path_1.join(cwd, '.iris/bridge.yaml'),
+            path_1.join(cwd, '.iris/bridge.yml'),
+            path_1.join(cwd, 'iris-config.yaml'),
+            path_1.join(cwd, 'iris-config.yml'),
         ];
         for (const possiblePath of possiblePaths) {
-            if (fs_1.promises.existsSync(possiblePath)) {
+            if (require('fs').existsSync(possiblePath)) {
                 return possiblePath;
             }
         }
@@ -175,7 +215,7 @@ class IrisConfigManager {
             const yaml = await Promise.resolve().then(() => require('yaml'));
             const yamlString = yaml.stringify(validated, { indent: 2 });
             // Ensure directory exists
-            const dir = path_1.default.dirname(this.configPath);
+            const dir = path_1.dirname(this.configPath);
             await fs_1.promises.mkdir(dir, { recursive: true });
             await fs_1.promises.writeFile(this.configPath, yamlString, 'utf-8');
             this.config = validated;
@@ -372,7 +412,7 @@ class IrisConfigManager {
     }
     getEnvironmentConfigPath(environment) {
         const cwd = process.cwd();
-        return path_1.default.join(cwd, 'config', 'iris', `environments`, `${environment}.yaml`);
+        return path_1.join(cwd, 'config', 'iris', `environments`, `${environment}.yaml`);
     }
     getDefaultEnvironmentConfig(environment) {
         return {
@@ -416,7 +456,7 @@ class IrisConfigManager {
     }
     getIntegrationConfigPath() {
         const cwd = process.cwd();
-        return path_1.default.join(cwd, 'config', 'iris', 'integration.yaml');
+        return path_1.join(cwd, 'config', 'iris', 'integration.yaml');
     }
     getDefaultIntegrationConfig() {
         return {

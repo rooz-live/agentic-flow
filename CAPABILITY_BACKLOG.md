@@ -3,6 +3,7 @@
 
 | ID | Status | Epic | Capability | Product Domain | Priority | Effort |
 |----|--------|------|------------|----------------|----------|--------|
+| US-100 | 🟢 [██████████] 100% | K8s v1.35 Orchestration | Platform Infrastructure | All Products | P0 — Critical | 13 |
 | US-001 | 🟢 [██████████] 100% | Auth & Identity | Platform Infrastructure | All Products | P0 — Critical | 8 |
 | US-005 | 🟢 [██████████] 100% | Payment & Billing Engine | Platform Infrastructure | All Products | P0 — Critical | 5 |
 | US-010 | 🟢 [██████████] 100% | Generative Monetization | Platform Infrastructure | All Products | P0 — Critical | 5 |
@@ -16,15 +17,24 @@
 | US-050 | 🟢 [██████████] 100% | Push Notifications | Mobile Platform | All Products | P1 — High | 8 |
 | US-052 | 🟢 [██████████] 100% | Onboarding Funnel | Growth Engine | All Products | P1 — High | 8 |
 | US-054 | 🟢 [██████████] 100% | Email & Lifecycle Marketing | Growth Engine | All Products | P1 — High | 13 |
+
+### 🚀 PI Planning Next Echelon (v1.35 Native Ingress & Pods)
+| ID | Status | Epic | Capability | Product Domain | Priority | WSJF Score |
+|----|--------|------|------------|----------------|----------|------------|
+| US-028 | 🟡 [██░░░░░░░░] 20% | Community Curation | TAG.VOTE | TAG.VOTE | P0 — Critical | 19.5 (Gateway API) |
+| US-013 | 🟡 [██░░░░░░░░] 20% | Core Voting Engine | AMP.VOTE | AMP.VOTE | P0 — Critical | 18.0 (RWOP DB) |
+| US-030 | 🟡 [██░░░░░░░░] 20% | Audio Analytics | Decibel.co | Decibel.co | P0 — Critical | 16.5 (Vol Tuning) |
+| US-036 | 🟡 [██░░░░░░░░] 20% | Job Board | SummerJobSwap | SummerJobSwap Employer | P0 — Critical | 15.0 |
+
+### 🧊 LATER Horizon (Backlog)
+| ID | Status | Epic | Capability | Product Domain | Priority | Effort |
+|----|--------|------|------------|----------------|----------|--------|
 | US-037 | 🔴 RED | Job Board | SummerJobSwap | SummerJobSwap Pro | P1 — High | 5 |
-| US-036 | 🔴 [░░░░░░░░░░] 0% | Job Board | SummerJobSwap | SummerJobSwap Employer | P0 — Critical | 8 |
-| US-028 | 🔴 RED | Community Curation | TAG.VOTE | TAG.VOTE | P0 — Critical | 8 |
 | US-044 | 🔴 RED | Team Management | Business & API | Business / Team | P1 — High | 8 |
 | US-046 | 🔴 RED | API Developer Experience | Business & API | API Access | P1 — High | 8 |
 | US-055 | 🔴 RED | Content Marketing & SEO | Growth Engine | All Products | P1 — High | 8 |
 | US-058 | 🔴 RED | Member Management | Admin & Operations | All Products | P1 — High | 8 |
 | US-059 | 🔴 RED | Support System | Admin & Operations | All Products | P1 — High | 8 |
-| US-013 | 🔴 RED | Core Voting Engine | AMP.VOTE | AMP.VOTE | P0 — Critical | 13 |
 | US-025 | 🔴 RED | Tag Engine | TAG.VOTE | TAG.VOTE | P0 — Critical | 13 |
 | US-035 | 🔴 [░░░░░░░░░░] 0% | Job Board | SummerJobSwap | SummerJobSwap Community | P0 — Critical | 13 |
 | US-023 | 🔴 RED | Ride Tracking & Safety | EPIC.CAB | EPIC.CAB | P0 — Critical | 13 |
@@ -33,13 +43,12 @@
 | US-042 | 🔴 RED | Creator Tools | ArtChat Creator | Creator | P1 — High | 13 |
 | US-056 | 🔴 RED | Ad Campaigns | Growth Engine | All Products | P2 — Medium | 8 |
 | US-019 | 🔴 RED | Ride Matching & Dispatch | EPIC.CAB | EPIC.CAB | P0 — Critical | 21 |
-| US-030 | 🔴 [░░░░░░░░░░] 0% | Audio Analytics | Decibel.co | Decibel.co | P0 — Critical | 21 |
 | US-033 | 🔴 RED | Creator Monetization | Decibel.co | Decibel.co | P1 — High | 21 |
 | US-060 | 🔴 RED | Analytics & Reporting | Admin & Operations | All Products | P2 — Medium | 13 |
 | US-017 | 🔴 RED | Sentiment & Decision Intelligence | AMP.VOTE | AMP.VOTE | P2 — Medium | 13 |
 | US-051 | 🔴 RED | Offline Mode | Mobile Platform | All Products | P2 — Medium | 13 |
 
 ## 📊 WSJF Orchestration Metrics
-- **Total Ingested Stories**: 60
-- **Current Velocity**: 12.0 (Automated Swarm TTO Active)
-- **Sovereign Status**: 6 capabilities synchronized. Awaiting WSJF triage for next echelon.
+- **Total Ingested Stories**: 61
+- **Current Velocity**: 15.0 (v1.35 Edge Native Active)
+- **Sovereign Status**: 14 capabilities synchronized. K8s Infrastructure unblocked. Ready for PI Planning.

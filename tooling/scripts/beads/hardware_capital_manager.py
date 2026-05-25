@@ -92,7 +92,6 @@ def sovereign_quarantine(target_node):
     print(f"  🛑 [SINKHOLE] Triggering lbec_decision='local' for {target_node}. Severing routes via agentic_dns_healer.py.")
     
     try:
-        import subprocess
         subprocess.run(["python3", os.path.join(ROOT_DIR, "tooling/scripts/beads/agentic_dns_healer.py"), target_node, "sinkhole"], stderr=subprocess.DEVNULL)
     except Exception:
         pass

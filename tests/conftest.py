@@ -74,9 +74,9 @@ _GUARDED: list[tuple[bool, str, str]] = [
      "tests/integration/test_feature_flag_on_returns_json_schema.py",
      "fastapi not installed — `pip install fastapi httpx` to enable"),
 
-    (_has_module("dotenv"),
+    (_has_module("dotenv") and _has_module("telegram"),
      "tests/integrations/test_notifiers.py",
-     "python-dotenv not installed — `pip install python-dotenv` to enable"),
+     "python-dotenv + python-telegram-bot not installed — `pip install python-dotenv python-telegram-bot` to enable"),
 
     (_has_module("jsonschema"),
      "tests/test_pattern_schema.py",

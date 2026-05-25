@@ -21,6 +21,7 @@ env:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    needs: [rust-build]
     strategy:
       matrix:
         domain:
@@ -42,23 +43,44 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install Python deps
-        run: pip install pytest playwright pytest-playwright asyncpg
+      - name: Download PyO3 wheel (from rust-build, not rebuilt)
+        uses: actions/download-artifact@v4
+        with:
+          name: eventops-pyo3-wheel
+          path: /tmp/eventops-wheel/
 
-      - name: Run pytest billing + unit + performance + regression
+      - name: Install Python deps + PyO3 wheel
         run: |
-          python3 -m pytest \
+          pip install pytest playwright pytest-playwright asyncpg
+          pip install /tmp/eventops-wheel/eventops_pyo3*.whl
+
+      - name: DoD gate — pytest must pass before claiming done
+        run: |
+          RESULT=$(python3 -m pytest \
             tests/unit/ \
             tests/billing/ \
             tests/performance/benchmarks.py \
             tests/regression/schema_regression.py \
-            -q --tb=short
+            -q --tb=short 2>&1)
+          echo "$RESULT"
+          echo "$RESULT" | grep -E "passed" || (echo "FAIL: DoD gate — pytest reported no passing tests" && exit 1)
+          echo "$RESULT" | grep -E "failed" && (echo "FAIL: DoD gate — test failures present" && exit 1) || true
+
+      - name: DoD gate — Playwright must discover tests before claiming done
+        run: |
+          TOTAL=$(npx playwright test --list 2>&1 | grep "Total:" | grep -oE "[0-9]+")
+          echo "Playwright test count: $TOTAL"
+          [ -z "$TOTAL" ] && echo "FAIL: Playwright found 0 tests" && exit 1
+          [ "$TOTAL" -lt 100 ] && echo "FAIL: Playwright test count $TOTAL below minimum 100" && exit 1
+          echo "DoD gate passed: $TOTAL Playwright tests discovered"
 
       - name: Run Playwright verify spec
         run: npx playwright test tests/${{ matrix.domain }}-verify.e2e.spec.ts --reporter=line || echo "WARN verify spec not found for ${{ matrix.domain }}"
 
   rust-build:
     runs-on: ubuntu-latest
+    outputs:
+      wheel-artifact: eventops-pyo3-wheel
     steps:
       - uses: actions/checkout@v4
 
@@ -83,6 +105,18 @@ jobs:
         env:
           PYO3_USE_ABI3: "1"
 
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: eventops-pyo3-wheel
+          path: src/rust/eventops_pyo3/target/wheels/*.whl
+          retention-days: 7
+
+      - name: Smoke-test: import eventops_pyo3
+        run: |
+          pip install src/rust/eventops_pyo3/target/wheels/eventops_pyo3*.whl
+          python3 -c "import eventops_pyo3; print('eventops_pyo3 import OK')"
+
   schema-regression:
     runs-on: ubuntu-latest
     steps:
@@ -102,12 +136,44 @@ jobs:
       - name: Run performance benchmarks
         run: python3 -m pytest tests/performance/benchmarks.py -v --tb=short
 
+  fqdn-edge-contracts:
+    runs-on: ubuntu-latest
+    needs: [rust-build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node + Playwright
+        run: |
+          npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts
+          npx playwright install --with-deps chromium
+
+      - name: Run FQDN edge contract tests (symbol-contract, no live HTTP)
+        run: |
+          npx playwright test tests/fqdn-edge-wiring.e2e.spec.ts --reporter=line
+          echo "FQDN edge contracts verified"
+
   deploy-staging:
     runs-on: ubuntu-latest
-    needs: [verify, rust-build, schema-regression]
+    needs: [verify, rust-build, schema-regression, fqdn-edge-contracts]
     if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download PyO3 wheel (from rust-build artifact)
+        uses: actions/download-artifact@v4
+        with:
+          name: eventops-pyo3-wheel
+          path: /tmp/eventops-wheel/
+
+      - name: Install Python deps + PyO3 wheel
+        run: |
+          pip install asyncpg
+          pip install /tmp/eventops-wheel/eventops_pyo3*.whl
 
       - name: Log deployment target
         run: echo "Deploying to ${{ env.STAGING_FQDN }}"

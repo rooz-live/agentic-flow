@@ -30,12 +30,56 @@ Extended Features (33-Role):
 import argparse
 from pathlib import Path
 
-from textual.app import App, ComposeResult
-from textual.screen import ModalScreen
-from textual.widgets import Header, Footer, DataTable, Static, ProgressBar, Log, Button, Input
-from textual.containers import Container, Vertical, Horizontal, Grid
-from textual.reactive import reactive
-from textual.timer import Timer
+try:
+    from textual.app import App, ComposeResult
+    from textual.screen import ModalScreen
+    from textual.widgets import Header, Footer, DataTable, Static, ProgressBar, Log, Button, Input
+    from textual.containers import Container, Vertical, Horizontal, Grid
+    from textual.reactive import reactive
+    from textual.timer import Timer
+    _TEXTUAL_AVAILABLE = True
+except ImportError:
+    _TEXTUAL_AVAILABLE = False
+    # Stub base classes so the module can be imported without textual installed.
+    # TUI functionality will not work, but pure-data helpers (_convert_governance_report,
+    # get_example_results, etc.) remain fully usable.
+    class App:  # type: ignore[no-redef]
+        pass
+    class ComposeResult:  # type: ignore[no-redef]
+        pass
+    class _ModalScreenMeta(type):
+        def __getitem__(cls, item):
+            return cls
+    class ModalScreen(metaclass=_ModalScreenMeta):  # type: ignore[no-redef]
+        pass
+    class Static:  # type: ignore[no-redef]
+        pass
+    class DataTable:  # type: ignore[no-redef]
+        pass
+    class ProgressBar:  # type: ignore[no-redef]
+        pass
+    class Log:  # type: ignore[no-redef]
+        pass
+    class Button:  # type: ignore[no-redef]
+        pass
+    class Input:  # type: ignore[no-redef]
+        pass
+    class Header:  # type: ignore[no-redef]
+        pass
+    class Footer:  # type: ignore[no-redef]
+        pass
+    class Container:  # type: ignore[no-redef]
+        pass
+    class Vertical:  # type: ignore[no-redef]
+        pass
+    class Horizontal:  # type: ignore[no-redef]
+        pass
+    class Grid:  # type: ignore[no-redef]
+        pass
+    def reactive(default):  # type: ignore[no-redef]
+        return default
+    class Timer:  # type: ignore[no-redef]
+        pass
 from datetime import datetime, timedelta
 import json
 import math

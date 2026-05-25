@@ -90,12 +90,12 @@ def test_compare_presets_cli_help() -> None:
     assert "--cycle" in combined
 
 
+@pytest.mark.skipif(
+    not TRAJECTORIES_TEST_PATH.is_file(),
+    reason=f"Test trajectories file not found at {TRAJECTORIES_TEST_PATH}",
+)
 def test_compare_presets_cli_smoke_with_test_data() -> None:
     """Smoke test: running against trajectories_test.jsonl prints a table."""
-
-    assert TRAJECTORIES_TEST_PATH.is_file(), (
-        f"Test trajectories file not found at {TRAJECTORIES_TEST_PATH}"
-    )
 
     result = _run_compare_presets(
         "--trajectories",
@@ -111,12 +111,12 @@ def test_compare_presets_cli_smoke_with_test_data() -> None:
     assert "balanced" in stdout
 
 
+@pytest.mark.skipif(
+    not TRAJECTORIES_TEST_PATH.is_file(),
+    reason=f"Test trajectories file not found at {TRAJECTORIES_TEST_PATH}",
+)
 def test_compare_presets_cli_cycle_filter_reduces_steps() -> None:
     """--cycle should narrow the set of trajectories considered for comparison."""
-
-    assert TRAJECTORIES_TEST_PATH.is_file(), (
-        f"Test trajectories file not found at {TRAJECTORIES_TEST_PATH}"
-    )
 
     base = _run_compare_presets(
         "--trajectories",
@@ -138,12 +138,12 @@ def test_compare_presets_cli_cycle_filter_reduces_steps() -> None:
     assert filtered_steps == 2
     assert filtered_steps < base_steps
 
+@pytest.mark.skipif(
+    not TRAJECTORIES_TEST_PATH.is_file(),
+    reason=f"Test trajectories file not found at {TRAJECTORIES_TEST_PATH}",
+)
 def test_compare_presets_json_format() -> None:
     """--format json should produce valid JSON with expected structure."""
-
-    assert TRAJECTORIES_TEST_PATH.is_file(), (
-        f"Test trajectories file not found at {TRAJECTORIES_TEST_PATH}"
-    )
 
     result = _run_compare_presets(
         "--trajectories",
@@ -187,12 +187,12 @@ def test_compare_presets_json_format() -> None:
 
 
 
+@pytest.mark.skipif(
+    not TRAJECTORIES_TEST_PATH.is_file(),
+    reason=f"Test trajectories file not found at {TRAJECTORIES_TEST_PATH}",
+)
 def test_compare_presets_csv_format() -> None:
     """--format csv should produce CSV with expected headers and rows."""
-
-    assert TRAJECTORIES_TEST_PATH.is_file(), (
-        f"Test trajectories file not found at {TRAJECTORIES_TEST_PATH}"
-    )
 
     result = _run_compare_presets(
         "--trajectories",

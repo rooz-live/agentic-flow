@@ -58,11 +58,11 @@ class TestK8sConformanceMatrix:
         ),
         (
             "SSH_FAILURE",
-            412, 0, "PASS"
+            0, 100, "FAIL"
         ),
         (
             "connection refused",
-            412, 0, "PASS"
+            0, 100, "FAIL"
         ),
         (
             "", 
@@ -79,7 +79,10 @@ class TestK8sConformanceMatrix:
         assert passed == expected_pass
         assert failed == expected_fail
         assert state == expected_state
-        assert tel == "CPU:12"
+        if expected_state == "FAIL":
+            assert tel == "SSH_CONNECTION_REFUSED"
+        else:
+            assert tel == "CPU:12"
 
     def test_generate_junit_xml(self):
         config = k8s_sync.K8sConformanceConfig()

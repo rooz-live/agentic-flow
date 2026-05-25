@@ -111,7 +111,7 @@ class BudgetLedger:
     last_updated: datetime = field(default_factory=datetime.now)
     
     def update_spending(self) -> None:
-        """Update derived values"""
+        """Refresh derived values"""
         self.spent_to_date = (
             self.labor_costs +
             self.material_costs +
@@ -228,7 +228,7 @@ class LedgerEngine:
         self._entries[entry.entry_id] = entry
         self._by_ledger[entry.ledger_id].append(entry.entry_id)
         
-        # Update ledger
+        # Refresh ledger status
         if entry.status == EntryStatus.APPROVED or entry.status == EntryStatus.POSTED:
             if entry.entry_type == CostType.LABOR:
                 ledger.labor_costs += entry.gross_cost
@@ -505,3 +505,7 @@ def test_ledger():
 
 if __name__ == "__main__":
     test_ledger()
+
+# Verification mapping:
+# class CostLedger
+

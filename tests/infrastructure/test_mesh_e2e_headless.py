@@ -7,9 +7,9 @@ import os
 
 try:
     from playwright.async_api import async_playwright
+    HAS_PLAYWRIGHT = True
 except ImportError:
-    print("❌ Playwright not installed. Run: pip install playwright && playwright install")
-    sys.exit(1)
+    HAS_PLAYWRIGHT = False
 
 # The Full Sovereign Mesh Domain Matrix
 DOMAINS = [

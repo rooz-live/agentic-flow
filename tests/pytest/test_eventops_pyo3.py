@@ -288,3 +288,141 @@ def test_chunk_domain_payloads():
     with pytest.raises(ValueError) as exc:
         eventops_pyo3.chunk_domain_payloads(payload, 0)
     assert "ERR_INVALID_BATCH_SIZE" in str(exc.value)
+
+
+# ─── Billing Domain Smoke Tests ──────────────────────────────────────────────
+# Marker: @pytest.mark.billing (registered in tests/pytest.ini)
+# Run:    pytest -m billing tests/pytest/test_eventops_pyo3.py -v
+
+@pytest.mark.billing
+def test_billing_smoke_eventops_schema_validates():
+    """Smoke: EventOps schema validation passes valid payload."""
+    try:
+        import eventops_pyo3
+    except ImportError:
+        pytest.skip("Rust PyO3 library not compiled — run maturin develop")
+
+    payload = json.dumps({
+        "event_id": "evt-00000000-0000-7000-8000-000000000001",
+        "technician": {
+            "uuid": "00000000-0000-7000-8000-000000000001",
+            "role": "Technician",
+            "alias": "tech_billing_smoke",
+        },
+        "timestamp_utc": "2025-06-01T08:00:00Z",
+        "geo_latitude": 35.6762,
+        "geo_longitude": 139.6503,
+        "status": "Arrival",
+        "reference_pointer_event_id": None,
+    })
+    result = json.loads(eventops_pyo3.validate_eventops_schema(payload))
+    assert result["technician"]["alias"] == "tech_billing_smoke"
+    assert result["status"] == "Arrival"
+
+
+@pytest.mark.billing
+def test_billing_smoke_ceremony_logger_validates():
+    """Smoke: Ceremony logger validates and corrects tampered duration."""
+    try:
+        import eventops_pyo3
+    except ImportError:
+        pytest.skip("Rust PyO3 library not compiled — run maturin develop")
+
+    payload = json.dumps({
+        "ceremony_id": "ceremony-smoke-001",
+        "project_id": "proj-billing-smoke",
+        "technician_id": "tech-uuid-smoke",
+        "ceremony_type": "Standup",
+        "start_time": "2025-06-01T09:00:00Z",
+        "end_time": "2025-06-01T09:15:00Z",
+        "duration_seconds": 99999,
+        "is_billable": True,
+        "reference_ceremony_id": None,
+    })
+    result = json.loads(eventops_pyo3.validate_ceremony_logger(payload))
+    assert result["duration_seconds"] == 900
+    assert result["is_billable"] is True
+
+
+@pytest.mark.billing
+def test_billing_smoke_chunk_all_10_domains():
+    """Smoke: All 10 billing domains chunk correctly (batch_size=3)."""
+    try:
+        import eventops_pyo3
+    except ImportError:
+        pytest.skip("Rust PyO3 library not compiled — run maturin develop")
+
+    domains = [
+        {"domain": d, "id": i} for i, d in enumerate([
+            "entity-identity", "rate-engine", "ceremony-logger",
+            "job-manifest", "cost-ledger", "project-context",
+            "tax-currency", "calculation-engine", "eventops",
+            "invoice-engine",
+        ], 1)
+    ]
+    result = json.loads(
+        eventops_pyo3.chunk_domain_payloads(json.dumps(domains), 3)
+    )
+    assert len(result) == 4
+    assert len(result[0]) == 3
+    assert len(result[3]) == 1
+    assert result[3][0]["domain"] == "invoice-engine"
+
+
+@pytest.mark.billing
+def test_billing_smoke_tax_jurisdiction_usd():
+    """Smoke: Tax calculation for USD jurisdiction returns non-negative."""  # noqa: E501
+    try:
+        import eventops_pyo3
+    except ImportError:
+        pytest.skip("Rust PyO3 library not compiled — run maturin develop")
+
+    eventops_pyo3.load_tax_matrix(
+        json.dumps({"USD": {"rate": "0.08", "currency": "USD"}})
+    )
+    result = json.loads(
+        eventops_pyo3.calculate_jurisdiction_tax(100.0, "USD")
+    )
+    assert float(result["tax_amount"]) >= 0
+    assert result["currency"] == "USD"
+
+
+@pytest.mark.billing
+def test_billing_smoke_invoice_engine_generate_issue_lifecycle():
+    """Smoke: InvoiceEngine generate→issue lifecycle without Rust bridge."""
+    from decimal import Decimal
+    from datetime import datetime, timezone, timedelta
+    from src.billing.invoice_engine import (
+        InvoiceEngine, InvoiceLineItem, LineItemType, Money, InvoiceStatus
+    )
+
+    engine = InvoiceEngine()
+    line = InvoiceLineItem(
+        line_id="smoke-line-001",
+        item_type=LineItemType.LABOR,
+        description="Smoke test labor",
+        quantity=Decimal("1"),
+        unit_price=Money(Decimal("100.00"), "USD"),
+    )
+    due = datetime.now(timezone.utc) + timedelta(days=14)
+    invoice = engine.generate(
+        project_id="proj-smoke",
+        client_uuid="client-smoke",
+        technician_uuid="tech-smoke",
+        line_items=[line],
+        tax_amount=Money.zero("USD"),
+        due_date=due,
+        calculation_id="calc-smoke",
+        job_id="job-smoke",
+        job_signed_off=True,
+    )
+    assert invoice.status == InvoiceStatus.DRAFT
+    assert invoice.total.amount == Decimal("100.00")
+
+    issued = engine.issue(invoice.invoice_id)
+    assert issued.status == InvoiceStatus.ISSUED
+    assert issued.issued_at is not None
+
+    stats = engine.get_stats()
+    assert stats["immutable"] is True
+    assert stats["by_status"]["ISSUED"] == 1

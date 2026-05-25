@@ -13,8 +13,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 
+ERR_SIGN_OFF_REQUIRED = "ERR_SIGN_OFF_REQUIRED"
+ERR_INVALID_STATUS = "ERR_INVALID_STATUS"
+
+
 class JobStatus(Enum):
     """Job status"""
+    DRAFT = "draft"
     SCHEDULED = "scheduled"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -60,6 +65,7 @@ class MaterialUsage:
     """Material usage record"""
     material_id: str
     material_name: str = ""
+    sku: str = ""
     
     quantity: Decimal = field(default_factory=lambda: Decimal("0"))
     unit: str = "each"

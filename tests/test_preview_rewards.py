@@ -116,12 +116,12 @@ def test_preview_rewards_cli_help() -> None:
     assert "--preset" in combined
 
 
+@pytest.mark.skipif(
+    not TRAJECTORIES_TEST_PATH.is_file(),
+    reason=f"Test trajectories file not found at {TRAJECTORIES_TEST_PATH}",
+)
 def test_preview_rewards_cli_with_preset() -> None:
     """Smoke test: running with a known preset produces summary output."""
-
-    assert TRAJECTORIES_TEST_PATH.is_file(), (
-        f"Test trajectories file not found at {TRAJECTORIES_TEST_PATH}"
-    )
 
     result = _run_preview_rewards(
         "--trajectories",
@@ -140,12 +140,12 @@ def test_preview_rewards_cli_with_preset() -> None:
     assert "By status:" in stdout
 
 
+@pytest.mark.skipif(
+    not TRAJECTORIES_TEST_PATH.is_file(),
+    reason=f"Test trajectories file not found at {TRAJECTORIES_TEST_PATH}",
+)
 def test_preview_rewards_cli_verbose_mode() -> None:
     """Smoke test: verbose mode also succeeds and prints core sections."""
-
-    assert TRAJECTORIES_TEST_PATH.is_file(), (
-        f"Test trajectories file not found at {TRAJECTORIES_TEST_PATH}"
-    )
 
     result = _run_preview_rewards(
         "--trajectories",
@@ -228,12 +228,12 @@ def _extract_total_steps(output: str) -> int:
 
 
 
+@pytest.mark.skipif(
+    not TRAJECTORIES_TEST_PATH.is_file(),
+    reason=f"Test trajectories file not found at {TRAJECTORIES_TEST_PATH}",
+)
 def test_preview_rewards_cli_cycle_filter_reduces_steps() -> None:
     """--cycle should narrow the set of trajectories considered."""
-
-    assert TRAJECTORIES_TEST_PATH.is_file(), (
-        f"Test trajectories file not found at {TRAJECTORIES_TEST_PATH}"
-    )
 
     base = _run_preview_rewards(
         "--trajectories",

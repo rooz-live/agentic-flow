@@ -7,13 +7,7 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
-
-const PROJECT_ROOT = join(__dirname, '..');
-
-function fileExists(p: string): boolean { return existsSync(join(PROJECT_ROOT, p)); }
-function readFile(p: string): string { return readFileSync(join(PROJECT_ROOT, p), 'utf-8'); }
+import { readFile, fileExists } from './harness/BaseBillingE2ESpec';
 
 test.describe('Cost Ledger - Implementation', () => {
   test('cost_ledger.py exists', async () => {

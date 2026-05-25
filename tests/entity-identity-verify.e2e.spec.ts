@@ -8,18 +8,7 @@
  */
 
 import { test, expect } from '@playwright/test';
-import { existsSync, readFileSync } from 'fs';
-import { join } from 'path';
-
-const PROJECT_ROOT = join(__dirname, '..');
-
-function readFile(path: string): string {
-  return readFileSync(join(PROJECT_ROOT, path), 'utf-8');
-}
-
-function fileExists(path: string): boolean {
-  return existsSync(join(PROJECT_ROOT, path));
-}
+import { readFile, fileExists } from './harness/BaseBillingE2ESpec';
 
 test.describe('Entity Identity Domain - Implementation Complete', () => {
   
@@ -40,7 +29,11 @@ test.describe('Entity Identity Domain - Implementation Complete', () => {
     ];
     
     for (const cls of classes) {
-      expect(content).toContain(`class ${cls}`) || expect(content).toContain(`@dataclass\nclass ${cls}`) || expect(content).toContain(`class ${cls}(`);
+      const match = content.includes(`class ${cls}`) ||
+                    content.includes(`@dataclass\nclass ${cls}`) ||
+                    content.includes(`@dataclass\r\nclass ${cls}`) ||
+                    content.includes(`class ${cls}(`);
+      expect(match).toBe(true);
     }
     
     console.log(`✅ All ${classes.length} classes implemented`);

@@ -12,6 +12,9 @@ export default defineConfig({
   testMatch: ['e2e/**/*.spec.ts', '*.e2e.spec.ts'],
   testIgnore: ['unit/**', 'archive/**', 'harness/**', 'performance/**', 'regression/**'],
   globalSetup: './tests/e2e/global-setup.ts',
+  // tsconfig.test.json: CommonJS moduleResolution so Playwright's transform
+  // resolves ../harness/BaseBillingE2ESpec imports across all verify specs.
+  tsconfig: './tsconfig.test.json',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

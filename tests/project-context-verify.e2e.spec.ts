@@ -10,19 +10,26 @@ import { test, expect } from '@playwright/test';
 import { readFile, fileExists } from './harness/BaseBillingE2ESpec';
 
 test.describe('Project Context - Implementation', () => {
-  test('project_context.py exists', async () => {
-    expect(fileExists('src/projects/project_context.py')).toBe(true);
+  // Anti-CVT: symbol contract assertions replace file-existence gate.
+  test('project_context.py exports ProjectContext and ProjectContextManager', async () => {
+    const content = readFile('src/projects/project_context.py');
+    expect(content.length, 'project_context.py must be non-empty').toBeGreaterThan(0);
+    expect(content, 'ProjectContext dataclass required').toContain('class ProjectContext');
+    expect(content, 'ProjectContextManager required for CRUD operations').toContain('class ProjectContextManager');
   });
 
-  test('ProjectContext class defined', async () => {
+  test('ProjectContext has budget and constraint fields', async () => {
     const content = readFile('src/projects/project_context.py');
-    expect(content).toContain('class ProjectContext');
+    expect(content.toLowerCase(), 'budget field required for cost gate').toContain('budget');
+    expect(content.toLowerCase(), 'constraint field required for operational limits').toContain('constraint');
+    // ProjectStatus and ProjectPhase enums required by billing.proto
+    expect(content, 'ProjectStatus enum required').toContain('ProjectStatus');
+    expect(content, 'ProjectPhase enum required').toContain('ProjectPhase');
   });
 
-  test('Budget and constraint fields present', async () => {
+  test('ProjectContext has BillingTerms (client contract terms)', async () => {
     const content = readFile('src/projects/project_context.py');
-    expect(content.toLowerCase()).toContain('budget');
-    expect(content.toLowerCase()).toContain('constraint');
+    expect(content, 'BillingTerms class required for client contract').toContain('BillingTerms');
   });
 });
 

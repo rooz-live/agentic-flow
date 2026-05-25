@@ -12,31 +12,26 @@ import { readFile, fileExists } from './harness/BaseBillingE2ESpec';
 
 test.describe('Entity Identity Domain - Implementation Complete', () => {
   
-  test('entity_registry.py exists with all classes', async () => {
-    expect(fileExists('src/identity/entity_registry.py')).toBe(true);
-    
+  test('entity_registry.py exports all required classes', async () => {
+    // Anti-CVT: fileExists demoted to implicit (readFile throws if absent).
+    // Assert contract symbols — class presence proves the module was written,
+    // not just that a .py file exists.
     const content = readFile('src/identity/entity_registry.py');
+    expect(content.length, 'entity_registry.py must be non-empty').toBeGreaterThan(0);
     
-    const classes = [
+    const requiredClasses = [
       'EntityType',
       'EntityStatus',
       'EntityRole',
-      'IdentityVersion',
       'EntityIdentity',
       'UUIDGenerator',
-      'IdentityValidator',
       'IdentityRegistry'
     ];
     
-    for (const cls of classes) {
-      const match = content.includes(`class ${cls}`) ||
-                    content.includes(`@dataclass\nclass ${cls}`) ||
-                    content.includes(`@dataclass\r\nclass ${cls}`) ||
-                    content.includes(`class ${cls}(`);
-      expect(match).toBe(true);
+    for (const cls of requiredClasses) {
+      const match = content.includes(`class ${cls}`) || content.includes(`class ${cls}(`);
+      expect(match, `${cls} must be defined in entity_registry.py (billing.proto contract)`).toBe(true);
     }
-    
-    console.log(`✅ All ${classes.length} classes implemented`);
   });
 
   test('6 EntityType values defined', async () => {

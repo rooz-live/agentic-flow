@@ -10,21 +10,28 @@ import { test, expect } from '@playwright/test';
 import { readFile, fileExists } from './harness/BaseBillingE2ESpec';
 
 test.describe('Ceremony Logger - Implementation', () => {
-  test('ceremony_logger.py exists', async () => {
-    expect(fileExists('src/ceremony/ceremony_logger.py')).toBe(true);
+  // Anti-CVT: assert contract symbols, not just file existence.
+  // fileExists() demoted to internal guard; primary gate is symbol presence.
+  test('ceremony_logger.py exports CeremonyType enum with required values', async () => {
+    const content = readFile('src/ceremony/ceremony_logger.py');
+    // File must exist — if readFile throws, test fails with actionable message
+    expect(content.length, 'ceremony_logger.py must be non-empty').toBeGreaterThan(0);
+    expect(content, 'CeremonyType enum must be exported').toContain('CeremonyType');
+    expect(content, 'STANDUP ceremony type required by billing proto').toContain('STANDUP');
+    expect(content, 'RETROSPECTIVE ceremony type required by billing proto').toContain('RETROSPECTIVE');
+    expect(content, 'REVIEW ceremony type required by billing proto').toContain('REVIEW');
   });
 
-  test('CeremonyType enum defined', async () => {
+  test('CeremonyLogger class implements billable flag', async () => {
     const content = readFile('src/ceremony/ceremony_logger.py');
-    expect(content).toContain('CeremonyType');
-    expect(content).toContain('STANDUP');
-    expect(content).toContain('RETROSPECTIVE');
+    expect(content, 'CeremonyLogger class must be defined').toContain('class CeremonyLogger');
+    expect(content, 'billable field required — client invoices ceremonies').toContain('billable');
   });
 
-  test('CeremonyLogger class with billable flag', async () => {
+  test('ceremony_logger.py exposes log() or record() entry point', async () => {
     const content = readFile('src/ceremony/ceremony_logger.py');
-    expect(content).toContain('class CeremonyLogger');
-    expect(content).toContain('billable');
+    const hasLog = content.includes('def log') || content.includes('def record') || content.includes('def log_ceremony');
+    expect(hasLog, 'CeremonyLogger must have a log/record method for billing chain').toBe(true);
   });
 });
 

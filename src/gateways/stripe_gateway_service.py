@@ -1,10 +1,6 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
-import sys
-import os
 
-# Append the rust bridge library
-sys.path.insert(0, '/tmp/eventops_edge_deployment/rust_bridge/.venv/lib/python3.10/site-packages')
 import eventops_pyo3
 
 SECRET = "whsec_bhopti_12345"

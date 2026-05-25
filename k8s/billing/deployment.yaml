@@ -1,0 +1,115 @@
+---
+# Billing Gateway — Stripe webhook + HostBill emit + PyO3 Rust bridge
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-gateway
+  namespace: billing
+  labels:
+    app: billing-gateway
+    version: "1.0.0"
+    app.kubernetes.io/part-of: billing-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: billing-gateway
+  template:
+    metadata:
+      labels:
+        app: billing-gateway
+    spec:
+      containers:
+        - name: billing-gateway
+          image: ghcr.io/billing-platform/billing-gateway:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 9090
+              name: http
+          env:
+            - name: EVENT_STORE_BACKEND
+              value: "postgres"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: billing-secrets
+                  key: database-url
+            - name: STRIPE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: billing-secrets
+                  key: stripe-webhook-secret
+            - name: HOSTBILL_API_URL
+              valueFrom:
+                secretKeyRef:
+                  name: billing-secrets
+                  key: hostbill-api-url
+            - name: HOSTBILL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: billing-secrets
+                  key: hostbill-api-key
+            - name: HOSTBILL_API_ID
+              valueFrom:
+                secretKeyRef:
+                  name: billing-secrets
+                  key: hostbill-api-id
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9090
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+# Invoice Engine — generates real invoices against PostgreSQL event store
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: invoice-engine
+  namespace: billing
+  labels:
+    app: invoice-engine
+    app.kubernetes.io/part-of: billing-platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: invoice-engine
+  template:
+    metadata:
+      labels:
+        app: invoice-engine
+    spec:
+      containers:
+        - name: invoice-engine
+          image: ghcr.io/billing-platform/billing-gateway:latest
+          imagePullPolicy: Always
+          command: ["python3", "-m", "src.billing.invoice_engine"]
+          env:
+            - name: EVENT_STORE_BACKEND
+              value: "postgres"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: billing-secrets
+                  key: database-url
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"

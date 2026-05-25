@@ -143,13 +143,14 @@ class WSJFCalculator:
         elif weeks_remaining <= 4:
             return 5   # 2-4 weeks
         else:
-            # Decay function: less urgent as deadline is farther
-            base_score = max(1, 10 - (weeks_remaining / 4))
+            # Decay function: monotonically decreasing as deadline is farther
+            # At 5 weeks → ~3.5, at 8 weeks → ~2.5, at 12 weeks → ~1.7
+            base_score = max(1, 20 / weeks_remaining)
             
-            # Add opportunity cost component
-            opportunity_score = min(opportunity_cost_per_week / 1000, 5)
+            # Opportunity cost adds a small bonus (max 1.0) that also decays
+            opportunity_factor = min(opportunity_cost_per_week / 5000, 1.0)
             
-            return min(base_score + opportunity_score, 10)
+            return min(base_score + opportunity_factor, 4.0)
     
     def calculate_risk_reduction(self, profile: RiskProfile) -> float:
         """
@@ -173,8 +174,8 @@ class WSJFCalculator:
         
         risk_reduction_value = current_risk - future_risk
         
-        # Normalize to 1-10 scale ($10K risk reduction = 10 points)
-        return min(risk_reduction_value / 10000, 10)
+        # Normalize to 1-10 scale ($1K risk reduction = 1 point, $10K = 10)
+        return min(risk_reduction_value / 1000, 10)
     
     def calculate_job_duration(self, estimate_hours: float, confidence: str, 
                               team_id: str) -> float:

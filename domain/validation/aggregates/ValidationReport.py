@@ -6,17 +6,10 @@ Domain-Driven Design: Validation bounded context
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from typing import List, Optional
 from uuid import UUID, uuid4
 
-
-class ValidationStatus(Enum):
-    """Validation verdict status."""
-    PASS = "PASS"
-    FAIL = "FAIL"
-    BLOCKED = "BLOCKED"
-    SKIPPED = "SKIPPED"
+from ..value_objects.ValidationCheck import ValidationStatus
 
 
 @dataclass

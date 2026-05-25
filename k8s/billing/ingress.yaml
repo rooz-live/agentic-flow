@@ -1,0 +1,63 @@
+---
+# Public FQDN edge — billing.bhopti.com
+# Requires: cert-manager (Let's Encrypt) + nginx ingress controller
+# DNS: billing.bhopti.com → cluster ingress IP (delegate A record)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: billing-gateway-ingress
+  namespace: billing
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Rate limiting — prevents billing parameter tampering at edge
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    nginx.ingress.kubernetes.io/limit-connections: "20"
+    # Strip /webhooks/stripe path prefix for gateway routing
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  tls:
+    - hosts:
+        - billing.bhopti.com
+      secretName: billing-bhopti-tls
+  rules:
+    - host: billing.bhopti.com
+      http:
+        paths:
+          - path: /webhooks/stripe
+            pathType: Prefix
+            backend:
+              service:
+                name: billing-gateway
+                port:
+                  number: 80
+          - path: /invoices
+            pathType: Prefix
+            backend:
+              service:
+                name: billing-gateway
+                port:
+                  number: 80
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: billing-gateway
+                port:
+                  number: 80
+---
+# Certificate — Let's Encrypt production
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: billing-bhopti-tls
+  namespace: billing
+spec:
+  secretName: billing-bhopti-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - billing.bhopti.com

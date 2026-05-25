@@ -19,6 +19,7 @@ Error Codes:
   ERR_INVOICE_ALREADY_ISSUED     — attempt to re-issue an issued invoice
   ERR_CREDIT_NOTE_CHAIN_BROKEN   — credit note references unknown invoice
   ERR_TOTAL_MISMATCH             — total ≠ subtotal + tax_amount
+  ERR_INVALID_DISCOUNT           — invalid discount applied
 """
 
 from __future__ import annotations
@@ -30,6 +31,8 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from enum import Enum
 from typing import Dict, List, Optional
+
+ERR_INVALID_DISCOUNT = "ERR_INVALID_DISCOUNT"
 
 
 # ─── Enums ─────────────────────────────────────────────────────────────────  # noqa: E501

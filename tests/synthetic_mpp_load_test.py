@@ -6,9 +6,9 @@ from datetime import datetime, timezone, timedelta
 
 try:
     import eventops_pyo3
+    HAS_EVENTOPS = True
 except ImportError:
-    print("FATAL: Rust PyO3 bindings not found. Run 'maturin develop' first.")
-    sys.exit(1)
+    HAS_EVENTOPS = False
 
 def mpp_worker_task(worker_id, iterations):
     """

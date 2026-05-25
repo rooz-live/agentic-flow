@@ -19,6 +19,15 @@ static TAX_MATRIX: Lazy<RwLock<HashMap<String, TaxConfig>>> = Lazy::new(|| {
     RwLock::new(HashMap::new())
 });
 
+#[derive(Serialize, Deserialize, Debug)]
+struct ProjectContext {
+    project_id: String,
+    total_budget: Decimal,
+    cost_limit_per_entry: Decimal,
+    spent_to_date: Decimal,
+    status: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 enum Role {
     Technician,
@@ -315,6 +324,38 @@ fn calculate_billable_hours(events_json: &str) -> PyResult<String> {
     Ok(result.to_string())
 }
 
+#[pyfunction]
+fn validate_project_constraints(context_json: &str, requested_amount: f64) -> PyResult<bool> {
+    use rust_decimal::prelude::*;
+    
+    let context: ProjectContext = serde_json::from_str(context_json)
+        .map_err(|e| PyValueError::new_err(format!("ERR_INVALID_CONTRACT_FORMAT: Invalid Project Context JSON: {}", e)))?;
+
+    if context.status.to_uppercase() != "ACTIVE" {
+        return Err(PyValueError::new_err("ERR_PROJECT_INACTIVE: Cannot post costs to an inactive or closed project"));
+    }
+
+    let request = Decimal::from_f64(requested_amount)
+        .ok_or_else(|| PyValueError::new_err("ERR_FINANCIAL_PRECISION: Invalid request amount"))?;
+
+    if request > context.cost_limit_per_entry {
+        return Err(PyValueError::new_err(format!(
+            "ERR_LIMIT_EXCEEDED: Requested amount {} exceeds single-entry limit {}",
+            request, context.cost_limit_per_entry
+        )));
+    }
+
+    let new_total = context.spent_to_date + request;
+    if new_total > context.total_budget {
+        return Err(PyValueError::new_err(format!(
+            "ERR_BUDGET_EXCEEDED: Requested amount {} exceeds remaining project budget. Total budget: {}, Spent: {}",
+            request, context.total_budget, context.spent_to_date
+        )));
+    }
+
+    Ok(true)
+}
+
 /// A Python module implemented in Rust. The name of this function must match
 /// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
 /// import the module.
@@ -331,5 +372,6 @@ fn eventops_pyo3(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load_tax_matrix, m)?)?;
     m.add_function(wrap_pyfunction!(calculate_jurisdiction_tax, m)?)?;
     m.add_function(wrap_pyfunction!(calculate_billable_hours, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_project_constraints, m)?)?;
     Ok(())
 }

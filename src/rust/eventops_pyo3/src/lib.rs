@@ -197,14 +197,14 @@ fn calculate_distance(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> PyResult<f6
 
 /// Batch verify multiple event signatures for audit trail
 #[pyfunction]
-fn batch_verify_events(payloads: Vec<&str>, expected_hashes: Vec<&str>) -> PyResult<Vec<bool>> {
+fn batch_verify_events(payloads: Vec<String>, expected_hashes: Vec<String>) -> PyResult<Vec<bool>> {
     if payloads.len() != expected_hashes.len() {
         return Err(PyValueError::new_err("ERR_INVALID_CONTRACT_FORMAT: Payload and hash count mismatch"));
     }
     
     let mut results = Vec::with_capacity(payloads.len());
     for (payload, expected) in payloads.iter().zip(expected_hashes.iter()) {
-        match verify_immutability(payload, expected) {
+        match verify_immutability(payload.as_str(), expected.as_str()) {
             Ok(valid) => results.push(valid),
             Err(_) => results.push(false),
         }
@@ -426,7 +426,7 @@ fn chunk_domain_payloads(payload: &str, batch_size: usize) -> PyResult<String> {
 /// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
 /// import the module.
 #[pymodule]
-fn eventops_pyo3(_py: Python, m: &PyModule) -> PyResult<()> {
+fn eventops_pyo3(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(validate_eventops_schema, m)?)?;
     m.add_function(wrap_pyfunction!(validate_stripe_signature, m)?)?;
     m.add_function(wrap_pyfunction!(emit_to_hostbill, m)?)?;

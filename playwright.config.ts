@@ -8,8 +8,9 @@ const runTldOnly = process.env.PLAYWRIGHT_TLD_ONLY === '1';
  * - Ensures accessibility and performance standards
  */
 export default defineConfig({
-  testDir: './tests/e2e',
-  testIgnore: 'unit/**',
+  testDir: './tests',
+  testMatch: ['e2e/**/*.spec.ts', '*.e2e.spec.ts'],
+  testIgnore: ['unit/**', 'archive/**', 'harness/**', 'performance/**', 'regression/**'],
   globalSetup: './tests/e2e/global-setup.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,

@@ -61,6 +61,29 @@ struct EventOpsFact {
     reference_pointer_event_id: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+enum CeremonyType {
+    Standup,
+    Review,
+    Retrospective,
+    PiPlanning,
+    Sync,
+    Correction,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct CeremonyLogFact {
+    ceremony_id: Option<String>,
+    project_id: String,
+    technician_id: String,
+    ceremony_type: CeremonyType,
+    start_time: DateTime<Utc>,
+    end_time: DateTime<Utc>,
+    duration_seconds: i32,
+    is_billable: bool,
+    reference_ceremony_id: Option<String>,
+}
+
 #[pyfunction]
 fn validate_eventops_schema(payload: &str) -> PyResult<String> {
     // Mathmatical constraint verification (ISO8601 UTC and UUID constraints checked natively)
@@ -356,6 +379,29 @@ fn validate_project_constraints(context_json: &str, requested_amount: f64) -> Py
     Ok(true)
 }
 
+#[pyfunction]
+fn validate_ceremony_logger(payload: &str) -> PyResult<String> {
+    // 1. Serde strict schema enforcement including ISO 8601 validation
+    let mut fact: CeremonyLogFact = serde_json::from_str(payload)
+        .map_err(|e| PyValueError::new_err(format!("ERR_INVALID_CONTRACT_FORMAT: {}", e)))?;
+
+    // 2. Mathematical Time Verification (Cannot trust payload's stated duration)
+    let actual_duration = fact.end_time.signed_duration_since(fact.start_time).num_seconds();
+    
+    if actual_duration <= 0 {
+         return Err(PyValueError::new_err("ERR_INVALID_TIME_AGGREGATION: Ceremony end time must be after start time."));
+    }
+
+    // 3. Immutability validation layer ensures the duration matches the raw timestamps
+    if fact.duration_seconds as i64 != actual_duration {
+        // We override the tampered duration with the mathematically verified one
+        fact.duration_seconds = actual_duration as i32;
+    }
+
+    // Return the validated, structurally sound fact for the Append-Only PostgreSQL insertion
+    Ok(serde_json::to_string(&fact).unwrap())
+}
+
 /// A Python module implemented in Rust. The name of this function must match
 /// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
 /// import the module.
@@ -373,5 +419,6 @@ fn eventops_pyo3(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(calculate_jurisdiction_tax, m)?)?;
     m.add_function(wrap_pyfunction!(calculate_billable_hours, m)?)?;
     m.add_function(wrap_pyfunction!(validate_project_constraints, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_ceremony_logger, m)?)?;
     Ok(())
 }

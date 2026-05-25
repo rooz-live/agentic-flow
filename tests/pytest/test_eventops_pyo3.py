@@ -183,6 +183,78 @@ def test_validate_project_constraints():
         "status": "ON_HOLD"
     })
     
+    
     with pytest.raises(ValueError) as exc:
         eventops_pyo3.validate_project_constraints(context_inactive, 100.0)
     assert "ERR_PROJECT_INACTIVE" in str(exc.value)
+
+@pytest.mark.schema
+def test_validate_ceremony_logger():
+    if not eventops_pyo3:
+        pytest.skip("Rust PyO3 library not compiled yet. Skipping integration validation.")
+        
+    # Valid ISO 8601 payload
+    valid_ceremony = json.dumps({
+        "ceremony_id": "c1234567-e89b-12d3-a456-426614174000",
+        "project_id": "PRJ-999",
+        "technician_id": "T-123",
+        "ceremony_type": "Standup",
+        "start_time": "2026-05-25T08:00:00Z",
+        "end_time": "2026-05-25T08:15:00Z",
+        "duration_seconds": 900,
+        "is_billable": True,
+        "reference_ceremony_id": None
+    })
+    
+    result = eventops_pyo3.validate_ceremony_logger(valid_ceremony)
+    data = json.loads(result)
+    assert data["duration_seconds"] == 900
+
+    # Test tampering: user claims 2 hours for a 15 minute standup
+    tampered_ceremony = json.dumps({
+        "project_id": "PRJ-999",
+        "technician_id": "T-123",
+        "ceremony_type": "Standup",
+        "start_time": "2026-05-25T08:00:00Z",
+        "end_time": "2026-05-25T08:15:00Z",
+        "duration_seconds": 7200, # Tampered!
+        "is_billable": True,
+        "reference_ceremony_id": None
+    })
+    
+    # The Rust validation should mathematically override the duration_seconds
+    result_tampered = eventops_pyo3.validate_ceremony_logger(tampered_ceremony)
+    data_tampered = json.loads(result_tampered)
+    assert data_tampered["duration_seconds"] == 900
+
+    # Test Invalid Schema (Missing Z timezone indicator)
+    invalid_time = json.dumps({
+        "project_id": "PRJ-999",
+        "technician_id": "T-123",
+        "ceremony_type": "Standup",
+        "start_time": "2026-05-25T08:00:00", # Invalid ISO 8601
+        "end_time": "2026-05-25T08:15:00Z",
+        "duration_seconds": 900,
+        "is_billable": True,
+        "reference_ceremony_id": None
+    })
+    
+    with pytest.raises(ValueError) as exc:
+        eventops_pyo3.validate_ceremony_logger(invalid_time)
+    assert "ERR_INVALID_CONTRACT_FORMAT" in str(exc.value)
+    
+    # Test Time Travel (End time before start time)
+    time_travel = json.dumps({
+        "project_id": "PRJ-999",
+        "technician_id": "T-123",
+        "ceremony_type": "Standup",
+        "start_time": "2026-05-25T09:00:00Z", 
+        "end_time": "2026-05-25T08:00:00Z", # Ends before it started
+        "duration_seconds": 900,
+        "is_billable": True,
+        "reference_ceremony_id": None
+    })
+    
+    with pytest.raises(ValueError) as exc:
+        eventops_pyo3.validate_ceremony_logger(time_travel)
+    assert "ERR_INVALID_TIME_AGGREGATION" in str(exc.value)

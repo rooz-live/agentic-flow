@@ -60,7 +60,7 @@ class SchemaEngine:
                 "uuid": r"^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
             }
         },
-        "rate": {
+        "rate": {  # rate-engine
             "required": ["rate_id", "base_rate", "currency"],
             "types": {
                 "rate_id": "string", "base_rate": "decimal",
@@ -69,7 +69,7 @@ class SchemaEngine:
             "patterns": {"currency": r"^[A-Z]{3}$"},
             "ranges": {"base_rate": {"min": 0, "max": 1000000}}
         },
-        "event_fact": {
+        "event_fact": {  # eventops
             "required": ["event_id", "timestamp", "entity_uuid"],
             "types": {
                 "event_id": "string", "timestamp": "iso8601",

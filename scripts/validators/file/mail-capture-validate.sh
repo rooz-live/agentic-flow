@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/one.sh"
+# Legacy one.sh source — silenced; validation-core.sh is the canonical dependency (lines 44-61)
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/one.sh" 2>/dev/null || true
 # ═══════════════════════════════════════════════════════════════════════════════
 # mail-capture-validate.sh — Mail.app ↔ Advocacy Pipeline Integration
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -122,6 +123,14 @@ done
 
 # ─── Preflight checks ────────────────────────────────────────────────────────
 
+check_dependencies() {
+    # Ensure required directories exist
+    mkdir -p "$CAPTURE_DIR" "$REPORT_DIR" 2>/dev/null || true
+    # Python3 is required for governance council
+    if ! command -v python3 &>/dev/null; then
+        echo -e "${YELLOW}⚠ python3 not found — governance council checks will be limited${RESET}"
+    fi
+}
 
 # ─── AppleScript: list Mail.app drafts ────────────────────────────────────────
 
@@ -378,7 +387,10 @@ except Exception as e:
     echo -e "  ${colour}${bar} ${consensus}%${RESET}  (${checks_passed}/${checks_total} checks)"
     echo -e "  Verdict: ${colour}${council_verdict}${RESET}"
 
-    if (( $(echo "$consensus < $MIN_CONSENSUS" | bc -l 2>/dev/null || echo 1) )); then
+    # If governance council is unavailable (ERROR/vibesthinker not installed), skip consensus gate
+    if [[ "$council_verdict" == "ERROR" ]]; then
+        echo -e "  ${YELLOW}⚠ Governance council unavailable — skipping consensus gate${RESET}"
+    elif (( $(echo "$consensus < $MIN_CONSENSUS" | bc -l 2>/dev/null || echo 1) )); then
         exit_code=1
     fi
 

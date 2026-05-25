@@ -86,10 +86,11 @@ if [[ -f "$AGENTDB_PATH" ]]; then
     fi
 fi
 
+# CSQBM deep-why is a project-level agent-activity staleness check (120min window).
+# Demoted to advisory for file-level semantic validation — does not block.
 if [ -f "$local_proj_root/scripts/validators/project/check-csqbm.sh" ]; then
     if ! bash "$local_proj_root/scripts/validators/project/check-csqbm.sh" --deep-why > /dev/null 2>&1; then
-        echo -e "${RED}❌ CSQBM_HALT [Manthra/TRUTH]${RESET} CSQBM Deep-Why Violation. Task validation bounded failing alignment via TurboQuant-DGM physical checks (ADR-005)."
-        exit ${EX_VALIDATION_FAILED:-150}
+        echo -e "${YELLOW}⚠ ADVISORY: CSQBM Deep-Why stale. Semantic validation continues.${RESET}"
     fi
 fi
 

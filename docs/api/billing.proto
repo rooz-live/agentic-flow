@@ -1,0 +1,510 @@
+// billing.proto — Canonical Schema for Billing Platform
+// proto_version: 1.1.0
+// WSJF Priority: 8.00 (Phase 3 - B1) → Wave 4 schema regression gate active
+// CANONICAL SOURCE: All Python, TypeScript, Rust types generated from this file.
+// Do NOT hand-edit domain schemas in schema_engine.py or lib.rs without updating here first.
+//
+// Cross-references:
+//   Generated Python:     src/validation/schema_engine.py (DOMAIN_SCHEMAS)
+//   Generated TypeScript: src/vector/core/types.ts (BillingDomainTypes)
+//   Generated Rust:       src/rust/eventops_pyo3/src/lib.rs (EntityIdentity, EventOpsFact)
+//   Inventory:            docs/billing/CONSOLIDATION_INVENTORY.md
+//   Integration test:     tests/billing-platform-integration.e2e.spec.ts
+
+syntax = "proto3";
+package billing.v1;
+
+option go_package = "billing/v1";
+option java_package = "com.billing.v1";
+
+// ─────────────────────────────────────────────
+// SHARED PRIMITIVES
+// ─────────────────────────────────────────────
+
+// Money — always decimal string to avoid float precision loss
+message Money {
+  string amount = 1;        // Decimal string e.g. "150.00"
+  string currency_iso4217 = 2; // ISO 4217 e.g. "USD"
+}
+
+// GeoCoordinate — immutable location snapshot
+message GeoCoordinate {
+  double latitude = 1;      // -90.0 to 90.0
+  double longitude = 2;     // -180.0 to 180.0
+  float accuracy_meters = 3;
+}
+
+// Timestamp — ISO 8601 UTC required
+message BillingTimestamp {
+  string iso8601_utc = 1;   // e.g. "2024-01-15T08:00:00Z"
+}
+
+// ─────────────────────────────────────────────
+// DOMAIN 1: ENTITY IDENTITY
+// ERR Codes: ERR_INVALID_UUID_V7, ERR_ENTITY_NOT_FOUND, ERR_ROLE_MISMATCH
+// ─────────────────────────────────────────────
+
+enum EntityRole {
+  ENTITY_ROLE_UNSPECIFIED = 0;
+  TECHNICIAN = 1;
+  CLIENT = 2;
+  VENDOR = 3;
+  ADMIN = 4;
+}
+
+enum EntityStatus {
+  ENTITY_STATUS_UNSPECIFIED = 0;
+  ACTIVE = 1;
+  INACTIVE = 2;
+  SUSPENDED = 3;
+  PENDING_VERIFICATION = 4;
+  MERGED = 5;
+}
+
+message EntityIdentity {
+  string uuid = 1;           // UUID v7 pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+  EntityRole role = 2;
+  string alias = 3;
+  EntityStatus status = 4;
+  BillingTimestamp created_at = 5;
+  map<string, string> metadata = 6;
+}
+
+// ─────────────────────────────────────────────
+// DOMAIN 2: RATE ENGINE
+// ERR Codes: ERR_RATE_NOT_FOUND, ERR_RATE_EXPIRED, ERR_INVALID_MULTIPLIER
+// ─────────────────────────────────────────────
+
+enum RateDimensionType {
+  RATE_DIMENSION_UNSPECIFIED = 0;
+  LOCATION_ONSITE = 1;
+  LOCATION_REMOTE = 2;
+  TIME_AFTER_HOURS = 3;
+  TIME_WEEKEND = 4;
+  URGENCY_EMERGENCY = 5;
+  VENDOR_MARKUP = 6;
+}
+
+message RateDimension {
+  RateDimensionType dimension_type = 1;
+  string multiplier = 2;     // Decimal string e.g. "1.5"
+  string condition = 3;
+}
+
+message Rate {
+  string rate_id = 1;
+  string entity_uuid = 2;
+  Money base_rate = 3;
+  repeated RateDimension dimensions = 4;
+  string effective_date = 5; // ISO 8601 date
+  string expiry_date = 6;
+  bool active = 7;
+}
+
+// ─────────────────────────────────────────────
+// DOMAIN 3: PROJECT CONTEXT
+// ERR Codes: ERR_PROJECT_NOT_FOUND, ERR_BUDGET_EXCEEDED, ERR_GEO_FENCE_VIOLATION
+// ─────────────────────────────────────────────
+
+enum ProjectStatus {
+  PROJECT_STATUS_UNSPECIFIED = 0;
+  DISCOVERY = 1;
+  DESIGN = 2;
+  DEVELOPMENT = 3;
+  TESTING = 4;
+  DEPLOYMENT = 5;
+  MAINTENANCE = 6;
+}
+
+message GeoFence {
+  double center_latitude = 1;
+  double center_longitude = 2;
+  double radius_meters = 3;
+}
+
+message ProjectContext {
+  string project_id = 1;
+  string client_id = 2;
+  string name = 3;
+  ProjectStatus status = 4;
+  Money budget_total = 5;
+  Money budget_spent = 6;
+  float budget_alert_threshold = 7; // 0.0-1.0
+  GeoFence geo_fence = 8;
+  BillingTimestamp start_date = 9;
+  BillingTimestamp end_date = 10;
+}
+
+// ─────────────────────────────────────────────
+// DOMAIN 4: EVENT FACT (EVENTOPS)
+// ERR Codes: ERR_INVALID_CONTRACT_FORMAT, ERR_IMMUTABILITY_VIOLATION, ERR_ISO8601_REQUIRED
+// IMMUTABILITY: No UPDATE/DELETE. Corrections via correction_of reference.
+// ─────────────────────────────────────────────
+
+enum EventType {
+  EVENT_TYPE_UNSPECIFIED = 0;
+  CLOCK_IN = 1;
+  CLOCK_OUT = 2;
+  JOB_START = 3;
+  JOB_END = 4;
+  LOCATION_UPDATE = 5;
+  STATUS_CHANGE = 6;
+  CORRECTION = 7;
+}
+
+message EventFact {
+  string event_id = 1;
+  EventType event_type = 2;
+  string entity_uuid = 3;
+  BillingTimestamp timestamp_utc = 4; // ISO 8601 UTC — REQUIRED, rejects missing
+  GeoCoordinate location = 5;
+  string project_id = 6;
+  string content_hash = 7;   // SHA256 of payload
+  string previous_event_id = 8;
+  string correction_of = 9;  // Non-empty = correction entry
+  string correction_reason = 10;
+  map<string, string> metadata = 11;
+}
+
+// ─────────────────────────────────────────────
+// DOMAIN 5: CEREMONY SESSION
+// ERR Codes: ERR_INVALID_CEREMONY_TYPE, ERR_DURATION_EXCEEDS_MAX
+// ─────────────────────────────────────────────
+
+enum CeremonyType {
+  CEREMONY_TYPE_UNSPECIFIED = 0;
+  STANDUP = 1;
+  REVIEW = 2;
+  RETROSPECTIVE = 3;
+  PLANNING = 4;
+  GROOMING = 5;
+  DEMO = 6;
+}
+
+message CeremonySession {
+  string session_id = 1;
+  CeremonyType ceremony_type = 2;
+  string project_id = 3;
+  BillingTimestamp start_time = 4;
+  BillingTimestamp end_time = 5;
+  float duration_minutes = 6;
+  repeated string participant_uuids = 7;
+  bool billable = 8;
+  Money billable_amount = 9;
+  repeated string action_items = 10;
+}
+
+// ─────────────────────────────────────────────
+// DOMAIN 6: JOB MANIFEST
+// ERR Codes: ERR_JOB_NOT_FOUND, ERR_SIGN_OFF_REQUIRED, ERR_INVALID_STATUS
+// ─────────────────────────────────────────────
+
+enum JobStatus {
+  JOB_STATUS_UNSPECIFIED = 0;
+  DRAFT = 1;
+  SCHEDULED = 2;
+  IN_PROGRESS = 3;
+  COMPLETED = 4;
+  CANCELLED = 5;
+}
+
+message JobTask {
+  string task_id = 1;
+  string name = 2;
+  bool completed = 3;
+  BillingTimestamp completed_at = 4;
+}
+
+message JobMaterial {
+  string sku = 1;
+  int32 quantity = 2;
+  Money unit_cost = 3;
+  Money line_total = 4;
+}
+
+message JobSignOff {
+  string client_uuid = 1;
+  bool client_present = 2;
+  string signature_hash = 3;
+  int32 satisfaction_rating = 4; // 1-5
+  BillingTimestamp signed_at = 5;
+}
+
+message JobManifest {
+  string job_id = 1;
+  string project_id = 2;
+  string technician_uuid = 3;
+  JobStatus status = 4;
+  repeated JobTask tasks = 5;
+  repeated JobMaterial materials = 6;
+  Money total_material_cost = 7;
+  JobSignOff sign_off = 8;
+}
+
+// ─────────────────────────────────────────────
+// DOMAIN 7: COST & BUDGET LEDGER
+// ERR Codes: ERR_BUDGET_EXCEEDED, ERR_INVALID_ENTRY_TYPE, ERR_NEGATIVE_AMOUNT
+// IMMUTABILITY: Corrections via offsetting entries (same as EventFact)
+// ─────────────────────────────────────────────
+
+enum CostEntryType {
+  COST_ENTRY_TYPE_UNSPECIFIED = 0;
+  LABOR = 1;
+  CEREMONY = 2;
+  MATERIALS = 3;
+  TRAVEL = 4;
+  CORRECTION = 5;
+}
+
+message CostEntry {
+  string entry_id = 1;
+  string project_id = 2;
+  CostEntryType entry_type = 3;
+  string description = 4;
+  Money gross_cost = 5;
+  Money net_billable = 6;
+  BillingTimestamp recorded_at = 7;
+  string correction_of = 8;
+  string correction_reason = 9;
+}
+
+message BudgetLedger {
+  string project_id = 1;
+  Money budget_total = 2;
+  Money total_gross = 3;
+  Money total_net = 4;
+  Money budget_remaining = 5;
+  float budget_utilization = 6; // 0.0-1.0
+  repeated CostEntry entries = 7;
+}
+
+// ─────────────────────────────────────────────
+// DOMAIN 8: TAX & CURRENCY
+// ERR Codes: ERR_INVALID_JURISDICTION, ERR_TAX_RATE_OUT_OF_RANGE, ERR_CURRENCY_NOT_SUPPORTED
+// ─────────────────────────────────────────────
+
+enum TaxCalculationType {
+  TAX_CALCULATION_TYPE_UNSPECIFIED = 0;
+  PERCENTAGE = 1;
+  FIXED = 2;
+  COMPOUND = 3;
+}
+
+message TaxCalculation {
+  string jurisdiction_code = 1; // e.g. "US-NC-MECKLENBURG"
+  Money base_amount = 2;
+  string tax_rate = 3;          // Decimal string 0.0-1.0
+  TaxCalculationType calculation_type = 4;
+  Money tax_amount = 5;
+  Money total_amount = 6;
+}
+
+// ─────────────────────────────────────────────
+// DOMAIN 9: CALCULATION ENGINE
+// ERR Codes: ERR_ISO8601_REQUIRED, ERR_NEGATIVE_DURATION, ERR_TOTAL_MISMATCH
+// ─────────────────────────────────────────────
+
+message TimeAggregation {
+  string entity_uuid = 1;
+  string project_id = 2;
+  float billable_hours = 3;
+  float ceremony_hours = 4;
+  float total_hours = 5;
+  BillingTimestamp period_start = 6;
+  BillingTimestamp period_end = 7;
+}
+
+message CalculationResult {
+  string calculation_id = 1;
+  string project_id = 2;
+  TimeAggregation time_aggregation = 3;
+  Money subtotal = 4;
+  Money tax_amount = 5;
+  Money total = 6;           // MUST equal subtotal + tax_amount
+  string rate_id_used = 7;
+  BillingTimestamp calculated_at = 8;
+}
+
+// ─────────────────────────────────────────────
+// DOMAIN 10: INVOICE ENGINE  (WSJF 9.5 — Phase 3)
+// ERR Codes: ERR_INVOICE_GENERATION_FAILED, ERR_MISSING_SIGNOFF,
+//            ERR_INVOICE_ALREADY_ISSUED, ERR_CREDIT_NOTE_CHAIN_BROKEN
+// IMMUTABILITY: Once issued, no UPDATE. Corrections via CreditNote with
+//               reference pointer (same pattern as EventFact/CostEntry).
+// ─────────────────────────────────────────────
+
+enum InvoiceStatus {
+  INVOICE_STATUS_UNSPECIFIED = 0;
+  DRAFT = 1;
+  ISSUED = 2;
+  PAID = 3;
+  OVERDUE = 4;
+  VOIDED = 5;
+  CREDITED = 6;
+}
+
+enum InvoiceLineItemType {
+  LINE_ITEM_TYPE_UNSPECIFIED = 0;
+  LABOR = 1;
+  CEREMONY = 2;
+  MATERIALS = 3;
+  TRAVEL = 4;
+  TAX = 5;
+  DISCOUNT = 6;
+}
+
+message InvoiceLineItem {
+  string line_id = 1;
+  InvoiceLineItemType item_type = 2;
+  string description = 3;
+  string quantity = 4;       // Decimal string
+  Money unit_price = 5;
+  Money line_total = 6;      // quantity × unit_price
+  string rate_id = 7;
+  string event_id_ref = 8;   // Reference to source EventFact
+}
+
+message Invoice {
+  string invoice_id = 1;     // UUID v7
+  string project_id = 2;
+  string client_uuid = 3;
+  string technician_uuid = 4;
+  InvoiceStatus status = 5;
+  repeated InvoiceLineItem line_items = 6;
+  Money subtotal = 7;
+  Money tax_amount = 8;
+  Money total = 9;           // MUST equal subtotal + tax_amount
+  BillingTimestamp issued_at = 10;
+  BillingTimestamp due_date = 11;
+  string calculation_id = 12; // Reference to CalculationResult
+  string job_id = 13;         // Reference to JobManifest (sign-off required)
+  string credit_note_of = 14; // Non-empty = this is a credit note
+  string credit_reason = 15;
+  map<string, string> metadata = 16;
+}
+
+message CreditNote {
+  string credit_note_id = 1;
+  string original_invoice_id = 2;  // REQUIRED — chain pointer
+  string project_id = 3;
+  string reason = 4;
+  Money credit_amount = 5;
+  BillingTimestamp issued_at = 6;
+}
+
+// ─────────────────────────────────────────────
+// SERVICE CONTRACTS
+// ─────────────────────────────────────────────
+
+service BillingService {
+  // Entity Identity
+  rpc CreateEntity(EntityIdentity) returns (EntityIdentity);
+  rpc GetEntity(EntityIdentityRequest) returns (EntityIdentity);
+
+  // Rate Engine
+  rpc CreateRate(Rate) returns (Rate);
+  rpc GetRate(RateRequest) returns (Rate);
+  rpc CalculateRate(CalculateRateRequest) returns (Money);
+
+  // Project
+  rpc CreateProject(ProjectContext) returns (ProjectContext);
+  rpc GetProject(ProjectRequest) returns (ProjectContext);
+
+  // Events (append-only)
+  rpc RecordEvent(EventFact) returns (EventFact);
+  rpc CorrectEvent(EventCorrectionRequest) returns (EventFact);
+  rpc VerifyEvents(VerifyEventsRequest) returns (VerifyEventsResponse);
+
+  // Ceremony
+  rpc RecordCeremony(CeremonySession) returns (CeremonySession);
+
+  // Job
+  rpc RecordJob(JobManifest) returns (JobManifest);
+
+  // Ledger
+  rpc RecordCost(CostEntry) returns (BudgetLedger);
+  rpc GetLedger(LedgerRequest) returns (BudgetLedger);
+
+  // Tax
+  rpc CalculateTax(TaxCalculation) returns (TaxCalculation);
+
+  // Calculation
+  rpc Calculate(CalculationRequest) returns (CalculationResult);
+
+  // Invoice (immutable — issued invoices corrected via CreditNote only)
+  rpc GenerateInvoice(InvoiceRequest) returns (Invoice);
+  rpc GetInvoice(InvoiceGetRequest) returns (Invoice);
+  rpc IssueCreditNote(CreditNoteRequest) returns (CreditNote);
+  rpc ListInvoices(InvoiceListRequest) returns (InvoiceListResponse);
+}
+
+// ─────────────────────────────────────────────
+// REQUEST/RESPONSE WRAPPERS
+// ─────────────────────────────────────────────
+
+message EntityIdentityRequest { string uuid = 1; }
+message RateRequest { string rate_id = 1; string entity_uuid = 2; }
+message ProjectRequest { string project_id = 1; }
+message LedgerRequest { string project_id = 1; }
+
+message CalculateRateRequest {
+  string entity_uuid = 1;
+  string base_rate = 2;
+  repeated string dimension_conditions = 3;
+}
+
+message EventCorrectionRequest {
+  string original_event_id = 1;
+  string entity_uuid = 2;
+  map<string, string> correction_payload = 3;
+  string reason = 4;
+}
+
+message VerifyEventsRequest {
+  repeated string event_ids = 1;
+  bool verify_hashes = 2;
+  bool verify_chain = 3;
+}
+
+message VerifyEventsResponse {
+  bool all_valid = 1;
+  int32 verified_count = 2;
+  int32 failed_count = 3;
+  repeated string failed_event_ids = 4;
+}
+
+message CalculationRequest {
+  string project_id = 1;
+  string entity_uuid = 2;
+  BillingTimestamp period_start = 3;
+  BillingTimestamp period_end = 4;
+  bool include_ceremony = 5;
+}
+
+message InvoiceRequest {
+  string project_id = 1;
+  string client_uuid = 2;
+  string technician_uuid = 3;
+  string calculation_id = 4;
+  string job_id = 5;
+  BillingTimestamp due_date = 6;
+}
+
+message InvoiceGetRequest { string invoice_id = 1; }
+
+message CreditNoteRequest {
+  string original_invoice_id = 1;
+  string reason = 2;
+  Money credit_amount = 3;
+}
+
+message InvoiceListRequest {
+  string project_id = 1;
+  string client_uuid = 2;
+  InvoiceStatus status_filter = 3;
+}
+
+message InvoiceListResponse {
+  repeated Invoice invoices = 1;
+  int32 total_count = 2;
+}

@@ -402,6 +402,26 @@ fn validate_ceremony_logger(payload: &str) -> PyResult<String> {
     Ok(serde_json::to_string(&fact).unwrap())
 }
 
+#[pyfunction]
+fn chunk_domain_payloads(payload: &str, batch_size: usize) -> PyResult<String> {
+    if batch_size == 0 {
+        return Err(PyValueError::new_err("ERR_INVALID_BATCH_SIZE: Batch size must be strictly greater than 0."));
+    }
+
+    // Parse the incoming mass domain payload as a generic JSON array
+    let domains: Vec<serde_json::Value> = serde_json::from_str(payload)
+        .map_err(|e| PyValueError::new_err(format!("ERR_INVALID_CONTRACT_FORMAT: Expected a JSON array of domains. {}", e)))?;
+
+    // Abstraction layer: Chunk the massive array into strictly sized memory blocks
+    let mut chunks = Vec::new();
+    for chunk in domains.chunks(batch_size) {
+        chunks.push(chunk.to_vec());
+    }
+
+    // Return a deeply nested array (array of arrays) for Python to iterate and stream asynchronously
+    Ok(serde_json::to_string(&chunks).unwrap())
+}
+
 /// A Python module implemented in Rust. The name of this function must match
 /// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
 /// import the module.
@@ -420,5 +440,6 @@ fn eventops_pyo3(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(calculate_billable_hours, m)?)?;
     m.add_function(wrap_pyfunction!(validate_project_constraints, m)?)?;
     m.add_function(wrap_pyfunction!(validate_ceremony_logger, m)?)?;
+    m.add_function(wrap_pyfunction!(chunk_domain_payloads, m)?)?;
     Ok(())
 }

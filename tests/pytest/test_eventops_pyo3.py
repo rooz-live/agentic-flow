@@ -258,3 +258,33 @@ def test_validate_ceremony_logger():
     with pytest.raises(ValueError) as exc:
         eventops_pyo3.validate_ceremony_logger(time_travel)
     assert "ERR_INVALID_TIME_AGGREGATION" in str(exc.value)
+
+@pytest.mark.schema
+def test_chunk_domain_payloads():
+    if not eventops_pyo3:
+        pytest.skip("Rust PyO3 library not compiled yet. Skipping integration validation.")
+        
+    # Generate 29 simulated domains
+    domains = [{"domain": f"client{i}.bhopti.com", "id": i} for i in range(1, 30)]
+    payload = json.dumps(domains)
+    
+    # Test batching into sizes of 10
+    result = eventops_pyo3.chunk_domain_payloads(payload, 10)
+    chunks = json.loads(result)
+    
+    assert len(chunks) == 3 # 10, 10, 9
+    assert len(chunks[0]) == 10
+    assert len(chunks[1]) == 10
+    assert len(chunks[2]) == 9
+    assert chunks[0][0]["domain"] == "client1.bhopti.com"
+    assert chunks[2][-1]["domain"] == "client29.bhopti.com"
+    
+    # Test invalid JSON format
+    with pytest.raises(ValueError) as exc:
+        eventops_pyo3.chunk_domain_payloads("invalid json", 10)
+    assert "ERR_INVALID_CONTRACT_FORMAT" in str(exc.value)
+    
+    # Test invalid batch size
+    with pytest.raises(ValueError) as exc:
+        eventops_pyo3.chunk_domain_payloads(payload, 0)
+    assert "ERR_INVALID_BATCH_SIZE" in str(exc.value)

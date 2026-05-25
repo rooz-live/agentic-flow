@@ -1,0 +1,183 @@
+name: "Deploy swarm-core-app"
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      - 'swarm-core-app/**'
+      - '.github/workflows/deploy-swarm-core.yml'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Deploy target (all | tagvote | tag | rooz | ogov | c720)'
+        required: false
+        default: 'all'
+
+concurrency:
+  group: deploy-swarm-core-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  APP_DIR: swarm-core-app
+
+jobs:
+  build:
+    name: Build & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        working-directory: ${{ env.APP_DIR }}
+        run: npm ci
+
+      - name: Lint
+        working-directory: ${{ env.APP_DIR }}
+        run: npm run lint || true  # Advisory — don't block deploy on lint warnings
+
+      - name: Build
+        working-directory: ${{ env.APP_DIR }}
+        run: npm run build
+
+      - name: Verify dist
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          test -f dist/index.html || (echo "ERROR: dist/index.html missing" && exit 1)
+          test -d dist/assets || (echo "ERROR: dist/assets/ missing" && exit 1)
+          echo "Build artifacts:"
+          ls -la dist/
+          echo "Total size: $(du -sh dist/ | cut -f1)"
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: swarm-core-dist
+          path: ${{ env.APP_DIR }}/dist/
+          retention-days: 7
+
+  deploy:
+    name: Deploy to KVM
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    environment: production
+    steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: swarm-core-dist
+          path: dist/
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.STX_SSH_KEY }}" > ~/.ssh/stx_key
+          chmod 600 ~/.ssh/stx_key
+
+          # SSH config: GH Actions → STX (port 2222) → KVM (proxy jump)
+          cat > ~/.ssh/config << 'EOF'
+          Host stx
+            HostName ${{ secrets.STX_HOST }}
+            Port 2222
+            User ubuntu
+            IdentityFile ~/.ssh/stx_key
+            StrictHostKeyChecking no
+
+          Host kvm
+            HostName ${{ secrets.KVM_HOST }}
+            User root
+            ProxyJump stx
+            StrictHostKeyChecking no
+          EOF
+          chmod 600 ~/.ssh/config
+
+      - name: Test SSH connectivity
+        run: |
+          # Install sshpass for KVM password auth through proxy
+          sudo apt-get update -qq && sudo apt-get install -y -qq sshpass > /dev/null
+
+          # Test STX hop
+          ssh stx "echo STX_OK; hostname"
+
+          # Test KVM hop (password auth via proxy)
+          sshpass -p "${{ secrets.KVM_ROOT_PASSWORD }}" \
+            ssh -o StrictHostKeyChecking=no kvm "echo KVM_OK; hostname"
+
+      - name: Deploy to cPanel accounts
+        run: |
+          TARGET="${{ github.event.inputs.target || 'all' }}"
+
+          # Target accounts map: cPanel user → public_html path
+          declare -A ACCOUNTS=(
+            [tagvote]="/home/tagvote/public_html"
+            [tag]="/home/tag/public_html"
+            [rooz]="/home/rooz/public_html"
+            [ogov]="/home/ogov/public_html"
+            [c720]="/home/c720/public_html"
+          )
+
+          DEPLOYED=0
+          FAILED=0
+
+          for user in "${!ACCOUNTS[@]}"; do
+            # Filter by target if not 'all'
+            if [[ "$TARGET" != "all" && "$TARGET" != "$user" ]]; then
+              continue
+            fi
+
+            DEST="${ACCOUNTS[$user]}"
+            echo "::group::Deploy to $user ($DEST)"
+
+            # Rsync dist/ to KVM via proxy jump
+            sshpass -p "${{ secrets.KVM_ROOT_PASSWORD }}" \
+              rsync -avz --delete \
+              --exclude='.htaccess' \
+              -e "ssh -o StrictHostKeyChecking=no -o ProxyJump=stx" \
+              dist/ "root@${{ secrets.KVM_HOST }}:${DEST}/" 2>&1 \
+            && {
+              # Fix ownership
+              sshpass -p "${{ secrets.KVM_ROOT_PASSWORD }}" \
+                ssh -o StrictHostKeyChecking=no -o ProxyJump=stx \
+                "root@${{ secrets.KVM_HOST }}" \
+                "chown -R ${user}:${user} ${DEST}/"
+              echo "✅ Deployed to $user"
+              DEPLOYED=$((DEPLOYED + 1))
+            } || {
+              echo "❌ Failed to deploy to $user"
+              FAILED=$((FAILED + 1))
+            }
+
+            echo "::endgroup::"
+          done
+
+          echo ""
+          echo "=== DEPLOYMENT SUMMARY ==="
+          echo "Deployed: $DEPLOYED"
+          echo "Failed: $FAILED"
+          echo "Target: $TARGET"
+
+          if [[ $FAILED -gt 0 ]]; then
+            echo "::warning::$FAILED deployment(s) failed"
+          fi
+
+      - name: Verify deployment
+        run: |
+          echo "=== Smoke test ==="
+          for domain in tag.vote tag.ooo rooz.live o-gov.com 720.chat; do
+            STATUS=$(curl -sI --connect-timeout 10 --max-time 15 "https://$domain" 2>&1 | head -1)
+            echo "$domain: $STATUS"
+          done
+
+      - name: Post-deploy summary
+        if: always()
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target:** ${{ github.event.inputs.target || 'all' }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY

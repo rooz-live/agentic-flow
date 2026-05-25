@@ -760,12 +760,10 @@ class AgentDBCLI {
       log.warning('No TLS certificate provided - using self-signed certificate');
     }
 
-    // TODO: Implement QUIC server using existing QUICSync controller
-    log.info('\nServer started. Waiting for connections...');
-    log.info('Press Ctrl+C to stop');
-
-    // Keep process alive
-    await new Promise(() => {});
+    // QUIC server not yet implemented — tracked in backlog (P2)
+    log.warning('QUIC server is not yet implemented. See WSJF backlog P2 item.');
+    log.info('When ready, this will use the QUICSync controller to start a QUIC-based sync server.');
+    throw new Error('QUIC server not yet implemented');
   }
 
   async quicConnect(params: {
@@ -789,9 +787,9 @@ class AgentDBCLI {
       log.warning('No TLS certificate provided - using insecure connection');
     }
 
-    // TODO: Implement QUIC client connection
-    log.success('Connected to remote server');
-    log.info('Server info: AgentDB QUIC Sync v1.0');
+    // QUIC client not yet implemented — tracked in backlog (P2)
+    log.warning('QUIC client connection is not yet implemented. See WSJF backlog P2 item.');
+    throw new Error('QUIC client connection not yet implemented');
   }
 
   async quicPush(params: {
@@ -822,9 +820,9 @@ class AgentDBCLI {
     console.log(`  Total Size: ${(changes.totalSize / 1024).toFixed(2)} KB`);
     console.log('═'.repeat(80));
 
-    // TODO: Implement QUIC push
-    log.success('Changes pushed successfully');
-    log.info(`Transferred: ${(changes.totalSize / 1024).toFixed(2)} KB`);
+    // QUIC push not yet implemented — tracked in backlog (P2)
+    log.warning('QUIC push is not yet implemented. See WSJF backlog P2 item.');
+    throw new Error('QUIC push not yet implemented');
   }
 
   async quicPull(params: {
@@ -843,25 +841,9 @@ class AgentDBCLI {
       log.info(`Filter: ${params.filter}`);
     }
 
-    // TODO: Implement QUIC pull
-    const changes = {
-      episodes: 5,
-      skills: 2,
-      causalEdges: 3,
-      totalSize: 12800
-    };
-
-    console.log('\n' + '═'.repeat(80));
-    console.log(`${colors.bright}Received Changes${colors.reset}`);
-    console.log('═'.repeat(80));
-    console.log(`  Episodes: ${changes.episodes}`);
-    console.log(`  Skills: ${changes.skills}`);
-    console.log(`  Causal Edges: ${changes.causalEdges}`);
-    console.log(`  Total Size: ${(changes.totalSize / 1024).toFixed(2)} KB`);
-    console.log('═'.repeat(80));
-
-    log.success('Changes pulled and merged successfully');
-    log.info(`Downloaded: ${(changes.totalSize / 1024).toFixed(2)} KB`);
+    // QUIC pull not yet implemented — tracked in backlog (P2)
+    log.warning('QUIC pull is not yet implemented. See WSJF backlog P2 item.');
+    throw new Error('QUIC pull not yet implemented');
   }
 
   async quicStatus(): Promise<void> {

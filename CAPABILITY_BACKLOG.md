@@ -1,54 +1,77 @@
-# 🌐 SOVEREIGN SWARM: HORIZON BACKLOG
-**Holacracy DoR / DoD Enforced Tracking**
+# CAPABILITY_BACKLOG.md (Autonomous Ledger)
+> Last replenished: 2026-05-20T16:46:00Z (Cycle 39 PI Replenish/Refine)
+> Sorted rigorously by WSJF (Weighted Shortest Job First)
+> Prior snapshot: .goalie/backlog_snapshots/2026-04-03/CAPABILITY_BACKLOG.md
 
-| ID | Status | Epic | Capability | Product Domain | Priority | Effort |
-|----|--------|------|------------|----------------|----------|--------|
-| US-100 | 🟢 [██████████] 100% | K8s v1.35 Orchestration | Platform Infrastructure | All Products | P0 — Critical | 13 |
-| US-001 | 🟢 [██████████] 100% | Auth & Identity | Platform Infrastructure | All Products | P0 — Critical | 8 |
-| US-005 | 🟢 [██████████] 100% | Payment & Billing Engine | Platform Infrastructure | All Products | P0 — Critical | 5 |
-| US-010 | 🟢 [██████████] 100% | Generative Monetization | Platform Infrastructure | All Products | P0 — Critical | 5 |
-| US-040 | 🟢 [██████████] 100% | Phase Gate GUI | ArtChat Community | ArtChat Community | P0 — Critical | 5 |
-| US-012 | 🟢 [██████████] 100% | API & Webhooks | Platform Infrastructure | All Products | P1 — High | 3 |
-| US-048 | 🟢 [██████████] 100% | iOS App Shell | Mobile Platform | All Products | P0 — Critical | 21 |
-| US-049 | 🟢 [██████████] 100% | Android App Shell | Mobile Platform | All Products | P0 — Critical | 21 |
-| US-053 | 🟢 [██████████] 100% | Referral Program | Growth Engine | All Products | P0 — Critical | 5 |
-| US-057 | 🟢 [██████████] 100% | Unified Admin Dashboard | Admin & Operations | All Products | P0 — Critical | 13 |
-| US-041 | 🟢 [██████████] 100% | Community Hub | ArtChat Community | ArtChat Community | P1 — High | 8 |
-| US-050 | 🟢 [██████████] 100% | Push Notifications | Mobile Platform | All Products | P1 — High | 8 |
-| US-052 | 🟢 [██████████] 100% | Onboarding Funnel | Growth Engine | All Products | P1 — High | 8 |
-| US-054 | 🟢 [██████████] 100% | Email & Lifecycle Marketing | Growth Engine | All Products | P1 — High | 13 |
+## 🔴 NOW — PI Sprint (Cycle 39 WSJF-ranked, infrastructure-first)
 
-### 🚀 PI Planning Next Echelon (v1.35 Native Ingress & Pods)
-| ID | Status | Epic | Capability | Product Domain | Priority | WSJF Score |
-|----|--------|------|------------|----------------|----------|------------|
-| US-028 | 🟡 [██░░░░░░░░] 20% | Community Curation | TAG.VOTE | TAG.VOTE | P0 — Critical | 19.5 (Gateway API) |
-| US-013 | 🟡 [██░░░░░░░░] 20% | Core Voting Engine | AMP.VOTE | AMP.VOTE | P0 — Critical | 18.0 (RWOP DB) |
-| US-030 | 🟡 [██░░░░░░░░] 20% | Audio Analytics | Decibel.co | Decibel.co | P0 — Critical | 16.5 (Vol Tuning) |
-| US-036 | 🟡 [██░░░░░░░░] 20% | Job Board | SummerJobSwap | SummerJobSwap Employer | P0 — Critical | 15.0 |
+### #1 Clear WHM hostname lock + deploy tag.vote landing page [WSJF: 15.0]
+- **BV=8** Unblocks all cPanel operations; tag.vote is 10DLC brand-vetting prerequisite
+- **RR=7** Stuck hostname blocks SSL renewal, account migrations, hostname-dependent configs
+- **TC=10** 10DLC brand vetting window; hostname lock accumulates risk daily
+- **Job Size=S(2)** Clear lock file via KVM root SSH; deploy existing landing page via cPanel cron bridge
+- **DoR:** KVM root password obtained; tag.vote landing page HTML exists from prior session
+- **DoD:** `whmapi1 sethostname` succeeds; tag.vote returns HTTP 200 with opt-in content (not Discord redirect)
+- **ROAM:** R-2026-024 (MITIGATING), unblocks R-2026-014 (consulting outreach)
+- **Evidence:** `curl -sI https://tag.vote` returns 200 + content; `whmapi1 get_hostname` returns intended FQDN
 
-### 🧊 LATER Horizon (Backlog)
-| ID | Status | Epic | Capability | Product Domain | Priority | Effort |
-|----|--------|------|------------|----------------|----------|--------|
-| US-037 | 🔴 RED | Job Board | SummerJobSwap | SummerJobSwap Pro | P1 — High | 5 |
-| US-044 | 🔴 RED | Team Management | Business & API | Business / Team | P1 — High | 8 |
-| US-046 | 🔴 RED | API Developer Experience | Business & API | API Access | P1 — High | 8 |
-| US-055 | 🔴 RED | Content Marketing & SEO | Growth Engine | All Products | P1 — High | 8 |
-| US-058 | 🔴 RED | Member Management | Admin & Operations | All Products | P1 — High | 8 |
-| US-059 | 🔴 RED | Support System | Admin & Operations | All Products | P1 — High | 8 |
-| US-025 | 🔴 RED | Tag Engine | TAG.VOTE | TAG.VOTE | P0 — Critical | 13 |
-| US-035 | 🔴 [░░░░░░░░░░] 0% | Job Board | SummerJobSwap | SummerJobSwap Community | P0 — Critical | 13 |
-| US-023 | 🔴 RED | Ride Tracking & Safety | EPIC.CAB | EPIC.CAB | P0 — Critical | 13 |
-| US-038 | 🔴 RED | Matching & Application | SummerJobSwap | SummerJobSwap Pro | P1 — High | 13 |
-| US-039 | 🔴 RED | Matching & Application | SummerJobSwap | SummerJobSwap Employer | P1 — High | 13 |
-| US-042 | 🔴 RED | Creator Tools | ArtChat Creator | Creator | P1 — High | 13 |
-| US-056 | 🔴 RED | Ad Campaigns | Growth Engine | All Products | P2 — Medium | 8 |
-| US-019 | 🔴 RED | Ride Matching & Dispatch | EPIC.CAB | EPIC.CAB | P0 — Critical | 21 |
-| US-033 | 🔴 RED | Creator Monetization | Decibel.co | Decibel.co | P1 — High | 21 |
-| US-060 | 🔴 RED | Analytics & Reporting | Admin & Operations | All Products | P2 — Medium | 13 |
-| US-017 | 🔴 RED | Sentiment & Decision Intelligence | AMP.VOTE | AMP.VOTE | P2 — Medium | 13 |
-| US-051 | 🔴 RED | Offline Mode | Mobile Platform | All Products | P2 — Medium | 13 |
+### #2 Fix false-green redirects (cv.rooz.live, tag.ooo) + epic.cab SSL [WSJF: 12.5]
+- **BV=7** Three customer-facing FQDNs serving wrong content; commerce aggregate blocked
+- **RR=6** False green masks real outage from monitoring; erodes trust metrics
+- **TC=7** Every day these redirect to Discord/external = lost organic traffic
+- **Job Size=S(2)** cPanel redirect edits + AutoSSL verification
+- **DoR:** cPanel cron bridge proven (cycle 39); cv.rooz.live content exists locally
+- **DoD:** cv.rooz.live serves CV content; tag.ooo serves platform landing; epic.cab has valid SSL + HTTP 200
+- **ROAM:** R-2026-024 downstream; enables R-2026-012 consulting portfolio link
+- **Evidence:** `curl -sI https://cv.rooz.live` returns 200 (not 302); `openssl s_client -connect epic.cab:443` shows valid cert
 
-## 📊 WSJF Orchestration Metrics
-- **Total Ingested Stories**: 61
-- **Current Velocity**: 15.0 (v1.35 Edge Native Active)
-- **Sovereign Status**: 14 capabilities synchronized. K8s Infrastructure unblocked. Ready for PI Planning.
+### #3 Validator DPC 39→60+ (coherence timeout + Jest suite triage) [WSJF: 11.7]
+- **BV=7** DPC≥60 unblocks consulting outreach gate (R-2026-014 requires DPC_R≥75%)
+- **RR=5** 35 failing Jest suites mask real regressions; validate_coherence.py still timing out
+- **TC=6** Consulting pipeline revenue ($150K-$250K engagement) gated on validator health
+- **Job Size=S(2)** Install missing npm deps (blessed, fs-extra); fix validate_coherence.py outer timeout
+- **DoR:** Jest failure categories documented (cycle 39 report); coherence script patched
+- **DoD:** `npx jest --no-coverage` < 20 failures (from 74); `compare-all-validators.sh --json` DPC≥60
+- **ROAM:** R-2026-014 (ACTIVE), R-2026-024 validator evidence
+- **Evidence:** CONSOLIDATION-TRUTH-REPORT.json `dpc` field ≥ 60
+
+## 🟢 NOW (Core Engineering — carried forward)
+- **[WSJF: 10.00]** Provision physical OroPlatform/Symfony CRM on KVM Edge Node
+- **[WSJF: 10.00]** Resolve Playwright E2E failures (Parameter dropping & missing Whop checkouts)
+- **[WSJF: 10.00]** [COMPLETED] Eliminate technical jargon & deploy Universal mbo.bio dynamic per-hour pricing
+- **[WSJF: 10.00]** [COMPLETED] Vertically-integrated / laterally-horizontal Mesh Navigation UI deployed
+
+## 🟢 NOW (Top WSJF Product Capabilities — carried forward)
+- **[WSJF: 9.5]** As a member, I earn 35% commission referring new customers to any product
+- **[WSJF: 5.5]** As a rider, I can rate my driver and report safety concerns
+- **[WSJF: 4.67]** As a user, I can tag content with custom labels and browse by tag cloud
+- **[WSJF: 4.67]** As a new user, I complete a guided onboarding that recommends the right product/tier
+- **[WSJF: 4.5]** As a developer, I can run whop_affiliate_orchestrator.js with real plan IDs
+- **[WSJF: 4.33]** As a user, I can access cached content and queue actions while offline
+- **[WSJF: 4]** As a developer, I can use the Company API key to CRUD products/plans/affiliates
+- **[WSJF: 3.8]** As a team admin, I can invite members, assign seats, and manage permissions
+- **[WSJF: 3.75]** As a developer, I can manage API keys, view usage, and set rate limit alerts
+- **[WSJF: 3.67]** As a user, I can download the Android app and access all domain products in one app
+
+## 🟡 NEXT (Upcoming Horizon)
+- **[WSJF: 9.00]** Consolidate CI pipelines into the 'one.sh' Canonical Gate
+- **[WSJF: 9.00]** Integrate Gen-UI Phase Gates natively into Swarm (Beginner Pills, Power User Sliders)
+
+- **[WSJF: 3.6]** [ROLE DOMAIN] Analyst - Risk & Compliance Analyst - Synthesize purpose.md
+- **[WSJF: 3.6]** [ROLE DOMAIN] operational-analyst-roles - Owner - Synthesize backlog.md
+- **[WSJF: 3.6]** [ROLE DOMAIN] operational-analyst-roles - Partner - Synthesize backlog.md
+- **[WSJF: 3.6]** [ROLE DOMAIN] operational-analyst-roles - Partner - Synthesize purpose.md
+- **[WSJF: 3.6]** [ROLE DOMAIN] operational-analyst-roles - Researcher - Synthesize accountabilities.md
+- **[WSJF: 3.6]** [ROLE DOMAIN] Steward - Experimentation Steward - Synthesize accountabilities.md
+- **[WSJF: 3.6]** [ROLE DOMAIN] Steward - Metrics Steward - Synthesize accountabilities.md
+- **[WSJF: 3.6]** [ROLE DOMAIN] assessor - circle-lead-performance-assurance-assessment - Synthesize purpose.md
+- **[WSJF: 3.6]** [ROLE DOMAIN] assessor - circle-rep-performance-assurance-assessment - Synthesize purpose.md
+- **[WSJF: 3.6]** [ROLE DOMAIN] Assessor - Accessibility & Ethics Assessor - Synthesize purpose.md
+- **[WSJF: 3.6]** [ROLE DOMAIN] Assessor - Experimentation Assessor - Synthesize accountabilities.md
+- **[WSJF: 3.6]** [ROLE DOMAIN] Assessor - FinOps & Cost Assessor - Synthesize accountabilities.md
+- **[WSJF: 3.6]** [ROLE DOMAIN] Assessor - Quality & Reliability Assessor - Synthesize purpose.md
+- **[WSJF: 3.6]** [ROLE DOMAIN] Assessor - Vendor:Third‑Party Assessor - Synthesize purpose.md
+- **[WSJF: 3.6]** [ROLE DOMAIN] operational-assessor-roles - Assessor - Synthesize backlog.md
+
+## 🔵 LATER (Deep Backlog)
+*384 items omitted for context brevity...*

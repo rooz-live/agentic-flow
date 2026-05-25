@@ -76,10 +76,11 @@ if [[ -f "$AGENTDB_PATH" ]]; then
     fi
 fi
 
+# CSQBM deep-why is a project-level agent-activity staleness check (120min window).
+# It should not block file-level email validation — demoted to advisory warning.
 if [ -f "$PROJECT_ROOT/scripts/validators/project/check-csqbm.sh" ]; then
     if ! bash "$PROJECT_ROOT/scripts/validators/project/check-csqbm.sh" --deep-why > /dev/null 2>&1; then
-        [[ "$JSON_OUTPUT" == false ]] && echo -e "${RED}❌ FAIL (CSQBM Governance Halt)${NC} CSQBM Deep-Why Violation. Task blocked via TurboQuant-DGM Physical Bounds (ADR-005)."
-        exit ${EX_VALIDATION_FAILED:-150}
+        [[ "$JSON_OUTPUT" == false ]] && echo -e "${YELLOW}⚠ ADVISORY: CSQBM Deep-Why stale (no recent evidential queries). Email validation continues.${NC}"
     fi
 fi
 

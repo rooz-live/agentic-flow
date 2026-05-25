@@ -1,0 +1,752 @@
+#!/bin/bash
+set -e
+
+# --- Enhanced AF CLI with Multipass Pre/Post Cycle Integration ---
+# This script provides enhanced production workflow orchestration with multipass
+# pre/post cycle integration, progress tracking, and comprehensive validation
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+export PROJECT_ROOT
+export PYTHONPATH="$SCRIPT_DIR:$PROJECT_ROOT:$PYTHONPATH"
+export AF_RUN_ID=${AF_RUN_ID:-$(uuidgen | tr '[:upper:]' '[:lower:]')}
+export AF_PROD_OBSERVABILITY_FIRST=${AF_PROD_OBSERVABILITY_FIRST:-1}
+
+# Ensure Goalie directories exist
+mkdir -p "$PROJECT_ROOT/.goalie/hooks"
+
+# --- Global Configuration ---
+AF_ENV=${AF_ENV:-local}
+case "$AF_ENV" in
+  local|dev|stg|prod)
+    ;;
+  *)
+    echo "Error: Invalid AF_ENV '$AF_ENV'. Valid choices are: local, dev, stg, prod" >&2
+    exit 1
+    ;;
+esac
+
+# --- Production Status Management ---
+PROD_STATUS_FILE="$PROJECT_ROOT/.goalie/prod_status_current.json"
+
+# --- Global Argument Parsing ---
+COMMAND=""
+MODE="normal"
+TESTING="none"
+CIRCLE=""
+JSON_OUTPUT=false
+VERBOSE=false
+DRY_RUN=false
+LOG_GOALIE=false
+
+# Multipass configuration
+MULTIPASS=false
+PREFLIGHT_ITERS=5
+PROGRESS_TOOLTIP="off"
+PROGRESS_STATUS_FILE=""
+
+# Production cycle specific
+SAFEGUARDS=false
+ROLLOUT_STRATEGY="gradual"
+VALIDATION=false
+PATTERN_METRICS=false
+COMPLIANCE_CHECKS=false
+TIER_DEPTH_COVERAGE=true
+ITERATIONS=""
+NO_EARLY_STOP=false
+
+# Production swarm specific
+PRIOR=""
+CURRENT=""
+AUTO_REF=""
+OUT_FORMAT="json"
+SAVE=""
+GENERATE_MOCK=false
+MOCK_OUTPUT_DIR="swarm_data"
+DISCOVER=false
+SAVE_TABLE=false
+TABLE_LABEL="current"
+AUTO_COMPARE=false
+VALIDATE_ONLY=false
+
+# --- Parse Arguments ---
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            # Core arguments (both commands)
+            --mode)
+                MODE="$2"
+                shift 2
+                ;;
+            --circle)
+                CIRCLE="$2"
+                shift 2
+                ;;
+            --testing)
+                TESTING="$2"
+                shift 2
+                ;;
+            --json)
+                JSON_OUTPUT=true
+                shift
+                ;;
+            --verbose)
+                VERBOSE=true
+                shift
+                ;;
+            --dry-run)
+                DRY_RUN=true
+                shift
+                ;;
+            --log-goalie)
+                LOG_GOALIE=true
+                export AF_ENABLE_IRIS_METRICS=1
+                shift
+                ;;
+            # Multipass arguments
+            --multipass)
+                MULTIPASS=true
+                shift
+                ;;
+            --preflight-iters)
+                PREFLIGHT_ITERS="$2"
+                shift 2
+                ;;
+            --progress-tooltip)
+                PROGRESS_TOOLTIP="$2"
+                shift 2
+                ;;
+            --progress-status-file)
+                PROGRESS_STATUS_FILE="$2"
+                shift 2
+                ;;
+            # Production cycle specific
+            --safeguards)
+                SAFEGUARDS=true
+                shift
+                ;;
+            --rollout-strategy)
+                ROLLOUT_STRATEGY="$2"
+                shift 2
+                ;;
+            --validation)
+                VALIDATION=true
+                shift
+                ;;
+            --pattern-metrics)
+                PATTERN_METRICS=true
+                shift
+                ;;
+            --compliance-checks)
+                COMPLIANCE_CHECKS=true
+                shift
+                ;;
+            --tier-depth-coverage|--tier-depth)
+                TIER_DEPTH_COVERAGE=true
+                shift
+                ;;
+            --no-tier-depth-coverage|--no-tier-depth)
+                TIER_DEPTH_COVERAGE=false
+                shift
+                ;;
+            --iterations)
+                ITERATIONS="$2"
+                shift 2
+                ;;
+            --no-early-stop)
+                NO_EARLY_STOP=true
+                shift
+                ;;
+            # Production swarm specific
+            --prior)
+                PRIOR="$2"
+                shift 2
+                ;;
+            --current)
+                CURRENT="$2"
+                shift 2
+                ;;
+            --auto-ref)
+                AUTO_REF="$2"
+                shift 2
+                ;;
+            --out)
+                OUT_FORMAT="$2"
+                shift 2
+                ;;
+            --save)
+                SAVE="$2"
+                shift 2
+                ;;
+            --generate-mock)
+                GENERATE_MOCK=true
+                shift
+                ;;
+            --mock-output-dir)
+                MOCK_OUTPUT_DIR="$2"
+                shift 2
+                ;;
+            --discover)
+                DISCOVER=true
+                shift
+                ;;
+            --save-table)
+                SAVE_TABLE=true
+                shift
+                ;;
+            --table-label)
+                TABLE_LABEL="$2"
+                shift 2
+                ;;
+            --auto-compare)
+                AUTO_COMPARE=true
+                shift
+                ;;
+            --validate-only)
+                VALIDATE_ONLY=true
+                shift
+                ;;
+            # Help and version
+            --help|-h)
+                show_help
+                exit 0
+                ;;
+            --version|-v)
+                echo "Enhanced AF CLI version 3.0.0"
+                echo "Agentic Flow Production Tools with Multipass Integration"
+                exit 0
+                ;;
+            *)
+                # Positional arguments
+                if [ -z "$COMMAND" ]; then
+                    COMMAND="$1"
+                else
+                    echo "Unknown argument: $1"
+                    show_help
+                    exit 1
+                fi
+                shift
+                ;;
+        esac
+    done
+}
+
+# --- Validation Functions ---
+validate_arguments() {
+    # Validate command
+    if [ -z "$COMMAND" ]; then
+        echo "Error: No command specified"
+        show_help
+        exit 1
+    fi
+    
+    # Validate mode
+    case $MODE in
+        mutate|normal|advisory|enforcement)
+            # Valid mode
+            ;;
+        *)
+            echo "Error: Invalid mode '$MODE'. Valid choices are: mutate, normal, advisory, enforcement"
+            exit 1
+            ;;
+    esac
+    
+    # Validate testing
+    case $TESTING in
+        backtest|forward|full|none)
+            # Valid testing type
+            ;;
+        *)
+            echo "Error: Invalid testing '$TESTING'. Valid choices are: backtest, forward, full, none"
+            exit 1
+            ;;
+    esac
+    
+    # Validate rollout strategy
+    case $ROLLOUT_STRATEGY in
+        gradual|big-bang|canary)
+            # Valid rollout strategy
+            ;;
+        *)
+            echo "Error: Invalid rollout strategy '$ROLLOUT_STRATEGY'. Valid choices are: gradual, big-bang, canary"
+            exit 1
+            ;;
+    esac
+    
+    # Validate output format
+    case $OUT_FORMAT in
+        json|tsv)
+            # Valid output format
+            ;;
+        *)
+            echo "Error: Invalid output format '$OUT_FORMAT'. Valid choices are: json, tsv"
+            exit 1
+            ;;
+    esac
+    
+    # Validate progress tooltip
+    case $PROGRESS_TOOLTIP in
+        off|compact|rich|json|write-status-file)
+            # Valid progress tooltip
+            ;;
+        *)
+            echo "Error: Invalid progress tooltip '$PROGRESS_TOOLTIP'. Valid choices are: off, compact, rich, json, write-status-file"
+            exit 1
+            ;;
+    esac
+}
+
+# --- Production Status Management ---
+initialize_prod_status() {
+    local status_file="$1"
+    local run_id="$2"
+    local command="$3"
+    
+    if [ ! -f "$status_file" ]; then
+        python3 "$SCRIPT_DIR/production_status_manager.py" initialize "$command" --run-id "$run_id"
+    fi
+}
+
+update_prod_status() {
+    local status_file="$1"
+    local step="$2"
+    local status="$3"
+    local message="$4"
+    local metrics="$5"
+    
+    if [ -f "$status_file" ]; then
+        python3 "$SCRIPT_DIR/production_status_manager.py" update "$step" "$status" "$message" "$metrics"
+    fi
+}
+
+show_progress_tooltip() {
+    local mode="$1"
+    local step="$2"
+    local status="$3"
+    local message="$4"
+    
+    case $mode in
+        compact)
+            echo "[$(date '+%H:%M:%S')] $step: $status - $message"
+            ;;
+        rich)
+            echo "🔄 [$(date '+%H:%M:%S')] $step: $status"
+            echo "   📝 $message"
+            ;;
+        json)
+            echo "{\"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\", \"step\": \"$step\", \"status\": \"$status\", \"message\": \"$message\"}"
+            ;;
+        write-status-file)
+            if [ -n "$PROGRESS_STATUS_FILE" ]; then
+                echo "{\"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\", \"step\": \"$step\", \"status\": \"$status\", \"message\": \"$message\"}" >> "$PROGRESS_STATUS_FILE"
+            fi
+            ;;
+        off|*)
+            # No output
+            ;;
+    esac
+}
+
+# --- Multipass Pre/Post Cycle Integration ---
+run_multipass_preflight() {
+    local command="$1"
+    local preflight_iters="$2"
+    
+    echo "🚀 Running multipass preflight with $preflight_iters iterations..."
+    
+    # Initialize production status
+    initialize_prod_status "$PROD_STATUS_FILE" "$AF_RUN_ID" "$command"
+    update_prod_status "$PROD_STATUS_FILE" "multipass_preflight" "running" "Starting multipass preflight" "{\"preflight_iters\": $preflight_iters}"
+    
+    # Run preflight iterations
+    for ((i=1; i<=preflight_iters; i++)); do
+        show_progress_tooltip "$PROGRESS_TOOLTIP" "preflight_iteration_$i" "running" "Running preflight iteration $i of $preflight_iters"
+        
+        # Run command with reduced iterations
+        if [ "$command" = "prod-cycle" ]; then
+            run_prod_cycle_preflight "$i" "$preflight_iters"
+        elif [ "$command" = "prod-swarm" ]; then
+            run_prod_swarm_preflight "$i" "$preflight_iters"
+        fi
+        
+        # Check for early regression detection
+        if check_for_regressions "$i" "$preflight_iters"; then
+            update_prod_status "$PROD_STATUS_FILE" "multipass_preflight" "failed" "Regression detected at iteration $i" "{\"failed_iteration\": $i}"
+            echo "❌ Regression detected at iteration $i, stopping preflight"
+            return 1
+        fi
+    done
+    
+    update_prod_status "$PROD_STATUS_FILE" "multipass_preflight" "completed" "Multipass preflight completed successfully" "{\"total_iterations\": $preflight_iters}"
+    echo "✅ Multipass preflight completed successfully"
+    return 0
+}
+
+check_for_regressions() {
+    local current_iter="$1"
+    local total_iters="$2"
+    
+    # Check for performance regressions in pattern metrics
+    if [ -f "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl" ]; then
+        local recent_metrics=$(tail -n 5 "$PROJECT_ROOT/.goalie/pattern_metrics.jsonl" | python3 -c "
+import json
+import sys
+
+metrics = []
+for line in sys.stdin:
+    try:
+        metrics.append(json.loads(line))
+    except:
+        pass
+
+if len(metrics) >= 2:
+    latest = metrics[-1].get('performance_score', 0)
+    previous = metrics[-2].get('performance_score', 0)
+    if latest < previous * 0.9:  # 10% regression threshold
+        print('REGRESSION_DETECTED')
+        sys.exit(0)
+
+print('NO_REGRESSION')
+")
+        
+        if [ "$recent_metrics" = "REGRESSION_DETECTED" ]; then
+            # Emit regression evidence
+            python3 "$SCRIPT_DIR/evidence_integration.py" emit-regression performance "$previous" "$latest" "10.0" > /dev/null 2>&1
+            return 0  # Regression detected
+        fi
+    fi
+    
+    return 1  # No regression
+}
+
+run_prod_cycle_preflight() {
+    local iteration="$1"
+    local total_iters="$2"
+    
+    # Build preflight command with reduced iterations
+    local preflight_args=(
+        "--mode" "$MODE"
+        "--iterations" "5"  # Fixed small iterations for preflight
+        "--testing" "$TESTING"
+    )
+    
+    [ -n "$CIRCLE" ] && preflight_args+=("--circle" "$CIRCLE")
+    [ "$JSON_OUTPUT" = true ] && preflight_args+=("--json")
+    [ "$VERBOSE" = true ] && preflight_args+=("--verbose")
+    
+    if [ -f "$SCRIPT_DIR/af/af_prod_cycle.py" ]; then
+        python3 "$SCRIPT_DIR/af/af_prod_cycle.py" "${preflight_args[@]}" > /dev/null 2>&1 || true
+    fi
+}
+
+run_prod_swarm_preflight() {
+    local iteration="$1"
+    local total_iters="$2"
+    
+    # Build preflight command with reduced iterations
+    local preflight_args=(
+        "--generate-mock"
+        "--mock-output-dir" "preflight_$iteration"
+        "--json"
+    )
+    
+    [ "$VERBOSE" = true ] && preflight_args+=("--verbose")
+    
+    if [ -f "$SCRIPT_DIR/af/af_prod_swarm.py" ]; then
+        python3 "$SCRIPT_DIR/af/af_prod_swarm.py" "${preflight_args[@]}" > /dev/null 2>&1 || true
+    fi
+}
+
+# --- Command Execution Functions ---
+execute_prod_cycle() {
+    echo "🔄 Running production cycle with multipass integration..."
+    
+    # Initialize production status
+    initialize_prod_status "$PROD_STATUS_FILE" "$AF_RUN_ID" "prod-cycle"
+    update_prod_status "$PROD_STATUS_FILE" "prod_cycle" "initializing" "Starting production cycle" "{\"mode\": \"$MODE\", \"circle\": \"$CIRCLE\"}"
+    
+    # Run multipass preflight if enabled
+    if [ "$MULTIPASS" = true ]; then
+        if ! run_multipass_preflight "prod-cycle" "$PREFLIGHT_ITERS"; then
+            echo "❌ Multipass preflight failed, aborting production cycle"
+            update_prod_status "$PROD_STATUS_FILE" "prod_cycle" "failed" "Multipass preflight failed"
+            return 1
+        fi
+    fi
+    
+    show_progress_tooltip "$PROGRESS_TOOLTIP" "prod_cycle" "running" "Executing production cycle"
+    update_prod_status "$PROD_STATUS_FILE" "prod_cycle" "running" "Executing production cycle"
+    
+    # Run comprehensive validation if enabled
+    if [ "$VALIDATION" = true ] || [ "$COMPLIANCE_CHECKS" = true ]; then
+        echo "🔍 Running comprehensive validation..."
+        python3 "$SCRIPT_DIR/validation/comprehensive_validator.py" prod-cycle --mode "$MODE" ${CIRCLE:+--circle "$CIRCLE"} > /dev/null 2>&1 || true
+        
+        # Emit validation evidence
+        python3 "$SCRIPT_DIR/evidence_integration.py" emit-validation prod-cycle "{\"validation_type\": \"comprehensive\"}" > /dev/null 2>&1 || true
+    fi
+    
+    # Build command arguments
+    local args=(
+        "--mode" "$MODE"
+        "--json"  # Always use JSON for internal communication
+    )
+    
+    # Add optional arguments
+    [ -n "$CIRCLE" ] && args+=("--circle" "$CIRCLE")
+    [ "$TESTING" != "none" ] && args+=("--testing" "$TESTING")
+    [ "$VERBOSE" = true ] && args+=("--verbose")
+    [ "$DRY_RUN" = true ] && args+=("--dry-run")
+    [ "$LOG_GOALIE" = true ] && args+=("--log-goalie")
+    [ "$SAFEGUARDS" = true ] && args+=("--safeguards")
+    [ "$ROLLOUT_STRATEGY" != "gradual" ] && args+=("--rollout-strategy" "$ROLLOUT_STRATEGY")
+    [ "$VALIDATION" = true ] && args+=("--validation")
+    [ "$PATTERN_METRICS" = true ] && args+=("--pattern-metrics")
+    [ "$COMPLIANCE_CHECKS" = true ] && args+=("--compliance-checks")
+    [ "$TIER_DEPTH_COVERAGE" = false ] && args+=("--no-tier-depth-coverage")
+    [ -n "$ITERATIONS" ] && args+=("--iterations" "$ITERATIONS")
+    [ "$NO_EARLY_STOP" = true ] && args+=("--no-early-stop")
+    
+    # Execute production cycle
+    if [ "$DRY_RUN" = true ]; then
+        echo "DRY RUN: Would execute: python3 $SCRIPT_DIR/af/af_prod_cycle.py ${args[*]}"
+        return 0
+    fi
+    
+    if [ -f "$SCRIPT_DIR/af/af_prod_cycle.py" ]; then
+        python3 "$SCRIPT_DIR/af/af_prod_cycle.py" "${args[@]}"
+        local exit_code=$?
+    else
+        echo "Error: Production cycle script not found"
+        update_prod_status "$PROD_STATUS_FILE" "prod_cycle" "failed" "Production cycle script not found"
+        return 1
+    fi
+    
+    # Handle tier depth coverage if enabled
+    if [ "$TIER_DEPTH_COVERAGE" = true ] && [ "$exit_code" -eq 0 ]; then
+        show_progress_tooltip "$PROGRESS_TOOLTIP" "tier_depth_coverage" "running" "Running tier depth coverage analysis"
+        update_prod_status "$PROD_STATUS_FILE" "tier_depth_coverage" "running" "Running tier depth coverage analysis"
+        
+        # Emit tier depth coverage start evidence
+        python3 "$SCRIPT_DIR/evidence_integration.py" emit-evidence tier_depth_coverage "{\"status\": \"starting\", \"circle\": \"$CIRCLE\"}" > /dev/null 2>&1 || true
+        
+        local td_args=("--correlation-id" "$AF_RUN_ID")
+        [ -n "$CIRCLE" ] && td_args+=("--circle" "$CIRCLE")
+        [ "$CIRCLE" = "testing" ] && td_args+=("--tier1-circles" "orchestrator,assessor,testing")
+        [ "$JSON_OUTPUT" = true ] && td_args+=("--json")
+        
+        if [ -f "$SCRIPT_DIR/../investing/agentic-flow/scripts/cmd_tier_depth_coverage.py" ]; then
+            python3 "$SCRIPT_DIR/../investing/agentic-flow/scripts/cmd_tier_depth_coverage.py" "${td_args[@]}"
+            local td_exit_code=$?
+            
+            # Emit tier depth coverage completion evidence
+            python3 "$SCRIPT_DIR/evidence_integration.py" emit-evidence tier_depth_coverage "{\"status\": \"completed\", \"exit_code\": $td_exit_code}" > /dev/null 2>&1 || true
+        else
+            echo "Warning: Tier depth coverage script not found, skipping"
+        fi
+        
+        update_prod_status "$PROD_STATUS_FILE" "tier_depth_coverage" "completed" "Tier depth coverage analysis completed"
+    fi
+    
+    # Update final status
+    if [ "$exit_code" -eq 0 ]; then
+        update_prod_status "$PROD_STATUS_FILE" "prod_cycle" "completed" "Production cycle completed successfully"
+        show_progress_tooltip "$PROGRESS_TOOLTIP" "prod_cycle" "completed" "Production cycle completed successfully"
+        
+        # Generate dashboard summary
+        if [ "$PROGRESS_TOOLTIP" != "off" ]; then
+            python3 "$SCRIPT_DIR/progress_dashboard.py" generate --format "$PROGRESS_TOOLTIP" > /dev/null 2>&1 || true
+        fi
+    else
+        update_prod_status "$PROD_STATUS_FILE" "prod_cycle" "failed" "Production cycle failed with exit code $exit_code"
+        show_progress_tooltip "$PROGRESS_TOOLTIP" "prod_cycle" "failed" "Production cycle failed with exit code $exit_code"
+    fi
+    
+    return $exit_code
+}
+
+execute_prod_swarm() {
+    echo "🔄 Running production swarm with multipass integration..."
+    
+    # Initialize production status
+    initialize_prod_status "$PROD_STATUS_FILE" "$AF_RUN_ID" "prod-swarm"
+    update_prod_status "$PROD_STATUS_FILE" "prod_swarm" "initializing" "Starting production swarm"
+    
+    # Run multipass preflight if enabled
+    if [ "$MULTIPASS" = true ]; then
+        if ! run_multipass_preflight "prod-swarm" "$PREFLIGHT_ITERS"; then
+            echo "❌ Multipass preflight failed, aborting production swarm"
+            update_prod_status "$PROD_STATUS_FILE" "prod_swarm" "failed" "Multipass preflight failed"
+            return 1
+        fi
+    fi
+    
+    show_progress_tooltip "$PROGRESS_TOOLTIP" "prod_swarm" "running" "Executing production swarm"
+    update_prod_status "$PROD_STATUS_FILE" "prod_swarm" "running" "Executing production swarm"
+    
+    # Build command arguments
+    local args=(
+        "--json"  # Always use JSON for internal communication
+    )
+    
+    # Add optional arguments
+    [ -n "$PRIOR" ] && args+=("--prior" "$PRIOR")
+    [ -n "$CURRENT" ] && args+=("--current" "$CURRENT")
+    [ -n "$AUTO_REF" ] && args+=("--auto-ref" "$AUTO_REF")
+    [ "$OUT_FORMAT" != "json" ] && args+=("--out" "$OUT_FORMAT")
+    [ -n "$SAVE" ] && args+=("--save" "$SAVE")
+    [ "$VERBOSE" = true ] && args+=("--verbose")
+    [ "$LOG_GOALIE" = true ] && args+=("--log-goalie")
+    [ "$GENERATE_MOCK" = true ] && args+=("--generate-mock")
+    [ "$MOCK_OUTPUT_DIR" != "swarm_data" ] && args+=("--mock-output-dir" "$MOCK_OUTPUT_DIR")
+    [ "$DISCOVER" = true ] && args+=("--discover")
+    [ "$SAVE_TABLE" = true ] && args+=("--save-table")
+    [ "$TABLE_LABEL" != "current" ] && args+=("--table-label" "$TABLE_LABEL")
+    [ "$AUTO_COMPARE" = true ] && args+=("--auto-compare")
+    [ "$VALIDATE_ONLY" = true ] && args+=("--validate-only")
+    
+    # Execute production swarm
+    if [ "$DRY_RUN" = true ]; then
+        echo "DRY RUN: Would execute: python3 $SCRIPT_DIR/af/af_prod_swarm.py ${args[*]}"
+        return 0
+    fi
+    
+    if [ -f "$SCRIPT_DIR/af/af_prod_swarm.py" ]; then
+        python3 "$SCRIPT_DIR/af/af_prod_swarm.py" "${args[@]}"
+        local exit_code=$?
+    else
+        echo "Error: Production swarm script not found"
+        update_prod_status "$PROD_STATUS_FILE" "prod_swarm" "failed" "Production swarm script not found"
+        return 1
+    fi
+    
+    # Update final status
+    if [ "$exit_code" -eq 0 ]; then
+        update_prod_status "$PROD_STATUS_FILE" "prod_swarm" "completed" "Production swarm completed successfully"
+        show_progress_tooltip "$PROGRESS_TOOLTIP" "prod_swarm" "completed" "Production swarm completed successfully"
+        
+        # Generate dashboard summary
+        if [ "$PROGRESS_TOOLTIP" != "off" ]; then
+            python3 "$SCRIPT_DIR/progress_dashboard.py" generate --format "$PROGRESS_TOOLTIP" > /dev/null 2>&1 || true
+        fi
+    else
+        update_prod_status "$PROD_STATUS_FILE" "prod_swarm" "failed" "Production swarm failed with exit code $exit_code"
+        show_progress_tooltip "$PROGRESS_TOOLTIP" "prod_swarm" "failed" "Production swarm failed with exit code $exit_code"
+    fi
+    
+    return $exit_code
+}
+
+# --- Help Function ---
+show_help() {
+    cat << EOF
+Usage: $0 {COMMAND} [OPTIONS]
+
+Enhanced AF CLI - Production Workflow Orchestration with Multipass Integration
+
+COMMANDS:
+    prod-cycle              Run production cycle with WSJF prioritization
+    prod-swarm              Run production swarm comparison and analysis
+
+CORE OPTIONS (both commands):
+    --mode MODE             Execution mode (mutate|normal|advisory|enforcement)
+    --circle CIRCLE          Specify circle for execution
+    --testing STRATEGY       Testing methodology (backtest|forward|full|none)
+    --json                  Output JSON format
+    --verbose               Enable verbose logging
+    --dry-run              Show what would be executed without running
+    --log-goalie           Enable Goalie logging
+
+MULTIPASS OPTIONS:
+    --multipass             Enable multipass pre/post cycle integration
+    --preflight-iters N     Number of preflight iterations (default: 5)
+    --progress-tooltip MODE  Progress output mode (off|compact|rich|json|write-status-file)
+    --progress-status-file PATH  Status file path for write-status-file mode
+
+PRODUCTION CYCLE OPTIONS:
+    --safeguards           Enable enhanced safeguards
+    --rollout-strategy STRATEGY  Rollout strategy (gradual|big-bang|canary)
+    --validation            Enable comprehensive validation
+    --pattern-metrics       Collect pattern execution metrics
+    --compliance-checks     Run compliance checks
+    --tier-depth-coverage  Run tier depth coverage (default: enabled)
+    --no-tier-depth-coverage Skip tier depth coverage
+    --iterations COUNT      Number of iterations
+    --no-early-stop        Don't stop early on success
+
+PRODUCTION SWARM OPTIONS:
+    --prior FILE            Prior swarm TSV file
+    --current FILE          Current swarm TSV file
+    --auto-ref FILE         Auto-reference swarm TSV file
+    --out FORMAT           Output format (json|tsv)
+    --save FILE            Save output to file
+    --generate-mock        Generate mock swarm data for testing
+    --mock-output-dir DIR   Output directory for mock data
+    --discover             Auto-discover swarm tables in .goalie directory
+    --save-table           Save current swarm table to .goalie directory
+    --table-label LABEL    Label for saved swarm table
+    --auto-compare         Trigger automated comparison after prod-swarm
+    --validate-only        Only validate swarm table files
+
+EXAMPLES:
+    # Production cycle with multipass integration
+    $0 prod-cycle --mode mutate --multipass --preflight-iters 5 --progress-tooltip rich
+
+    # Production swarm with compact progress
+    $0 prod-swarm --multipass --preflight-iters 3 --progress-tooltip compact --discover
+
+    # Full workflow with JSON status file
+    $0 prod-cycle --mode advisory --multipass --progress-tooltip write-status-file --progress-status-file /tmp/af_progress.json
+
+    # Enhanced validation with comprehensive reporting
+    $0 prod-cycle --mode advisory --validation --compliance-checks --multipass --preflight-iters 3
+
+    # Production with evidence emission
+    AF_ENABLE_IRIS_METRICS=1 $0 prod-cycle --mode mutate --log-goalie --multipass
+
+GLOBAL OPTIONS:
+    --help, -h             Show this help message
+    --version, -v           Show version information
+
+ENVIRONMENT VARIABLES:
+    AF_RUN_ID              Unique run identifier (auto-generated if not set)
+    AF_ENABLE_IRIS_METRICS Enable IRIS metrics logging (set to 1)
+    AF_PROD_OBSERVABILITY_FIRST Enable observability-first mode (default: 1)
+    AF_ENV                 Environment (local|dev|stg|prod)
+
+STATUS FILES:
+    Production status is tracked in .goalie/prod_status_current.json
+    This file contains comprehensive status, metrics, and progress information
+
+EOF
+}
+
+# --- Main Execution ---
+main() {
+    # Parse all arguments
+    parse_arguments "$@"
+    
+    # Validate arguments
+    validate_arguments
+    
+    # Set environment variables
+    export AF_PROD_CYCLE_MODE="$MODE"
+    
+    # Execute command
+    case $COMMAND in
+        prod-cycle)
+            execute_prod_cycle
+            ;;
+        prod-swarm)
+            execute_prod_swarm
+            ;;
+        *)
+            echo "Error: Unknown command '$COMMAND'"
+            show_help
+            exit 1
+            ;;
+    esac
+}
+
+# --- Run Main ---
+main "$@"

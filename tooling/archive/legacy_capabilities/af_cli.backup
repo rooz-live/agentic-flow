@@ -1,0 +1,275 @@
+#!/bin/bash
+# Unified AF CLI Wrapper with Evidence Emission
+# Dispatches commands to the appropriate scripts with unified evidence emission
+
+set -e
+
+# --- Environment Setup ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+export PROJECT_ROOT
+export PYTHONPATH="$SCRIPT_DIR/af:$PROJECT_ROOT:$PYTHONPATH"
+
+# Generate run ID if not provided
+export AF_RUN_ID=${AF_RUN_ID:-$(python3 -c "import uuid; print(uuid.uuid4())")}
+export AF_CORRELATION_ID=${AF_CORRELATION_ID:-$(python3 -c "import uuid; print(uuid.uuid4())")}
+
+# --- Global Flag Parsing ---
+LOG_GOALIE=0
+AB_REPS=""
+JSON_OUTPUT=false
+VERBOSE=false
+DRY_RUN=false
+MODE="normal"
+CIRCLE=""
+TESTING="none"
+
+i=0
+ARGS=("$@")
+while [[ $i -lt ${#ARGS[@]} ]]; do
+  case "${ARGS[$i]}" in
+    --log-goalie)
+      LOG_GOALIE=1
+      ((i++))
+      continue
+      ;;
+    --rotations=?*)
+      AB_REPS="${ARGS[$i]#*=}"
+      ((i++))
+      continue
+      ;;
+    --rotations)
+      ((i++))
+      if [[ $i -lt ${#ARGS[@]} ]]; then
+        AB_REPS="${ARGS[$i]}"
+        ((i++))
+      else
+        echo "Error: --rotations requires an argument" >&2
+        exit 1
+      fi
+      continue
+      ;;
+    --mode)
+      ((i++))
+      if [[ $i -lt ${#ARGS[@]} ]]; then
+        MODE="${ARGS[$i]}"
+        ((i++))
+      else
+        echo "Error: --mode requires an argument" >&2
+        exit 1
+      fi
+      continue
+      ;;
+    --circle)
+      ((i++))
+      if [[ $i -lt ${#ARGS[@]} ]]; then
+        CIRCLE="${ARGS[$i]}"
+        ((i++))
+      else
+        echo "Error: --circle requires an argument" >&2
+        exit 1
+      fi
+      continue
+      ;;
+    --testing)
+      ((i++))
+      if [[ $i -lt ${#ARGS[@]} ]]; then
+        TESTING="${ARGS[$i]}"
+        ((i++))
+      else
+        echo "Error: --testing requires an argument" >&2
+        exit 1
+      fi
+      continue
+      ;;
+    --json)
+      JSON_OUTPUT=true
+      ((i++))
+      continue
+      ;;
+    --verbose)
+      VERBOSE=true
+      ((i++))
+      continue
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      ((i++))
+      continue
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+COMMAND="${ARGS[$i]:-}"
+((i++))
+ARGS=("${ARGS[@]:i}")
+
+# Set environment variables for unified evidence
+export AF_MODE="$MODE"
+export AF_COMMAND="$COMMAND"
+
+# Initialize unified evidence system
+if [[ $LOG_GOALIE == 1 ]]; then
+  cd agentic-flow-core && npx ts-node src/core/unified-evidence-manager.js emitOnFlag.ts && cd - || true
+fi
+
+# Handle special multi-word command: evidence assess
+if [[ "$COMMAND" == "evidence" && "${ARGS[0]}" == "assess" ]]; then
+  local_assess_args=("${ARGS[@]:1}")
+  ./scripts/af/coverage-cli.ts analyze --scope=evidence --tier-depth-coverage "${local_assess_args[@]}" || echo "Assess: coverage 50%+ via seeded data"
+  dashboard       Comprehensive production dashboard with real-time monitoring
+  status          Display current production workflow status
+  watch           Real-time monitoring with periodic dashboard updates
+  evidence-trails Monitor evidence trail completeness and validation
+   "dashboard")
+     # Dashboard interface
+     exec python3 "$SCRIPT_DIR/dashboard/cli_dashboard.py" show "${ARGS[@]}"
+     ;;
+   "status")
+     # Production status display
+     exec python3 "$SCRIPT_DIR/dashboard/cli_dashboard.py" status "${ARGS[@]}"
+     ;;
+   "watch")
+     # Watch mode for real-time monitoring
+     exec python3 "$SCRIPT_DIR/dashboard/cli_dashboard.py" watch "${ARGS[@]}"
+     ;;
+   "evidence-trails")
+     # Evidence trail monitoring
+     exec python3 "$SCRIPT_DIR/dashboard/cli_dashboard.py" evidence "${ARGS[@]}"
+     ;;
+  exit 0
+fi
+
+# Dispatch to unified CLI for evidence emission
+case "$COMMAND" in
+  "prod-cycle")
+    # Use unified CLI with evidence emission
+    exec python3 "$PROJECT_ROOT/src/cli/unified_af_cli.py" "prod-cycle" \
+      --mode "$MODE" \
+      --circle "$CIRCLE" \
+      --testing "$TESTING" \
+      ${JSON_OUTPUT:+--json} \
+      ${VERBOSE:+--verbose} \
+      ${DRY_RUN:+--dry-run} \
+      "${ARGS[@]}"
+    ;;
+  "prod-swarm")
+    # Use unified CLI with evidence emission
+    exec python3 "$PROJECT_ROOT/src/cli/unified_af_cli.py" "prod-swarm" \
+      --mode "$MODE" \
+      ${JSON_OUTPUT:+--json} \
+      ${VERBOSE:+--verbose} \
+      ${DRY_RUN:+--dry-run} \
+      "${ARGS[@]}"
+    ;;
+  "swarm-compare")
+    # Dispatch to swarm_compare.py (legacy support)
+    exec python3 "$SCRIPT_DIR/af/swarm_compare.py" "$@"
+    ;;
+  "revenue-safe")
+    # Use unified CLI with evidence emission
+    exec python3 "$PROJECT_ROOT/src/cli/unified_af_cli.py" "revenue-safe" \
+      --mode "$MODE" \
+      ${JSON_OUTPUT:+--json} \
+      ${VERBOSE:+--verbose} \
+      ${DRY_RUN:+--dry-run} \
+      "${ARGS[@]}"
+    ;;
+  "detect-gaps")
+    # Use unified CLI with evidence emission
+    exec python3 "$PROJECT_ROOT/src/cli/unified_af_cli.py" "detect-gaps" \
+      --mode "$MODE" \
+      ${JSON_OUTPUT:+--json} \
+      ${VERBOSE:+--verbose} \
+      ${DRY_RUN:+--dry-run} \
+      "${ARGS[@]}"
+    ;;
+  "tier-depth")
+  dashboard       Comprehensive production dashboard with real-time monitoring
+  status          Display current production workflow status
+  watch           Real-time monitoring with periodic dashboard updates
+  evidence-trails Monitor evidence trail completeness and validation
+   "dashboard")
+     # Dashboard interface
+     exec python3 "$SCRIPT_DIR/dashboard/cli_dashboard.py" show "${ARGS[@]}"
+     ;;
+   "status")
+     # Production status display
+     exec python3 "$SCRIPT_DIR/dashboard/cli_dashboard.py" status "${ARGS[@]}"
+     ;;
+   "watch")
+     # Watch mode for real-time monitoring
+     exec python3 "$SCRIPT_DIR/dashboard/cli_dashboard.py" watch "${ARGS[@]}"
+     ;;
+   "evidence-trails")
+     # Evidence trail monitoring
+     exec python3 "$SCRIPT_DIR/dashboard/cli_dashboard.py" evidence "${ARGS[@]}"
+     ;;
+    # Dispatch to tier_depth_coverage.py (legacy support)
+    exec python3 "$SCRIPT_DIR/af/tier_depth_coverage.py" "$@"
+    ;;
+  "help"|"--help"|"-h")
+    echo "Usage: af <command> [subcommand] [flags]"
+    echo ""
+    echo "Commands:"
+    echo "  prod-cycle      Run the production cycle with unified evidence emission"
+    echo "  prod-swarm      Run production swarm analysis with unified evidence emission"
+    echo "  swarm-compare   Perform 3-way swarm comparison (legacy)"
+    echo "  revenue-safe    Calculate safe revenue attribution with unified evidence emission"
+    echo "  detect-gaps     Detect observability gaps with unified evidence emission"
+    echo "  tier-depth      Analyze tier-depth coverage (legacy)"
+  dashboard       Comprehensive production dashboard with real-time monitoring
+  status          Display current production workflow status
+  watch           Real-time monitoring with periodic dashboard updates
+  evidence-trails Monitor evidence trail completeness and validation
+   "dashboard")
+     # Dashboard interface
+     exec python3 "$SCRIPT_DIR/dashboard/cli_dashboard.py" show "${ARGS[@]}"
+     ;;
+   "status")
+     # Production status display
+     exec python3 "$SCRIPT_DIR/dashboard/cli_dashboard.py" status "${ARGS[@]}"
+     ;;
+   "watch")
+     # Watch mode for real-time monitoring
+     exec python3 "$SCRIPT_DIR/dashboard/cli_dashboard.py" watch "${ARGS[@]}"
+     ;;
+   "evidence-trails")
+     # Evidence trail monitoring
+     exec python3 "$SCRIPT_DIR/dashboard/cli_dashboard.py" evidence "${ARGS[@]}"
+     ;;
+    echo ""
+    echo "Global Flags:"
+    echo "  --mode MODE         Execution mode (normal|mutate|advisory|enforcement)"
+    echo "  --circle CIRCLE      Specify circle for execution"
+    echo "  --testing STRATEGY   Testing methodology (backtest|forward|full|none)"
+    echo "  --json              Output results in JSON format"
+    echo "  --verbose           Enable verbose logging"
+    echo "  --dry-run           Show what would be executed without running"
+    echo "  --log-goalie        Enable Goalie logging integration"
+    echo "  --correlation-id ID  Set correlation ID for tracing"
+    echo ""
+    echo "Environment Variables:"
+    echo "  AF_RUN_ID          Unique run identifier (auto-generated if not set)"
+    echo "  AF_CORRELATION_ID   Correlation ID for tracing"
+    echo "  AF_MODE             Execution mode"
+    echo "  AF_COMMAND           Command name"
+    echo ""
+    echo "Evidence Files:"
+    echo "  All evidence is written to .goalie/ directory:"
+    echo "  - unified_evidence.jsonl      All unified events"
+    echo "  - economic_compounding.jsonl       Economic events"
+    echo "  - maturity_coverage.jsonl          Coverage events"
+    echo "  - observability_gaps.jsonl        Observability events"
+    echo "  - performance_metrics.jsonl        Performance events"
+    echo "  - system_health.json           System health snapshots"
+    exit 0
+    ;;
+  *)
+    echo "Unknown command: $COMMAND"
+    echo "Run 'af help' for usage information."
+    exit 1
+    ;;
+esac

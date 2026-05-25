@@ -132,4 +132,57 @@ def test_calculate_billable_hours():
     result_default = eventops_pyo3.calculate_jurisdiction_tax(200.0, "XYZ")
     data_default = json.loads(result_default)
     assert data_default["tax_rate_applied"] == "0.0000"
-    assert data_default["tax_amount"] == "0.00"
+    assert data_default["total_amount"] == "200.00"
+
+@pytest.mark.schema
+def test_validate_project_constraints():
+    if not eventops_pyo3:
+        pytest.skip("Rust PyO3 library not compiled yet. Skipping integration validation.")
+
+    # Valid constraints
+    context_json = json.dumps({
+        "project_id": "PRJ-123",
+        "total_budget": 50000.0,
+        "cost_limit_per_entry": 1000.0,
+        "spent_to_date": 49000.0,
+        "status": "ACTIVE"
+    })
+
+    # Within bounds ($500 request)
+    assert eventops_pyo3.validate_project_constraints(context_json, 500.0) is True
+
+    # Limit exceeded ($1500 request on a $1000 limit)
+    with pytest.raises(ValueError) as exc:
+        eventops_pyo3.validate_project_constraints(context_json, 1500.0)
+    assert "ERR_LIMIT_EXCEEDED" in str(exc.value)
+
+    # Budget exceeded ($1500 request on a $50000 budget with $49000 spent)
+    with pytest.raises(ValueError) as exc:
+        eventops_pyo3.validate_project_constraints(context_json, 1001.0)
+    assert "ERR_LIMIT_EXCEEDED" in str(exc.value) # Hits the limit first
+    
+    # Let's adjust the limit to test the budget ceiling specifically
+    context_budget_json = json.dumps({
+        "project_id": "PRJ-123",
+        "total_budget": 50000.0,
+        "cost_limit_per_entry": 5000.0,
+        "spent_to_date": 49000.0,
+        "status": "ACTIVE"
+    })
+
+    with pytest.raises(ValueError) as exc:
+        eventops_pyo3.validate_project_constraints(context_budget_json, 1001.0)
+    assert "ERR_BUDGET_EXCEEDED" in str(exc.value)
+    
+    # Inactive Project
+    context_inactive = json.dumps({
+        "project_id": "PRJ-123",
+        "total_budget": 50000.0,
+        "cost_limit_per_entry": 1000.0,
+        "spent_to_date": 0.0,
+        "status": "ON_HOLD"
+    })
+    
+    with pytest.raises(ValueError) as exc:
+        eventops_pyo3.validate_project_constraints(context_inactive, 100.0)
+    assert "ERR_PROJECT_INACTIVE" in str(exc.value)

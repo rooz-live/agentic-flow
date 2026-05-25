@@ -1,0 +1,61 @@
+name: "Load Test (150% Scale)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_rps:
+        description: "Target requests per second (number of simulated users)"
+        required: false
+        default: "500"
+        type: string
+      duration:
+        description: "Test run duration (e.g. 3m, 5m, 10m)"
+        required: false
+        default: "3m"
+        type: string
+
+env:
+  BILLING_API_HOST: ${{ secrets.BILLING_API_HOST || 'http://localhost:8000' }}
+
+jobs:
+  load-test:
+    name: Run Locust Load Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Locust
+        run: pip install locust
+
+      - name: Run Locust (headless)
+        run: |
+          locust \
+            -f tests/load/locustfile.py \
+            --headless \
+            -u ${{ inputs.target_rps }} \
+            -r 50 \
+            --run-time ${{ inputs.duration }} \
+            --host ${{ env.BILLING_API_HOST }} \
+            --csv=locust-report \
+            --html=locust-report.html \
+            --exit-code-on-error 1
+
+      - name: Upload Locust report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: locust-load-test-report
+          path: |
+            locust-report.html
+            locust-report_stats.csv
+            locust-report_stats_history.csv
+            locust-report_failures.csv
+          retention-days: 30

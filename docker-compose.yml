@@ -1,0 +1,53 @@
+services:
+  billing-pg:
+    image: postgres:16
+    container_name: billing-pg
+    environment:
+      POSTGRES_DB: billing_events
+      POSTGRES_USER: billing_app_role
+      POSTGRES_PASSWORD: ${BILLING_PG_PASSWORD:-billing_dev_2026}
+    ports:
+      - "5432:5432"
+    volumes:
+      - billing-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U billing_app_role -d billing_events"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - billing-net
+
+  billing-migrate:
+    image: postgres:16
+    container_name: billing-migrate
+    depends_on:
+      billing-pg:
+        condition: service_healthy
+    command: >
+      psql postgresql://billing_app_role:${BILLING_PG_PASSWORD:-billing_dev_2026}@billing-pg:5432/billing_events
+      -f /migrations/event_store_migration.sql
+    volumes:
+      - ./docs/sql:/migrations:ro
+    networks:
+      - billing-net
+
+  billing-cache:
+    image: redis:7
+    container_name: billing-cache
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - billing-net
+
+volumes:
+  billing-pg-data:
+
+networks:
+  billing-net:
+    driver: bridge

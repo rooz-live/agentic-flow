@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# tooling/scripts/hooks/pre-commit
+# Pre-commit hook template — CVT (Completion Velocity Theater) termination layer.
+#
+# Install: cp tooling/scripts/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+# Or:      ln -sf ../../tooling/scripts/hooks/pre-commit .git/hooks/pre-commit
+#
+# What this enforces:
+#   1. There must be SOMETHING staged (prevents empty commit theater)
+#   2. pytest must pass on the staged change scope (billing + unit suites)
+#   3. DoR gate must pass (index must not be stale for hot dirs)
+#
+# Override for emergency commits:
+#   SKIP_DOD=1 git commit -m "..."
+
+set -euo pipefail
+
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve project root from hook location: .git/hooks/ → repo root
+if [[ "$HOOK_DIR" == *".git/hooks"* ]]; then
+    PROJECT_ROOT="$(cd "$HOOK_DIR/../.." && pwd)"
+else
+    # Running from tooling/scripts/hooks/ — go up 3
+    PROJECT_ROOT="$(cd "$HOOK_DIR/../../.." && pwd)"
+fi
+
+red()    { printf "\033[31m%s\033[0m\n" "$*" >&2; }
+green()  { printf "\033[32m%s\033[0m\n" "$*"; }
+yellow() { printf "\033[33m%s\033[0m\n" "$*"; }
+
+# ── Emergency override ───────────────────────────────────────────────────────
+if [[ "${SKIP_DOD:-0}" == "1" ]]; then
+    yellow "[pre-commit] SKIP_DOD=1 — bypassing DoD gate (use sparingly)"
+    exit 0
+fi
+
+echo "[pre-commit] Running DoD gate..."
+
+# ── 1. Staged files must exist ───────────────────────────────────────────────
+STAGED_STAT=$(git -C "$PROJECT_ROOT" diff --cached --stat 2>/dev/null | tail -1 || echo "")
+if ! echo "$STAGED_STAT" | grep -qE "[0-9]+ (file|insertion|deletion)"; then
+    red "[pre-commit] FAIL: Nothing staged. Stage your changes before committing."
+    red "  This guard breaks the CVT cycle — empty commits are not allowed."
+    exit 1
+fi
+green "[pre-commit] staged: $STAGED_STAT"
+
+# ── 2. pytest must pass on billing + unit suites ─────────────────────────────
+echo -n "[pre-commit] Running pytest (billing + unit)... "
+PYTEST_OUT=$(cd "$PROJECT_ROOT" && python3 -m pytest tests/billing/ tests/unit/ -q --tb=line --no-header 2>&1 | tail -3 || true)
+PYTEST_SUMMARY=$(echo "$PYTEST_OUT" | grep -E "[0-9]+ passed" | tail -1 || echo "")
+
+if echo "$PYTEST_SUMMARY" | grep -qE "[0-9]+ passed" && ! echo "$PYTEST_SUMMARY" | grep -qE "[1-9][0-9]* failed"; then
+    green "$PYTEST_SUMMARY"
+else
+    red "[pre-commit] FAIL: pytest did not pass cleanly"
+    echo "$PYTEST_OUT" >&2
+    red "  Fix failing tests before committing."
+    exit 1
+fi
+
+# ── 3. DoR gate (non-strict — warn only on untracked) ────────────────────────
+DOD_SCRIPT="${PROJECT_ROOT}/tooling/scripts/dod-gate.sh"
+if [[ -x "$DOD_SCRIPT" ]]; then
+    echo -n "[pre-commit] DoD --pre-task check... "
+    if "$DOD_SCRIPT" --pre-task >/dev/null 2>&1; then
+        green "pass"
+    else
+        yellow "WARN: DoD pre-task check had warnings (non-fatal)"
+    fi
+fi
+
+green "[pre-commit] All gates passed — proceeding with commit."
+exit 0

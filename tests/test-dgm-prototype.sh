@@ -13,7 +13,11 @@ trap 'rm -rf "$tmp_dir"' EXIT
 run_gate() {
     local candidate_json="$1"
     shift
-    (cd "$ROOT_DIR" && cargo run -p dgm-prototype --bin dgm-gate -- --candidate-json "$candidate_json" "$@" >/dev/null 2>&1)
+    if [[ -x "$ROOT_DIR/target/debug/dgm-gate" ]]; then
+        "$ROOT_DIR/target/debug/dgm-gate" --candidate-json "$candidate_json" "$@" >/dev/null 2>&1
+    else
+        (cd "$ROOT_DIR" && cargo run -p dgm-prototype --bin dgm-gate -- --candidate-json "$candidate_json" "$@" >/dev/null 2>&1)
+    fi
 }
 
 # Case 1: Low-risk candidate + all gates passed -> apply (exit 0)

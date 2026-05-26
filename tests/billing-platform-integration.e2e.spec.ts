@@ -25,6 +25,8 @@ const ENDPOINTS = {
 };
 
 test.describe('Billing Platform Full Integration', () => {
+  test.describe.configure({ mode: 'serial' });
+  
   let browser: Browser;
   let page: Page;
   

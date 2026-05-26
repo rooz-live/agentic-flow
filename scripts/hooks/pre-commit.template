@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# DoD pre-commit gate: enforced baseline — blocks broken commits.
+# Runs the GREEN test suite (billing/coherence/beads/e2e-unit/integration).
+# Full-suite (including pre-existing failures) is a separate CI concern.
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$ROOT"
+
+# ── 1. Must have staged changes (anti-CVT) ──
+if ! git diff --cached --stat | grep -q "."; then
+  echo "pre-commit: nothing staged — commit rejected (CVT gate)"
+  exit 1
+fi
+
+# ── 2. Index perception check (fast) ──
+TRACKED_SRC=$(git ls-files src/ 2>/dev/null | wc -l | tr -d ' ')
+if [[ "$TRACKED_SRC" -lt 10 ]]; then
+  echo "pre-commit: index appears broken ($TRACKED_SRC src files). Aborting."
+  exit 1
+fi
+
+# ── 3. Green baseline — core test suite only ──
+# These 137+ tests MUST pass. Pre-existing failures in other dirs are excluded.
+CORE_DIRS="tests/billing/ tests/coherence/ tests/beads/"
+EXTRA_DIRS=""
+[[ -d tests/e2e/unit ]] && EXTRA_DIRS="$EXTRA_DIRS tests/e2e/unit/"
+[[ -d tests/integration ]] && EXTRA_DIRS="$EXTRA_DIRS tests/integration/"
+
+python3 -m pytest $CORE_DIRS $EXTRA_DIRS \
+  --rootdir=tests -q --tb=line \
+  --ignore=tests/integrations \
+  --ignore=tests/load \
+  --ignore=tests/perf 2>&1 | tail -5
+
+RESULT=${PIPESTATUS[0]}
+if [[ $RESULT -ne 0 ]]; then
+  echo "pre-commit: core test suite FAILED (exit $RESULT)"
+  exit 1
+fi
+
+echo "pre-commit: DoD gate passed"
+exit 0

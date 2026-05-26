@@ -35,7 +35,7 @@ async function globalSetup(config: FullConfig) {
   // entire module graph. Pre-compiling here means subsequent test
   // navigations are served from Vite's in-memory cache (~50ms vs 10-15s).
   const VITE_BASE = 'http://127.0.0.1:5173';
-  const TRADING_PAGE = `${VITE_BASE}/`;
+  const TRADING_PAGE = `${VITE_BASE}/trading.html`;
 
   // Only warm up if Vite is running (skips when only running TLD/dashboard tests).
   let viteReachable = false;

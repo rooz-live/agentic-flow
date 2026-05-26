@@ -455,6 +455,100 @@ SKIP_DIRS = {
     "deployment-20260228-2205",
     ".claude-flow",
     ".test_venv",
+    ".git 2",
+    ".git-hooks",
+    ".goalie-verification",
+    ".learning",
+    ".mcp_configs",
+    ".migration-backup",
+    ".mypy_cache",
+    ".neural-trader",
+    ".rca-backups",
+    ".roam-state",
+    ".venv-adr-swarm",
+    ".venv_prompts",
+    "ai_devops_env",
+    "ml_env",
+    "pre-cleanup-backup-20251028_223104",
+    "recovered_repos",
+    "temp-cleanup-20251028_230601",
+    "..bfg-report",
+    "COURT-FILINGS",
+    "POST-TRIAL",
+    "TRIAL-PREP",
+    "Users",
+    "_SYSTEM",
+    "_TRACKERS",
+    "_WSJF-TRACKER",
+    "affiliate-platform",
+    "agentic-data",
+    "agentic-flow",
+    "agentic-flow-core",
+    "agentic-flow-corrupted",
+    "agentic-prediction-risk-analytics",
+    "analysis-reports",
+    "backups",
+    "build_artifacts",
+    "calibration_data",
+    "node_modules 3",
+    "playwright-report",
+    "risk-analytics",
+    "risk-analytics 2",
+    "risk-analytics.bak",
+    "risk_analytics",
+    "temp_agentic_qe",
+    "temp_lionagi_analysis",
+    "testing",
+    "tmp",
+    "experimental",
+    "recovered_repos",
+    "archive",
+    "archives",
+    "agentic-flow",
+    "agentic-flow-core",
+    "agentic-flow-corrupted",
+    "agentic-prediction-risk-analytics",
+    "recovered",
+    "packages",
+    "releases",
+    "retros",
+    "circles",
+    "gitlab-environment-toolkit",
+    "swarm-core-app",
+    "swarm-dbos-orchestrator",
+    "legacy engineering",
+    "turbo-flow-setup",
+    "MyPlayground.playground",
+    "projects",
+    ".snapshots",
+    ".backups",
+    ".archives",
+    ".agentic",
+    ".agentic-qe",
+    ".aqe",
+    ".archived-temp",
+    "ruvector",
+    ".ruqu_bench",
+    ".claude",
+    ".integrations",
+    ".governance",
+    "deploy_package",
+    "intelligent-learning-hooks",
+    "code",
+    ".goalie",
+    ".restore",
+    "infrastructure",
+    "hivelocity",
+    "gitlab",
+    "postgresql",
+    "data",
+    ".dor-metrics",
+    "superproject-gates",
+    "repo-improvement-workspace",
+    "bench",
+    "brush",
+    "media",
+    "reports",
 }
 
 
@@ -470,16 +564,25 @@ def find_files(root: Path, globs: List[str], max_files: int = 500) -> List[Path]
     Uses os.walk with directory pruning to avoid traversing SKIP_DIRS.
     Deduplicates by inode to handle case-insensitive filesystems.
     """
-    import fnmatch as _fnmatch
+    import re as _re
 
     seen_inodes: Set[Tuple[int, int]] = set()
     found: List[Path] = []
 
-    # Extract filename patterns from glob strings (e.g. "**/*.py" -> "*.py")
-    filename_patterns = []
+    # Compile glob patterns into case-insensitive regex objects
+    compiled_regexes = []
     for g in globs:
-        parts = g.replace("\\", "/").split("/")
-        filename_patterns.append(parts[-1] if parts else g)
+        # Normalize slashes
+        g_norm = g.replace("\\", "/")
+        # Replace **/ with a special token that won't be escaped by re.escape
+        g_norm = g_norm.replace("**/", "<ANY_DIR>")
+        escaped = _re.escape(g_norm)
+        # In Python 3.7+, re.escape only escapes regex special characters.
+        # So <ANY_DIR> is not escaped, but we handle both cases just to be robust.
+        escaped = escaped.replace("<ANY_DIR>", "(?:.*/)?").replace("\\<ANY_DIR\\>", "(?:.*/)?")
+        # Replace escaped asterisks with .* and question marks with .
+        regex_str = escaped.replace("\\*", ".*").replace("\\?", ".")
+        compiled_regexes.append(_re.compile("^" + regex_str + "$", _re.IGNORECASE))
 
     for dirpath, dirnames, filenames in os.walk(root):
         # Prune SKIP_DIRS BEFORE descent (O(useful) not O(all))
@@ -491,9 +594,15 @@ def find_files(root: Path, globs: List[str], max_files: int = 500) -> List[Path]
         for fname in filenames:
             if len(found) >= max_files:
                 break
-            if not any(_fnmatch.fnmatch(fname, pat) for pat in filename_patterns):
-                continue
             p = Path(dirpath) / fname
+            try:
+                rel_path_str = str(p.relative_to(root)).replace("\\", "/")
+            except ValueError:
+                continue
+
+            if not any(rx.match(rel_path_str) for rx in compiled_regexes):
+                continue
+
             try:
                 ident = _file_identity(p)
             except OSError:

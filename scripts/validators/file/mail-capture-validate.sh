@@ -123,7 +123,7 @@ done
 
 # ─── Preflight checks ────────────────────────────────────────────────────────
 
-check_dependencies() {
+mail_capture_preflight() {
     # Ensure required directories exist
     mkdir -p "$CAPTURE_DIR" "$REPORT_DIR" 2>/dev/null || true
     # Python3 is required for governance council
@@ -686,7 +686,7 @@ mode_research() {
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 main() {
-    check_dependencies
+    mail_capture_preflight
 
     case "$MODE" in
         interactive) mode_interactive ;;

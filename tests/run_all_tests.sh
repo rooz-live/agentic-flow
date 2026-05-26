@@ -59,6 +59,7 @@ main() {
   echo -e "${BLUE}  Agentic Flow Test Suite Runner  ${NC}"
   echo -e "${BLUE}════════════════════════════════════${NC}"
   
+  export PYTHONPATH="$ROOT_DIR"
   cd "$ROOT_DIR"
   
   # Run unit tests

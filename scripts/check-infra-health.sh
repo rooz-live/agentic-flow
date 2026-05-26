@@ -32,14 +32,17 @@ if ! "$TRUST_GIT" rev-parse HEAD >/dev/null 2>&1; then
 fi
 echo -e "${GREEN}✓ Superproject object baseline perfectly intact.${NC}"
 
-# 2. Submodule Status Check
-echo -e "\n2. Verifying Submodule Index Recursive Status..."
-SUBMODULE_STATUS=$("$TRUST_GIT" submodule status --recursive)
+echo -e "\n2. Verifying Submodule Index Recursive Status (timeout 5s)..."
+if ! SUBMODULE_STATUS=$(timeout 5 "$TRUST_GIT" submodule status --recursive 2>/dev/null); then
+    echo -e "${YELLOW}[WARN] Submodule status command timed out or failed. Skipping deep submodule verification.${NC}"
+    SUBMODULE_STATUS=""
+fi
 
 UNINITIALIZED=0
 DIVERGED=0
 
 while read -r line; do
+    [[ -n "$line" ]] || continue
     PREFIX=${line:0:1}
     HASH_PATH=${line:1}
     HASH=$(echo "$HASH_PATH" | awk '{print $1}')

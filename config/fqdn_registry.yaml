@@ -1,0 +1,115 @@
+# fqdn_registry.yaml — Canonical FQDN + Origin Delegation Map
+# INVENTORY:  docs/billing/CONSOLIDATION_INVENTORY.md
+# HARNESS:    tests/harness/BaseBillingE2ESpec.ts (FQDN_REGISTRY mirrors this)
+# VERIFY:     tests/e2e/public-edge-verify.e2e.spec.ts
+#
+# Anti-CVT Rule: This is the SINGLE source of truth for all public FQDNs.
+# Do NOT hard-code FQDNs in test files. Import from harness or read this file.
+# Do NOT create a second fqdn_*.yaml — extend this file.
+#
+# Migration Status Legend:
+#   pending    — DNS delegation not yet confirmed
+#   delegated  — DNS record live, origin validated
+#   hardened   — TLS + WAF + DDoS protection active
+#   sovereign  — Immutable data plane wired, Stripe/HostBill/Oro live
+
+meta:
+  version: "1.0.0"
+  updated: "2026-05-25"
+  owner: "billing-platform-team"
+  anti_cvt: "no new fqdn_*.yaml files — extend this file"
+
+# ─── Billing Platform FQDNs ───────────────────────────────────────────────────
+
+domains:
+  - fqdn: billing.bhopti.com
+    service: hostbill
+    origin: "${HOSTBILL_ORIGIN_IP}"
+    tls: true
+    waf_enabled: false
+    migration_status: pending
+    env_var: HOSTBILL_URL
+    notes: "HostBill admin + client portal. Stripe webhook endpoint lives here."
+    stripe_webhook_path: /webhooks/stripe
+    health_path: /index.php?cmd=health
+
+  - fqdn: crm.bhopti.com
+    service: oro-commerce
+    origin: "${ORO_ORIGIN_IP}"
+    tls: true
+    waf_enabled: false
+    migration_status: pending
+    env_var: ORO_URL
+    notes: "Oro Commerce B2B storefront. Rate plans + subscription management."
+    health_path: /health
+
+  - fqdn: shop.bhopti.com
+    service: oro-storefront
+    origin: "${ORO_ORIGIN_IP}"
+    tls: true
+    waf_enabled: false
+    migration_status: pending
+    env_var: ORO_SHOP_URL
+    notes: "Oro self-service storefront for end-clients to purchase plans."
+    health_path: /health
+
+  - fqdn: docs.bhopti.com
+    service: documentation
+    origin: "${DOCS_ORIGIN_IP}"
+    tls: true
+    waf_enabled: false
+    migration_status: pending
+    env_var: DOCS_URL
+    notes: "Developer portal — sequence diagrams, API reference, data dictionaries."
+    health_path: /
+
+  - fqdn: admin.bhopti.com
+    service: agentic-admin
+    origin: "${ADMIN_ORIGIN_IP}"
+    tls: true
+    waf_enabled: false
+    migration_status: pending
+    env_var: ADMIN_URL
+    notes: "Agentic platform admin panel. WSJF dashboard, domain metrics."
+    health_path: /health
+
+# ─── Stripe Webhook Config ────────────────────────────────────────────────────
+
+stripe:
+  test_mode_webhook_url: "${STRIPE_WEBHOOK_URL}"
+  live_mode_webhook_url: "https://billing.bhopti.com/webhooks/stripe"
+  signature_header: "Stripe-Signature"
+  rejection_status_codes: [400, 403]
+  notes: >
+    Tampered or missing Stripe-Signature must return 400 or 403.
+    Must NOT return 500 (crash = security boundary violation).
+
+# ─── Edge Validation Rules ────────────────────────────────────────────────────
+
+validation:
+  require_server_header: true
+  max_response_status: 399
+  tls_required: true
+  live_edge_test_env_var: LIVE_EDGE_TEST
+  batch_size_env_var: MAX_DOMAINS_PER_BATCH
+  default_batch_size: 3
+  notes: >
+    Tests skip (not fail) when LIVE_EDGE_TEST is absent.
+    Skipped ≠ Failed ≠ Theater.
+    Set LIVE_EDGE_TEST=true only in CI with confirmed DNS delegation.
+
+# ─── PI Planning — HostBill/Oro/Stripe Value Stream ──────────────────────────
+
+pi_plan:
+  iteration_1:
+    goal: "DNS delegation confirmed for all 5 FQDNs"
+    gate: "migration_status: delegated for all entries above"
+  iteration_2:
+    goal: "TLS + WAF active on billing.bhopti.com + crm.bhopti.com"
+    gate: "waf_enabled: true; TLS regression spec green"
+  iteration_3:
+    goal: "Stripe live-mode webhook wired to billing.bhopti.com/webhooks/stripe"
+    gate: "assertStripeWebhookBoundary green against live URL"
+  iteration_4:
+    goal: "HostBill → Oro → Stripe full purchase flow E2E verified"
+    gate: "tests/integration/hostbill-stripe-boundary.e2e.spec.ts green"

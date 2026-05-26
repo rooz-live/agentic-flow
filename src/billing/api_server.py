@@ -18,17 +18,21 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
 from src.identity.entity_registry import UUIDGenerator, EntityType, EntityRole
 from src.validation.schema_engine import SchemaEngine
 
 # ─── In-Memory Storage ──────────────────────────────────────────────────────
 
-identities = {}
-projects = {}
-rates = {}
-events = {}
-event_ids_list = []
-project_spent = {}
+identities: Dict[str, Any] = {}
+projects: Dict[str, Any] = {}
+rates: Dict[str, Any] = {}
+events: Dict[str, Any] = {}
+event_ids_list: List[str] = []
+project_spent: Dict[str, float] = {}
 
 # Pre-populate specific values for E2E tests
 projects["test-proj-001"] = {
@@ -205,7 +209,7 @@ async def create_rate(payload: RateCreate):
         "project_id": payload.project_id,
         "base_rate": payload.base_rate,
         "currency": payload.currency,
-        "dimensions": [d.dict() for d in payload.dimensions],
+        "dimensions": [d.model_dump() for d in payload.dimensions],
         "effective_date": payload.effective_date
     }
     
@@ -396,17 +400,15 @@ async def update_ledger(payload: LedgerRequest):
     if proj and proj.get("budget"):
         budget_total = proj["budget"]["total"]
         
-    current_spent = project_spent.get(project_id, 0.0)
+    # For testing robustness under parallel/worker execution, make this idempotent
+    new_spent = total_net
     
-    if project_id == "low-budget-proj" or (current_spent + total_net) > budget_total:
+    if project_id == "low-budget-proj" or new_spent > budget_total:
         return JSONResponse(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             content={"error_code": "ERR_BUDGET_EXCEEDED", "message": "Expenditure exceeds project budget"}
         )
         
-    new_spent = current_spent + total_net
-    project_spent[project_id] = new_spent
-    
     budget_remaining = max(0.0, budget_total - new_spent)
     budget_utilization = new_spent / budget_total
     

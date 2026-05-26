@@ -52,20 +52,38 @@ EOF
     fi
 elif [ "$GATE_TARGET" == "verify-contract" ]; then
     echo "--> Running Sovereignty Contract Verification..."
-    EVIDENCE_FILE="${2:-}"
+    EVIDENCE_FILE="${2:-$ROOT_DIR/.goalie/evidence/last_gate_one_pass.json}"
+    if [ -L "$EVIDENCE_FILE" ]; then
+        TARGET=$(readlink "$EVIDENCE_FILE")
+        if [[ "$TARGET" != /* ]]; then EVIDENCE_FILE="$ROOT_DIR/.goalie/evidence/$TARGET"; fi
+    fi
     if [ -z "$EVIDENCE_FILE" ] || [ ! -f "$EVIDENCE_FILE" ]; then
         echo "❌ Contract Verification Failed: Evidence file not found ($EVIDENCE_FILE)"
         exit 1
     fi
-    if ! grep -q '"exit_code": 0' "$EVIDENCE_FILE"; then
-        echo "❌ Contract Verification Failed: exit_code is not 0 in $EVIDENCE_FILE"
+  HEAD=$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || echo "")
+  python3 - "$EVIDENCE_FILE" "$HEAD" <<'PYV'
+import json, sys
+path, head = sys.argv[1], sys.argv[2]
+with open(path, encoding="utf-8") as f:
+    data = json.load(f)
+exit_code = data.get("exit_code")
+art_hash = data.get("hash") or data.get("head_sha")
+if exit_code != 0:
+    print(f"❌ Contract Verification Failed: exit_code={exit_code} in {path}")
+    sys.exit(1)
+if not art_hash:
+    print(f"❌ Contract Verification Failed: hash/head_sha missing in {path}")
+    sys.exit(1)
+if head and art_hash != head:
+    print(f"❌ Contract Verification Failed: artifact hash {art_hash[:12]} != HEAD {head[:12]}")
+    sys.exit(1)
+print(f"✅ Contract Verified: artifact matches HEAD ({path})")
+PYV
+    if [[ $? -ne 0 ]]; then
+        echo "❌ Contract Verification Failed (python verifier)"
         exit 1
     fi
-    if ! grep -q '"hash":' "$EVIDENCE_FILE"; then
-        echo "❌ Contract Verification Failed: hash missing in $EVIDENCE_FILE"
-        exit 1
-    fi
-    echo "✅ Contract Verified: Artifact physically confirmed ($EVIDENCE_FILE)."
 else
     echo "❌ Unknown gate target: $GATE_TARGET"
     exit 1

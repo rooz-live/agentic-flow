@@ -602,3 +602,281 @@ Do you want the next increment to **run the full superproject + submodule stash 
 
 ### Blocked on human (single)
 - Do you want me to add a tiny shell wrapper that force-writes fallback evidence (`summary_<run_id>.json`) when selector emits no artifact, or keep strict fail-closed behavior?
+
+---
+
+## 2026-05-25 Slice: Canonical Long-Horizon Board (Anti-CVT + Public Edge)
+
+### Minimum DoD that breaks the cycle (rigid, anti-theater)
+
+| Check | Command / artifact | Hard fail? |
+|-------|-------------------|------------|
+| Unit baseline | `python3 -m pytest tests/ --rootdir=tests -q --tb=line` | yes |
+| E2E discoverability | `npx playwright test --list \| rg "Total:"` | yes |
+| Staged evidence | `git diff --cached --stat \| rg "."` | yes (pre-commit) |
+| Coherence | `python3 scripts/validators/project/validate_coherence.py --output reports/coherence.md` | yes (post-task) |
+| Trust substrate | `.goalie/evidence/last_gate_one_pass.json` from `scripts/one.sh` | yes (release) |
+| Public edge | `scripts/public_synthetic_check.sh <fqdn>` exit 0 + artifact | yes (edge claim) |
+| Billing slice | `python3 -m pytest tests/billing/ -q` | yes (billing touch) |
+| Capability indexed | `git ls-files tooling/scripts/<capability>` or canonical home | yes (new primitive) |
+
+**Invert rule:** termination is observable index change (`git add && git commit`), not local shell success.
+
+### Gate install map (canonical homes)
+
+| Concern | Canonical home | Shim only |
+|---------|----------------|-----------|
+| Gates | `scripts/one.sh` | `scripts/gate-one-pass.sh`, `scripts/validate-foundation.sh` |
+| Evidence | `.goalie/evidence/` | `scripts/collect-evidence.sh` |
+| WSJF | `scripts/wsjf/upgrade_wave4_workflow.py` | `scripts/wsjf/wsjf_calculator.py` |
+| Deploy | `scripts/deploy.sh` (domain-specific) | per-domain wrappers |
+| Contracts | `docs/api/billing.proto` + schema tests | scattered validators |
+| Domain probes | `scripts/verify-domain-probes.sh` | n/a |
+| Agent session DoR | `scripts/agent_session_dor.sh` | n/a |
+| Public synthetic | `scripts/public_synthetic_check.sh` | n/a |
+| Pre-commit anti-CVT | `.git/hooks/pre-commit` | install: `chmod +x .git/hooks/pre-commit` |
+
+If a path is not in canonical home: **move** into home, or mark **deprecated shim** for one release cycle.
+
+### Maturity × WSJF (long-horizon swarm vector)
+
+| Rank | Stream | Maturity | CoD | WSJF posture |
+|------|--------|----------|-----|--------------|
+| L0 | Ecosystem integrations (Whop/Matrix/Circle) | lowest | high coupling risk | later + flags |
+| L1 | Community layer integrations | low | retention unproven | flagged |
+| L2 | CRM/forum adapters (Oro/Flarum/WP) | low | architecture in prose | next after trust |
+| L3 | Matching quality v1 | low | no ranking contract | next |
+| L4 | Messaging/notifications | medium-low | no delivery guarantees | next |
+| L5 | Multi-sided onboarding | medium-low | role flows incomplete | next |
+| L6 | Auth/secrets hygiene | medium | policy exists, execution gated | now |
+| L7 | Core funnel determinism | medium | critical, unproven E2E | now |
+| L8 | Platform trust baseline | medium-high | substrate gate blocks | **NOW** |
+| L9 | ArtChat deploy + checkout contract | highest near-term | revenue path structured | **NOW** |
+| L10 | Billing public FQDN + invoice proof | strategic | blocked DNS historically | **NEXT** after index gate |
+
+### NOW / NEXT / LATER (billing + agentics foundation)
+
+**NOW (highest CoD, shortest duration)**
+1. Trust substrate hard gate (`dedupe → trust-path → verify-contract` + artifact)
+2. Anti-CVT commit gate (`.git/hooks/pre-commit` + `scripts/agent_session_dor.sh` pre-task)
+3. Capability index gate (no new primitive without test/contract home)
+4. Surgical untracked triage in `src/` — index → shim → archive (retain via config upgrade, not delete)
+
+**NEXT**
+5. Public FQDN edge deploy proof (`scripts/public_synthetic_check.sh` + HostBill/Stripe test-mode webhook artifact)
+6. Domain probe external verification (`scripts/verify-domain-probes.sh`)
+7. MPP consolidation pass (one home per concern; thin shims only)
+8. Schema regression CI gate
+
+**LATER**
+9. Immutable Event Store PostgreSQL (append-only)
+10. Performance benchmarks (k6 150% scale, p99 targets)
+11. Chunked multi-domain delivery (`# domains max per prompt`)
+
+### RCA: why untracked capability archives exist (invert thinking)
+
+| Why | Counter-measure |
+|-----|-----------------|
+| Wave N executes locally, never commits | pre-commit staged-file gate |
+| Wave N+1 cannot perceive prior work | pre-task `agent_session_dor.sh` + `git ls-files` |
+| Multiple "unified" paths per IDE session | canonical home table + ADR pointer in AGENTS.md |
+| Large prompt payloads without chunking | domain batch sizing in config |
+| DoD checks "file exists" not "artifact hash" | `.goalie/evidence/*` contract |
+| Dirty substrate → repeated trust-path theater | fix substrate once, then gate |
+
+### Billing pipeline primitive stack (field technician MPP)
+
+```
+[ Entity Identity ] → [ EventOps ] → [ Calculation Engine ] → [ Invoice Engine ]
+        ↓                    ↓                  ↓                      ↓
+ [ Rate Engine ]    [ Ceremony Logger ]  [ Cost Ledger ]      [ Tax & Currency ]
+        ↓                    ↓                  ↓
+ [ Job Manifest ]   [ Project Context ]  [ Schema Validation ]
+```
+
+**DoR (pull into sprint):** schema locked (`docs/api/billing.proto`), scale quantified, threat model signed, WSJF approved.
+
+**DoD (production):** pytest + Playwright coverage targets, load at 150%, docs published, backward-compatible schema regression pass.
+
+### Agent contract bundle (integration hardening wave)
+
+- Rust bridge + PyO3 (`src/rust/`, `maturin develop`)
+- Schema validation layer (contract tests)
+- Public edge deployment (Caddy `src/proxies/edge_gateway.cfg`)
+- E2E verify phase (`*-verify.e2e.spec.ts` per domain)
+- PostgreSQL append-only event store (design → implement)
+
+### Reasonable observations (minimal zero simplification)
+
+- Do not delete untracked capabilities blindly; triage: **index → shim → archive**.
+- Do not claim done without artifact (exit code + path + hash).
+- Do not rerun full trust-path on dirty substrate; fix substrate once.
+- Vectors explain drift; hashes/schemas/tests authorize change.
+- One integration proof per stream (Playwright **or** probe **or** adapter).
+
+### Blocked on human (single)
+
+- Confirm public FQDN target for invoice E2E proof (`billing.bhopti.com` vs `mesh.tag.ooo`) before wiring HostBill/Stripe validators into `public_synthetic_check.sh`.
+
+
+---
+
+## 2026-05-25 Slice B: Perceive Without Shell Magic
+
+### Question
+Can agent/circle role perceive + verify without re-running trust-path?
+
+### Answer (yes — read-only perception chain)
+| Layer | Mechanism | Re-runs trust-path? |
+|-------|-----------|---------------------|
+| Perception | `scripts/perceive-trust-artifact.sh --check` | **No** |
+| Agent snapshot | `.goalie/evidence/perception_snapshot.json` | **No** |
+| Contract verify | `bash scripts/one.sh verify-contract .goalie/evidence/last_gate_one_pass.json` | **No** |
+| Cache (substrate) | `.goalie/trust_cache.json` + `validate-foundation.sh` checkpoint | **No** (unless `TRUST_FORCE_RERUN=1`) |
+| Execution | `TRUST_FORCE_RERUN=1 bash scripts/one.sh trust-path` | **Yes** (only when HEAD changed or artifact stale) |
+
+**Invert rule:** Agents read artifacts first; shell magic is for *refresh*, not *perception*.
+
+### Minimum DoD (3 layers — breaks CVT cycle)
+1. **Perception (pre-task):** `./scripts/dod-gate.sh --pre-task` + `perception_snapshot.json`
+2. **Termination (pre-commit):** staged files + core pytest + `capability-index-gate.sh`
+3. **Release (post-merge):** `trust-path` artifact where `hash == HEAD` + `public_synthetic_check.sh`
+
+### AGENT_SLICE=publication shims
+- `code/tooling/scripts/agent_session_dor.sh` → `scripts/agent_session_dor.sh`
+- `code/tooling/scripts/public_synthetic_check.sh` → `scripts/public_synthetic_check.sh`
+- `code/tooling/scripts/perceive-trust-artifact.sh` → `scripts/perceive-trust-artifact.sh`
+
+
+---
+
+## 2026-05-25 Slice C: Term Retro — Anti-CVT Wave + Gate Evidence (append-only)
+
+**Evidence run:** `dod-gate.sh --perceive` (FAIL), `verify-contract` (FAIL stale hash), `agent_session_dor.sh` (FAIL untracked), `pytest tests/billing|coherence|beads` (**112 passed**). Untracked count from perceive gate: **313** (down from ~1088 wave baseline).
+
+### OODA
+
+| Phase | Bullets |
+|-------|---------|
+| **Observe** | Substrate: HEAD `33e59baa`, trust artifact `b20ae9aa` (stale). Perceive reports `trust_artifact_ok=false`, `untracked=313`, `tracked=2945`. Core billing/coherence/beads pytest green. |
+| **Orient** | Anti-CVT wave reduced untracked surface (~1088→313) via indexing/shims, not hero merge. Termination still blocked: no staged index delta + stale `.goalie/evidence/last_gate_one_pass.json`. FQDN split unresolved (`billing.bhopti.com` vs `api.billing.o-gov.com`). |
+| **Decide** | **NOW:** refresh trust artifact OR fail-closed perceive; surgical untracked triage in canonical homes. **NEXT:** FQDN pick + `public_synthetic_check.sh` + invoice-engine-verify in inventory. **LATER:** immutable event store, k6 scale. |
+| **Act** | Index increments only (scripts/gates/evidence paths); forbid delete-untracked. Re-run checklist only from `~/Documents/code` with `ensure_monorepo_repo_root` guard. |
+
+### Terminal RCA
+
+| Failure mode | Root cause | Fix |
+|--------------|------------|-----|
+| Wrong repo / empty gates | User ran checklist from `~` not monorepo | `cd ~/Documents/code` + `ensure_monorepo_repo_root` before any gate |
+| Steps “fail” in correct cwd | Stale trust artifact (`b20ae9aa` ≠ HEAD `33e59baa`) | `TRUST_FORCE_RERUN=1 bash scripts/one.sh trust-path` then `verify-contract` |
+| DoR red with green pytest | **313 untracked** on canonical paths (`scripts/`, `code/tooling/`) | Surgical **index → shim → archive** (never blind delete) |
+| “Nothing staged” | Wave N executed locally; termination = index change, not shell exit 0 | `git add` canonical homes + commit slice |
+
+### Anti-CVT stack maturity
+
+| Layer | Enforced (hard fail) | Theater (exists, not blocking) |
+|-------|----------------------|--------------------------------|
+| Perceive | `dod-gate.sh --perceive`, `perceive-trust-artifact.sh --check` | Passing perceive while artifact stale (by design: fail-closed) |
+| DoR | `agent_session_dor.sh` (untracked canonical paths) | AGENTS.md prose without hook read |
+| Contract | `verify-contract` on `.goalie/evidence/last_gate_one_pass.json` | Claiming “trust green” without hash match |
+| Evidence JSON | `evidence_json.sh` shape | Evidence file present but old HEAD |
+| Pre-commit | `.git/hooks/pre-commit` (if installed) | Hook not installed → local success, CI drift |
+| Tests | `pytest` billing/coherence/beads (**112 pass**) | Full-tree pytest / Playwright not in minimum DoD |
+| Capability index | `capability-index-gate.sh` | 313 files still off-index |
+
+**Verdict:** Anti-fragile **read** path is mature; **write/terminate** path still theater until artifact refresh + untracked index commits land.
+
+### Anti-fragility (perceive without shell magic)
+
+| Question | Answer |
+|----------|--------|
+| Can agent circle **perceive + verify** without re-running `trust-path`? | **Yes** for read-only: `dod-gate.sh --perceive`, `perceive-trust-artifact.sh --check`, `verify-contract`, `.goalie/evidence/perception_snapshot.json`. |
+| When must shell magic rerun? | When `verify-contract` fails (stale hash), `TRUST_FORCE_RERUN=1`, or substrate dirty after HEAD move. |
+| Invert rule | Perception = artifacts first; execution = refresh, not default loop. |
+
+### Minimum DoD (5-step copy-paste)
+
+```bash
+cd ~/Documents/code
+# 0) Repo guard (if wired in session bootstrap)
+# source scripts/lib/ensure_monorepo_repo_root.sh 2>/dev/null || true
+
+# 1) Perceive (read-only)
+bash code/tooling/scripts/dod-gate.sh --perceive
+
+# 2) Agent DoR
+bash scripts/agent_session_dor.sh
+
+# 3) Contract (no trust-path rerun)
+bash scripts/one.sh verify-contract .goalie/evidence/last_gate_one_pass.json
+
+# 4) Unit slice
+python3 -m pytest tests/billing/ tests/coherence/ tests/beads/ -q --tb=line
+
+# 5) Termination probe (invert: must show staged/index delta before commit)
+git diff --cached --stat | head -20
+git status --porcelain | grep '^??' | wc -l
+```
+
+**Hard pass:** steps 1–4 green **and** untracked trending down with staged canonical paths; **release pass:** step 3 hash == `git rev-parse HEAD`.
+
+### Counter-hegemonic rules (6)
+
+1. **Termination = observable index change**, not local shell success or model narrative.
+2. **Read artifacts before rerun** — stale hash is signal, not noise to override.
+3. **One canonical home per concern** — shims expire in one release cycle.
+4. **No hero merge** — wave delivers script/gate increments, not 300-file commit.
+5. **Fail-closed on trust** — never claim public edge / invoice proof without FQDN + artifact.
+6. **Do not delete untracked capabilities** — triage index → shim → archive only.
+
+### WSJF NOW / NEXT / LATER
+
+| Bucket | Item | CoD driver |
+|--------|------|------------|
+| **NOW** | Refresh `last_gate_one_pass.json` (`trust-path` + verify-contract == HEAD) | Blocks all release claims |
+| **NOW** | Untracked surgical index (313 → tracked shims) | DoR + pre-commit anti-CVT |
+| **NOW** | `agent_session_dor.sh` + `dod-gate.sh --pre-task` in agent bootstrap | Stops wrong-cwd repeat |
+| **NEXT** | Human FQDN pick + DNS + `public_synthetic_check.sh` | Invoice E2E proof |
+| **NEXT** | Close `invoice-engine-verify` gap in CONSOLIDATION_INVENTORY | Billing pipeline DoD |
+| **NEXT** | `verify-domain-probes.sh` external | Multi-domain claims |
+| **LATER** | Immutable PostgreSQL event store | Platform hardening |
+| **LATER** | k6 150% / p99 benchmarks | Performance contract |
+
+### Indexable increments this wave (scripts added — not hero merge)
+
+| Increment | Role |
+|-----------|------|
+| `code/tooling/scripts/dod-gate.sh --perceive` | JSON perceive without full trust-path |
+| `scripts/perceive-trust-artifact.sh` | Artifact read/check shim |
+| `scripts/agent_session_dor.sh` | Pre-task DoR (untracked policy) |
+| `scripts/public_synthetic_check.sh` | Public edge synthetic (FQDN-blocked) |
+| `scripts/wsjf/upgrade_wave4_workflow.py` | WSJF evidence emission |
+| `config/wsjf/wave4_backlog.json` | Codified now/next/later backlog |
+| `.goalie/evidence/perception_snapshot.json` | Agent-readable perceive cache |
+| Pre-commit / `capability-index-gate.sh` | Termination layer (install-dependent) |
+
+### Blockers for FQDN invoice proof
+
+1. **DNS / edge:** split targets `billing.bhopti.com` vs `api.billing.o-gov.com` — human must pick one public FQDN.
+2. **Inventory gap:** `invoice-engine-verify` not fully wired in CONSOLIDATION_INVENTORY — probe path unclear.
+3. **Trust artifact stale** — `public_synthetic_check.sh` claims blocked until hash == HEAD.
+4. **313 untracked** — validators/scripts off-index break DoR before E2E wiring.
+
+### LNNNL (one line each)
+
+| Horizon | Line |
+|---------|------|
+| **Now** | Refresh trust artifact + index highest-CoD untracked scripts under canonical homes. |
+| **Near** | Run WSJF selector with stable substrate; attach evidence JSON to inbox. |
+| **Next** | FQDN decision → HostBill/Stripe test-mode webhook + `public_synthetic_check.sh` artifact. |
+| **Later** | Immutable event store + chunked multi-domain delivery. |
+| **Likely** | Without termination discipline, Wave N+1 re-discovers same 313 files and stale `b20ae9aa` artifact. |
+
+### Inline answers (term review)
+
+| Question | Answer |
+|----------|--------|
+| Can agent circle perceive+verify without shell magic? | **Yes** for perceive + `verify-contract` **read**; **no** for claiming release-ready trust while hash ≠ HEAD — must rerun `trust-path` once. |
+| Is AGENTS.md enforced or aspirational? | **Mostly aspirational today** — gates enforce repo root, untracked policy, artifacts, pytest; AGENTS.md is not parsed by `agent_session_dor.sh` / pre-commit unless explicitly wired. |
+| What breaks Wave N→N+1? (**Invert: commit is NOT enough**) | Local execution without **indexed termination** (staged canonical paths + commit + fresh evidence hash). Next wave cannot perceive prior work; untracked set becomes the “source of truth,” and trust theater repeats. |
+

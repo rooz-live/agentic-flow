@@ -33,11 +33,11 @@ $ALL && PORTS+=(5000)
 
 killed=0
 for port in "${PORTS[@]}"; do
-  pids=$(lsof -ti ":$port" 2>/dev/null || true)
+  pids=$(lsof -n -P -ti ":$port" 2>/dev/null || true)
   if [[ -n "$pids" ]]; then
     echo "Killing $(echo "$pids" | wc -l | tr -d ' ') process(es) on :$port"
     echo "$pids" | xargs kill -9 2>/dev/null || true
-    ((killed++))
+    killed=$((killed + 1))
   fi
 done
 

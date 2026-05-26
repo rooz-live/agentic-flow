@@ -10,8 +10,9 @@ import tempfile
 from pathlib import Path
 
 # Add scripts directory to path
-script_dir = Path(__file__).parent
-sys.path.insert(0, str(script_dir.parent / "scripts" / "af"))
+script_dir = Path(__file__).resolve().parent
+project_root = script_dir.parents[2]
+sys.path.insert(0, str(project_root / "tooling" / "scripts" / "af"))
 
 try:
     from swarm_compare import (
@@ -122,12 +123,9 @@ def test_extended_metrics():
                       "dashboard_pivot_efficiency", "contention_multiplier",
                       "longrun_stability_score", "error_recovery_rate",
                       "resource_utilization_pct", "pipeline_efficiency_pct"]:
-            if metric not in row:
-                print(f"❌ Missing metric: {metric}")
-                return False
+            assert metric in row, f"Missing metric: {metric}"
     
     print("✅ Extended metrics calculation test passed")
-    return True
 
 
 def test_three_way_comparison():
@@ -185,43 +183,31 @@ def test_three_way_comparison():
         )
         
         # Run comparison
-        try:
-            comparison_result = compare_three_way(prior_table, current_table, auto_ref_table)
-            
-            # Verify structure
-            required_keys = ["meta", "groups", "recommendations", "risk_assessment"]
-            for key in required_keys:
-                if key not in comparison_result:
-                    print(f"❌ Missing comparison key: {key}")
-                    return False
-            
-            # Verify recommendations exist
-            recommendations = comparison_result.get("recommendations", [])
-            if not recommendations:
-                print("❌ No recommendations generated")
-                return False
-            
-            # Verify risk assessment
-            risk_levels = comparison_result.get("risk_assessment", {})
-            if not risk_levels:
-                print("❌ No risk assessment generated")
-                return False
-            
-            print("✅ Three-way comparison test passed")
-            print(f"Generated {len(recommendations)} recommendations")
-            print(f"Risk levels: {set(risk_levels.values())}")
-            
-            # Save test results
-            output_file = temp_path / "test_comparison.json"
-            with open(output_file, "w") as f:
-                json.dump(comparison_result, f, indent=2)
-            
-            print(f"Test comparison saved to: {output_file}")
-            return True
-            
-        except Exception as e:
-            print(f"❌ Comparison test failed: {e}")
-            return False
+        comparison_result = compare_three_way(prior_table, current_table, auto_ref_table)
+        
+        # Verify structure
+        required_keys = ["meta", "groups", "recommendations", "risk_assessment"]
+        for key in required_keys:
+            assert key in comparison_result, f"Missing key in comparison result: {key}"
+        
+        # Verify recommendations exist
+        recommendations = comparison_result.get("recommendations", [])
+        assert recommendations, "No recommendations generated"
+        
+        # Verify risk assessment
+        risk_levels = comparison_result.get("risk_assessment", {})
+        assert risk_levels, "No risk assessment generated"
+        
+        print("✅ Three-way comparison test passed")
+        print(f"Generated {len(recommendations)} recommendations")
+        print(f"Risk levels: {set(risk_levels.values())}")
+        
+        # Save test results
+        output_file = temp_path / "test_comparison.json"
+        with open(output_file, "w") as f:
+            json.dump(comparison_result, f, indent=2)
+        
+        print(f"Test comparison saved to: {output_file}")
 
 
 def test_file_discovery():
@@ -243,25 +229,15 @@ def test_file_discovery():
             files_created.append(file_path)
         
         # Test discovery
-        try:
-            discovered = discover_swarm_tables(str(temp_path))
-            
-            if len(discovered) != len(files_created):
-                print(f"❌ Expected {len(files_created)} files, found {len(discovered)}")
-                return False
-            
-            # Check sorting (newest first)
-            timestamps = [f.timestamp for f in discovered]
-            if timestamps != sorted(timestamps, reverse=True):
-                print("❌ Files not sorted correctly by timestamp")
-                return False
-            
-            print(f"✅ File discovery test passed - found {len(discovered)} files")
-            return True
-            
-        except Exception as e:
-            print(f"❌ File discovery test failed: {e}")
-            return False
+        discovered = discover_swarm_tables(str(temp_path))
+        
+        assert len(discovered) == len(files_created), f"Expected {len(files_created)} files, found {len(discovered)}"
+        
+        # Check sorting (newest first)
+        timestamps = [f.timestamp for f in discovered]
+        assert timestamps == sorted(timestamps, reverse=True), "Files not sorted correctly by timestamp"
+        
+        print(f"✅ File discovery test passed - found {len(discovered)} files")
 
 
 def main():
@@ -280,12 +256,10 @@ def main():
     for test_name, test_func in tests:
         print(f"\n--- {test_name} ---")
         try:
-            if test_func():
-                passed += 1
-            else:
-                print(f"❌ {test_name} test failed")
+            test_func()
+            passed += 1
         except Exception as e:
-            print(f"❌ {test_name} test error: {e}")
+            print(f"❌ {test_name} test failed: {e}")
     
     print(f"\n📊 Test Results: {passed}/{total} tests passed")
     

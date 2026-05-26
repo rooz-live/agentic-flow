@@ -42,7 +42,7 @@ for domain in "${DOMAINS[@]}"; do
   
   # HTTP check (only if DNS resolved)
   if [[ "$dns_status" == "RESOLVED" ]]; then
-    http_code=$(curl -sI --connect-timeout 5 --max-time 10 -o /dev/null -w "%{http_code}" "https://$domain/" 2>/dev/null || echo "000")
+    http_code=$(curl -sI --connect-timeout 5 --max-time 10 -o /dev/null -w "%{http_code}" "https://$domain/" 2>/dev/null || true)
   else
     http_code="000"
   fi
@@ -56,7 +56,7 @@ for domain in "${DOMAINS[@]}"; do
   fi
   
   # Determine pass/fail
-  if [[ "$dns_status" == "RESOLVED" && "$http_code" != "000" ]]; then
+  if [[ "$dns_status" == "RESOLVED" && "$http_code" =~ ^[1-5][0-9]{2}$ ]]; then
     status="PASS"
     PASS=$((PASS + 1))
   else

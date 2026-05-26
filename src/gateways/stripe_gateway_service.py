@@ -30,11 +30,22 @@ class StripeGatewayHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
+    def do_GET(self):
+        self.send_response(405)
+        self.end_headers()
+        self.wfile.write(b'{"error": "Method Not Allowed"}')
+
+    def do_HEAD(self):
+        self.send_response(405)
+        self.end_headers()
+
+
 def run(server_class=HTTPServer, handler_class=StripeGatewayHandler, port=9090):
     server_address = ('127.0.0.1', port)
     httpd = server_class(server_address, handler_class)
     print(f'Starting Stripe Webhook Gateway on 127.0.0.1:{port}...')
     httpd.serve_forever()
+
 
 if __name__ == '__main__':
     run()

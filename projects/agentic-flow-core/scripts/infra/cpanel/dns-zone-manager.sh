@@ -107,6 +107,45 @@ delete_record() {
     fi
 }
 
+# Manage DNSSEC keys and status
+dnssec_manage() {
+    local domain="$1" action="${2:-status}"
+    if [[ "$action" == "enable" ]]; then
+        echo -e "${CYAN}Enabling DNSSEC for ${domain}...${NC}"
+        response=$(call_uapi DNSSEC enable_dnssec "domain=${domain}")
+        if echo "$response" | jq -e '.status == 1' > /dev/null 2>&1; then
+            echo -e "${GREEN}✓ DNSSEC enabled${NC}"
+        else
+            echo -e "${RED}✗ Failed${NC}"
+            echo "$response" | jq -r '.errors[]' 2>/dev/null || echo "$response"
+        fi
+    elif [[ "$action" == "disable" ]]; then
+        echo -e "${CYAN}Disabling DNSSEC for ${domain}...${NC}"
+        response=$(call_uapi DNSSEC disable_dnssec "domain=${domain}")
+        if echo "$response" | jq -e '.status == 1' > /dev/null 2>&1; then
+            echo -e "${GREEN}✓ DNSSEC disabled${NC}"
+        else
+            echo -e "${RED}✗ Failed${NC}"
+            echo "$response" | jq -r '.errors[]' 2>/dev/null || echo "$response"
+        fi
+    else
+        echo -e "${CYAN}Fetching DNSSEC DS records for ${domain}...${NC}"
+        response=$(call_uapi DNSSEC fetch_ds_records "domain=${domain}")
+        if echo "$response" | jq -e '.status == 1' > /dev/null 2>&1; then
+            echo "$response" | jq -r '
+.data | to_entries[] | .key as $dom | .value.keys | to_entries[] |
+"DNSSEC status for \($dom):
+  Keytag: \(.key) (Type: \(.value.key_type), Algo: \(.value.algo_num) - \(.value.algo_desc))
+  Digests:
+" + ( .value.digests[] | "    Type \(.algo_num) (\(.algo_desc)): \(.digest)" )
+'
+        else
+            echo -e "${RED}✗ Failed to fetch DNSSEC records${NC}"
+            echo "$response" | jq -r '.errors[]' 2>/dev/null || echo "$response"
+        fi
+    fi
+}
+
 # Quick lookup — resolve from public DNS
 lookup() {
     local name="${1:?Usage: $0 lookup <fqdn>}"
@@ -128,6 +167,7 @@ Commands:
   add    <domain> <type> <name> <value>    Add a record (A, CNAME, MX, TXT)
   delete <domain> <line_number>            Delete a record by line number
   lookup <fqdn>                            Public DNS lookup
+  dnssec <domain> [enable|disable|status] Manage DNSSEC status & DS records
 
 Examples:
   $0 list bhopti.com
@@ -149,5 +189,6 @@ case "${1:-help}" in
     add|a)      check_config; shift; add_record "$@" ;;
     delete|d)   check_config; delete_record "${2:-}" "${3:-}" ;;
     lookup|q)   lookup "${2:-}" ;;
+    dnssec)     check_config; dnssec_manage "${2:-}" "${3:-status}" ;;
     help|h|*)   show_usage ;;
 esac

@@ -123,6 +123,60 @@ check_propagation() {
     done
 }
 
+# Manage DNSSEC keys and status
+dnssec_manage() {
+    local domain="$1" action="${2:-status}"
+    if [[ "$action" == "enable" ]]; then
+        log "Enabling DNSSEC for ${domain}..."
+        local result
+        result=$(cpanel_api DNSSEC enable_dnssec -d "domain=${domain}")
+        if echo "$result" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('status')==1" 2>/dev/null; then
+            success "DNSSEC enabled successfully for ${domain}."
+        else
+            error "Failed to enable DNSSEC."
+            echo "$result" | python3 -m json.tool 2>/dev/null || echo "$result"
+            return 1
+        fi
+    elif [[ "$action" == "disable" ]]; then
+        log "Disabling DNSSEC for ${domain}..."
+        local result
+        result=$(cpanel_api DNSSEC disable_dnssec -d "domain=${domain}")
+        if echo "$result" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('status')==1" 2>/dev/null; then
+            success "DNSSEC disabled successfully for ${domain}."
+        else
+            error "Failed to disable DNSSEC."
+            echo "$result" | python3 -m json.tool 2>/dev/null || echo "$result"
+            return 1
+        fi
+    else
+        log "Fetching DNSSEC DS records for ${domain}..."
+        local result
+        result=$(cpanel_api DNSSEC fetch_ds_records -d "domain=${domain}")
+        if echo "$result" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('status')==1" 2>/dev/null; then
+            echo "$result" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+data = d.get('data', {})
+for dom, info in data.items():
+    print(f'DNSSEC status for {dom}:')
+    keys = info.get('keys', {})
+    if not keys:
+        print('  Status: Disabled / No active keys.')
+    for key_tag, key_info in keys.items():
+        print(f'  Keytag: {key_tag} (Type: {key_info.get(\"key_type\")}, Algo: {key_info.get(\"algo_num\")} - {key_info.get(\"algo_desc\")})')
+        print('  Digests:')
+        for dig in key_info.get('digests', []):
+            print(f'    Type {dig.get(\"algo_num\")} ({dig.get(\"algo_desc\")}): {dig.get(\"digest\")}')
+"
+            success "DNSSEC check complete."
+        else
+            error "Failed to fetch DNSSEC DS records."
+            echo "$result" | python3 -m json.tool 2>/dev/null || echo "$result"
+            return 1
+        fi
+    fi
+}
+
 # Main
 case "${1:-help}" in
     list)
@@ -141,6 +195,10 @@ case "${1:-help}" in
         [[ -z "${2:-}" ]] && { error "Usage: $0 check-propagation <domain>"; exit 1; }
         check_propagation "$2"
         ;;
+    dnssec)
+        [[ -z "${2:-}" ]] && { error "Usage: $0 dnssec <domain> [enable|disable|status]"; exit 1; }
+        dnssec_manage "$2" "${3:-status}"
+        ;;
     help|--help|-h)
         echo "cPanel DNS Zone Manager"
         echo ""
@@ -151,6 +209,7 @@ case "${1:-help}" in
         echo "  add <domain> <name> <type> <value>     Add a DNS record"
         echo "  delete <domain> <line_number>          Delete a record by line"
         echo "  check-propagation <domain>             Check DNS propagation"
+        echo "  dnssec <domain> [enable|disable|status] Manage DNSSEC status & DS records"
         echo ""
         echo "Environment: CPANEL_HOST, CPANEL_USER, CPANEL_API_TOKEN"
         ;;

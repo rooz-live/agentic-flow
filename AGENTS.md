@@ -1,4 +1,4 @@
-# AGENTS.md — Honest Baseline (2026-05-25, updated session 2)
+# AGENTS.md — Honest Baseline (2026-05-26, updated session 3 — wave-4 anti-CVT gate)
 
 ## Ground Truth (verified by filesystem + git)
 
@@ -12,8 +12,10 @@ This is a multi-language workspace (TypeScript, Python, Rust) implementing a fie
 - **Edge config**: src/proxies/edge_gateway.cfg (Caddy: billing.bhopti.com, crm.bhopti.com, api.interface.tag.ooo)
 - **DDD domain layer**: domain/validation/ (aggregates, value objects, events), domain/legal/, domain/wsjf/
 - **Rust workspace** (6 crates): `cargo check` passes clean. PyO3 eventops_pyo3
-- **Tests**: 96 pytest pass, 0 fail, 11 skip. 5,056 Playwright tests in 110 files. 22 *-verify.e2e.spec.ts
-- **Schema**: `docs/api/billing.proto` (510 LOC, canonical protobuf)
+- **Tests**: 105 pytest pass (tests/billing/ + tests/pytest/), 0 fail. 5,056 Playwright tests. 23 *-verify.e2e.spec.ts
+- **Schema**: `docs/api/billing.proto` (proto_version: 1.1.0, 510 LOC, canonical protobuf)
+- **Anti-CVT gate**: `.git/hooks/pre-commit` enforced. `AGENT_SLICE=publication bash code/tooling/scripts/agent_session_dor.sh` must exit 0.
+- **Public FQDN**: `billing.bhopti.com` — **blocked: DNS timeout** (exit 1, evidence in `.goalie/evidence/public-edge/`)
 - **CI**: `.github/workflows/billing-deploy.yml`, `ci.yml`, `e2e-verify.yml`
 - **Tracked totals**: 425 src/ files, 310 tests/ files, 20 domain/ files
 
@@ -32,8 +34,9 @@ cargo check  # exit 0
 
 ### What DOES NOT work:
 - `npm test` / `jest` — many test files reference missing deps
-- `maturin develop` not run yet — 11 PyO3 tests skip
+- `maturin develop` — installs via `pip3 install maturin --break-system-packages` then `python3 -m maturin develop --release` in `src/rust/eventops_pyo3/`
 - `tests/integrations/test_notifiers.py` — needs `telegram` module
+- `billing.bhopti.com` — DNS not yet delegated (curl exit 28, resolve timeout)
 
 ## Anti-CVT Rules (MANDATORY for all agents)
 
@@ -42,15 +45,17 @@ cargo check  # exit 0
 3. **One domain at a time.** Prove vertically before expanding horizontally.
 4. **Test-first literally:** tests/ directory created before src/. Test fails. Then pass.
 5. **Never claim coverage without running:** `python3 -m pytest --cov` must produce real numbers.
-6. **Pre-task perception:** Run `./scripts/dod-gate.sh --pre-task` BEFORE starting work to see existing capabilities.
+6. **Pre-task perception:** Run `AGENT_SLICE=publication bash code/tooling/scripts/agent_session_dor.sh` BEFORE starting work. Must exit 0.
 7. **Retain, don't delete:** When consolidating, prefer config upgrade over file deletion.
 8. **Invert thinking:** Before creating new capability, check if it already exists in the tracked index.
+9. **Capability index gate:** `git ls-files tooling/scripts/<capability>` before claiming capability exists. If absent from index, it does not exist.
+10. **Public edge proof:** `bash code/tooling/scripts/public_synthetic_check.sh billing.bhopti.com` must exit 0 before any public edge DoD claim. SKIPPED ≠ passing. Exit 1 = blocked, document blocker.
 
 ## DoD Gate (ENFORCED — not aspirational)
 
 ```bash
-# PRE-TASK: Run before starting ANY work (perceive existing capabilities)
-./scripts/dod-gate.sh --pre-task
+# PRE-TASK: Run before starting ANY work (perceive + index gate)
+AGENT_SLICE=publication bash code/tooling/scripts/agent_session_dor.sh
 
 # POST-TASK: Run before ANY commit claim
 ./scripts/dod-gate.sh --post-task
@@ -59,11 +64,23 @@ cargo check  # exit 0
 ./scripts/dod-gate.sh --full
 ```
 
-### Minimum viable DoD (must pass before commit):
+### Minimum viable DoD (must ALL pass before commit):
 ```bash
-python3 -m pytest tests/ --rootdir=tests -q --tb=line --ignore=tests/integrations 2>&1 | grep -E "passed|failed"
+# 1. Tests green
+python3 -m pytest tests/billing/ tests/pytest/ -q --tb=line 2>&1 | grep -E "passed|failed"
+
+# 2. Playwright spec list non-zero
 npx playwright test --list 2>&1 | grep "Total:"
-git diff --cached --stat  # Must show actual staged files
+
+# 3. THE gate that breaks the CVT cycle — nothing staged = rejected
+git diff --cached --stat | grep -q "."
+
+# 4. Capability in index
+git ls-files tooling/scripts/<capability>  # must return a path
+
+# 5. Public edge (or explicit BLOCKED with evidence)
+bash code/tooling/scripts/public_synthetic_check.sh billing.bhopti.com
+# exit 0 = live. exit 1 = document blocker in .goalie/evidence/public-edge/
 ```
 
 ## Verification Commands
@@ -106,27 +123,39 @@ git ls-files --others --exclude-standard | grep "^src/" | wc -l
 
 ## WSJF Priority (Next Actions — Long Horizon Swarm)
 
-### NOW (Highest CoD, Shortest Duration)
+### DONE (Wave 4 — committed a06dcdd7)
 | # | Item | WSJF | Status |
 |---|------|------|--------|
-| 1 | Triage remaining ~1,500 untracked src/ files — commit or .gitignore | 9.5 | In Progress |
-| 2 | Run `maturin develop` → unlock 11 PyO3 tests | 8.0 | Ready |
-| 3 | Schema regression CI gate (.github/workflows) | 7.5 | Ready |
+| G1 | Pre-commit hook installed (CVT termination) | 9.9 | ✅ DONE |
+| G2 | `tooling/scripts/agent_session_dor.sh` canonical | 9.8 | ✅ DONE |
+| G3 | `tooling/scripts/public_synthetic_check.sh` canonical | 9.7 | ✅ DONE |
+| G4 | Surgical index: 26 scripts + tests/billing + deploy/k8s committed | 9.5 | ✅ DONE |
+| G5 | `tests/billing/` 93 pass + committed | 9.3 | ✅ DONE |
+| G6 | `config/fqdn_registry.yaml` + `FQDN_CANONICAL.md` committed | 9.0 | ✅ DONE |
+| G7 | `tests/schema-regression.e2e.spec.ts` (proto v1.1.0 gate) | 7.0 | ✅ DONE |
+| G8 | `tests/e2e/public-edge-verify.e2e.spec.ts` (flag-gated) | 9.0 | ✅ DONE |
+| G9 | `tests/integration/hostbill-stripe-boundary.e2e.spec.ts` | 8.8 | ✅ DONE |
 
-### NEXT (High CoD, Medium Duration)
+### NOW (Highest CoD — active blockers)
 | # | Item | WSJF | Status |
 |---|------|------|--------|
-| 4 | Public FQDN edge deploy — billing.bhopti.com resolves live | 7.2 | Blocked: DNS |
-| 5 | HostBill gateway completion (reqwest HTTP client, real API calls) | 6.5 | Ready |
-| 6 | Stripe webhook end-to-end (edge → Rust → EventStore → Invoice) | 6.0 | Ready |
-| 7 | OroCommerce CRM integration (crm.bhopti.com) | 5.5 | Blocked: DNS |
+| 1 | DNS delegation: billing.bhopti.com → Caddy origin IP | 9.5 | 🔴 BLOCKED: DNS |
+| 2 | TLS chain: valid cert on Caddy (`src/proxies/edge_gateway.cfg`) | 9.3 | 🔴 BLOCKED: DNS first |
+| 3 | `public_synthetic_check.sh billing.bhopti.com` exit 0 | 9.0 | 🔴 BLOCKED: DNS |
 
-### LATER (Strategic, Long Duration)
+### NEXT
 | # | Item | WSJF | Status |
 |---|------|------|--------|
-| 8 | Immutable Event Store PostgreSQL deploy (append-only) | 5.5 | Design |
-| 9 | Performance benchmarks — k6 at 150% scale, p99 targets | 3.0 | Design |
-| 10 | Chunked delivery mechanism for multi-domain batch sizing | 3.0 | Design |
+| 4 | HostBill gateway completion (reqwest HTTP client, real API calls) | 6.5 | Ready |
+| 5 | Stripe webhook end-to-end (edge → Rust → EventStore → Invoice) | 6.0 | Ready |
+| 6 | OroCommerce CRM integration (crm.bhopti.com) | 5.5 | Blocked: DNS |
+
+### LATER
+| # | Item | WSJF | Status |
+|---|------|------|--------|
+| 7 | k6 load at 150% profile (`tests/load/k6_billing.js` staged) | 7.5 | Ready |
+| 8 | MPP DDD bounded context deconstruct (src/billing/* ADRs) | 7.0 | Design |
+| 9 | ROAM risk register (billing pipeline) | 6.0 | Design |
 
 ## MPP Layer Reference (Method Pattern Protocol)
 ```

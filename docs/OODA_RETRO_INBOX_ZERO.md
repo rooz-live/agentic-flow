@@ -880,3 +880,69 @@ git status --porcelain | grep '^??' | wc -l
 | Is AGENTS.md enforced or aspirational? | **Mostly aspirational today** — gates enforce repo root, untracked policy, artifacts, pytest; AGENTS.md is not parsed by `agent_session_dor.sh` / pre-commit unless explicitly wired. |
 | What breaks Wave N→N+1? (**Invert: commit is NOT enough**) | Local execution without **indexed termination** (staged canonical paths + commit + fresh evidence hash). Next wave cannot perceive prior work; untracked set becomes the “source of truth,” and trust theater repeats. |
 
+
+---
+
+## 2026-05-26 — DNS RCA: All bhopti.com domains dead + Phase 3 DoR/DoD gate rollout
+
+### OODA slice
+
+**Observe**
+- All bhopti.com subdomains (`billing.bhopti.com`, `crm.bhopti.com`, `bhopti.com`) returning `SERVFAIL` since previous session.
+- `8.8.8.8` extended DNS error: `"At delegation bhopti.com for bhopti.com/ns"`.
+- WHOIS (Verisign → `whois-service.virtualcloud.co`) confirmed NS records: `NS1–NS4.TAG.OOO`.
+- Google DNS `/resolve` on `ns1.tag.ooo`: Status 2 (`SERVFAIL`), Comment: `"Name servers did not respond [23.92.79.2]"`.
+- `.OOO` gTLD delegation server `23.92.79.2` is NOT responding at the `tag.ooo` level.
+
+**Orient**
+Root cause chain:
+```
+bhopti.com NS → ns1/2/3/4.TAG.OOO
+                     ↓
+           TAG.OOO's auth server (23.92.79.2) NOT RESPONDING
+                     ↓
+           .OOO gTLD delegation broken at glue record level
+                     ↓
+           ALL bhopti.com resolution → SERVFAIL (Google, Cloudflare, ISP resolvers)
+```
+
+This is **not** a Cloudflare issue. The registrar is `sav.com` (IANA ID 609) and the NS records point to `tag.ooo` infrastructure which has gone dark. Domain is registered through 2027-04-16.
+
+**Decide**
+- Immediate action (human required): Log in to `sav.com` registrar, change NS records from `tag.ooo` to a working provider (Cloudflare: `ns1.cloudflare.com` / `ns2.cloudflare.com`).
+- Blocker classification: `EXTERNAL_INFRA_OUTAGE` — no code fix possible. K8s ingress / cert-manager / TLS for `billing.bhopti.com` remain blocked until NS delegation is restored.
+- `public_synthetic_check.sh` will exit 2 until DNS is restored — this is correct behavior, not a bug.
+
+**Act**
+- Phase 3 DoR/DoD gate artifact system implemented (this session):
+  - `tooling/scripts/lib/evidence_json.sh` — `write_evidence_artifact` + `perceive_evidence` primitives
+  - `tooling/scripts/agent_session_dor.sh` — canonical pre-task index gate (replaces broken shim)
+  - `tooling/scripts/dod-gate.sh` — canonical `--pre-task` / `--post-task` / `--perceive` modes
+  - `tooling/scripts/public_synthetic_check.sh` — FQDN + billing pipeline synthetic check
+  - `tooling/scripts/hooks/pre-commit` — pre-commit hook template (CVT termination)
+
+### Test baseline at slice end
+
+| Metric | Value |
+|--------|-------|
+| pytest passing | 136 pass, 8 skip, 0 fail |
+| Playwright discoverable | 5,056 tests / 110 files |
+| Pre-commit CVT gate | installed + active |
+| DNS status `bhopti.com` | **SERVFAIL** (tag.ooo NS outage, external) |
+| Submodule pack corruption | present (lionagi-qe-fleet, turbo-flow, aisp-open-core) |
+
+### Blockers for FQDN invoice proof (updated)
+
+1. **DNS (ROOT CAUSE IDENTIFIED):** `sav.com` registrar NS delegation → `tag.ooo` nameservers are dead. Human must log into `sav.com` and change NS to working provider (Cloudflare recommended).
+2. **Submodule pack corruption** — 3 submodule object packs corrupt; `git submodule deinit --force` needed for lionagi-qe-fleet, turbo-flow, aisp-open-core.
+3. **HostBill live HTTP** — blocked on `HOSTBILL_API_KEY` / `HOSTBILL_API_URL` secrets (8 tests correctly skipped).
+
+### LNNNL
+
+| Horizon | Line |
+|---------|------|
+| **Now** | Log into sav.com, change NS from tag.ooo → Cloudflare (ns1/ns2.cloudflare.com). |
+| **Near** | Once DNS propagates: run `public_synthetic_check.sh` to generate first clean evidence artifact. |
+| **Next** | Deinit 3 corrupt submodules; fix git LFS post-commit hook traversal. |
+| **Later** | HostBill staging creds → live HTTP integration tests passing (currently 8 skipped). |
+| **Likely** | Without NS fix, all K8s ingress / cert-manager / TLS automation remains deadlocked. |

@@ -430,6 +430,12 @@ class CoherenceReport:
 
 # Directories to always skip (virtual envs, build artifacts, third-party)
 SKIP_DIRS = {
+    "~",
+    ".terraform",
+    "terraform",
+    ".vscode",
+    ".antigravity",
+    "Personal",
     "node_modules",
     "__pycache__",
     ".venv",
@@ -558,13 +564,45 @@ def _file_identity(p: Path) -> Tuple[int, int]:
     return (st.st_dev, st.st_ino)
 
 
+_WALK_CACHE = {}
+
+
 def find_files(root: Path, globs: List[str], max_files: int = 500) -> List[Path]:
     """Find files matching any of the given glob patterns.
 
     Uses os.walk with directory pruning to avoid traversing SKIP_DIRS.
     Deduplicates by inode to handle case-insensitive filesystems.
+    Caches directory walking to avoid duplicate file scans.
     """
+    global _WALK_CACHE
     import re as _re
+
+    root_resolved = root.resolve()
+    if root_resolved not in _WALK_CACHE:
+        all_files = []
+        if (root_resolved / "src").exists() and (root_resolved / "docs").exists():
+            subdirs = ["docs", "src", "tests", "domain", "crates", "apps"]
+            try:
+                for entry in os.scandir(root_resolved):
+                    if entry.is_file():
+                        all_files.append(Path(entry.path))
+            except OSError:
+                pass
+            for s in subdirs:
+                subdir_path = root_resolved / s
+                if subdir_path.exists():
+                    print(f"[DEBUG Walk Subdir] Starting {s}...", flush=True)
+                    for dirpath, dirnames, filenames in os.walk(subdir_path):
+                        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+                        for fname in filenames:
+                            all_files.append(Path(dirpath) / fname)
+                    print(f"[DEBUG Walk Subdir] Finished {s}.", flush=True)
+        else:
+            for dirpath, dirnames, filenames in os.walk(root_resolved):
+                dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+                for fname in filenames:
+                    all_files.append(Path(dirpath) / fname)
+        _WALK_CACHE[root_resolved] = all_files
 
     seen_inodes: Set[Tuple[int, int]] = set()
     found: List[Path] = []
@@ -584,33 +622,25 @@ def find_files(root: Path, globs: List[str], max_files: int = 500) -> List[Path]
         regex_str = escaped.replace("\\*", ".*").replace("\\?", ".")
         compiled_regexes.append(_re.compile("^" + regex_str + "$", _re.IGNORECASE))
 
-    for dirpath, dirnames, filenames in os.walk(root):
-        # Prune SKIP_DIRS BEFORE descent (O(useful) not O(all))
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+    for p in _WALK_CACHE[root_resolved]:
+        try:
+            rel_path_str = str(p.relative_to(root_resolved)).replace("\\", "/")
+        except ValueError:
+            continue
 
+        if not any(rx.match(rel_path_str) for rx in compiled_regexes):
+            continue
+
+        try:
+            ident = _file_identity(p)
+        except OSError:
+            continue
+        if ident in seen_inodes:
+            continue
+        seen_inodes.add(ident)
+        found.append(p)
         if len(found) >= max_files:
             break
-
-        for fname in filenames:
-            if len(found) >= max_files:
-                break
-            p = Path(dirpath) / fname
-            try:
-                rel_path_str = str(p.relative_to(root)).replace("\\", "/")
-            except ValueError:
-                continue
-
-            if not any(rx.match(rel_path_str) for rx in compiled_regexes):
-                continue
-
-            try:
-                ident = _file_identity(p)
-            except OSError:
-                continue
-            if ident in seen_inodes:
-                continue
-            seen_inodes.add(ident)
-            found.append(p)
 
     return sorted(found)
 
@@ -1193,9 +1223,10 @@ def validate_tdd_layer(root: Path) -> LayerReport:
 
     # Also scan Rust source files for inline #[cfg(test)] test modules.
     # Rust convention: tests live alongside source code, not in separate files.
+    # Scanned set
     _scanned = {f.resolve() for f in test_files}
     for _g in ["rust/core/src/**/*.rs", "rust/**/src/**/*.rs"]:
-        for _rs in root.glob(_g):
+        for _rs in find_files(root, [_g]):
             if _rs.resolve() in _scanned or _rs.suffix != ".rs":
                 continue
             _scanned.add(_rs.resolve())
@@ -1229,7 +1260,6 @@ def validate_cross_layer(
     tdd_report = layers.get("tdd")
     prd_report = layers.get("prd")
     adr_report = layers.get("adr")
-
     # COH-001: Every DDD aggregate has tests
     if ddd_report and tdd_report:
         domain_classes = ddd_report.artifacts_detected.get("domain_classes", [])
@@ -1468,30 +1498,24 @@ def validate_cross_layer(
         pkgs_without = []
 
         if src_dir.exists():
-            # Include src_dir itself plus all recursive children
-            all_dirs = [src_dir] + sorted(src_dir.rglob("*"))
-            for dirpath in all_dirs:
-                if not dirpath.is_dir():
-                    continue
-                if "__pycache__" in str(dirpath):
-                    continue
+            for dirpath, dirnames, filenames in os.walk(src_dir):
+                dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
                 # Only count dirs with .py files (not counting __init__.py)
                 py_files = [
-                    f for f in dirpath.iterdir()
-                    if f.is_file()
-                    and f.suffix == ".py"
-                    and f.name != "__init__.py"
-                    and not f.name.startswith("test_")
+                    f for f in filenames
+                    if f.endswith(".py")
+                    and f != "__init__.py"
+                    and not f.startswith("test_")
                 ]
                 if not py_files:
                     continue
                 packages_checked += 1
-                init_path = dirpath / "__init__.py"
+                init_path = Path(dirpath) / "__init__.py"
                 if init_path.exists():
                     packages_with_init += 1
-                    pkgs_with.append(str(dirpath.relative_to(root)))
+                    pkgs_with.append(str(Path(dirpath).relative_to(root)))
                 else:
-                    pkgs_without.append(str(dirpath.relative_to(root)))
+                    pkgs_without.append(str(Path(dirpath).relative_to(root)))
 
         init_ratio = packages_with_init / max(packages_checked, 1)
         results.append(
@@ -1673,7 +1697,7 @@ def validate_cross_layer(
 
         prd_globs = ["docs/prd/**/*.md", "docs/PRD/**/*.md", "**/*PRD*.md", "**/*prd*.md"]
         for g in prd_globs:
-            for md_file in sorted(root.glob(g)):
+            for md_file in sorted(find_files(root, [g])):
                 if not md_file.is_file():
                     continue
                 try:
@@ -1732,7 +1756,7 @@ def validate_cross_layer(
         stray_prd_candidates = []
         docs_dir = root / "docs"
         if docs_dir.exists():
-            for md_file in sorted(docs_dir.rglob("*.md")):
+            for md_file in sorted(find_files(root, ["docs/**/*.md"])):
                 try:
                     ident = _file_identity(md_file)
                 except OSError:
@@ -1749,7 +1773,7 @@ def validate_cross_layer(
                 # Skip individually excluded non-PRD files
                 if md_file.name in stray_exclusion_files:
                     continue
-                content = read_file_safe(md_file)
+                content = read_file_safe(md_file, max_bytes=4000)
                 if not content.strip():
                     continue
                 content_lower = content.lower()

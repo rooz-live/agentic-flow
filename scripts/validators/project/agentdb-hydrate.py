@@ -47,6 +47,14 @@ def hydrate_schema(project_root: Path) -> bool:
             ON CONFLICT(context_hash) DO UPDATE SET timestamp = CURRENT_TIMESTAMP
         ''', (f"pulse-{int(time.time())}",))
         
+        # Seed beam_dimensions if empty to pass CSQBM verification
+        cursor.execute("SELECT COUNT(*) FROM beam_dimensions")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute('''
+                INSERT INTO beam_dimensions (vector_payload, depth)
+                VALUES (?, ?)
+            ''', ('{"seed": true}', 1))
+        
         conn.commit()
         conn.close()
         

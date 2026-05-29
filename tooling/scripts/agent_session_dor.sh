@@ -129,8 +129,8 @@ echo ""
 # ── 4. Git HEAD perception ───────────────────────────────────────────────────
 echo "--- 4. HEAD / dirty state ---"
 GIT_HEAD=$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo "unknown")
-DIRTY_COUNT=$(git -C "$PROJECT_ROOT" diff --name-only 2>/dev/null | wc -l | tr -d ' ')
-STAGED_COUNT=$(git -C "$PROJECT_ROOT" diff --cached --name-only 2>/dev/null | wc -l | tr -d ' ')
+DIRTY_COUNT=$(git -C "$PROJECT_ROOT" diff --name-only --ignore-submodules 2>/dev/null | wc -l | tr -d ' ')
+STAGED_COUNT=$(git -C "$PROJECT_ROOT" diff --cached --name-only --ignore-submodules 2>/dev/null | wc -l | tr -d ' ')
 echo "  HEAD:   $GIT_HEAD"
 echo "  dirty:  $DIRTY_COUNT files with unstaged changes"
 echo "  staged: $STAGED_COUNT files staged"

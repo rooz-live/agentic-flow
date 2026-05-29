@@ -36,6 +36,7 @@ import argparse
 import json
 import os
 import re
+import signal
 import sys
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
@@ -273,6 +274,30 @@ COHERENCE_RULES = [
         "target": "prd",
         "severity": "WARNING",
         "description": "Key modules should define Definition of Ready and Definition of Done",
+    },
+    {
+        "id": "COH-011",
+        "name": "MCP tools map to TDD test harnesses",
+        "source": "ddd",
+        "target": "tdd",
+        "severity": "WARNING",
+        "description": "Registered Model Context Protocol (MCP) tools and integrations must have test coverage",
+    },
+    {
+        "id": "COH-012",
+        "name": "Vector workflows correspond to harnesses",
+        "source": "ddd",
+        "target": "tdd",
+        "severity": "WARNING",
+        "description": "Vector frameworks, embeddings, and ruvector modules must correspond to TDD test harnesses",
+    },
+    {
+        "id": "COH-013",
+        "name": "MPP components have verification gates",
+        "source": "ddd",
+        "target": "tdd",
+        "severity": "WARNING",
+        "description": "Method Pattern Protocol (MPP) framework components must have verification gate coverage",
     },
 ]
 
@@ -565,6 +590,7 @@ def _file_identity(p: Path) -> Tuple[int, int]:
 
 
 _WALK_CACHE = {}
+_FILE_CONTENT_CACHE = {}
 
 
 def find_files(root: Path, globs: List[str], max_files: int = 500) -> List[Path]:
@@ -572,37 +598,67 @@ def find_files(root: Path, globs: List[str], max_files: int = 500) -> List[Path]
 
     Uses os.walk with directory pruning to avoid traversing SKIP_DIRS.
     Deduplicates by inode to handle case-insensitive filesystems.
-    Caches directory walking to avoid duplicate file scans.
+    Caches directory walking on a per-subdirectory level for lazy-loading.
     """
     global _WALK_CACHE
     import re as _re
 
     root_resolved = root.resolve()
-    if root_resolved not in _WALK_CACHE:
-        all_files = []
-        if (root_resolved / "src").exists() and (root_resolved / "docs").exists():
-            subdirs = ["docs", "src", "tests", "domain", "crates", "apps"]
+    
+    # Identify which top-level directories to scan based on globs
+    subdirs_to_scan = set()
+    has_wild_glob = False
+    
+    for g in globs:
+        g_clean = g.replace("\\", "/").lstrip("/")
+        parts = g_clean.split("/")
+        first_part = parts[0]
+        # If the first part has no glob wildcards (*, ?, [), we can target it
+        if first_part and not any(c in first_part for c in ("*", "?", "[")):
+            subdirs_to_scan.add(first_part)
+        else:
+            has_wild_glob = True
+            
+    # Default fallback subdirs if wildcard matches anything or top-level is not specific
+    default_subdirs = ["docs", "src", "tests", "domain", "crates", "apps", "rust"]
+    
+    if has_wild_glob:
+        for s in default_subdirs:
+            subdirs_to_scan.add(s)
+            
+    # Ensure all targeted subdirectories are scanned and cached
+    all_files = []
+    # Always include top-level root files (e.g. package.json, Cargo.toml) if they are in root
+    root_files_key = root_resolved / "_root_files_"
+    if root_files_key not in _WALK_CACHE:
+        root_files = []
+        try:
+            for entry in os.scandir(root_resolved):
+                if entry.is_file():
+                    root_files.append(Path(entry.path))
+        except OSError:
+            pass
+        _WALK_CACHE[root_files_key] = root_files
+        
+    all_files.extend(_WALK_CACHE[root_files_key])
+    
+    for s in sorted(subdirs_to_scan):
+        subdir_path = (root_resolved / s).resolve()
+        if not subdir_path.exists():
+            continue
+        # Cache key is the resolved subdirectory path
+        if subdir_path not in _WALK_CACHE:
+            subdir_files = []
             try:
-                for entry in os.scandir(root_resolved):
-                    if entry.is_file():
-                        all_files.append(Path(entry.path))
+                for dirpath, dirnames, filenames in os.walk(subdir_path):
+                    # Prune SKIP_DIRS in-place
+                    dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+                    for fname in filenames:
+                        subdir_files.append(Path(dirpath) / fname)
             except OSError:
                 pass
-            for s in subdirs:
-                subdir_path = root_resolved / s
-                if subdir_path.exists():
-                    print(f"[DEBUG Walk Subdir] Starting {s}...", flush=True)
-                    for dirpath, dirnames, filenames in os.walk(subdir_path):
-                        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
-                        for fname in filenames:
-                            all_files.append(Path(dirpath) / fname)
-                    print(f"[DEBUG Walk Subdir] Finished {s}.", flush=True)
-        else:
-            for dirpath, dirnames, filenames in os.walk(root_resolved):
-                dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
-                for fname in filenames:
-                    all_files.append(Path(dirpath) / fname)
-        _WALK_CACHE[root_resolved] = all_files
+            _WALK_CACHE[subdir_path] = subdir_files
+        all_files.extend(_WALK_CACHE[subdir_path])
 
     seen_inodes: Set[Tuple[int, int]] = set()
     found: List[Path] = []
@@ -615,14 +671,11 @@ def find_files(root: Path, globs: List[str], max_files: int = 500) -> List[Path]
         # Replace **/ with a special token that won't be escaped by re.escape
         g_norm = g_norm.replace("**/", "<ANY_DIR>")
         escaped = _re.escape(g_norm)
-        # In Python 3.7+, re.escape only escapes regex special characters.
-        # So <ANY_DIR> is not escaped, but we handle both cases just to be robust.
         escaped = escaped.replace("<ANY_DIR>", "(?:.*/)?").replace("\\<ANY_DIR\\>", "(?:.*/)?")
-        # Replace escaped asterisks with .* and question marks with .
         regex_str = escaped.replace("\\*", ".*").replace("\\?", ".")
         compiled_regexes.append(_re.compile("^" + regex_str + "$", _re.IGNORECASE))
 
-    for p in _WALK_CACHE[root_resolved]:
+    for p in all_files:
         try:
             rel_path_str = str(p.relative_to(root_resolved)).replace("\\", "/")
         except ValueError:
@@ -646,7 +699,10 @@ def find_files(root: Path, globs: List[str], max_files: int = 500) -> List[Path]
 
 
 def read_file_safe(path: Path, max_bytes: int = 100_000) -> str:
-    """Read file content safely, handling encoding errors."""
+    """Read file content safely, handling encoding errors and caching results."""
+    global _FILE_CONTENT_CACHE
+    path_resolved = path.resolve()
+    
     if path.suffix.lower() in {
         ".pdf",
         ".docx",
@@ -659,13 +715,47 @@ def read_file_safe(path: Path, max_bytes: int = 100_000) -> str:
         ".gz",
     }:
         return f"[Binary: {path.name}]"
-    for encoding in ("utf-8", "latin-1", "cp1252"):
-        try:
-            with open(path, "r", encoding=encoding, errors="replace") as f:
-                return f.read(max_bytes)
-        except (OSError, UnicodeError):
-            continue
-    return ""
+        
+    cache_key = path_resolved
+    if cache_key in _FILE_CONTENT_CACHE:
+        return _FILE_CONTENT_CACHE[cache_key][:max_bytes]
+        
+    content = ""
+    has_alarm = hasattr(signal, "alarm")
+    has_itimer = hasattr(signal, "setitimer")
+    old_handler = None
+    
+    if has_alarm:
+        def _timeout_handler(signum, frame):
+            raise TimeoutError("File read timed out")
+        old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+        if has_itimer:
+            signal.setitimer(signal.ITIMER_REAL, 0.05)
+        else:
+            signal.alarm(1)
+        
+    try:
+        for encoding in ("utf-8", "latin-1", "cp1252"):
+            try:
+                with open(path_resolved, "r", encoding=encoding, errors="replace") as f:
+                    content = f.read(100_000)  # Read up to 100KB and cache it
+                    break
+            except TimeoutError:
+                raise
+            except (OSError, UnicodeError):
+                continue
+    except TimeoutError:
+        content = "[Error: Read timed out (dataless/offline file)]"
+    finally:
+        if has_alarm:
+            if has_itimer:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+            else:
+                signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
+            
+    _FILE_CONTENT_CACHE[cache_key] = content
+    return content[:max_bytes]
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1815,6 +1905,111 @@ def validate_cross_layer(
             )
         )
 
+    # COH-011: MCP tools map to TDD test harnesses (mcp→tdd)
+    if tdd_report:
+        mcp_source_files = find_files(root, [
+            "src/protocols/mcp_registry.py",
+            "src/vector/integrations/mcp-server.ts",
+            "src/vector/integrations/agentdb-bridge.ts"
+        ])
+        mcp_test_files = find_files(root, [
+            "tests/unit/mcp-tools.test.ts",
+            "tests/test_mcp_scheduler_daemon.py",
+            "tests/e2e-mcp-mpp-dimensional.test.ts"
+        ])
+        mcp_sources_found = [str(p.relative_to(root)) for p in mcp_source_files]
+        mcp_tests_found = [str(p.relative_to(root)) for p in mcp_test_files]
+        
+        mcp_passed = len(mcp_test_files) >= 1
+        results.append(
+            CrossLayerReport(
+                rule_id="COH-011",
+                rule_name="MCP tools map to TDD test harnesses",
+                source_layer="ddd",
+                target_layer="tdd",
+                severity="WARNING",
+                passed=mcp_passed,
+                message=(
+                    f"Found {len(mcp_source_files)} MCP component(s) and "
+                    f"{len(mcp_test_files)} test harness(es)"
+                ),
+                evidence={
+                    "mcp_sources": mcp_sources_found,
+                    "mcp_tests": mcp_tests_found,
+                }
+            )
+        )
+
+    # COH-012: Vector workflows/frameworks correspond to harnesses (vector→tdd)
+    if tdd_report:
+        vector_source_files = find_files(root, [
+            "src/vector/**/*.ts",
+            "src/vector/**/*.py",
+            "src/embeddings/**/*.py",
+            "src/rust/ruvector-visionflow/**/*.rs"
+        ])
+        vector_test_files = find_files(root, [
+            "tests/vector-*.spec.ts",
+            "tests/vector-*.ts",
+            "tests/*vector*.py"
+        ])
+        vector_sources_found = [str(p.relative_to(root)) for p in vector_source_files]
+        vector_tests_found = [str(p.relative_to(root)) for p in vector_test_files]
+        
+        vector_passed = len(vector_test_files) >= 2
+        results.append(
+            CrossLayerReport(
+                rule_id="COH-012",
+                rule_name="Vector workflows/frameworks correspond to harnesses",
+                source_layer="ddd",
+                target_layer="tdd",
+                severity="WARNING",
+                passed=vector_passed,
+                message=(
+                    f"Found {len(vector_source_files)} vector source file(s) and "
+                    f"{len(vector_test_files)} vector test harness(es)"
+                ),
+                evidence={
+                    "vector_sources": vector_sources_found[:20],
+                    "vector_tests": vector_tests_found,
+                }
+            )
+        )
+
+    # COH-013: Method Pattern Protocol (MPP) components have verification gates (mpp→tdd)
+    if tdd_report:
+        mpp_source_files = find_files(root, [
+            "src/methods/mpp_core.py",
+            "src/patterns/pattern_catalog.py"
+        ])
+        mpp_test_files = find_files(root, [
+            "tests/methods-mpp-*.spec.ts",
+            "tests/synthetic_mpp_*.py",
+            "tests/e2e-mcp-mpp-*.test.ts"
+        ])
+        mpp_sources_found = [str(p.relative_to(root)) for p in mpp_source_files]
+        mpp_tests_found = [str(p.relative_to(root)) for p in mpp_test_files]
+        
+        mpp_passed = len(mpp_test_files) >= 1
+        results.append(
+            CrossLayerReport(
+                rule_id="COH-013",
+                rule_name="Method Pattern Protocol (MPP) components have verification gates",
+                source_layer="ddd",
+                target_layer="tdd",
+                severity="WARNING",
+                passed=mpp_passed,
+                message=(
+                    f"Found {len(mpp_source_files)} MPP components and "
+                    f"{len(mpp_test_files)} verification test(s)"
+                ),
+                evidence={
+                    "mpp_sources": mpp_sources_found,
+                    "mpp_tests": mpp_tests_found,
+                }
+            )
+        )
+
     return results
 
 
@@ -1928,15 +2123,18 @@ def generate_report(
     # Run each layer validator
     for layer_name in layers_to_check:
         if layer_name == "inference":
+            print(f"[DEBUG generate_report] Running validate_inference_layer...", flush=True)
             validate_inference_layer(project_root, report)
         else:
             validator = validators.get(layer_name)
             if validator:
+                print(f"[DEBUG generate_report] Running validator for {layer_name}...", flush=True)
                 layer_report = validator(project_root)
                 report.layers[layer_name] = layer_report
                 report.total_files_scanned += layer_report.files_found
 
     # Run cross-layer coherence checks
+    print(f"[DEBUG generate_report] Running validate_cross_layer...", flush=True)
     report.cross_layer_checks = validate_cross_layer(report.layers, project_root)
 
     # Trim test_names after cross-layer matching to keep report lean

@@ -9,6 +9,13 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 use once_cell::sync::Lazy;
 
+#[path = "../../../gateways/stripe_gateway.rs"]
+pub mod stripe_gateway;
+
+#[path = "../../../gateways/hostbill_gateway.rs"]
+pub mod hostbill_gateway;
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct TaxConfig {
     rate: String,

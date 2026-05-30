@@ -96,6 +96,28 @@ describe('TopologyRiskAnalyzer', () => {
     expect(recursionMetric?.level).toBe('high');
     expect(assessment.recommendations.some(r => r.includes('[ROAM: Mitigated]'))).toBe(true);
   });
+
+  test('handles unknown/invalid topology shape in risk assessment', () => {
+    const assessment = analyzer.assessTopologicalRisk('InvalidShape' as any);
+    expect(assessment.overallScore).toBe(0);
+    expect(assessment.metrics.length).toBe(0);
+    expect(assessment.recommendations[0]).toContain('Unknown topological primitive shape');
+  });
+
+  test('flags medium risk when VM maxRecursionDepth is low but not critically low for looping spaces', () => {
+    const vmConfig: EdgePythonVMConfig = {
+      maxRecursionDepth: 15,
+      maxInstructions: 10000,
+      memoryLimitBytes: 64 * 1024,
+      enableDunderCaching: true,
+      cryptographicSignAssertions: false
+    };
+    const assessment = analyzer.assessTopologicalRisk(NetworkTopologyShape.ChimneySpace, vmConfig);
+    
+    const recursionMetric = assessment.metrics.find(m => m.id === 'edge-python-recursion-exhaustion-chimney-space');
+    expect(recursionMetric?.score).toBe(0.65);
+    expect(recursionMetric?.level).toBe('medium');
+  });
 });
 
 describe('RiskAssessmentSystem Integration', () => {
@@ -153,5 +175,22 @@ describe('RiskAssessmentSystem Integration', () => {
     const inversionMetric = assessment.metrics.find(m => m.id === 'topological-inversion-klein-space');
     expect(inversionMetric?.score).toBe(0.15);
     expect(assessment.recommendations.some(r => r.includes('cryptographic signature assertions'))).toBe(true);
+  });
+
+  test('evaluates portfolio risk', async () => {
+    const assessment = await riskSystem.getPortfolioRisk('test-portfolio');
+    expect(assessment.overallScore).toBe(0.15);
+    expect(assessment.metrics[0].id).toBe('portfolio-drift');
+  });
+
+  test('resolves correct risk levels from scores', async () => {
+    expect(await riskSystem.getRiskLevel(0.1)).toBe('low');
+    expect(await riskSystem.getRiskLevel(0.35)).toBe('medium');
+    expect(await riskSystem.getRiskLevel(0.6)).toBe('high');
+    expect(await riskSystem.getRiskLevel(0.8)).toBe('critical');
+  });
+
+  test('executes monitorRisk successfully without errors', async () => {
+    await expect(riskSystem.monitorRisk('test-entity')).resolves.not.toThrow();
   });
 });

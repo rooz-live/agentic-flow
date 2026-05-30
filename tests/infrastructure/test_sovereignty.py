@@ -13,7 +13,7 @@ import subprocess
 BACKUP_ROOT = "/Volumes/cPanelBackups"
 CPANEL_DIR = os.path.join(BACKUP_ROOT, "incremental")
 HIVELOCITY_DIR = os.path.join(BACKUP_ROOT, "hivelocity_baremetal")
-GITLAB_DIR = os.path.join(BACKUP_ROOT, "gitlab_aws")
+GITLAB_DIR = os.path.join(BACKUP_ROOT, "gitlab")
 MANIFEST_OUT = os.path.join(BACKUP_ROOT, "sovereignty_mcp_manifest.json")
 
 def get_age_minutes(path):
@@ -81,13 +81,13 @@ def assert_sovereignty():
             print(f"  ✅ GREEN: Extracted. (Temporal Agility: {age}m)")
             factors["hivelocity"] = {"status": "GREEN", "temporal_age_minutes": age, "kvm_disks_secured": vm_count}
             
-    # 3. AWS ORCHESTRATOR STATUS
-    print("[ORCHESTRATOR 3] AWS Gitlab Layer")
+    # 3. GITLAB ORCHESTRATOR STATUS
+    print("[ORCHESTRATOR 3] Gitlab Layer")
     tar_files = []
     if os.path.exists(GITLAB_DIR):
         tar_files = [os.path.join(GITLAB_DIR, f) for f in os.listdir(GITLAB_DIR) if f.endswith(".tar")]
     if not tar_files:
-        print("  ❌ RED: Gitlab AWS backup empty or missing.")
+        print("  ❌ RED: Gitlab backup empty or missing.")
         systemic_state = "RED"
         factors["gitlab"] = {"status": "RED", "temporal_age_minutes": 9999}
     else:

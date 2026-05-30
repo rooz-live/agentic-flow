@@ -1,4 +1,4 @@
-export type OffhostSyslogProviderId = 'aws_lightsail' | 'hivelocity';
+export type OffhostSyslogProviderId = 'hivelocity';
 
 export interface ProviderCandidate {
   providerId: OffhostSyslogProviderId;
@@ -35,31 +35,12 @@ export interface ProviderSelectionResult {
 function parseProviderId(v?: string): OffhostSyslogProviderId | undefined {
   if (!v) return undefined;
   const norm = v.trim().toLowerCase();
-  if (norm === 'aws_lightsail') return 'aws_lightsail';
   if (norm === 'hivelocity') return 'hivelocity';
   return undefined;
 }
 
 export function getOffhostSyslogCandidates(): ProviderCandidate[] {
   return [
-    {
-      providerId: 'aws_lightsail',
-      region: 'us-east-1',
-      monthlyUsd: 5,
-      vcpu: 1,
-      ramGb: 1,
-      diskGb: 40,
-      jobSize: 1,
-    },
-    {
-      providerId: 'aws_lightsail',
-      region: 'us-east-1',
-      monthlyUsd: 10,
-      vcpu: 2,
-      ramGb: 2,
-      diskGb: 60,
-      jobSize: 1,
-    },
     {
       providerId: 'hivelocity',
       region: 'nyc1',
@@ -68,6 +49,33 @@ export function getOffhostSyslogCandidates(): ProviderCandidate[] {
       ramGb: 2,
       diskGb: 50,
       jobSize: 3,
+    },
+    {
+      providerId: 'hivelocity',
+      region: 'sfo1',
+      monthlyUsd: 9,
+      vcpu: 1,
+      ramGb: 2,
+      diskGb: 50,
+      jobSize: 4,
+    },
+    {
+      providerId: 'hivelocity',
+      region: 'lax1',
+      monthlyUsd: 7,
+      vcpu: 1,
+      ramGb: 2,
+      diskGb: 50,
+      jobSize: 3,
+    },
+    {
+      providerId: 'hivelocity',
+      region: 'dal1',
+      monthlyUsd: 6,
+      vcpu: 1,
+      ramGb: 2,
+      diskGb: 50,
+      jobSize: 2,
     },
   ];
 }
@@ -81,7 +89,7 @@ function computeWsjfScore(candidate: ProviderCandidate, inputs: WSJFInputs): { w
 
 export function loadProviderSelectionConstraintsFromEnv(): ProviderSelectionConstraints {
   const maxMonthlyUsd = Number(process.env.AF_TELEMETRY_SINK_MAX_MONTHLY_USD) || 10;
-  const region = process.env.AF_TELEMETRY_SINK_AWS_REGION || 'us-east-1';
+  const region = process.env.AF_TELEMETRY_SINK_REGION || 'nyc1';
   const forcedProvider = parseProviderId(process.env.AF_TELEMETRY_SINK_PROVIDER);
 
   return {
@@ -114,7 +122,7 @@ export function selectOffhostSyslogProvider(
 
   const eligible = getOffhostSyslogCandidates().filter((c) => {
     if (constraints.forcedProvider && c.providerId !== constraints.forcedProvider) return false;
-    if (constraints.region && c.providerId === 'aws_lightsail' && c.region !== constraints.region) return false;
+    if (constraints.region && c.region !== constraints.region) return false;
     if (c.monthlyUsd > constraints.maxMonthlyUsd) return false;
     if (c.vcpu < constraints.minVcpu) return false;
     if (c.ramGb < constraints.minRamGb) return false;

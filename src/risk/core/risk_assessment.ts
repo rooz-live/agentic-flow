@@ -26,7 +26,8 @@ export class RiskAssessmentSystem {
     // Check if topology shape is provided in metadata
     if (context.metadata?.topologyShape) {
       const shape = context.metadata.topologyShape as NetworkTopologyShape;
-      const topoAssessment = this.topologyAnalyzer.assessTopologicalRisk(shape);
+      const vmConfig = context.metadata.vmConfig;
+      const topoAssessment = this.topologyAnalyzer.assessTopologicalRisk(shape, vmConfig);
       
       metrics.push(...topoAssessment.metrics);
       recommendations.push(...topoAssessment.recommendations);

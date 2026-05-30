@@ -22,7 +22,12 @@ if [ -f "$ROOT_DIR/.env.integration" ]; then
 fi
 
 CPANEL_HOST="${YOLIFE_CPANEL_HOST:-yo.tag.ooo}"
-SSH_PORT="2223" # Sync port default
+# If targeting the AWS host directly, default to port 2222. If targeting STX, default to 2223.
+if [ "$CPANEL_HOST" = "54.241.233.105" ]; then
+    SSH_PORT="${YOLIFE_CPANEL_PORTS:-2222}"
+else
+    SSH_PORT="${YOLIFE_CPANEL_PORTS:-2223}"
+fi
 SSH_KEY_OPT=""
 
 if [ -n "${YOLIFE_CPANEL_KEY:-}" ]; then
@@ -80,9 +85,12 @@ EVIDENCE_FILE="$EVIDENCE_DIR/dns_sync_${ACTION}_${RUN_ID}.json"
 # Test remote reachability before executing
 echo "--> Verifying SSH path to cPanel WHM on $CPANEL_HOST:$SSH_PORT..."
 if ! eval "$SSH_CMD root@$CPANEL_HOST 'echo OK'" > /dev/null 2>&1; then
-    # Fallback to port 2222 if 2223 is blocked
-    SSH_PORT="2222"
-    SSH_CMD="ssh -p $SSH_PORT $SSH_KEY_OPT -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=5"
+    # Try the alternative port (if 2223 failed, try 2222; if 2222 failed, try 22)
+    ALT_PORT="2222"
+    if [ "$SSH_PORT" = "2222" ]; then
+        ALT_PORT="22"
+    fi
+    SSH_CMD="ssh -p $ALT_PORT $SSH_KEY_OPT -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=5"
     if ! eval "$SSH_CMD root@$CPANEL_HOST 'echo OK'" > /dev/null 2>&1; then
         echo "⚠️  cPanel SSH Gateway is currently unreachable. Simulating command state..."
         

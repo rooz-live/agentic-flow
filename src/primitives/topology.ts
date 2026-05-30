@@ -43,6 +43,22 @@ export interface MessageState {
   valueSignMultiplier: number; // 1 or -1
 }
 
+export interface EdgePythonVMConfig {
+  maxRecursionDepth: number;
+  maxInstructions: number;
+  memoryLimitBytes: number;
+  enableDunderCaching: boolean;
+  cryptographicSignAssertions: boolean;
+}
+
+export const DEFAULT_VM_CONFIG: EdgePythonVMConfig = {
+  maxRecursionDepth: 100,
+  maxInstructions: 500000,
+  memoryLimitBytes: 256 * 1024, // 256 KB minimal binary standard
+  enableDunderCaching: true,
+  cryptographicSignAssertions: false
+};
+
 export class TopologyRiskAnalyzer {
   private primitives: Record<NetworkTopologyShape, TopologyPrimitive> = {
     [NetworkTopologyShape.InfiniteFlatSpace]: {
@@ -206,8 +222,9 @@ export class TopologyRiskAnalyzer {
 
   /**
    * Assesses the ROAM risk profile of a workflow running on a specific topological shape.
+   * Integrates Edge Python VM configuration constraints to verify mitigation coverage.
    */
-  assessTopologicalRisk(shape: NetworkTopologyShape): RiskAssessment {
+  assessTopologicalRisk(shape: NetworkTopologyShape, vmConfig: EdgePythonVMConfig = DEFAULT_VM_CONFIG): RiskAssessment {
     const primitive = this.primitives[shape];
     if (!primitive) {
       return {
@@ -220,13 +237,17 @@ export class TopologyRiskAnalyzer {
     const metrics: RiskMetric[] = [];
     const recommendations: string[] = [];
 
-    // Metric 1: Orientation Inversion Risk
-    const orientationScore = primitive.type === 'nonorientable' ? 0.95 : 0.05;
+    // Metric 1: Orientation Inversion Risk (mitigated if VM cryptographic assertions are enabled)
+    let orientationScore = primitive.type === 'nonorientable' ? 0.95 : 0.05;
+    if (primitive.type === 'nonorientable' && vmConfig.cryptographicSignAssertions) {
+      orientationScore = 0.15; // Mitigated!
+    }
+
     metrics.push({
       id: `topological-inversion-${shape.toLowerCase().replace(/\s+/g, '-')}`,
       name: 'State Orientation Inversion Risk',
       score: orientationScore,
-      level: primitive.type === 'nonorientable' ? 'critical' : 'low',
+      level: orientationScore > 0.7 ? 'critical' : orientationScore > 0.4 ? 'medium' : 'low',
       timestamp: new Date()
     });
 
@@ -240,13 +261,36 @@ export class TopologyRiskAnalyzer {
       timestamp: new Date()
     });
 
+    // Metric 3: Edge Python VM Stack Overflow / Recursion Exhaustion Risk
+    let recursionScore = 0.05;
+    if (primitive.loopingDimensions > 1 && vmConfig.maxRecursionDepth < 50) {
+      recursionScore = 0.85; // High risk of stack overflow on multi-dimensional loop boundaries
+    } else if (primitive.loopingDimensions > 0 && vmConfig.maxRecursionDepth < 20) {
+      recursionScore = 0.65;
+    }
+
+    metrics.push({
+      id: `edge-python-recursion-exhaustion-${shape.toLowerCase().replace(/\s+/g, '-')}`,
+      name: 'Edge Python Recursion Exhaustion Risk',
+      score: recursionScore,
+      level: recursionScore > 0.7 ? 'high' : recursionScore > 0.4 ? 'medium' : 'low',
+      timestamp: new Date()
+    });
+
     // Generate recommendations based on ROAM categories
     if (primitive.type === 'nonorientable') {
-      recommendations.push(
-        `[ROAM: Avoided] Topology shape '${shape}' is nonorientable (breaks state consistency). Implement topological filter to reject client message routes that loop through Klein bottle/Möbius boundaries.`,
-        `[ROAM: Mitigated] Detect sign-flip or role-inversion anomalies via cryptographic checksums and boundary assertions.`,
-        `[ROAM: Owned] Assign accountabilities to Billing Gateway Roles to monitor mirrored state inversion payloads.`
-      );
+      if (vmConfig.cryptographicSignAssertions) {
+        recommendations.push(
+          `[ROAM: Mitigated] Nonorientable shape '${shape}' is fully secured by Edge Python cryptographic signature assertions. State inversion is blocked at VM boundary.`,
+          `[ROAM: Owned] System Architect must periodically audit VM dual-inline caching and instance-dunder performance under 150% peak load.`
+        );
+      } else {
+        recommendations.push(
+          `[ROAM: Avoided] Topology shape '${shape}' is nonorientable (breaks state consistency). Implement topological filter to reject client message routes that loop through Klein bottle/Möbius boundaries.`,
+          `[ROAM: Mitigated] Enable Edge Python 'cryptographicSignAssertions' to dynamically detect and intercept sign-flips and role-inversion exceptions.`,
+          `[ROAM: Owned] Assign accountabilities to Billing Gateway Roles to monitor mirrored state inversion payloads.`
+        );
+      }
     } else {
       if (primitive.loopingDimensions > 0) {
         recommendations.push(
@@ -258,6 +302,12 @@ export class TopologyRiskAnalyzer {
           `[ROAM: Accepted] Infinite open space requires standard linear message routing.`
         );
       }
+    }
+
+    if (recursionScore > 0.5) {
+      recommendations.push(
+        `[ROAM: Mitigated] Upgrade Edge Python VM configuration 'maxRecursionDepth' to at least 150 to handle nested topological bounds of '${shape}' safely.`
+      );
     }
 
     const overallScore = Math.max(...metrics.map(m => m.score));
@@ -273,3 +323,4 @@ export class TopologyRiskAnalyzer {
     return this.primitives[shape];
   }
 }
+

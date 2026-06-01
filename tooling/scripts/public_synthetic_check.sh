@@ -42,7 +42,7 @@ echo "=== Public Synthetic Check (${RUN_ID}) ==="
 
 # ── Target definitions ───────────────────────────────────────────────────────
 declare -a TARGETS=(
-    "https://billing.bhopti.com/health|billing-gateway-health"
+    "https://billing.bhopti.com/|billing-gateway-health"
     "https://bhopti.com/|bhopti-root"
     "https://crm.bhopti.com/|crm-root"
 )

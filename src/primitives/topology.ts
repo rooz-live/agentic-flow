@@ -26,6 +26,40 @@ export enum NetworkTopologyShape {
   NonorientableSlab = 'Nonorientable Slab'
 }
 
+// Alias for backwards compatibility with UniverseShape
+export const UniverseShape = {
+  INFINITE_FLAT_SPACE: NetworkTopologyShape.InfiniteFlatSpace,
+  THREE_TORUS: NetworkTopologyShape.ThreeTorus,
+  HALF_TWIST_TORUS: NetworkTopologyShape.HalfTwistTorus,
+  QUARTER_TWIST_TORUS: NetworkTopologyShape.QuarterTwistTorus,
+  THIRD_TWIST_TORUS: NetworkTopologyShape.ThirdTwistTorus,
+  SIXTH_TWIST_TORUS: NetworkTopologyShape.SixthTwistTorus,
+  CHIMNEY_SPACE: NetworkTopologyShape.ChimneySpace,
+  GIMLET_SPACE: NetworkTopologyShape.GimletSpace,
+  SLAB_SPACE: NetworkTopologyShape.SlabSpace,
+  TURNED_SLAB_SPACE: NetworkTopologyShape.TurnedSlabSpace,
+  KLEIN_SPACE: NetworkTopologyShape.KleinSpace,
+  COAST_SPACE: NetworkTopologyShape.CoastSpace,
+  HALF_TWIST_KLEIN_SPACE: NetworkTopologyShape.HalfTwistKleinSpace,
+  BUN_SPACE: NetworkTopologyShape.BunSpace,
+  GIRDLE_SPACE: NetworkTopologyShape.GirdleSpace,
+  VERTICAL_KLEIN_CHIMNEY: NetworkTopologyShape.VerticalKleinChimney,
+  HORIZONTAL_KLEIN_CHIMNEY: NetworkTopologyShape.HorizontalKleinChimney,
+  NONORIENTABLE_SLAB: NetworkTopologyShape.NonorientableSlab
+} as const;
+
+export type UniverseShape = NetworkTopologyShape;
+
+export interface TopologyShape {
+  id: NetworkTopologyShape;
+  name: string;
+  isOrientable: boolean;
+  gluingMechanics: string;
+  vmRiskScore: number;
+  mitigations: string[];
+  cryptographicGuards: string[];
+}
+
 export interface TopologyPrimitive {
   shape: NetworkTopologyShape;
   type: TopologyType;
@@ -43,6 +77,15 @@ export interface MessageState {
   valueSignMultiplier: number; // 1 or -1
 }
 
+export interface TraversalState {
+  x: number;
+  y: number;
+  z: number;
+  handedness: 'left' | 'right';
+  role: 'standard' | 'inverted';
+  payloadValue: number;
+}
+
 export interface EdgePythonVMConfig {
   maxRecursionDepth: number;
   maxInstructions: number;
@@ -57,6 +100,172 @@ export const DEFAULT_VM_CONFIG: EdgePythonVMConfig = {
   memoryLimitBytes: 256 * 1024, // 256 KB minimal binary standard
   enableDunderCaching: true,
   cryptographicSignAssertions: false
+};
+
+// Merged database maps
+export const TOPOLOGY_SHAPES: Record<NetworkTopologyShape, TopologyShape> = {
+  [NetworkTopologyShape.InfiniteFlatSpace]: {
+    id: NetworkTopologyShape.InfiniteFlatSpace,
+    name: 'Infinite Flat Space (R^3)',
+    isOrientable: true,
+    gluingMechanics: 'Extends infinitely; no looping.',
+    vmRiskScore: 0.05,
+    mitigations: ['No recursion issues.'],
+    cryptographicGuards: []
+  },
+  [NetworkTopologyShape.ThreeTorus]: {
+    id: NetworkTopologyShape.ThreeTorus,
+    name: 'Three-Torus (3-Torus)',
+    isOrientable: true,
+    gluingMechanics: 'Solid cube; opposite faces glued directly.',
+    vmRiskScore: 0.35,
+    mitigations: ['Loop complexity triggers stack recursion check.'],
+    cryptographicGuards: []
+  },
+  [NetworkTopologyShape.HalfTwistTorus]: {
+    id: NetworkTopologyShape.HalfTwistTorus,
+    name: 'Half-Twist Torus',
+    isOrientable: true,
+    gluingMechanics: 'Solid cube; opposite faces glued with 180° rotation.',
+    vmRiskScore: 0.45,
+    mitigations: ['Requires moderate recursion limits (>50 depth).'],
+    cryptographicGuards: []
+  },
+  [NetworkTopologyShape.QuarterTwistTorus]: {
+    id: NetworkTopologyShape.QuarterTwistTorus,
+    name: 'Quarter-Twist Torus',
+    isOrientable: true,
+    gluingMechanics: 'Solid cube; opposite faces glued with 90° rotation.',
+    vmRiskScore: 0.50,
+    mitigations: ['High-frequency traversal requires caching.'],
+    cryptographicGuards: []
+  },
+  [NetworkTopologyShape.ThirdTwistTorus]: {
+    id: NetworkTopologyShape.ThirdTwistTorus,
+    name: 'Third-Twist Torus',
+    isOrientable: true,
+    gluingMechanics: 'Hexagonal prism; ends glued with 120° rotation.',
+    vmRiskScore: 0.55,
+    mitigations: ['Complex boundary check; dunder-caching helps.'],
+    cryptographicGuards: []
+  },
+  [NetworkTopologyShape.SixthTwistTorus]: {
+    id: NetworkTopologyShape.SixthTwistTorus,
+    name: 'Sixth-Twist Torus',
+    isOrientable: true,
+    gluingMechanics: 'Hexagonal prism; ends glued with 60° rotation.',
+    vmRiskScore: 0.60,
+    mitigations: ['High complexity; requires memory budget scaling.'],
+    cryptographicGuards: []
+  },
+  [NetworkTopologyShape.ChimneySpace]: {
+    id: NetworkTopologyShape.ChimneySpace,
+    name: 'Chimney Space',
+    isOrientable: true,
+    gluingMechanics: 'Loops in 1 direction (cylinder); 2 infinite directions.',
+    vmRiskScore: 0.20,
+    mitigations: ['Single-loop recursion; low depth budget needed.'],
+    cryptographicGuards: []
+  },
+  [NetworkTopologyShape.GimletSpace]: {
+    id: NetworkTopologyShape.GimletSpace,
+    name: 'Gimlet Space',
+    isOrientable: true,
+    gluingMechanics: 'Chimney space; looping path has half-twist rotation.',
+    vmRiskScore: 0.40,
+    mitigations: ['Intermediate loop risk; rotation checks active.'],
+    cryptographicGuards: []
+  },
+  [NetworkTopologyShape.SlabSpace]: {
+    id: NetworkTopologyShape.SlabSpace,
+    name: 'Slab Space',
+    isOrientable: true,
+    gluingMechanics: 'Loops in 2 directions (2D torus); 1 infinite direction.',
+    vmRiskScore: 0.30,
+    mitigations: ['Multi-loop traversal; checks loop dimension bounds.'],
+    cryptographicGuards: []
+  },
+  [NetworkTopologyShape.TurnedSlabSpace]: {
+    id: NetworkTopologyShape.TurnedSlabSpace,
+    name: 'Turned Slab Space',
+    isOrientable: true,
+    gluingMechanics: 'Slab space; infinite directions shifted relative to loop.',
+    vmRiskScore: 0.45,
+    mitigations: ['Shifted coordinate checks; caching essential.'],
+    cryptographicGuards: []
+  },
+  [NetworkTopologyShape.KleinSpace]: {
+    id: NetworkTopologyShape.KleinSpace,
+    name: 'Klein Space',
+    isOrientable: false,
+    gluingMechanics: 'Infinite universe; Klein-bottle style twist along X-axis.',
+    vmRiskScore: 0.85,
+    mitigations: ['Reverse handedness/role.', 'Strict assertion signing.'],
+    cryptographicGuards: ['cryptographicSignAssertions']
+  },
+  [NetworkTopologyShape.CoastSpace]: {
+    id: NetworkTopologyShape.CoastSpace,
+    name: 'Coast Space',
+    isOrientable: false,
+    gluingMechanics: 'Nonorientable slab space; plane twist boundary.',
+    vmRiskScore: 0.75,
+    mitigations: ['State mirrored.', 'Intercept sign change at boundary.'],
+    cryptographicGuards: ['interceptSignChangeBoundary']
+  },
+  [NetworkTopologyShape.HalfTwistKleinSpace]: {
+    id: NetworkTopologyShape.HalfTwistKleinSpace,
+    name: 'Half-Twist Klein Space',
+    isOrientable: false,
+    gluingMechanics: 'Compact 3-manifold; multiple faces glued with twist.',
+    vmRiskScore: 0.90,
+    mitigations: ['Multiple inversion planes.', 'Strict verification required.'],
+    cryptographicGuards: ['multiInversionPlaneVerify']
+  },
+  [NetworkTopologyShape.BunSpace]: {
+    id: NetworkTopologyShape.BunSpace,
+    name: 'Bun Space',
+    isOrientable: false,
+    gluingMechanics: 'Closed space; face-gluing mirrored across specific axis.',
+    vmRiskScore: 0.80,
+    mitigations: ['Inversion happens along mirror plane.', 'Role flips to inverted.'],
+    cryptographicGuards: ['mirrorPlaneInversionCheck']
+  },
+  [NetworkTopologyShape.GirdleSpace]: {
+    id: NetworkTopologyShape.GirdleSpace,
+    name: 'Girdle Space',
+    isOrientable: false,
+    gluingMechanics: 'Mirror-symmetrical bounding zones with specific layout.',
+    vmRiskScore: 0.85,
+    mitigations: ['Coordinates inverted on cross-over.', 'Block transaction without signatures.'],
+    cryptographicGuards: ['signatureVerificationEnforcement']
+  },
+  [NetworkTopologyShape.VerticalKleinChimney]: {
+    id: NetworkTopologyShape.VerticalKleinChimney,
+    name: 'Vertical Klein Chimney',
+    isOrientable: false,
+    gluingMechanics: 'Infinite in 2 directions; Z-axis loops like Klein bottle.',
+    vmRiskScore: 0.70,
+    mitigations: ['Traversal along Z reverses payload value signs.'],
+    cryptographicGuards: ['payloadValueSignReversalCheck']
+  },
+  [NetworkTopologyShape.HorizontalKleinChimney]: {
+    id: NetworkTopologyShape.HorizontalKleinChimney,
+    name: 'Horizontal Klein Chimney',
+    isOrientable: false,
+    gluingMechanics: 'Infinite in 2 directions; X/Y axis loops with Klein twist.',
+    vmRiskScore: 0.75,
+    mitigations: ['Traversal along loop flips current handedness.'],
+    cryptographicGuards: ['handednessFlipCheck']
+  },
+  [NetworkTopologyShape.NonorientableSlab]: {
+    id: NetworkTopologyShape.NonorientableSlab,
+    name: 'Nonorientable Slab',
+    isOrientable: false,
+    gluingMechanics: 'Slab space; finite loop forces mirrored inversion.',
+    vmRiskScore: 0.95,
+    mitigations: ['Direct inversion of all numbers and transaction values.'],
+    cryptographicGuards: ['directValueInversionGuard']
+  }
 };
 
 export class TopologyRiskAnalyzer {
@@ -137,8 +346,6 @@ export class TopologyRiskAnalyzer {
       twistDegrees: 90,
       mirrored: false
     },
-
-    // Nonorientable
     [NetworkTopologyShape.KleinSpace]: {
       shape: NetworkTopologyShape.KleinSpace,
       type: 'nonorientable',
@@ -198,16 +405,15 @@ export class TopologyRiskAnalyzer {
     }
   };
 
-  /**
-   * Evaluates a message crossing a topological loop.
-   * If nonorientable, handedness is flipped, value signs are inverted, and roles are mirrored.
-   */
+  getPrimitive(shape: NetworkTopologyShape): TopologyPrimitive {
+    return this.primitives[shape];
+  }
+
   traverseLoop(shape: NetworkTopologyShape, state: MessageState): MessageState {
     const primitive = this.primitives[shape];
     if (!primitive) return state;
 
     if (primitive.mirrored) {
-      // Invert state handedness
       const newHandedness = state.currentHandedness === 'right' ? 'left' : 'right';
       return {
         ...state,
@@ -220,10 +426,76 @@ export class TopologyRiskAnalyzer {
     return state;
   }
 
-  /**
-   * Assesses the ROAM risk profile of a workflow running on a specific topological shape.
-   * Integrates Edge Python VM configuration constraints to verify mitigation coverage.
-   */
+  assessTopology(shapeId: NetworkTopologyShape): RiskAssessment {
+    const shape = TOPOLOGY_SHAPES[shapeId];
+    if (!shape) {
+      throw new Error(`Unknown topology shape: ${shapeId}`);
+    }
+
+    const metrics: RiskMetric[] = [];
+    const recommendations: string[] = [...shape.mitigations];
+
+    if (!shape.isOrientable) {
+      metrics.push({
+        id: 'state-inversion-risk',
+        name: 'State Inversion (Nonorientability) Risk',
+        score: 0.9,
+        level: 'critical',
+        timestamp: new Date()
+      });
+      
+      shape.cryptographicGuards.forEach(guard => {
+        recommendations.push(`Enable cryptographic guard: ${guard}`);
+      });
+    } else {
+      metrics.push({
+        id: 'state-inversion-risk',
+        name: 'State Inversion (Nonorientability) Risk',
+        score: 0.05,
+        level: 'low',
+        timestamp: new Date()
+      });
+    }
+
+    const loopRisk = shape.vmRiskScore;
+    let loopLevel: RiskLevel = 'low';
+    if (loopRisk >= 0.75) loopLevel = 'critical';
+    else if (loopRisk >= 0.5) loopLevel = 'high';
+    else if (loopRisk >= 0.25) loopLevel = 'medium';
+
+    metrics.push({
+      id: 'loop-complexity-risk',
+      name: 'Dimensional Loop Traversal Risk',
+      score: loopRisk,
+      level: loopLevel,
+      timestamp: new Date()
+    });
+
+    if (shape.cryptographicGuards.length > 0) {
+      metrics.push({
+        id: 'cryptographic-guard-risk',
+        name: 'Cryptographic Enforcement Risk',
+        score: 0.85,
+        level: 'high',
+        timestamp: new Date()
+      });
+    } else {
+      metrics.push({
+        id: 'cryptographic-guard-risk',
+        name: 'Cryptographic Enforcement Risk',
+        score: 0.0,
+        level: 'low',
+        timestamp: new Date()
+      });
+    }
+
+    return {
+      overallScore: shape.vmRiskScore,
+      metrics,
+      recommendations
+    };
+  }
+
   assessTopologicalRisk(shape: NetworkTopologyShape, vmConfig: EdgePythonVMConfig = DEFAULT_VM_CONFIG): RiskAssessment {
     const primitive = this.primitives[shape];
     if (!primitive) {
@@ -237,10 +509,9 @@ export class TopologyRiskAnalyzer {
     const metrics: RiskMetric[] = [];
     const recommendations: string[] = [];
 
-    // Metric 1: Orientation Inversion Risk (mitigated if VM cryptographic assertions are enabled)
     let orientationScore = primitive.type === 'nonorientable' ? 0.95 : 0.05;
     if (primitive.type === 'nonorientable' && vmConfig.cryptographicSignAssertions) {
-      orientationScore = 0.15; // Mitigated!
+      orientationScore = 0.15;
     }
 
     metrics.push({
@@ -251,7 +522,6 @@ export class TopologyRiskAnalyzer {
       timestamp: new Date()
     });
 
-    // Metric 2: Dimensional Loop Complexity Risk
     const complexityScore = (primitive.loopingDimensions * 0.25) + (primitive.twistDegrees ? (primitive.twistDegrees / 360) * 0.2 : 0);
     metrics.push({
       id: `topological-complexity-${shape.toLowerCase().replace(/\s+/g, '-')}`,
@@ -261,10 +531,9 @@ export class TopologyRiskAnalyzer {
       timestamp: new Date()
     });
 
-    // Metric 3: Edge Python VM Stack Overflow / Recursion Exhaustion Risk
     let recursionScore = 0.05;
     if (primitive.loopingDimensions > 1 && vmConfig.maxRecursionDepth < 50) {
-      recursionScore = 0.85; // High risk of stack overflow on multi-dimensional loop boundaries
+      recursionScore = 0.85;
     } else if (primitive.loopingDimensions > 0 && vmConfig.maxRecursionDepth < 20) {
       recursionScore = 0.65;
     }
@@ -277,7 +546,8 @@ export class TopologyRiskAnalyzer {
       timestamp: new Date()
     });
 
-    // Generate recommendations based on ROAM categories
+    const topoShape = TOPOLOGY_SHAPES[shape];
+
     if (primitive.type === 'nonorientable') {
       if (vmConfig.cryptographicSignAssertions) {
         recommendations.push(
@@ -290,6 +560,11 @@ export class TopologyRiskAnalyzer {
           `[ROAM: Mitigated] Enable Edge Python 'cryptographicSignAssertions' to dynamically detect and intercept sign-flips and role-inversion exceptions.`,
           `[ROAM: Owned] Assign accountabilities to Billing Gateway Roles to monitor mirrored state inversion payloads.`
         );
+      }
+      if (topoShape) {
+        topoShape.cryptographicGuards.forEach(guard => {
+          recommendations.push(`Enable cryptographic guard: ${guard}`);
+        });
       }
     } else {
       if (primitive.loopingDimensions > 0) {
@@ -318,9 +593,60 @@ export class TopologyRiskAnalyzer {
       recommendations
     };
   }
-
-  getPrimitive(shape: NetworkTopologyShape): TopologyPrimitive {
-    return this.primitives[shape];
-  }
 }
 
+export function simulateBoundaryCross(
+  shapeId: NetworkTopologyShape,
+  state: TraversalState,
+  boundary: 'x' | 'y' | 'z'
+): TraversalState {
+  const nextState = { ...state };
+
+  switch (shapeId) {
+    case NetworkTopologyShape.KleinSpace:
+      if (boundary === 'x') {
+        nextState.handedness = state.handedness === 'left' ? 'right' : 'left';
+        nextState.role = state.role === 'standard' ? 'inverted' : 'standard';
+      }
+      break;
+
+    case NetworkTopologyShape.CoastSpace:
+      if (boundary === 'y') {
+        nextState.payloadValue = -state.payloadValue;
+      }
+      break;
+
+    case NetworkTopologyShape.VerticalKleinChimney:
+      if (boundary === 'z') {
+        nextState.payloadValue = -state.payloadValue;
+      }
+      break;
+
+    case NetworkTopologyShape.HorizontalKleinChimney:
+      if (boundary === 'x' || boundary === 'y') {
+        nextState.handedness = state.handedness === 'left' ? 'right' : 'left';
+      }
+      break;
+
+    case NetworkTopologyShape.NonorientableSlab:
+      nextState.payloadValue = -state.payloadValue;
+      nextState.handedness = state.handedness === 'left' ? 'right' : 'left';
+      nextState.role = state.role === 'standard' ? 'inverted' : 'standard';
+      break;
+
+    case NetworkTopologyShape.BunSpace:
+      nextState.role = 'inverted';
+      break;
+
+    case NetworkTopologyShape.GirdleSpace:
+      nextState.x = -state.x;
+      nextState.y = -state.y;
+      nextState.z = -state.z;
+      break;
+
+    default:
+      break;
+  }
+
+  return nextState;
+}

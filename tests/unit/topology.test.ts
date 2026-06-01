@@ -1,4 +1,12 @@
-import { TopologyRiskAnalyzer, NetworkTopologyShape, MessageState, EdgePythonVMConfig } from '../../src/primitives/topology';
+import {
+  TopologyRiskAnalyzer,
+  NetworkTopologyShape,
+  MessageState,
+  EdgePythonVMConfig,
+  TOPOLOGY_SHAPES,
+  simulateBoundaryCross,
+  TraversalState
+} from '../../src/primitives/topology';
 import { RiskAssessmentSystem } from '../../src/risk/core/risk_assessment';
 
 describe('TopologyRiskAnalyzer', () => {
@@ -74,7 +82,6 @@ describe('TopologyRiskAnalyzer', () => {
     };
     const assessment = analyzer.assessTopologicalRisk(NetworkTopologyShape.KleinSpace, vmConfig);
     
-    // Inversion risk drops to 0.15
     const inversionMetric = assessment.metrics.find(m => m.id === 'topological-inversion-klein-space');
     expect(inversionMetric?.score).toBe(0.15);
     expect(inversionMetric?.level).toBe('low');
@@ -117,6 +124,164 @@ describe('TopologyRiskAnalyzer', () => {
     const recursionMetric = assessment.metrics.find(m => m.id === 'edge-python-recursion-exhaustion-chimney-space');
     expect(recursionMetric?.score).toBe(0.65);
     expect(recursionMetric?.level).toBe('medium');
+  });
+
+  // Backward compatibility legacy tests from subproject
+  test('Verify all 18 network topology shapes exist and are mapped correctly', () => {
+    const keys = Object.keys(TOPOLOGY_SHAPES) as NetworkTopologyShape[];
+    expect(keys.length).toBe(18);
+
+    const orientableShapes = [
+      NetworkTopologyShape.InfiniteFlatSpace,
+      NetworkTopologyShape.ThreeTorus,
+      NetworkTopologyShape.HalfTwistTorus,
+      NetworkTopologyShape.QuarterTwistTorus,
+      NetworkTopologyShape.ThirdTwistTorus,
+      NetworkTopologyShape.SixthTwistTorus,
+      NetworkTopologyShape.ChimneySpace,
+      NetworkTopologyShape.GimletSpace,
+      NetworkTopologyShape.SlabSpace,
+      NetworkTopologyShape.TurnedSlabSpace
+    ];
+    orientableShapes.forEach(id => {
+      expect(TOPOLOGY_SHAPES[id].isOrientable).toBe(true);
+    });
+
+    const nonorientableShapes = [
+      NetworkTopologyShape.KleinSpace,
+      NetworkTopologyShape.CoastSpace,
+      NetworkTopologyShape.HalfTwistKleinSpace,
+      NetworkTopologyShape.BunSpace,
+      NetworkTopologyShape.GirdleSpace,
+      NetworkTopologyShape.VerticalKleinChimney,
+      NetworkTopologyShape.HorizontalKleinChimney,
+      NetworkTopologyShape.NonorientableSlab
+    ];
+    nonorientableShapes.forEach(id => {
+      expect(TOPOLOGY_SHAPES[id].isOrientable).toBe(false);
+      expect(TOPOLOGY_SHAPES[id].vmRiskScore).toBeGreaterThanOrEqual(0.70);
+    });
+  });
+
+  test('Simulate boundary crossing for Orientable Universes (R^3, Torus)', () => {
+    const initialState: TraversalState = {
+      x: 10,
+      y: 20,
+      z: 30,
+      handedness: 'left',
+      role: 'standard',
+      payloadValue: 100
+    };
+
+    const nextState = simulateBoundaryCross(
+      NetworkTopologyShape.ThreeTorus,
+      initialState,
+      'x'
+    );
+    expect(nextState.handedness).toBe('left');
+    expect(nextState.role).toBe('standard');
+    expect(nextState.payloadValue).toBe(100);
+  });
+
+  test('Simulate boundary crossing for Nonorientable Universes (Klein, Coast, Slab)', () => {
+    const initialState: TraversalState = {
+      x: 5,
+      y: 10,
+      z: 15,
+      handedness: 'left',
+      role: 'standard',
+      payloadValue: 50
+    };
+
+    const kleinState = simulateBoundaryCross(
+      NetworkTopologyShape.KleinSpace,
+      initialState,
+      'x'
+    );
+    expect(kleinState.handedness).toBe('right');
+    expect(kleinState.role).toBe('inverted');
+
+    const coastState = simulateBoundaryCross(
+      NetworkTopologyShape.CoastSpace,
+      initialState,
+      'y'
+    );
+    expect(coastState.payloadValue).toBe(-50);
+
+    const vertState = simulateBoundaryCross(
+      NetworkTopologyShape.VerticalKleinChimney,
+      initialState,
+      'z'
+    );
+    expect(vertState.payloadValue).toBe(-50);
+
+    const horizState = simulateBoundaryCross(
+      NetworkTopologyShape.HorizontalKleinChimney,
+      initialState,
+      'x'
+    );
+    expect(horizState.handedness).toBe('right');
+
+    const slabState = simulateBoundaryCross(
+      NetworkTopologyShape.NonorientableSlab,
+      initialState,
+      'z'
+    );
+    expect(slabState.payloadValue).toBe(-50);
+    expect(slabState.handedness).toBe('right');
+    expect(slabState.role).toBe('inverted');
+
+    const bunState = simulateBoundaryCross(
+      NetworkTopologyShape.BunSpace,
+      initialState,
+      'y'
+    );
+    expect(bunState.role).toBe('inverted');
+
+    const girdleState = simulateBoundaryCross(
+      NetworkTopologyShape.GirdleSpace,
+      initialState,
+      'x'
+    );
+    expect(girdleState.x).toBe(-5);
+    expect(girdleState.y).toBe(-10);
+    expect(girdleState.z).toBe(-15);
+  });
+
+  test('Assess risk of Orientable Universe Shape (Flat Space) via assessTopology', () => {
+    const result = analyzer.assessTopology(NetworkTopologyShape.InfiniteFlatSpace);
+    expect(result.overallScore).toBe(0.05);
+    expect(result.metrics.length).toBeGreaterThan(0);
+    
+    const orientRisk = result.metrics.find(m => m.id === 'state-inversion-risk');
+    expect(orientRisk).toBeDefined();
+    expect(orientRisk?.level).toBe('low');
+    expect(orientRisk?.score).toBe(0.05);
+  });
+
+  test('Assess risk of Nonorientable Universe Shape (Nonorientable Slab) via assessTopology', () => {
+    const result = analyzer.assessTopology(NetworkTopologyShape.NonorientableSlab);
+    expect(result.overallScore).toBe(0.95);
+    
+    const orientRisk = result.metrics.find(m => m.id === 'state-inversion-risk');
+    expect(orientRisk).toBeDefined();
+    expect(orientRisk?.level).toBe('critical');
+    
+    const loopRisk = result.metrics.find(m => m.id === 'loop-complexity-risk');
+    expect(loopRisk).toBeDefined();
+    expect(loopRisk?.level).toBe('critical');
+
+    const cryptoRisk = result.metrics.find(m => m.id === 'cryptographic-guard-risk');
+    expect(cryptoRisk).toBeDefined();
+    expect(cryptoRisk?.level).toBe('high');
+
+    expect(result.recommendations).toContain('Enable cryptographic guard: directValueInversionGuard');
+  });
+
+  test('Error boundary checking for invalid topology shape in assessTopology', () => {
+    expect(() => {
+      analyzer.assessTopology('invalid_shape' as NetworkTopologyShape);
+    }).toThrow('Unknown topology shape: invalid_shape');
   });
 });
 
@@ -168,9 +333,6 @@ describe('RiskAssessmentSystem Integration', () => {
       }
     });
 
-    // Both baseline risk (0.05 for workflow) and mitigated inversion (0.15) and recursion (0.05).
-    // The dimensional loop complexity for KleinSpace is 3 * 0.25 = 0.75.
-    // Overall score will be the max of all metrics, which is 0.75.
     expect(assessment.overallScore).toBe(0.75);
     const inversionMetric = assessment.metrics.find(m => m.id === 'topological-inversion-klein-space');
     expect(inversionMetric?.score).toBe(0.15);

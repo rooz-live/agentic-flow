@@ -1,28 +1,141 @@
----
-# Upstream Update Actions
-# Generated: 2025-12-04T05:49:06.458307Z
-# From: /Users/shahroozbhopti/Documents/code/investing/agentic-flow/logs/upstream_updates_latest.md
+# TAG.VOTE / COG live-edge upstream queue
+# Generated: 2026-05-31 — slice: cog-upgrade
+# HARD CONSTRAINT: Do NOT disable cPanel tag.vote/cog forwarders until phase2_signoff.
 
-items:
-  - id: UPSTREAM-1
-    title: "Update 11 major NPM packages"
-    priority: HIGH
-    wsjf_score: 8.0
-    command: "npm install @anthropic-ai/sdk@latest @types/jest@latest @types/node@latest"
-    status: PENDING
-    packages: ["@anthropic-ai/sdk", "@types/jest", "@types/node", "@typescript-eslint/eslint-plugin", "@typescript-eslint/parser", "0x", "better-sqlite3", "dotenv", "eslint", "lucide-react", "zod"]
+version: "1.0"
+phase: cog-upgrade
+host: "23.92.79.2"
+constraint: "cPanel tag.vote/cog redirect MUST remain until Phase 2 sign-off"
 
-  - id: UPSTREAM-2
-    title: "Update 8 minor/patch NPM packages"
-    priority: MEDIUM
-    wsjf_score: 6.0
-    command: "npm update"
-    status: PENDING
+phases:
+  phase1:
+    name: "NOW — live edge + SSR"
+    goal: "nginx on 23.92.79.2, SSR :3001, smoke PASS on interface.tag.vote"
+  phase2:
+    name: "LATER — cPanel redirect removal"
+    blocked_until: "phase2_signoff checklist complete (all circle roles)"
+    note: "Forwarders stay enabled until explicit sign-off artifact exists"
 
-  - id: UPSTREAM-3
-    title: "Fix security vulnerabilities"
-    priority: CRITICAL
-    wsjf_score: 10.0
-    command: "npm audit fix"
-    status: PENDING
+phase2_signoff_checklist:
+  - "interface.tag.vote/health → 200"
+  - "interface.tag.vote/cog → 302 Location contains ref=2rbzTT"
+  - "AffiliateStateTracker click logged (before/after curl)"
+  - "Webhook E2E HMAC → 200 { ok: true }"
+  - "npm rebuild better-sqlite3 exit 0 on prod Node"
+  - "ROAM R01,R04,R07 → Resolved or Accepted with artifact"
+  - "7-day error-free nginx + SSR logs"
+  - "phase2_signoff.json with all circle written sign-off"
 
+actions:
+  - id: P1-01
+    title: "SSH verify + host preflight"
+    phase: phase1
+    status: pending
+    depends_on: []
+    command: "ssh root@23.92.79.2 'node -v && ss -tlnp | grep -E \":3000|:3001\" && test -d /etc/letsencrypt/live/interface.tag.vote'"
+    verification: "node 20+, :3000 in use (Grafana), TLS dir exists"
+    artifact_path: ".goalie/evidence/cog-upgrade/deploy_runbook.md"
+    notes: "BLOCKED locally without SSH"
+
+  - id: P1-02
+    title: "Sync nginx interface.tag.vote.conf to origin"
+    phase: phase1
+    status: pending
+    depends_on: [P1-01]
+    command: "scp nginx_deployed/interface.tag.vote.conf root@23.92.79.2:/etc/nginx/sites-available/interface.tag.vote.conf && ssh root@23.92.79.2 'ln -sf /etc/nginx/sites-available/interface.tag.vote.conf /etc/nginx/sites-enabled/ && nginx -t'"
+    verification: "nginx -t exit 0 on host"
+    artifact_path: "nginx_deployed/interface.tag.vote.conf"
+
+  - id: P1-03
+    title: "Deploy app + npm ci on host"
+    phase: phase1
+    status: pending
+    depends_on: [P1-01]
+    command: "ssh root@23.92.79.2 'cd /var/www/affiliate-platform/agentic-flow && git pull && npm ci && npm rebuild better-sqlite3'"
+    verification: "npm rebuild better-sqlite3 exit 0"
+    artifact_path: ".goalie/evidence/cog-upgrade/deploy_runbook.md"
+
+  - id: P1-04
+    title: "Set SSR env secrets on host (not committed)"
+    phase: phase1
+    status: pending
+    depends_on: [P1-03]
+    command: "export SWARM_API_PORT=3001 COGNITUM_REF=2rbzTT COGNITUM_WEBHOOK_SECRET='<from dashboard>'"
+    verification: "test -n \"$COGNITUM_WEBHOOK_SECRET\""
+    artifact_path: ".env.example"
+    notes: "SKIPPED until operator provisions secret"
+
+  - id: P1-05
+    title: "Start swarm-api-server on :3001"
+    phase: phase1
+    status: pending
+    depends_on: [P1-04]
+    command: "ssh root@23.92.79.2 'cd /var/www/affiliate-platform/agentic-flow && SWARM_API_PORT=3001 COGNITUM_REF=2rbzTT npx tsx src/api/swarm-api-server.ts'"
+    verification: "curl -s http://127.0.0.1:3001/health returns 200"
+    artifact_path: "src/api/swarm-api-server.ts"
+
+  - id: P1-06
+    title: "Host-local SSR smoke before nginx reload"
+    phase: phase1
+    status: pending
+    depends_on: [P1-05]
+    command: "ssh root@23.92.79.2 'curl -s http://127.0.0.1:3001/health && curl -sI http://127.0.0.1:3001/cog | head -5'"
+    verification: "health 200; /cog 302 with ref=2rbzTT"
+    artifact_path: ".goalie/evidence/cog-upgrade/local_verification_20260531.json"
+
+  - id: P1-07
+    title: "Reload nginx"
+    phase: phase1
+    status: pending
+    depends_on: [P1-02, P1-06]
+    command: "ssh root@23.92.79.2 'systemctl reload nginx'"
+    verification: "curl -sI https://interface.tag.vote/health | grep 'HTTP/.* 200'"
+    artifact_path: "nginx_deployed/interface.tag.vote.conf"
+
+  - id: P1-08
+    title: "Public cog_edge_smoke from laptop"
+    phase: phase1
+    status: pending
+    depends_on: [P1-07]
+    command: "bash tooling/scripts/cog_edge_smoke.sh"
+    verification: "exit 0; smoke artifact pass:true"
+    artifact_path: ".goalie/evidence/cog-upgrade/smoke_*.json"
+
+  - id: P1-09
+    title: "Confirm cPanel parallel path still works"
+    phase: phase1
+    status: pending
+    depends_on: []
+    command: "curl -sI 'https://tag.vote/cog' | grep -iE '^HTTP|^Location'"
+    verification: "302 to cognitum.one/a/2rbzTT — forwarder NOT disabled"
+    artifact_path: ".goalie/evidence/cog-upgrade/smoke_*.json"
+    notes: "2026-05-31: tag.vote/cog → 302 PASS locally"
+
+  - id: P1-10
+    title: "Run ROAM staleness watchdog"
+    phase: phase1
+    status: pending
+    depends_on: [P1-08]
+    command: "bash tooling/scripts/roam-staleness-watchdog.sh"
+    verification: "watchdog_*.json written; exit 0 if fresh/pass"
+    artifact_path: ".goalie/evidence/roam-watchdog/watchdog_*.json"
+
+  - id: P1-11
+    title: "Run compliance_as_code --cog"
+    phase: phase1
+    status: pending
+    depends_on: [P1-08]
+    command: "python3 scripts/governance/compliance_as_code.py --cog"
+    verification: "exit 0; no hard violations in compliance_*.json"
+    artifact_path: ".goalie/evidence/compliance/compliance_*.json"
+
+  - id: P2-01
+    title: "Phase 2 — disable cPanel redirect (LATER)"
+    phase: phase2
+    status: blocked
+    blocked_until: phase2_signoff
+    depends_on: [P1-08, P1-09]
+    command: "# MANUAL only after phase2_signoff.json"
+    verification: "All phase2_signoff_checklist items true"
+    artifact_path: ".goalie/evidence/cog-upgrade/phase2_signoff.json"
+    notes: "BLOCKED by policy — forwarders stay"

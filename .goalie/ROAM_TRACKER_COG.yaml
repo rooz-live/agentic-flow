@@ -1,0 +1,197 @@
+# COG upgrade ROAM tracker — synced from roam_blockers_20260531.json
+# Watchdog: tooling/scripts/roam-staleness-watchdog.sh
+# HARD CONSTRAINT: cPanel forwarders stay until phase2_signoff.
+
+version: "1.0"
+tracker: cog-upgrade
+source_artifact: "roam_blockers_20260531.json"
+generated_at: "2026-05-31T23:15:44Z"
+last_verified: "2026-05-31T23:44:33Z"
+default_staleness_ttl_hours: 24
+constraint: "cPanel tag.vote/cog redirect MUST remain until Phase 2 sign-off"
+
+risks:
+  - id: R01
+    description: "interface.tag.vote nginx conf exists on disk but not deployed to 23.92.79.2"
+    roam: Ongoing
+    owner_layer: edge
+    severity: critical
+    staleness_ttl_hours: 12
+    last_verified: "2026-05-31T23:44:33Z"
+    verification_command: "ssh 23.92.79.2 'nginx -t && curl -sI https://interface.tag.vote/health'"
+    last_result: "404"
+    status: open
+    artifact_path: ".goalie/evidence/cog-upgrade/deploy_runbook.md"
+    blockers:
+      - "SSH/deploy access"
+      - "letsencrypt cert on origin"
+    dependencies:
+      ['R02', 'R03']
+  - id: R02
+    description: "SSR swarm-api-server /cog and /webhooks/cognitum not in prod path (only in frontend copy until this slice)"
+    roam: Mitigated
+    owner_layer: app
+    severity: high
+    staleness_ttl_hours: 48
+    last_verified: "2026-05-31T23:44:33Z"
+    verification_command: "grep -n '/cog\|/webhooks/cognitum' src/api/swarm-api-server.ts"
+    last_result: "code_ready_local"
+    status: mitigated
+    artifact_path: "src/api/swarm-api-server.ts"
+    blockers:
+      - "systemd/pm2 unit for SSR on :3001"
+    dependencies:
+      ['R03', 'R04']
+  - id: R03
+    description: "Port conflict: :3000 occupied by Grafana; SSR must bind SWARM_API_PORT=3001"
+    roam: Mitigated
+    owner_layer: edge
+    severity: medium
+    staleness_ttl_hours: 168
+    last_verified: "2026-05-31T23:44:33Z"
+    verification_command: "ss -tlnp | grep -E ':3000|:3001'"
+    last_result: "nginx_conf_ok"
+    status: mitigated
+    artifact_path: "nginx_deployed/interface.tag.vote.conf"
+    blockers:
+      []
+    dependencies:
+      []
+  - id: R04
+    description: "COGNITUM_WEBHOOK_SECRET unset — webhook POST returns 401 or skipped in smoke"
+    roam: Ongoing
+    owner_layer: governance
+    severity: high
+    staleness_ttl_hours: 24
+    last_verified: "2026-05-31T23:44:33Z"
+    verification_command: "test -n "$COGNITUM_WEBHOOK_SECRET" && curl -X POST ..."
+    last_result: "unset_local"
+    status: open
+    artifact_path: ".env.example"
+    blockers:
+      - "secret provisioning"
+      - "cognitum dashboard webhook config"
+    dependencies:
+      ['R01', 'R02']
+  - id: R05
+    description: "better-sqlite3 native module ABI mismatch on deploy host"
+    roam: Mitigated
+    owner_layer: data
+    severity: medium
+    staleness_ttl_hours: 168
+    last_verified: "2026-05-31T23:44:33Z"
+    verification_command: "npm rebuild better-sqlite3"
+    last_result: "not_run_on_prod"
+    status: open_on_deploy
+    artifact_path: ".goalie/evidence/cog-upgrade/smoke_*.json"
+    blockers:
+      - "node version drift"
+    dependencies:
+      []
+  - id: R06
+    description: "Double redirect race: cPanel /a/2rbzTT AND nginx /cog both live — attribution/logging divergence"
+    roam: Accepted
+    owner_layer: app
+    severity: low
+    staleness_ttl_hours: 72
+    last_verified: "2026-05-31T23:44:33Z"
+    verification_command: "curl -sI https://tag.vote/cog | grep -i location; curl -sI https://interface.tag.vote/cog | grep -i location"
+    last_result: "tag.vote_302_interface_404"
+    status: accepted
+    artifact_path: ".goalie/evidence/cog-upgrade/wsjf_lnnnl_slice.md"
+    blockers:
+      - "Phase 2 click parity proof"
+    dependencies:
+      ['R07', 'R10']
+  - id: R07
+    description: "interface.tag.vote vs tag.vote apex split — users hit different paths"
+    roam: Ongoing
+    owner_layer: edge
+    severity: medium
+    staleness_ttl_hours: 48
+    last_verified: "2026-05-31T23:44:33Z"
+    verification_command: "dig +short interface.tag.vote; dig +short tag.vote"
+    last_result: "resolves_both"
+    status: monitoring
+    artifact_path: "config/fqdn_registry.yaml"
+    blockers:
+      - "DNS for interface subdomain"
+      - "marketing canonical URL decision"
+    dependencies:
+      ['R01']
+  - id: R08
+    description: "Trust-path substrate: affiliate click logs require AffiliateStateTracker + sqlite persistence"
+    roam: Ongoing
+    owner_layer: data
+    severity: medium
+    staleness_ttl_hours: 48
+    last_verified: "2026-05-31T23:44:33Z"
+    verification_command: "node -e "require('better-sqlite3')""
+    last_result: "code_exists"
+    status: open_on_deploy
+    artifact_path: "src/affiliate/AffiliateStateTracker.ts"
+    blockers:
+      - "R05"
+      - "db path permissions on server"
+    dependencies:
+      ['R02']
+  - id: R09
+    description: "Anti-CVT index gap — cog-upgrade artifacts untracked until user commits"
+    roam: Ongoing
+    owner_layer: governance
+    severity: low
+    staleness_ttl_hours: 168
+    last_verified: "2026-05-31T23:44:33Z"
+    verification_command: "git ls-files .goalie/evidence/cog-upgrade/"
+    last_result: "local_only"
+    status: accepted
+    artifact_path: ".goalie/evidence/cog-upgrade/roam_blockers_20260531.json"
+    blockers:
+      - "explicit user commit request"
+    dependencies:
+      []
+  - id: R10
+    description: "Duplicate swarm-api-server trees (src/, frontend/, scripts/, automation/) — drift risk"
+    roam: Mitigated
+    owner_layer: app
+    severity: medium
+    staleness_ttl_hours: 168
+    last_verified: "2026-05-31T23:44:33Z"
+    verification_command: "find . -name swarm-api-server.ts | wc -l"
+    last_result: "multiple_copies_documented"
+    status: mitigated
+    artifact_path: "src/integrations/cognitum_affiliate.ts"
+    blockers:
+      - "consolidation to single canonical src/api/"
+    dependencies:
+      ['R02']
+  - id: R11
+    description: "cPanel redirect removal before circle sign-off would break production affiliate path"
+    roam: Accepted
+    owner_layer: governance
+    severity: critical
+    staleness_ttl_hours: 720
+    last_verified: "2026-05-31T23:44:33Z"
+    verification_command: "manual checklist in deploy_runbook.md Phase 2 section"
+    last_result: "forwarders_required"
+    status: accepted
+    artifact_path: ".goalie/evidence/cog-upgrade/deploy_runbook.md"
+    blockers:
+      - "Phase 2 checklist incomplete"
+    dependencies:
+      ['R06', 'R01', 'R04']
+  - id: R12
+    description: "Public webhook edge 404 — nginx not proxying /webhooks/cognitum until deploy"
+    roam: Mitigated
+    owner_layer: edge
+    severity: high
+    staleness_ttl_hours: 12
+    last_verified: "2026-05-31T23:44:33Z"
+    verification_command: "tooling/scripts/cog_edge_smoke.sh"
+    last_result: "exit_1_404_health"
+    status: open
+    artifact_path: "tooling/scripts/cog_edge_smoke.sh"
+    blockers:
+      - "R01"
+    dependencies:
+      ['R04']

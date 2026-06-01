@@ -139,7 +139,7 @@ run_post_task() {
 
     # Staged files check (CVT gate)
     echo -n "  staged files: "
-    STAGED=$(git -C "$PROJECT_ROOT" diff --cached --stat 2>/dev/null | tail -1 || echo "")
+    STAGED=$(git -C "$PROJECT_ROOT" diff --cached --stat --ignore-submodules 2>/dev/null | tail -1 || echo "")
     if echo "$STAGED" | grep -qE "[0-9]+ (file|insertion|deletion)"; then
         green "  $STAGED"
     else

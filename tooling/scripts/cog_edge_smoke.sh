@@ -10,6 +10,19 @@ REF="${COGNITUM_REF:-2rbzTT}"
 EVIDENCE_DIR="${COG_EVIDENCE_DIR:-.goalie/evidence/cog-upgrade}"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="${EVIDENCE_DIR}/smoke_${TS}.json"
+
+# Load COGNITUM_WEBHOOK_SECRET from .env if unset
+if [ -z "${COGNITUM_WEBHOOK_SECRET:-}" ]; then
+  for env_file in .env ../.env ../../.env; do
+    if [ -f "$env_file" ]; then
+      COGNITUM_WEBHOOK_SECRET=$(grep "^COGNITUM_WEBHOOK_SECRET=" "$env_file" | cut -d'=' -f2- | tr -d '"'\')
+      if [ -n "$COGNITUM_WEBHOOK_SECRET" ]; then
+        break
+      fi
+    fi
+  done
+fi
+
 SECRET="${COGNITUM_WEBHOOK_SECRET:-}"
 
 mkdir -p "$EVIDENCE_DIR"

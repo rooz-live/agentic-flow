@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from '@jest/globals';
-import { PortfolioAnalyzer, type OHLCV, type Option } from '../../src/trading/portfolio-analyzer';
+import { PortfolioAnalyzer, type OHLCV, type Option } from '../../../src/trading/portfolio-analyzer';
 
 describe('PortfolioAnalyzer', () => {
   let mockOHLCV: OHLCV[];
@@ -91,6 +91,29 @@ describe('PortfolioAnalyzer', () => {
     expect(result.scanners.volPremium.length).toBeGreaterThanOrEqual(0);
     expect(typeof result.scanners.squeeze).toBe('boolean');
     expect(result.risk.var95).toBeLessThan(0);
+  });
+
+  it('full analysis works with soxl and soxs and missing options', () => {
+    const soxl = PortfolioAnalyzer.generateMockOHLCV('SOXL', 100);
+    const soxs = PortfolioAnalyzer.generateMockOHLCV('SOXS', 100);
+    const result = PortfolioAnalyzer.analyze({
+      underlying: mockOHLCV,
+      soxl,
+      soxs
+    });
+    expect(result.soxlSoxs.correlation).toBeLessThan(1);
+    expect(result.scanners.volPremium).toEqual([]);
+    expect(result.scanners.highGamma).toEqual([]);
+  });
+
+  it('RSI returns empty array for short series', () => {
+    const rsi = PortfolioAnalyzer.computeRSI([100, 101], 14);
+    expect(rsi).toEqual([]);
+  });
+
+  it('detectSqueeze returns false for short series', () => {
+    const squeeze = PortfolioAnalyzer.detectSqueeze(mockOHLCV.slice(0, 5));
+    expect(squeeze).toBe(false);
   });
 
   it('generates mock data', () => {

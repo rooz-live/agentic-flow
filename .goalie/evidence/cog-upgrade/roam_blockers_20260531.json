@@ -1,0 +1,178 @@
+{
+  "artifact": "roam_blockers_20260531.json",
+  "generated_at": "2026-05-31T23:15:44Z",
+  "phase": "cog-upgrade-slice-1",
+  "constraint": "cPanel tag.vote/cog redirect MUST remain until Phase 2 sign-off",
+  "risks": [
+    {
+      "id": "R01",
+      "description": "interface.tag.vote nginx conf exists on disk but not deployed to 23.92.79.2",
+      "roam": "Ongoing",
+      "owner_layer": "edge",
+      "blockers": [
+        "SSH/deploy access",
+        "letsencrypt cert on origin"
+      ],
+      "dependencies": [
+        "R02",
+        "R03"
+      ],
+      "verification_command": "ssh 23.92.79.2 'nginx -t && curl -sI https://interface.tag.vote/health'",
+      "artifact_path": ".goalie/evidence/cog-upgrade/deploy_runbook.md"
+    },
+    {
+      "id": "R02",
+      "description": "SSR swarm-api-server /cog and /webhooks/cognitum not in prod path (only in frontend copy until this slice)",
+      "roam": "Mitigated",
+      "owner_layer": "app",
+      "blockers": [
+        "systemd/pm2 unit for SSR on :3001"
+      ],
+      "dependencies": [
+        "R03",
+        "R04"
+      ],
+      "verification_command": "grep -n '/cog\\|/webhooks/cognitum' src/api/swarm-api-server.ts",
+      "artifact_path": "src/api/swarm-api-server.ts"
+    },
+    {
+      "id": "R03",
+      "description": "Port conflict: :3000 occupied by Grafana; SSR must bind SWARM_API_PORT=3001",
+      "roam": "Mitigated",
+      "owner_layer": "edge",
+      "blockers": [],
+      "dependencies": [],
+      "verification_command": "ss -tlnp | grep -E ':3000|:3001'",
+      "artifact_path": "nginx_deployed/interface.tag.vote.conf"
+    },
+    {
+      "id": "R04",
+      "description": "COGNITUM_WEBHOOK_SECRET unset \u2014 webhook POST returns 401 or skipped in smoke",
+      "roam": "Ongoing",
+      "owner_layer": "governance",
+      "blockers": [
+        "secret provisioning",
+        "cognitum dashboard webhook config"
+      ],
+      "dependencies": [
+        "R01",
+        "R02"
+      ],
+      "verification_command": "test -n \"$COGNITUM_WEBHOOK_SECRET\" && curl -X POST ...",
+      "artifact_path": ".env.example"
+    },
+    {
+      "id": "R05",
+      "description": "better-sqlite3 native module ABI mismatch on deploy host",
+      "roam": "Mitigated",
+      "owner_layer": "data",
+      "blockers": [
+        "node version drift"
+      ],
+      "dependencies": [],
+      "verification_command": "npm rebuild better-sqlite3",
+      "artifact_path": ".goalie/evidence/cog-upgrade/smoke_*.json"
+    },
+    {
+      "id": "R06",
+      "description": "Double redirect race: cPanel /a/2rbzTT AND nginx /cog both live \u2014 attribution/logging divergence",
+      "roam": "Accepted",
+      "owner_layer": "app",
+      "blockers": [
+        "Phase 2 click parity proof"
+      ],
+      "dependencies": [
+        "R07",
+        "R10"
+      ],
+      "verification_command": "curl -sI https://tag.vote/cog | grep -i location; curl -sI https://interface.tag.vote/cog | grep -i location",
+      "artifact_path": ".goalie/evidence/cog-upgrade/wsjf_lnnnl_slice.md"
+    },
+    {
+      "id": "R07",
+      "description": "interface.tag.vote vs tag.vote apex split \u2014 users hit different paths",
+      "roam": "Ongoing",
+      "owner_layer": "edge",
+      "blockers": [
+        "DNS for interface subdomain",
+        "marketing canonical URL decision"
+      ],
+      "dependencies": [
+        "R01"
+      ],
+      "verification_command": "dig +short interface.tag.vote; dig +short tag.vote",
+      "artifact_path": "config/fqdn_registry.yaml"
+    },
+    {
+      "id": "R08",
+      "description": "Trust-path substrate: affiliate click logs require AffiliateStateTracker + sqlite persistence",
+      "roam": "Ongoing",
+      "owner_layer": "data",
+      "blockers": [
+        "R05",
+        "db path permissions on server"
+      ],
+      "dependencies": [
+        "R02"
+      ],
+      "verification_command": "node -e \"require('better-sqlite3')\"",
+      "artifact_path": "src/affiliate/AffiliateStateTracker.ts"
+    },
+    {
+      "id": "R09",
+      "description": "Anti-CVT index gap \u2014 cog-upgrade artifacts untracked until user commits",
+      "roam": "Ongoing",
+      "owner_layer": "governance",
+      "blockers": [
+        "explicit user commit request"
+      ],
+      "dependencies": [],
+      "verification_command": "git ls-files .goalie/evidence/cog-upgrade/",
+      "artifact_path": ".goalie/evidence/cog-upgrade/roam_blockers_20260531.json"
+    },
+    {
+      "id": "R10",
+      "description": "Duplicate swarm-api-server trees (src/, frontend/, scripts/, automation/) \u2014 drift risk",
+      "roam": "Mitigated",
+      "owner_layer": "app",
+      "blockers": [
+        "consolidation to single canonical src/api/"
+      ],
+      "dependencies": [
+        "R02"
+      ],
+      "verification_command": "find . -name swarm-api-server.ts | wc -l",
+      "artifact_path": "src/integrations/cognitum_affiliate.ts"
+    },
+    {
+      "id": "R11",
+      "description": "cPanel redirect removal before circle sign-off would break production affiliate path",
+      "roam": "Accepted",
+      "owner_layer": "governance",
+      "blockers": [
+        "Phase 2 checklist incomplete"
+      ],
+      "dependencies": [
+        "R06",
+        "R01",
+        "R04"
+      ],
+      "verification_command": "manual checklist in deploy_runbook.md Phase 2 section",
+      "artifact_path": ".goalie/evidence/cog-upgrade/deploy_runbook.md"
+    },
+    {
+      "id": "R12",
+      "description": "Public webhook edge 404 \u2014 nginx not proxying /webhooks/cognitum until deploy",
+      "roam": "Mitigated",
+      "owner_layer": "edge",
+      "blockers": [
+        "R01"
+      ],
+      "dependencies": [
+        "R04"
+      ],
+      "verification_command": "tooling/scripts/cog_edge_smoke.sh",
+      "artifact_path": "tooling/scripts/cog_edge_smoke.sh"
+    }
+  ]
+}

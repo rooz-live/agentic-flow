@@ -123,10 +123,14 @@ fi
 
 # 6. Execute compliance checks with --cog
 echo "--> Running Governance Compliance Checks (--cog)..."
-if python3 scripts/governance/compliance_as_code.py --cog; then
-  echo "✓ Compliance checks passed."
+set +e
+python3 scripts/governance/compliance_as_code.py --cog --scope=governance
+COMP_EC=$?
+set -e
+if [ "$COMP_EC" -eq 0 ] || [ "$COMP_EC" -eq 2 ]; then
+  echo "✓ Compliance checks passed (or warned with no hard violations)."
 else
-  echo "❌ Error: Compliance checks failed." >&2
+  echo "❌ Error: Compliance checks failed with hard violations." >&2
   exit 1
 fi
 

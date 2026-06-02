@@ -91,6 +91,30 @@ struct CeremonyLogFact {
     reference_ceremony_id: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct AffiliateEventFact {
+    pub transaction_id: String,
+    pub referrer_id: String,
+    pub target_domain: String,
+    pub click_timestamp: DateTime<Utc>,
+    pub client_ip_hash: String,
+    pub attribution_status: String,
+    pub revenue_share_percentage: String,
+}
+
+#[pyfunction]
+fn validate_affiliate_event(payload: &str) -> PyResult<String> {
+    let fact: Result<AffiliateEventFact, _> = serde_json::from_str(payload);
+    match fact {
+        Ok(valid_fact) => {
+            Ok(serde_json::to_string(&valid_fact).unwrap())
+        },
+        Err(e) => {
+            Err(PyValueError::new_err(format!("ERR_INVALID_CONTRACT_FORMAT: {}", e)))
+        }
+    }
+}
+
 #[pyfunction]
 fn validate_eventops_schema(payload: &str) -> PyResult<String> {
     // Mathmatical constraint verification (ISO8601 UTC and UUID constraints checked natively)
@@ -448,5 +472,6 @@ fn eventops_pyo3(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(validate_project_constraints, m)?)?;
     m.add_function(wrap_pyfunction!(validate_ceremony_logger, m)?)?;
     m.add_function(wrap_pyfunction!(chunk_domain_payloads, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_affiliate_event, m)?)?;
     Ok(())
 }

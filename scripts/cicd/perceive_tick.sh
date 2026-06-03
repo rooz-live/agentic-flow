@@ -12,5 +12,5 @@ if [[ -f .goalie/evidence/last_gate_one_pass.json ]]; then
 fi
 bash scripts/one.sh verify-contract .goalie/evidence/last_gate_one_pass.json 2>/dev/null && echo "verify-contract: OK" || echo "verify-contract: FAIL"
 bash tooling/scripts/cog_edge_smoke.sh >/dev/null 2>&1 && echo "cog_edge_smoke: OK" || echo "cog_edge_smoke: FAIL"
-bash tooling/scripts/dod-gate.sh --perceive
+bash code/tooling/scripts/dod-gate.sh --perceive
 exit $?

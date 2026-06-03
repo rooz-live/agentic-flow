@@ -69,11 +69,31 @@ perceive_only() {
 
   head="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
   tracked="$(git -C "$REPO_ROOT" ls-files scripts/ tests/ config/ code/tooling/scripts/ 2>/dev/null | wc -l | tr -d ' ')"
-  untracked_n="$(REPO_ROOT="$REPO_ROOT" python3 - <<'PY'
-import subprocess, os
+  read -r untracked_n untracked_substrate < <(REPO_ROOT="$REPO_ROOT" PERCEIVE_UNTRACKED_MODE="gate" python3 - <<'PY'
+import json, os, subprocess
 root = os.environ.get("REPO_ROOT", ".")
+mode = os.environ.get("PERCEIVE_UNTRACKED_MODE", "gate")
 pathspecs = ["scripts/", "tests/", "config/", "code/tooling/scripts/"]
 skip_suffix = (".md", ".json", ".example", ".template", ".sample")
+gate_paths = set()
+owners = os.path.join(root, "scripts/policy/gate_owners.json")
+if os.path.isfile(owners):
+    data = json.load(open(owners))
+    if isinstance(data.get("canonical_owners"), dict):
+        gate_paths.update(data["canonical_owners"].values())
+    for key in ("legacy_dedupe_guard", "shims_only"):
+        if isinstance(data.get(key), list):
+            gate_paths.update(data[key])
+allow = {
+    "code/tooling/scripts/dod-gate.sh", "code/tooling/scripts/agent_session_dor.sh",
+    "code/tooling/scripts/lib/evidence_json.sh", "code/tooling/scripts/public_synthetic_check.sh",
+    "scripts/cicd/continuous_learning_swarm.sh", "scripts/cicd/perceive_tick.sh",
+    "scripts/cicd/index_slice_allowlist.sh", "scripts/cicd/wave_autopilot.sh",
+    "scripts/consolidation/w3_index_gates_batch.sh",
+    "scripts/governance/compliance_as_code.py", "scripts/policy/gate_owners.json",
+    "config/cicd/continuous_learning.yaml", "config/cicd/loop_prompts.yaml",
+}
+gate_paths.update(allow)
 bad = []
 try:
     for spec in pathspecs:
@@ -81,14 +101,18 @@ try:
             ["git", "-C", root, "ls-files", "--others", "--exclude-standard", "--", spec],
             text=True,
         ).splitlines():
-            if not p.endswith(skip_suffix):
-                bad.append(p)
+            if p.endswith(skip_suffix):
+                continue
+            bad.append(p)
 except subprocess.CalledProcessError:
-    print(0); raise SystemExit
-print(len(bad))
+    print("0 0"); raise SystemExit
+gate_bad = [p for p in bad if p in gate_paths]
+if mode == "substrate":
+    print(len(bad), len(bad))
+else:
+    print(len(gate_bad), len(bad))
 PY
-)"
-
+)
   if [[ -x "$REPO_SCRIPTS/perceive-trust-artifact.sh" ]]; then
     "$REPO_SCRIPTS/perceive-trust-artifact.sh" --check >/dev/null 2>&1 && trust_ok=1
   elif bash "$REPO_ROOT/scripts/one.sh" verify-contract "$REPO_ROOT/.goalie/evidence/last_gate_one_pass.json" >/dev/null 2>&1; then
@@ -97,12 +121,13 @@ PY
 
   perceive_evidence "$kind" "${EVIDENCE_TTL_SEC:-86400}" 2>/dev/null && edge_ok=1
 
-  HEAD="$head" TRACKED="$tracked" UNTRACKED="$untracked_n" TRUST_OK="$trust_ok" EDGE_OK="$edge_ok" KIND="$kind" python3 - <<'PY'
+  HEAD="$head" TRACKED="$tracked" UNTRACKED="$untracked_n" UNTRACKED_SUBSTRATE="$untracked_substrate" TRUST_OK="$trust_ok" EDGE_OK="$edge_ok" KIND="$kind" python3 - <<'PY'
 import json, os
 print(json.dumps({
   "head_sha": os.environ.get("HEAD", ""),
   "tracked_index_count": int(os.environ.get("TRACKED", "0") or 0),
   "untracked_critical": int(os.environ.get("UNTRACKED", "0") or 0),
+  "untracked_substrate_total": int(os.environ.get("UNTRACKED_SUBSTRATE", "0") or 0),
   "trust_artifact_ok": os.environ.get("TRUST_OK") == "1",
   "public_edge_perceive_ok": os.environ.get("EDGE_OK") == "1",
   "perceive_kind": os.environ.get("KIND", "public-edge"),

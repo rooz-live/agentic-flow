@@ -13,7 +13,16 @@ allow = {
   'scripts/cicd/unstage_scope_creep.sh', 'scripts/consolidation/w3_index_gates_batch.sh',
   'scripts/governance/compliance_as_code.py', 'scripts/roam-staleness-watchdog.sh',
   'scripts/policy/gate_owners.json', 'config/cicd/continuous_learning.yaml',
-  'config/cicd/loop_prompts.yaml', 'docs/agentics/DYNAMIC_WORKFLOW_SLICES.md',
+  'config/cicd/loop_prompts.yaml',
+  'tests/cicd/test_wave_autopilot_contract.sh',
+  'tests/cicd/test_perceive_metrics_split.sh',
+  'tests/cicd/test_cls_manifest_canonical.sh',
+  'scripts/cicd/lib/cls_common.sh',
+  'scripts/cicd/policy_compliance.sh',
+  'scripts/cicd/index_tick.sh',
+  'scripts/cicd/edge_writer.sh',
+  'scripts/cicd/perceive_reader.sh',
+  'scripts/cicd/wave_autopilot.sh', 'docs/agentics/DYNAMIC_WORKFLOW_SLICES.md',
   'docs/agentics/RESEARCH_REGISTRY.yaml', '.github/workflows/continuous-learning-swarm.yml',
 }
 staged = subprocess.check_output(['git', 'diff', '--cached', '--name-only'], text=True).splitlines()

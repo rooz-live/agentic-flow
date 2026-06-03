@@ -20,7 +20,7 @@ ALLOWLIST=(
   scripts/roam-staleness-watchdog.sh
   scripts/policy/gate_owners.json
   config/cicd/continuous_learning.yaml
-  config/cicd/loop_prompts.yaml
+  
 )
 TO_STAGE=()
 for p in "${ALLOWLIST[@]}"; do

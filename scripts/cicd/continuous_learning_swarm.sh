@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# continuous_learning_swarm.sh — Observe → learn → gate (anti-CVT, artifact-native)
+# continuous_learning_swarm.sh — Observe → learn → gate (modular split design)
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -13,6 +13,7 @@ if [[ -f "$EVIDENCE_LIB" ]]; then
 else
   echo "ERROR: missing $EVIDENCE_LIB" >&2
 fi
+
 ensure_monorepo_repo_root() {
   if [[ ! -d "$1/.git" ]]; then
     echo "ERROR: not a git monorepo root: $1" >&2
@@ -47,26 +48,6 @@ run_step() {
   echo "$ec" >"/tmp/cls_ec_${id}"
 }
 
-run_advisory() {
-  local id="$1"
-  shift
-  echo "--> [$id] (advisory)"
-  set +e
-  "$@" >"/tmp/cls_${id}.log" 2>&1
-  local ec=$?
-  set -e
-  echo "$ec" >"/tmp/cls_ec_${id}"
-  if [[ $ec -ne 0 ]]; then
-    echo "    WARN $id (non-blocking, exit $ec)"
-  else
-    echo "    OK $id"
-  fi
-}
-
-step_ec() {
-  cat "/tmp/cls_ec_${1}" 2>/dev/null || echo 1
-}
-
 append_dlq() {
   local category="$1" hint="$2"
   python3 - "$DLQ_PATH" "$category" "$hint" "$HEAD_SHA" "$RUN_ID" <<'PY'
@@ -83,83 +64,43 @@ echo "===================================================="
 echo "Continuous Learning Swarm | HEAD=${HEAD_SHA:0:12} | $RUN_ID"
 echo "===================================================="
 
-run_step perceive bash tooling/scripts/dod-gate.sh --perceive
+# Run the split steps modularly
 run_step cog_edge_smoke bash tooling/scripts/cog_edge_smoke.sh
+run_step dod_gate_perceive bash code/tooling/scripts/dod-gate.sh --perceive
 
-export PUBLIC_WRITE_EVIDENCE=1
-FQDN="${CLS_BILLING_FQDN:-billing.bhopti.com}"
-if [[ -f tooling/scripts/public_synthetic_check.sh ]]; then
-  run_step public_synthetic bash tooling/scripts/public_synthetic_check.sh "$FQDN"
-else
-  run_advisory public_synthetic echo "public_synthetic_check.sh missing"
-fi
-
-run_step compliance_edge python3 scripts/governance/compliance_as_code.py --cog --scope=edge
-set +e
-python3 scripts/governance/compliance_as_code.py --cog --scope=governance >"/tmp/cls_compliance_gov.log" 2>&1
-GOV_EC=$?
-set -e
-echo "$GOV_EC" >"/tmp/cls_ec_compliance_governance"
-if [[ $GOV_EC -eq 0 ]] || [[ $GOV_EC -eq 2 ]]; then
-  echo "    OK compliance_governance (exit $GOV_EC)"
-else
-  echo "    FAIL compliance_governance (exit $GOV_EC)"
-  HARD_FAIL=1
-fi
-
-if [[ -f scripts/governance/agentdb_freshness.sh ]]; then
-  run_step agentdb_freshness bash scripts/governance/agentdb_freshness.sh
-elif [[ -f projects/investing/agentic-flow/scripts/governance/agentdb_freshness.sh ]]; then
-  run_step agentdb_freshness bash projects/investing/agentic-flow/scripts/governance/agentdb_freshness.sh
-else
-  run_advisory agentdb_freshness echo "agentdb_freshness missing"
-fi
-
-if [[ -f scripts/roam-staleness-watchdog.sh ]]; then
-  run_step roam_watchdog bash scripts/roam-staleness-watchdog.sh
-elif [[ -f tooling/scripts/roam-staleness-watchdog.sh ]]; then
-  run_step roam_watchdog bash tooling/scripts/roam-staleness-watchdog.sh
-else
-  run_advisory roam_watchdog echo "roam watchdog missing"
-fi
-
-run_advisory ssr_guard bash tooling/scripts/ssr_readiness_guard.sh || true
-if [[ -f "$HOME/vectors.db" ]]; then echo 0 >"/tmp/cls_ec_vectors_db"; echo "    OK vectors_db"; else echo 2 >"/tmp/cls_ec_vectors_db"; echo "    WARN vectors_db missing"; fi
-
-if [[ "${CLS_LOCAL_SSR:-0}" == "1" ]] && [[ -f projects/investing/agentic-flow/src/api/swarm-api-server.ts ]]; then
-  export SWARM_API_PORT=3001 COGNITUM_REF=2rbzTT
-  (cd projects/investing/agentic-flow && npx tsx src/api/swarm-api-server.ts) >/tmp/swarm_api_local.log 2>&1 &
-  API_PID=$!
-  BOOT=0
-  for _ in $(seq 1 15); do curl -sf http://127.0.0.1:3001/health >/dev/null && BOOT=1 && break; sleep 1; done
-  if [[ $BOOT -eq 1 ]]; then
-    export COG_SMOKE_BASE=http://127.0.0.1:3001
-    run_advisory local_smoke bash tooling/scripts/cog_edge_smoke.sh
-  fi
-  kill "$API_PID" 2>/dev/null || true
-fi
-
-[[ -f scripts/wsjf/prod_maturity_flow.sh ]] && run_advisory prod_maturity bash scripts/wsjf/prod_maturity_flow.sh || true
+run_step perceive bash scripts/cicd/perceive_reader.sh
+run_step index_tick bash scripts/cicd/index_tick.sh
+run_step public_synthetic bash scripts/cicd/edge_writer.sh
+run_step compliance_policy bash scripts/cicd/policy_compliance.sh
 
 FAILURE_CATEGORY=""
 REMEDIATION=""
 UPSTREAM_ACTION=""
 BREAKTHROUGH=false
-PERCEIVE_EC=$(step_ec perceive)
-PUB_EC=$(step_ec public_synthetic)
-GOV_EC=$(step_ec compliance_governance)
+
+# Read step statuses
+set +e
+PERCEIVE_EC=$(cat "/tmp/cls_ec_perceive" 2>/dev/null || echo 1)
+INDEX_EC=$(cat "/tmp/cls_ec_index_tick" 2>/dev/null || echo 1)
+PUB_EC=$(cat "/tmp/cls_ec_public_synthetic" 2>/dev/null || echo 1)
+COMP_EC=$(cat "/tmp/cls_ec_compliance_policy" 2>/dev/null || echo 1)
+set -e
 
 if [[ "$PERCEIVE_EC" -ne 0 ]]; then
   FAILURE_CATEGORY="perceive_fail"
   REMEDIATION="Index canonical scripts; refresh public-edge; dod-gate --perceive until 0"
   UPSTREAM_ACTION="P1-INDEX-01"
+elif [[ "$INDEX_EC" -ne 0 ]]; then
+  FAILURE_CATEGORY="index_fail"
+  REMEDIATION="Staging critical files using scripts/cicd/wave_autopilot.sh"
+  UPSTREAM_ACTION="P1-INDEX-01"
 elif [[ "$PUB_EC" -ne 0 ]]; then
   FAILURE_CATEGORY="public_edge_fail"
   REMEDIATION="Fix TLS/DNS; PUBLIC_WRITE_EVIDENCE=1 public_synthetic_check.sh"
   UPSTREAM_ACTION="P2-BILL-01"
-elif [[ "$GOV_EC" -gt 2 ]]; then
-  FAILURE_CATEGORY="compliance_hard"
-  REMEDIATION="Resolve CVT hard violations"
+elif [[ "$COMP_EC" -ne 0 ]]; then
+  FAILURE_CATEGORY="compliance_fail"
+  REMEDIATION="Resolve CVT compliance rule violations"
   UPSTREAM_ACTION="P1-ADB-01"
 elif [[ $HARD_FAIL -ne 0 ]]; then
   FAILURE_CATEGORY="cls_gate_fail"

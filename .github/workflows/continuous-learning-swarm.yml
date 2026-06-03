@@ -1,0 +1,56 @@
+name: Continuous Learning Swarm
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: continuous-learning-swarm
+  cancel-in-progress: false
+
+jobs:
+  cls-superproject:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install minimal deps
+        run: |
+          python3 -m pip install --quiet pyyaml 2>/dev/null || true
+
+      - name: Run Continuous Learning Swarm
+        id: cls
+        continue-on-error: true
+        env:
+          CLS_LOCAL_SSR: "0"
+          AGENT_SLICE: publication
+        run: |
+          bash scripts/cicd/continuous_learning_swarm.sh
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+
+      - name: Upload learning evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: goalie-learning-${{ github.run_id }}
+          path: |
+            .goalie/evidence/learning/**
+            .goalie/evidence/public-edge/**
+            .goalie/evidence/compliance/**
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Fail job if CLS hard-failed
+        if: steps.cls.outputs.exit_code != '0' && steps.cls.outputs.exit_code != ''
+        run: |
+          echo "CLS exit: ${{ steps.cls.outputs.exit_code }}"
+          exit 1

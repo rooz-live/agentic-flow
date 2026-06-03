@@ -1,3 +1,7 @@
+<!-- rooz-live contributions (fork) -->
+> **My contributions** — CLS v2 wave autopilot DAG, gate-scoped perceive, P1-INDEX-02 substrate WSJF indexing, ROAM R-CLS synthesis, and trust-spine `one.sh`. Staff IC delivery on top of upstream Agentic Flow.
+> Details: [docs/CONTRIBUTIONS.md](docs/CONTRIBUTIONS.md)
+
 # 🤖 Agentic Flow
 
 **The First AI Agent Framework That Gets Smarter AND Faster Every Time It Runs**

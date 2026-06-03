@@ -30,6 +30,7 @@ allow = {
     "tests/cicd/test_perceive_metrics_split.sh",
     "tests/cicd/test_cls_manifest_canonical.sh",
     "tests/cicd/test_index_slice_substrate.sh",
+    "tests/cicd/test_roam_edge_contract.sh",
     "scripts/cicd/lib/cls_common.sh",
     "scripts/cicd/policy_compliance.sh",
     "scripts/cicd/index_tick.sh",

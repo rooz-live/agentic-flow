@@ -8,7 +8,8 @@
 | Slice | Script | Owner | Target duration |
 |-------|--------|-------|-----------------|
 | Fast perceive | `scripts/cicd/perceive_tick.sh` | Every session | <15s |
-| Slow index | `scripts/cicd/index_slice_allowlist.sh` | P1-INDEX-01 | One tick, ≤25 paths |
+| Slow index (gate) | `scripts/cicd/index_slice_allowlist.sh` | P1-INDEX-01 | Gate canonical, ≤25 |
+| Slow index (substrate) | `scripts/cicd/index_slice_substrate.sh` | P1-INDEX-02 | WSJF pathspecs, ≤25; never blocks perceive |
 | Slow trust | `scripts/cicd/trust_path_owner.sh` | Platform | Minutes, alone |
 
 CLS (`continuous_learning_swarm.sh`) = observe→learn→gate daily; do not merge index+trust into one command.

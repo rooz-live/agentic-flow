@@ -1,0 +1,384 @@
+#!/bin/bash
+# Setup SSL-enabled mail server (465/993) for macOS Mail
+# SMTPS (465) and IMAPS (993) with proper certificates
+#
+# REQUIRES: sudo access, SSL certificates
+# ROAM: R1 MITIGATED - Local SSL mail server
+
+set -e
+
+echo "=========================================="
+echo "SSL Mail Server Setup (465/993)"
+echo "=========================================="
+echo ""
+echo "This configures macOS with SSL-enabled mail:"
+echo "  - SMTPS (465): SMTP over SSL"
+echo "  - IMAPS (993): IMAP over SSL"
+echo ""
+echo "⚠️  WARNING: Requires sudo and SSL certificates"
+echo ""
+
+# Check if running with sudo
+if [ "$EUID" -ne 0 ]; then 
+   echo "❌ Please run with sudo:"
+   echo "   sudo ./setup-mail-ssl-465-993.sh"
+   exit 1
+fi
+
+echo "[1] Checking current SSL ports..."
+if netstat -an | grep -q "\.465.*LISTEN"; then
+    echo "    ✅ Port 465 (SMTPS) already listening"
+else
+    echo "    ❌ Port 465 not configured"
+fi
+
+if netstat -an | grep -q "\.993.*LISTEN"; then
+    echo "    ✅ Port 993 (IMAPS) already listening"
+else
+    echo "    ❌ Port 993 not configured (need Dovecot)"
+fi
+
+echo ""
+echo "=========================================="
+echo "OPTION 1: Generate Self-Signed Certificate"
+echo "=========================================="
+echo ""
+echo "For local testing only:"
+echo ""
+
+CERT_DIR="/etc/ssl/mail"
+mkdir -p "$CERT_DIR"
+
+echo "[A] Generating self-signed certificate..."
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+    -keyout "$CERT_DIR/mail.key" \
+    -out "$CERT_DIR/mail.crt" \
+    -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost" \
+    2>/dev/null
+
+chmod 600 "$CERT_DIR/mail.key"
+chmod 644 "$CERT_DIR/mail.crt"
+
+echo "    ✅ Created:"
+echo "       $CERT_DIR/mail.key (private key)"
+echo "       $CERT_DIR/mail.crt (certificate)"
+
+echo ""
+echo "=========================================="
+echo "OPTION 2: Configure Postfix with SSL (465)"
+echo "=========================================="
+echo ""
+
+# Backup original config
+cp /etc/postfix/main.cf /etc/postfix/main.cf.pre-ssl.$(date +%Y%m%d)
+
+echo "[B] Adding SMTPS (465) configuration..."
+
+cat >> /etc/postfix/main.cf << 'EOF'
+
+# SSL/TLS Configuration for SMTPS (465)
+# Added by setup-mail-ssl-465-993.sh
+
+# SSL Certificate paths
+smtpd_tls_cert_file = /etc/ssl/mail/mail.crt
+smtpd_tls_key_file = /etc/ssl/mail/mail.key
+smtpd_tls_CAfile = /etc/ssl/mail/mail.crt
+
+# Enable TLS
+smtpd_tls_security_level = may
+smtpd_tls_loglevel = 1
+smtpd_tls_session_cache_database = btree:/var/lib/postfix/smtpd_scache
+
+# SMTPS (port 465) - SSL wrapper mode
+smtpd_tls_wrappermode = yes
+smtpd_tls_listen_port = 465
+
+# Force TLS for authenticated connections
+smtpd_tls_auth_only = yes
+
+# Protocols (disable old SSL versions)
+smtpd_tls_mandatory_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1
+smtpd_tls_protocols = !SSLv2, !SSLv3, !TLSv1, !TLSv1.1
+
+# Ciphers
+smtpd_tls_mandatory_ciphers = high
+tls_high_cipherlist = ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256
+
+# Authentication
+smtpd_sasl_auth_enable = yes
+smtpd_sasl_security_options = noanonymous, noplaintext
+smtpd_sasl_tls_security_options = noanonymous
+
+# Restrictions
+smtpd_recipient_restrictions = permit_sasl_authenticated, permit_mynetworks, reject_unauth_destination
+smtpd_client_restrictions = permit_mynetworks, reject
+
+# Logging
+smtpd_tls_loglevel = 1
+EOF
+
+echo "    ✅ Postfix SSL configuration added"
+
+echo ""
+echo "[C] Configuring master.cf for port 465..."
+
+# Add SMTPS to master.cf
+if ! grep -q "^smtps" /etc/postfix/master.cf; then
+cat >> /etc/postfix/master.cf << 'EOF'
+
+# SMTPS (port 465) with SSL wrapper
+smtps     inet  n       -       n       -       -       smtpd
+  -o syslog_name=postfix/smtps
+  -o smtpd_tls_wrappermode=yes
+  -o smtpd_tls_security_level=encrypt
+  -o smtpd_sasl_auth_enable=yes
+  -o smtpd_client_restrictions=permit_sasl_authenticated,reject
+  -o milter_macro_daemon_name=ORIGINATING
+EOF
+    echo "    ✅ SMTPS (465) added to master.cf"
+else
+    echo "    ℹ️  SMTPS already in master.cf"
+fi
+
+echo ""
+echo "=========================================="
+echo "OPTION 3: Install/Configure Dovecot (993)"
+echo "=========================================="
+echo ""
+
+# Check if Dovecot is installed
+if ! command -v dovecot &> /dev/null; then
+    echo "[D] Installing Dovecot..."
+    
+    # macOS doesn't include Dovecot by default
+    if command -v brew &> /dev/null; then
+        brew install dovecot 2>/dev/null || echo "    ⚠️  Homebrew install failed or already installed"
+    else
+        echo "    ⚠️  Homebrew not found. Manual installation required:"
+        echo "       brew install dovecot"
+    fi
+else
+    echo "    ✅ Dovecot already installed"
+fi
+
+# Configure Dovecot
+echo "[E] Configuring Dovecot for IMAPS (993)..."
+
+DOVECOT_CONF="/usr/local/etc/dovecot/dovecot.conf"
+if [ -d "/usr/local/etc/dovecot" ]; then
+    mkdir -p /usr/local/etc/dovecot
+fi
+
+cat > "$DOVECOT_CONF" << EOF
+# Dovecot configuration for IMAPS (993)
+# Generated by setup-mail-ssl-465-993.sh
+
+# Protocols
+protocols = imap
+
+# Listen addresses
+listen = *, ::
+
+# SSL/TLS Configuration
+ssl = required
+ssl_cert = </etc/ssl/mail/mail.crt
+ssl_key = </etc/ssl/mail/mail.key
+ssl_min_protocol = TLSv1.2
+
+# IMAP port
+protocol imap {
+    listen = *:993
+    ssl_listen = *:993
+}
+
+# Mail location (adjust as needed)
+mail_location = mbox:~/mail:INBOX=/var/mail/%u
+
+# Authentication
+auth_mechanisms = plain login
+auth_username_format = %n
+
+# User database
+userdb {
+    driver = passwd
+}
+
+passdb {
+    driver = passwd
+}
+
+# Logging
+log_path = /var/log/dovecot.log
+EOF
+
+chmod 644 "$DOVECOT_CONF"
+echo "    ✅ Dovecot configuration created"
+
+echo ""
+echo "=========================================="
+echo "OPTION 4: Start Services"
+echo "=========================================="
+echo ""
+
+echo "[F] Starting Postfix with SSL..."
+postfix stop 2>/dev/null || true
+sleep 1
+postfix start
+sleep 2
+
+# Test if port 465 is listening
+if netstat -an | grep -q "\.465.*LISTEN"; then
+    echo "    ✅ SMTPS (465) is listening"
+else
+    echo "    ❌ SMTPS (465) failed to start"
+    echo "       Check: sudo postfix check"
+    echo "       Logs: sudo tail -f /var/log/mail.log"
+fi
+
+echo ""
+echo "[G] Starting Dovecot..."
+if command -v dovecot &> /dev/null; then
+    dovecot stop 2>/dev/null || true
+    sleep 1
+    dovecot 2>/dev/null || echo "    ⚠️  Dovecot start failed (check config)"
+    sleep 2
+    
+    if netstat -an | grep -q "\.993.*LISTEN"; then
+        echo "    ✅ IMAPS (993) is listening"
+    else
+        echo "    ❌ IMAPS (993) failed to start"
+        echo "       Check: sudo dovecot -n"
+    fi
+else
+    echo "    ⚠️  Dovecot not installed"
+fi
+
+echo ""
+echo "=========================================="
+echo "VERIFICATION"
+echo "=========================================="
+echo ""
+
+echo "[V1] Testing SSL connection to port 465:"
+echo "    Command: openssl s_client -connect localhost:465 -servername localhost"
+echo ""
+
+echo "[V2] Testing SSL connection to port 993:"
+echo "    Command: openssl s_client -connect localhost:993 -servername localhost"
+echo ""
+
+echo "[V3] Check certificate:"
+echo "    Command: openssl s_client -connect localhost:465 2>/dev/null | openssl x509 -noout -dates -subject"
+echo ""
+
+echo "[V4] Test SMTP via SSL:"
+echo "    (After connecting with openssl s_client)"
+echo "    HELO localhost"
+echo "    QUIT"
+echo ""
+
+echo "[V5] Check logs:"
+echo "    sudo tail -f /var/log/mail.log"
+echo "    sudo tail -f /var/log/dovecot.log"
+echo ""
+
+echo "=========================================="
+echo "macOS Mail Configuration"
+echo "=========================================="
+echo ""
+echo "1. Mail > Add Account > Other Mail Account..."
+echo ""
+echo "2. Account Information:"
+echo "   Full Name: Your Name"
+echo "   Email Address: user@localhost (or any)"
+echo "   Password: (your macOS password)"
+echo ""
+echo "3. Incoming Mail Server (IMAPS):"
+echo "   Mail Server: localhost"
+echo "   Port: 993"
+echo "   SSL: ✓ Use SSL"
+echo "   Authentication: Password"
+echo ""
+echo "4. Outgoing Mail Server (SMTPS):"
+echo "   Mail Server: localhost"
+echo "   Port: 465"
+echo "   SSL: ✓ Use SSL"
+echo "   Authentication: Password"
+echo ""
+echo "⚠️  IMPORTANT:"
+echo "   - Self-signed certificates will show warnings"
+echo "   - Click 'Continue' when prompted about untrusted cert"
+echo "   - Or install the cert in Keychain as 'Always Trust'"
+echo ""
+
+echo "=========================================="
+echo "Certificate Trust (Optional)"
+echo "=========================================="
+echo ""
+echo "To avoid SSL warnings in Mail.app:"
+echo ""
+echo "1. Open Keychain Access"
+echo "2. File > Import Items..."
+echo "3. Select: /etc/ssl/mail/mail.crt"
+echo "4. Double-click imported certificate"
+echo "5. Expand 'Trust' section"
+echo "6. Set 'When using this certificate:' to 'Always Trust'"
+echo "7. Close and enter admin password"
+echo ""
+
+echo "=========================================="
+echo "Alternative: Use Professional Mail Service"
+echo "=========================================="
+echo ""
+echo "For production use, consider:"
+echo ""
+echo "A) iCloud Mail (Free)"
+echo "   IMAP: imap.mail.me.com:993 (SSL)"
+echo "   SMTP: smtp.mail.me.com:587 (STARTTLS)"
+echo ""
+echo "B) Google Workspace (Paid)"
+echo "   IMAP: imap.gmail.com:993 (SSL)"
+echo "   SMTP: smtp.gmail.com:465 (SSL)"
+echo ""
+echo "C) Fastmail (Paid)"
+echo "   IMAP: imap.fastmail.com:993 (SSL)"
+echo "   SMTP: smtp.fastmail.com:465 (SSL)"
+echo ""
+
+echo "=========================================="
+echo "Status Summary"
+echo "=========================================="
+echo ""
+
+# Final status check
+echo "Port 25 (SMTP):    $(netstat -an 2>/dev/null | grep -q '\\.25.*LISTEN' && echo '✅ UP' || echo '❌ DOWN')"
+echo "Port 465 (SMTPS):  $(netstat -an 2>/dev/null | grep -q '\\.465.*LISTEN' && echo '✅ UP' || echo '❌ DOWN')"
+echo "Port 587 (Subm):   $(netstat -an 2>/dev/null | grep -q '\\.587.*LISTEN' && echo '✅ UP' || echo '❌ DOWN')"
+echo "Port 993 (IMAPS):  $(netstat -an 2>/dev/null | grep -q '\\.993.*LISTEN' && echo '✅ UP' || echo '❌ DOWN')"
+
+echo ""
+echo "=========================================="
+echo "Troubleshooting"
+echo "=========================================="
+echo ""
+echo "If ports don't start:"
+echo ""
+echo "1. Check Postfix config:"
+echo "   sudo postfix check"
+echo ""
+echo "2. Check Dovecot config:"
+echo "   sudo dovecot -n"
+echo ""
+echo "3. View logs:"
+echo "   sudo log stream --predicate 'process == \"postfix\" OR process == \"dovecot\"'"
+echo ""
+echo "4. Check permissions:"
+echo "   ls -la /etc/ssl/mail/"
+echo "   ls -la /var/log/mail.log"
+echo ""
+echo "5. Restart services:"
+echo "   sudo postfix stop && sudo postfix start"
+echo "   sudo dovecot stop && sudo dovecot"
+echo ""
+
+echo "=========================================="

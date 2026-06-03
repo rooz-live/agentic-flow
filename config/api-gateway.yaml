@@ -1,0 +1,449 @@
+# API Gateway Configuration
+# Config-driven edge routing (not hardcoded)
+# 
+# ROAM: R8 MITIGATED - Tiered rate limits, auth at edge
+# WSJF: LATER - Edge deployment
+# Invert thinking: Design for edge from day one
+
+version: "1.0.0"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Gateway Architecture
+# ═══════════════════════════════════════════════════════════════════════════
+#
+#  ┌─────────────────────────────────────────────────────────────────┐
+#  │                      CDN / Edge (CloudFront)                      │
+#  │                     Global distribution, caching                  │
+#  └─────────────────────────────────────────────────────────────────┘
+#                                │
+#                                ▼
+#  ┌─────────────────────────────────────────────────────────────────┐
+#  │                      API Gateway Layer                            │
+#  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+#  │  │ Rate Limit   │  │ Auth         │  │ Routing      │           │
+#  │  │              │  │ (JWT/APIKey) │  │              │           │
+#  │  └──────────────┘  └──────────────┘  └──────────────┘           │
+#  └─────────────────────────────────────────────────────────────────┘
+#                                │
+#                ┌───────────────┼───────────────┐
+#                ▼               ▼               ▼
+#  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+#  │ Vector Search   │  │ Email Service   │  │ Revenue Platform │
+#  │ Service         │  │                 │  │                 │
+#  │ (Port 7654)     │  │ (Port 7655)     │  │ (Port 7656)      │
+#  └─────────────────┘  └─────────────────┘  └─────────────────┘
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Global Settings
+# ═══════════════════════════════════════════════════════════════════════════
+
+global:
+  # Edge configuration
+  edge:
+    provider: cloudfront  # or fastly, cloudflare
+    regions:
+      - us-east-1
+      - us-west-2
+      - eu-west-1
+      - ap-southeast-1
+    caching:
+      default_ttl: 300  # 5 minutes
+      max_ttl: 86400    # 24 hours
+      
+  # Security
+  security:
+    tls:
+      minimum_version: "1.2"
+      certificate_arn: ${ACM_CERTIFICATE_ARN}
+      
+    waf:
+      enabled: true
+      rate_limit: 10000  # per minute per IP
+      
+  # Observability
+  observability:
+    logging:
+      level: info
+      format: json
+      
+    metrics:
+      provider: cloudwatch
+      namespace: "AgenticGateway"
+      
+    tracing:
+      provider: xray
+      sampling_rate: 0.1  # 10% sampling
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Service Definitions
+# ═══════════════════════════════════════════════════════════════════════════
+
+services:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Vector Search Service
+  # ═══════════════════════════════════════════════════════════════════════
+  - name: vector-search
+    fqdn: search.api.agenticflow.com
+    
+    routing:
+      path: /v1/search
+      methods: [GET, POST]
+      
+    upstream:
+      type: service_discovery
+      service_name: vector-search
+      health_check:
+        path: /health
+        interval: 30s
+        timeout: 5s
+        
+    # Edge caching for search
+    cache:
+      enabled: true
+      ttl: 300
+      vary_by:
+        - query.q
+        - query.k
+        - query.domain
+      stale_while_revalidate: 60
+      
+    # Rate limiting
+    rate_limit:
+      tiers:
+        free:
+          requests_per_minute: 100
+          requests_per_day: 1000
+          max_results: 10
+          
+        pro:
+          requests_per_minute: 1000
+          requests_per_day: 50000
+          max_results: 100
+          api_key: required
+          
+        enterprise:
+          requests_per_minute: 10000
+          unlimited: true
+          jwt: required
+          
+    # Authentication
+    auth:
+      strategies:
+        - type: api_key
+          header: X-API-Key
+          validation: ${API_KEY_VALIDATION_ENDPOINT}
+          
+        - type: jwt
+          issuer: https://auth.agenticflow.com
+          audience: vector-search
+          
+      fallback: allow  # Allow unauth for /health
+      
+    # Circuit breaker
+    circuit_breaker:
+      failure_threshold: 5
+      recovery_timeout: 30s
+      half_open_max_calls: 3
+      
+    # Transformations
+    transforms:
+      request:
+        - name: add_request_id
+          header: X-Request-ID
+          value: ${uuid}
+          
+        - name: log_query
+          condition: query.q != ""
+          log_level: info
+          
+      response:
+        - name: cache_headers
+          headers:
+            Cache-Control: "public, max-age=300"
+            X-Cache-Status: ${cache.status}
+            
+        - name: rate_limit_headers
+          headers:
+            X-RateLimit-Limit: ${rate_limit.limit}
+            X-RateLimit-Remaining: ${rate_limit.remaining}
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Email Service
+  # ═══════════════════════════════════════════════════════════════════════
+  - name: email-bridge
+    fqdn: email.api.agenticflow.com
+    
+    routing:
+      path: /v1/email
+      methods: [POST]
+      
+    upstream:
+      type: static
+      hosts:
+        - localhost:7655
+        
+    # No caching for email
+    cache:
+      enabled: false
+      
+    rate_limit:
+      tiers:
+        free:
+          requests_per_minute: 10  # Low for email
+          requests_per_day: 100
+          
+        pro:
+          requests_per_minute: 100
+          requests_per_day: 5000
+          
+    auth:
+      strategies:
+        - type: jwt
+          required: true  # Email always requires auth
+          
+    # No circuit breaker (email must queue)
+    circuit_breaker:
+      enabled: false
+      
+    transforms:
+      request:
+        - name: validate_email
+          validation:
+            to: required,email
+            subject: required,max(200)
+            body: required,max(10000)
+            
+        - name: rate_limit_by_recipient
+          key: body.to
+          limit: 100/hour  # Per recipient limit
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Revenue Platform (HostBill/Oro/Stripe)
+  # ═══════════════════════════════════════════════════════════════════════
+  - name: revenue-platform
+    fqdn: billing.api.agenticflow.com
+    
+    routing:
+      paths:
+        - /v1/billing/*     # HostBill
+        - /v1/crm/*         # Oro
+        - /v1/payments/*    # Stripe
+        - /v1/webhooks/*    # Webhook receivers
+      
+    upstream:
+      type: path_based
+      routes:
+        - path: /v1/billing/*
+          service: hostbill-adapter
+          port: 7656
+          
+        - path: /v1/crm/*
+          service: oro-adapter
+          port: 7657
+          
+        - path: /v1/payments/*
+          service: stripe-adapter
+          port: 7658
+          
+        - path: /v1/webhooks/stripe
+          service: stripe-webhook
+          port: 7658
+          # Webhooks need special handling
+          bypass_auth: true  # Stripe signs webhooks
+          verify_signature: true
+          
+    cache:
+      enabled: true
+      ttl: 60  # Short for billing
+      paths:
+        - pattern: /v1/billing/plans
+          ttl: 3600  # Plans change rarely
+        - pattern: /v1/crm/customers/*
+          ttl: 0     # Never cache customer data
+          
+    rate_limit:
+      tiers:
+        free:
+          requests_per_minute: 50
+          
+        pro:
+          requests_per_minute: 500
+          
+        enterprise:
+          requests_per_minute: 5000
+          
+    auth:
+      strategies:
+        - type: jwt
+          required: true
+          claims:
+            - sub
+            - org_id
+            - permissions
+            
+    transforms:
+      request:
+        - name: add_org_context
+          header: X-Org-ID
+          value: ${jwt.claims.org_id}
+          
+        - name: audit_log
+          log:
+            user: ${jwt.claims.sub}
+            action: ${request.path}
+            amount: ${request.body.amount}  # For payments
+            
+      response:
+        - name: redact_sensitive
+          paths:
+            - response.body.card_number
+            - response.body.cvv
+            
+        - name: add_compliance_headers
+          headers:
+            X-PCI-Scope: false  # We don't touch cards
+            X-Stripe-Version: ${stripe.version}
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Health Check / Status
+  # ═══════════════════════════════════════════════════════════════════════
+  - name: health
+    fqdn: status.agenticflow.com
+    
+    routing:
+      path: /health
+      methods: [GET]
+      
+    upstream:
+      type: static
+      response:
+        status: 200
+        body: |
+          {
+            "status": "healthy",
+            "services": ${health.check_all()}
+          }
+        
+    cache:
+      enabled: true
+      ttl: 10  # Short TTL for health
+      
+    auth:
+      enabled: false  # Public health endpoint
+      
+    rate_limit:
+      requests_per_minute: 1000  # Generous for monitoring
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Error Handling
+# ═══════════════════════════════════════════════════════════════════════════
+
+errors:
+  # Standard error responses
+  formats:
+    - name: default
+      content_type: application/json
+      template: |
+        {
+          "error": {
+            "code": "${error.code}",
+            "message": "${error.message}",
+            "request_id": "${request.id}",
+            "timestamp": "${now}"
+          }
+        }
+        
+  # Error mapping
+  mappings:
+    - from: 429  # Rate limit
+      to:
+        code: RATE_LIMIT_EXCEEDED
+        message: "Too many requests, please slow down"
+        headers:
+          Retry-After: ${rate_limit.reset_time}
+          
+    - from: 503  # Service unavailable
+      to:
+        code: SERVICE_UNAVAILABLE
+        message: "Service temporarily unavailable"
+        circuit_breaker: open
+        
+    - from: 504  # Gateway timeout
+      to:
+        code: UPSTREAM_TIMEOUT
+        message: "Upstream service took too long"
+        
+    - from: 500  # Internal error
+      to:
+        code: INTERNAL_ERROR
+        message: "An unexpected error occurred"
+        log_level: error
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Feature Flags (Anti-fragile)
+# ═══════════════════════════════════════════════════════════════════════════
+
+features:
+  # Can toggle without deployment
+  - name: new_rate_limiter
+    description: "Use new token bucket algorithm"
+    default: false
+    rollout: percentage 10
+    
+  - name: cache_search_results
+    description: "Cache vector search results"
+    default: true
+    
+  - name: auth_jwt_only
+    description: "Disable API keys, JWT only"
+    default: false
+    requires: migration_to_jwt_complete
+    
+  - name: edge_functions
+    description: "Run Lambda@Edge for routing"
+    default: false
+    regions: [us-east-1]  # Only in specific regions
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Environment-specific Overrides
+# ═══════════════════════════════════════════════════════════════════════════
+
+environments:
+  development:
+    global:
+      edge:
+        enabled: false  # No edge caching in dev
+        
+    services:
+      - name: vector-search
+        auth:
+          enabled: false  # No auth in dev
+          
+        rate_limit:
+          tiers:
+            free:
+              requests_per_minute: 10000  # Unlimited in dev
+              
+  staging:
+    global:
+      edge:
+        enabled: true
+        caching:
+          default_ttl: 60  # Shorter in staging
+          
+  production:
+    global:
+      edge:
+        enabled: true
+        
+    services:
+      - name: revenue-platform
+        auth:
+          strategies:
+            - type: jwt
+              required: true
+              # Stricter in prod
+              claims:
+                - sub
+                - org_id
+                - mfa_verified  # Require MFA

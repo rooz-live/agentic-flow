@@ -22,9 +22,9 @@ opener = urllib.request.build_opener(NoRedirectHandler)
 urllib.request.install_opener(opener)
 
 def get_webhook_secret():
-    secret = os.environ.get("COGNITUM_WEBHOOK_SECRET")
-    if secret:
-        return secret
+    if "COGNITUM_WEBHOOK_SECRET" in os.environ:
+        return os.environ["COGNITUM_WEBHOOK_SECRET"]
+    
     
     # Try reading from .env files up to 2 directories up
     for env_file in [".env", "../.env", "../../.env"]:

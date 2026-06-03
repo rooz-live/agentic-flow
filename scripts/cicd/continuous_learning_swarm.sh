@@ -5,6 +5,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$PROJECT_ROOT"
 export REPO_ROOT="$PROJECT_ROOT"
+export COGNITUM_WEBHOOK_SECRET=""
 
 EVIDENCE_LIB="$PROJECT_ROOT/tooling/scripts/lib/evidence_json.sh"
 if [[ -f "$EVIDENCE_LIB" ]]; then

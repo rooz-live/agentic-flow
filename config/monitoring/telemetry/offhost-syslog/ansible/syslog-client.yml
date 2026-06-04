@@ -1,0 +1,132 @@
+---
+# Ansible Playbook: Configure Syslog Client (stx-aio-0)
+# Deploys TLS certificates, configures journald, and rsyslog client
+
+- name: Configure Syslog Client (stx-aio-0)
+  hosts: syslog_client
+  become: yes
+  vars:
+    syslog_tls_dir: /etc/rsyslog.d/tls
+    syslog_sink_hostname: "{{ lookup('env', 'SYSLOG_SINK_HOSTNAME') | default('vps.example.com', true) }}"
+    syslog_sink_ip: "{{ lookup('env', 'SYSLOG_SINK_IP') | default('127.0.0.1', true) }}"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install rsyslog and dependencies
+      apt:
+        name:
+          - rsyslog
+          - rsyslog-gnutls
+        state: present
+
+    - name: Create TLS directory
+      file:
+        path: "{{ syslog_tls_dir }}"
+        state: directory
+        mode: '0700'
+        owner: root
+        group: root
+
+    - name: Deploy CA certificate
+      copy:
+        src: tls/ca.crt
+        dest: "{{ syslog_tls_dir }}/ca.crt"
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Deploy client certificate
+      copy:
+        src: tls/client.crt
+        dest: "{{ syslog_tls_dir }}/client.crt"
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Deploy client private key
+      copy:
+        src: tls/client.key
+        dest: "{{ syslog_tls_dir }}/client.key"
+        mode: '0600'
+        owner: root
+        group: root
+
+    - name: Configure journald for syslog forwarding
+      copy:
+        src: rsyslog/journald.conf
+        dest: /etc/systemd/journald.conf.d/offhost-syslog.conf
+        mode: '0644'
+        owner: root
+        group: root
+      notify: restart journald
+
+    - name: Deploy rsyslog client configuration
+      template:
+        src: rsyslog/rsyslog-client.conf
+        dest: /etc/rsyslog.d/50-offhost-syslog-client.conf
+        mode: '0644'
+        owner: root
+        group: root
+      notify: restart rsyslog
+
+    - name: Create rsyslog work directory
+      file:
+        path: /var/spool/rsyslog
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Ensure rsyslog is running and enabled
+      systemd:
+        name: rsyslog
+        state: started
+        enabled: yes
+
+    - name: Test TCP connectivity to syslog sink
+      wait_for:
+        host: "{{ syslog_sink_ip }}"
+        port: 6514
+        timeout: 10
+      register: connectivity_test
+      ignore_errors: yes
+
+    - name: Display connectivity test result
+      debug:
+        msg: "TCP/6514 connectivity: {{ 'SUCCESS' if connectivity_test is succeeded else 'FAILED' }}"
+
+    - name: Generate synthetic authpriv log
+      shell: logger -p authpriv.info "Test authpriv log from Ansible deployment"
+      changed_when: false
+
+    - name: Generate synthetic warn log
+      shell: logger -p syslog.warning "Test warning log from Ansible deployment"
+      changed_when: false
+
+    - name: Wait for log transmission
+      pause:
+        seconds: 5
+
+    - name: Verify TLS certificate permissions
+      command: ls -la {{ syslog_tls_dir }}/
+      register: tls_perms
+      changed_when: false
+
+    - name: Display TLS permissions
+      debug:
+        var: tls_perms.stdout_lines
+
+  handlers:
+    - name: restart journald
+      systemd:
+        name: systemd-journald
+        state: restarted
+
+    - name: restart rsyslog
+      systemd:
+        name: rsyslog
+        state: restarted

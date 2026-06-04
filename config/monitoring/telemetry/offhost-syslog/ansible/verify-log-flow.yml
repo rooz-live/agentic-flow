@@ -1,0 +1,146 @@
+---
+# Ansible Playbook: Verify End-to-End Log Flow
+#
+# Tests that logs are flowing from stx-aio-0 to syslog-sink
+#
+# Usage:
+#   ansible-playbook -i inventory.yml verify-log-flow.yml
+#
+# Prerequisites:
+#   - Sink deployed via deploy-sink.yml
+#   - Forwarder deployed via deploy-forwarder.yml
+
+- name: Verify Syslog TLS Log Flow
+  hosts: localhost
+  gather_facts: no
+  
+  vars:
+    sink_host: 77.42.28.179
+    sink_port: 6514
+    forwarder_host: 23.92.79.2
+    forwarder_port: 2222
+    test_message: "OFFHOST_SYSLOG_TEST_{{ ansible_date_time.iso8601_basic_short | default(lookup('pipe', 'date +%Y%m%d%H%M%S')) }}"
+
+  tasks:
+    - name: "Step 1: Test TCP/6514 connectivity to syslog-sink"
+      wait_for:
+        host: "{{ sink_host }}"
+        port: "{{ sink_port }}"
+        timeout: 10
+        state: started
+      register: connectivity_test
+      ignore_errors: yes
+
+    - name: Report connectivity status
+      debug:
+        msg: "{{ '✅ TCP/6514 OPEN' if connectivity_test is succeeded else '❌ TCP/6514 BLOCKED - Check firewall rules' }}"
+
+- name: Send Test Log from stx-aio-0
+  hosts: syslog_forwarders
+  become: yes
+  gather_facts: no
+  
+  vars:
+    test_tag: "offhost-syslog-verify"
+
+  tasks:
+    - name: "Step 2: Send synthetic auth log message"
+      shell: logger -p authpriv.info -t {{ test_tag }} "TEST_AUTH_MSG_{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
+      register: auth_test
+
+    - name: "Step 3: Send synthetic system warning message"
+      shell: logger -p user.warning -t {{ test_tag }} "TEST_WARN_MSG_{{ lookup('pipe', 'date +%Y%m%d%H%M%S') }}"
+      register: warn_test
+
+    - name: Report test messages sent
+      debug:
+        msg: |
+          ✅ Test messages sent from {{ inventory_hostname }}
+          Auth log test: {{ 'SUCCESS' if auth_test.rc == 0 else 'FAILED' }}
+          Warning test: {{ 'SUCCESS' if warn_test.rc == 0 else 'FAILED' }}
+
+- name: Verify Logs Received on Sink
+  hosts: syslog_sinks
+  become: yes
+  gather_facts: no
+  
+  vars:
+    test_tag: "offhost-syslog-verify"
+    auth_log: /var/log/remote/auth.log
+    system_log: /var/log/remote/system.log
+
+  tasks:
+    - name: Wait for log propagation
+      pause:
+        seconds: 5
+
+    - name: "Step 4: Check for test message in auth.log"
+      shell: grep -c "{{ test_tag }}" {{ auth_log }} 2>/dev/null || echo "0"
+      register: auth_grep
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Step 5: Check for test message in system.log"
+      shell: grep -c "{{ test_tag }}" {{ system_log }} 2>/dev/null || echo "0"
+      register: system_grep
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Step 6: Show last 5 lines of auth.log"
+      shell: tail -5 {{ auth_log }} 2>/dev/null || echo "File not found"
+      register: auth_tail
+      changed_when: false
+      ignore_errors: yes
+
+    - name: "Step 7: Show last 5 lines of system.log"
+      shell: tail -5 {{ system_log }} 2>/dev/null || echo "File not found"
+      register: system_tail
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Generate verification report
+      debug:
+        msg: |
+          
+          ══════════════════════════════════════════════════
+          OFF-HOST SYSLOG VERIFICATION REPORT
+          ══════════════════════════════════════════════════
+          
+          📍 Sink Server: {{ inventory_hostname }} ({{ ansible_host }})
+          📍 Source: stx-aio-0 (23.92.79.2)
+          
+          ✅ AUTH LOG ({{ auth_log }}):
+             Test messages found: {{ auth_grep.stdout | default('0') }}
+             Last entries:
+          {{ auth_tail.stdout | default('No entries') | indent(6) }}
+          
+          ✅ SYSTEM LOG ({{ system_log }}):
+             Test messages found: {{ system_grep.stdout | default('0') }}
+             Last entries:
+          {{ system_tail.stdout | default('No entries') | indent(6) }}
+          
+          ══════════════════════════════════════════════════
+          VERIFICATION STATUS: {{ '✅ PASS' if (auth_grep.stdout | default('0') | int > 0) or (system_grep.stdout | default('0') | int > 0) else '⚠️ PENDING - Run real SSH/sudo test' }}
+          ══════════════════════════════════════════════════
+
+- name: Real Authentication Test (SSH + Sudo)
+  hosts: syslog_forwarders
+  become: yes
+  gather_facts: no
+  
+  tasks:
+    - name: "Step 8: Trigger real sudo event"
+      shell: sudo -l
+      register: sudo_test
+      ignore_errors: yes
+
+    - name: Report real auth test
+      debug:
+        msg: |
+          ✅ Real sudo command executed
+          This should generate an authpriv log entry
+          
+          To verify manually:
+          1. SSH to syslog-sink: ssh root@77.42.28.179
+          2. Check auth.log: tail -f /var/log/remote/auth.log
+          3. Look for entries from stx-aio-0

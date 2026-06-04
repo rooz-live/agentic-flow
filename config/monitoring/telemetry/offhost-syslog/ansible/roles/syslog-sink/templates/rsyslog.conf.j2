@@ -1,0 +1,85 @@
+# Rsyslog Server Configuration - Off-Host Syslog Black Box Recorder
+# TLS-enabled syslog receiver
+
+# Global settings
+$MaxMessageSize 64k
+$ActionQueueSize 100000
+$ActionQueueType LinkedList
+$ActionQueueDiskSpoolMode on
+$ActionQueueFileName rsyslog-queue
+$WorkDirectory /var/spool/rsyslog
+
+# TLS Certificate Configuration
+$DefaultNetstreamDriver gtls
+$DefaultNetstreamDriverCAFile {{ ca_cert_path }}
+$DefaultNetstreamDriverCertFile {{ server_cert_path }}
+$DefaultNetstreamDriverKeyFile {{ server_key_path }}
+
+# Module configuration
+module(load="imtcp")
+module(load="omfile")
+module(load="mmjsonparse")
+
+# TCP input on syslog port with TLS
+input(type="imtcp"
+      Port="{{ syslog_port }}"
+      Address="0.0.0.0"
+      MaxSessions="500"
+      StreamDriver.Mode="1"
+      StreamDriver.AuthMode="x509/name"
+      PermittedPeer="{{ source_server_ip }}")
+
+# Log templates
+template(name="AuthLogFormat" type="string"
+         string="%TIMESTAMP% %HOSTNAME% %syslogtag% %msg%\n")
+
+template(name="SystemLogFormat" type="string"
+         string="%TIMESTAMP% %HOSTNAME% %syslogtag% %msg%\n")
+
+template(name="JSONFormat" type="string"
+         string="{\"timestamp\":\"%timereported%\",\"hostname\":\"%hostname%\",\"program\":\"%programname%\",\"pid\":\"%procid%\",\"message\":\"%msg%\"}\n")
+
+# Auth/Sudo logs - 30 day retention
+if $syslogtag contains 'auth' or $syslogtag contains 'sudo' then {
+    action(type="omfile"
+           file="{{ log_dir }}/auth.log"
+           template="AuthLogFormat"
+           dirCreateMode="0750"
+           fileCreateMode="0640"
+           fileOwner="root"
+           fileGroup="adm")
+    stop
+}
+
+# System warning logs - 7 day retention
+if $syslogseverity <= 4 then {
+    action(type="omfile"
+           file="{{ log_dir }}/system-warn.log"
+           template="SystemLogFormat"
+           dirCreateMode="0750"
+           fileCreateMode="0640"
+           fileOwner="root"
+           fileGroup="adm")
+    stop
+}
+
+# System info/debug logs - 3 day retention
+if $syslogseverity > 4 then {
+    action(type="omfile"
+           file="{{ log_dir }}/system-info.log"
+           template="SystemLogFormat"
+           dirCreateMode="0750"
+           fileCreateMode="0640"
+           fileOwner="root"
+           fileGroup="adm")
+    stop
+}
+
+# JSON formatted logs for monitoring
+action(type="omfile"
+       file="{{ log_dir }}/syslog.json"
+       template="JSONFormat"
+       dirCreateMode="0750"
+       fileCreateMode="0640"
+       fileOwner="root"
+       fileGroup="adm")

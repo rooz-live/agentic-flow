@@ -1,0 +1,117 @@
+# rsyslog TLS Sink Configuration
+# Deployed via Ansible - DO NOT EDIT MANUALLY
+# 
+# Purpose: Receive syslog messages over TLS from stx-aio-0
+# 
+# Log Streams:
+#   1. Auth/Sudo: authpriv.* + sudo messages -> /var/log/remote/auth.log (30-day retention)
+#   2. System:    *.warn (excluding authpriv) -> /var/log/remote/system.log (7-day retention)
+
+#################
+# Global Settings
+#################
+
+# Work directory for queue files
+$WorkDirectory /var/spool/rsyslog
+
+# Increase system log rate limits
+$SystemLogRateLimitInterval 0
+$SystemLogRateLimitBurst 0
+
+######################
+# Load Required Modules
+######################
+
+# GnuTLS driver for TLS
+module(load="imtcp" StreamDriver.Name="gtls" StreamDriver.Mode="1" StreamDriver.Authmode="x509/certvalid")
+
+# Template module for custom log formats
+module(load="builtin:omfile" Template="RSYSLOG_TraditionalFileFormat")
+
+##################
+# TLS Configuration
+##################
+
+# Global TLS settings
+global(
+    DefaultNetstreamDriver="gtls"
+    DefaultNetstreamDriverCAFile="{{ remote_tls_dir }}/ca.crt"
+    DefaultNetstreamDriverCertFile="{{ remote_tls_dir }}/server.crt"
+    DefaultNetstreamDriverKeyFile="{{ remote_tls_dir }}/server.key"
+)
+
+##################
+# Input Configuration
+##################
+
+# TLS TCP input on port {{ tls_listen_port }}
+input(
+    type="imtcp"
+    port="{{ tls_listen_port }}"
+    StreamDriver.Name="gtls"
+    StreamDriver.Mode="1"
+    StreamDriver.Authmode="x509/certvalid"
+    PermittedPeer=["stx-aio-0", "stx-aio-0.corp.interface.tag.ooo"]
+    ruleset="remote_logs"
+)
+
+##################
+# Log Templates
+##################
+
+# Standard syslog format with hostname preserved
+template(name="RemoteLogFormat" type="string"
+    string="%TIMESTAMP% %HOSTNAME% %syslogtag%%msg:::sp-if-no-1st-sp%%msg:::drop-last-lf%\n"
+)
+
+# Structured format for analysis tools
+template(name="StructuredLogFormat" type="string"
+    string="%TIMESTAMP:::date-rfc3339% host=%HOSTNAME% facility=%syslogfacility-text% severity=%syslogseverity-text% tag=%syslogtag% msg=%msg:::json%\n"
+)
+
+##################
+# Ruleset for Remote Logs
+##################
+
+ruleset(name="remote_logs") {
+    # Auth/Sudo stream: authpriv facility and sudo program
+    # 30-day retention (managed by logrotate)
+    if ($syslogfacility-text == 'authpriv') or ($programname == 'sudo') then {
+        action(
+            type="omfile"
+            file="{{ remote_log_dir }}/auth.log"
+            template="RemoteLogFormat"
+            fileOwner="syslog"
+            fileGroup="adm"
+            fileCreateMode="0640"
+            dirCreateMode="0750"
+        )
+        stop
+    }
+
+    # System warnings and above (excluding authpriv to avoid duplicates)
+    # 7-day retention (managed by logrotate)
+    if ($syslogseverity <= 4) and ($syslogfacility-text != 'authpriv') then {
+        action(
+            type="omfile"
+            file="{{ remote_log_dir }}/system.log"
+            template="RemoteLogFormat"
+            fileOwner="syslog"
+            fileGroup="adm"
+            fileCreateMode="0640"
+            dirCreateMode="0750"
+        )
+    }
+}
+
+##################
+# Queue Configuration
+##################
+
+# Disk-assisted queue for reliability
+main_queue(
+    queue.filename="main_queue"
+    queue.maxdiskspace="100m"
+    queue.saveonshutdown="on"
+    queue.type="LinkedList"
+)

@@ -1,0 +1,78 @@
+# rsyslog TLS Forwarder Configuration
+# Deployed via Ansible - DO NOT EDIT MANUALLY
+#
+# Purpose: Forward logs from stx-aio-0 to syslog-sink over TLS
+#
+# Forwarding Rules:
+#   1. authpriv.* - All auth/security logs
+#   2. *.warn     - System warnings and above (excluding authpriv duplicates)
+
+######################
+# Load Required Modules
+######################
+
+# GnuTLS driver for TLS output
+module(load="omfwd")
+
+##################
+# TLS Configuration
+##################
+
+# Global TLS settings for outbound connections
+global(
+    DefaultNetstreamDriver="gtls"
+    DefaultNetstreamDriverCAFile="{{ remote_tls_dir }}/ca.crt"
+    DefaultNetstreamDriverCertFile="{{ remote_tls_dir }}/client.crt"
+    DefaultNetstreamDriverKeyFile="{{ remote_tls_dir }}/client.key"
+)
+
+##################
+# Action Templates
+##################
+
+# Queue configuration for reliable delivery
+$ActionQueueFileName fwdRule1      # unique name prefix for spool files
+$ActionQueueMaxDiskSpace 100m      # limit disk space
+$ActionQueueSaveOnShutdown on      # save queue contents on shutdown
+$ActionQueueType LinkedList        # async processing
+$ActionResumeRetryCount -1         # infinite retries
+
+##################
+# Forwarding Rules
+##################
+
+# Forward all authpriv messages (SSH, sudo, PAM, etc.)
+authpriv.* action(
+    type="omfwd"
+    target="{{ syslog_sink_host }}"
+    port="{{ syslog_sink_port }}"
+    protocol="tcp"
+    StreamDriver="gtls"
+    StreamDriverMode="1"
+    StreamDriverAuthMode="x509/certvalid"
+    StreamDriverPermittedPeers="syslog-sink"
+    queue.type="LinkedList"
+    queue.filename="fwd_authpriv"
+    queue.maxdiskspace="50m"
+    queue.saveonshutdown="on"
+    action.resumeRetryCount="-1"
+    action.resumeInterval="30"
+)
+
+# Forward warnings and above (excluding authpriv to avoid duplicates)
+*.warn;authpriv.none action(
+    type="omfwd"
+    target="{{ syslog_sink_host }}"
+    port="{{ syslog_sink_port }}"
+    protocol="tcp"
+    StreamDriver="gtls"
+    StreamDriverMode="1"
+    StreamDriverAuthMode="x509/certvalid"
+    StreamDriverPermittedPeers="syslog-sink"
+    queue.type="LinkedList"
+    queue.filename="fwd_warn"
+    queue.maxdiskspace="50m"
+    queue.saveonshutdown="on"
+    action.resumeRetryCount="-1"
+    action.resumeInterval="30"
+)

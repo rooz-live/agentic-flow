@@ -1,0 +1,139 @@
+---
+# Ansible Playbook: Configure Syslog Sink (VPS)
+# Deploys TLS certificates, rsyslog server, firewall rules, and logrotate
+
+- name: Configure Syslog Sink (Off-Host Log Collector)
+  hosts: syslog_sink
+  become: yes
+  vars:
+    syslog_tls_dir: /etc/rsyslog.d/tls
+    syslog_log_dir: /var/log/syslog
+    syslog_sink_hostname: "{{ lookup('env', 'SYSLOG_SINK_HOSTNAME') | default('vps.example.com', true) }}"
+    syslog_sink_ip: "{{ lookup('env', 'SYSLOG_SINK_IP') | default('127.0.0.1', true) }}"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install rsyslog and dependencies
+      apt:
+        name:
+          - rsyslog
+          - rsyslog-gnutls
+          - logrotate
+          - ufw
+        state: present
+
+    - name: Create TLS directory
+      file:
+        path: "{{ syslog_tls_dir }}"
+        state: directory
+        mode: '0700'
+        owner: root
+        group: root
+
+    - name: Create log directory
+      file:
+        path: "{{ syslog_log_dir }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Deploy CA certificate
+      copy:
+        src: tls/ca.crt
+        dest: "{{ syslog_tls_dir }}/ca.crt"
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Deploy server certificate
+      copy:
+        src: tls/server.crt
+        dest: "{{ syslog_tls_dir }}/server.crt"
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Deploy server private key
+      copy:
+        src: tls/server.key
+        dest: "{{ syslog_tls_dir }}/server.key"
+        mode: '0600'
+        owner: root
+        group: root
+
+    - name: Create GnuTLS priority file
+      copy:
+        content: |
+          priority=NORMAL:-VERS-TLS1.0:-VERS-TLS1.1
+        dest: "{{ syslog_tls_dir }}/rsyslog-server.prm"
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Deploy rsyslog server configuration
+      template:
+        src: rsyslog/rsyslog-server.conf
+        dest: /etc/rsyslog.d/50-offhost-syslog-server.conf
+        mode: '0644'
+        owner: root
+        group: root
+      notify: restart rsyslog
+
+    - name: Deploy logrotate configuration
+      copy:
+        src: rsyslog/logrotate.conf
+        dest: /etc/logrotate.d/offhost-syslog
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Configure UFW - Allow SSH from admin IP
+      ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+        src: 173.94.53.113/32
+        comment: 'Allow SSH from admin IP'
+
+    - name: Configure UFW - Allow syslog TLS from stx-aio-0
+      ufw:
+        rule: allow
+        port: '6514'
+        proto: tcp
+        src: 23.92.79.2/32
+        comment: 'Allow syslog TLS from stx-aio-0'
+
+    - name: Configure UFW - Default deny incoming
+      ufw:
+        direction: incoming
+        policy: deny
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+
+    - name: Ensure rsyslog is running and enabled
+      systemd:
+        name: rsyslog
+        state: started
+        enabled: yes
+
+    - name: Verify TLS certificate permissions
+      command: ls -la {{ syslog_tls_dir }}/
+      register: tls_perms
+      changed_when: false
+
+    - name: Display TLS permissions
+      debug:
+        var: tls_perms.stdout_lines
+
+  handlers:
+    - name: restart rsyslog
+      systemd:
+        name: rsyslog
+        state: restarted

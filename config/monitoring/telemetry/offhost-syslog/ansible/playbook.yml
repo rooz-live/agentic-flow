@@ -1,0 +1,155 @@
+---
+# =============================================================================
+# Off-Host Syslog Black Box Recorder - Main Playbook
+# =============================================================================
+# Purpose: Configure VPS syslog sink with TLS and log management
+# Target: AWS Lightsail VPS (Ubuntu 22.04)
+# =============================================================================
+
+- name: Configure Off-Host Syslog Sink
+  hosts: syslog_sink
+  become: true
+  gather_facts: true
+  
+  vars:
+    # Log directories
+    log_base_dir: /var/log/remote
+    auth_log_path: "{{ log_base_dir }}/auth.log"
+    system_log_path: "{{ log_base_dir }}/system.log"
+    
+    # TLS certificate paths
+    ca_cert_path: /etc/ssl/certs/observability-ca.crt
+    server_cert_path: /etc/ssl/certs/syslog-sink.crt
+    server_key_path: /etc/ssl/private/syslog-sink.key
+    client_cert_path: /etc/ssl/certs/stx-aio-0.crt
+    
+    # Syslog configuration
+    syslog_port: 6514
+    
+    # Firewall allowlist
+    admin_ssh_ip: "173.94.53.113"
+    syslog_source_ip: "23.92.79.2"
+    
+    # Retention settings
+    auth_log_retention_days: 30
+    system_log_retention_days: 7
+    
+  pre_tasks:
+    - name: Verify we're on Ubuntu
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+        fail_msg: "This playbook is designed for Ubuntu"
+        success_msg: "Running on Ubuntu {{ ansible_distribution_version }}"
+    
+    - name: Display configuration summary
+      ansible.builtin.debug:
+        msg: |
+          Off-Host Syslog Sink Configuration:
+          - Syslog Port: {{ syslog_port }}
+          - Admin SSH from: {{ admin_ssh_ip }}
+          - Syslog from: {{ syslog_source_ip }}
+          - Auth log retention: {{ auth_log_retention_days }} days
+          - System log retention: {{ system_log_retention_days }} days
+  
+  roles:
+    - role: base
+      tags: [base, security]
+    
+    - role: rsyslog
+      tags: [rsyslog, syslog]
+    
+    - role: logrotate
+      tags: [logrotate, retention]
+  
+  post_tasks:
+    - name: Verify rsyslog is running
+      ansible.builtin.systemd:
+        name: rsyslog
+        state: started
+        enabled: true
+      register: rsyslog_status
+    
+    - name: Verify TLS listener
+      ansible.builtin.wait_for:
+        host: 0.0.0.0
+        port: "{{ syslog_port }}"
+        timeout: 10
+      register: listener_status
+    
+    - name: Display deployment status
+      ansible.builtin.debug:
+        msg: |
+          ============================================
+          Deployment Complete
+          ============================================
+          rsyslog status: {{ rsyslog_status.status.ActiveState | default('unknown') }}
+          TLS listener: Port {{ syslog_port }} is ready
+          
+          Log locations:
+          - Auth: {{ auth_log_path }}
+          - System: {{ system_log_path }}
+          
+          Next steps:
+          1. Deploy certificates to stx-aio-0
+          2. Configure rsyslog client on stx-aio-0
+          3. Run verification tests
+          ============================================
+
+# =============================================================================
+# Client Configuration Playbook (optional - run separately)
+# =============================================================================
+
+- name: Configure StarlingX Syslog Client
+  hosts: syslog_client
+  become: true
+  gather_facts: true
+  
+  vars:
+    # VPS syslog sink (set via inventory or extra vars)
+    syslog_sink_ip: "{{ hostvars['syslog_sink']['ansible_host'] | default(syslog_sink_ip) }}"
+    syslog_port: 6514
+    
+    # Certificate paths on client
+    ca_cert_path: /etc/ssl/certs/observability-ca.crt
+    client_cert_path: /etc/ssl/certs/stx-aio-0.crt
+    client_key_path: /etc/ssl/private/stx-aio-0.key
+  
+  tasks:
+    - name: Install rsyslog-gnutls
+      ansible.builtin.package:
+        name: rsyslog-gnutls
+        state: present
+    
+    - name: Deploy journald configuration
+      ansible.builtin.copy:
+        src: ../source/journald.conf.d/50-forward-syslog.conf
+        dest: /etc/systemd/journald.conf.d/50-forward-syslog.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart journald
+    
+    - name: Deploy rsyslog TLS configuration
+      ansible.builtin.template:
+        src: templates/rsyslog-tls.conf.j2
+        dest: /etc/rsyslog.d/99-offhost-tls.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: restart rsyslog
+  
+  handlers:
+    - name: restart journald
+      ansible.builtin.systemd:
+        name: systemd-journald
+        state: restarted
+    
+    - name: restart rsyslog
+      ansible.builtin.systemd:
+        name: rsyslog
+        state: restarted
+
+  tags:
+    - client
+    - never  # Only run if explicitly tagged

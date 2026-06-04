@@ -1,0 +1,202 @@
+---
+# Ansible Playbook: Generate and Deploy TLS Certificates
+# Off-Host Syslog Black Box Recorder
+
+- name: Generate TLS certificates on syslog sink
+  hosts: syslog_sink
+  become: true
+  vars:
+    ca_validity_days: 3650
+    cert_validity_days: 365
+    syslog_client_hostname: "stx-aio-0.corp.interface.tag.ooo"
+
+  tasks:
+    - name: Create SSL directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+      loop:
+        - /etc/ssl/private
+        - /etc/ssl/certs
+
+    - name: Check if CA certificate exists
+      stat:
+        path: /etc/ssl/certs/syslog-ca.crt
+      register: ca_cert
+
+    - name: Generate CA private key
+      openssl_privatekey:
+        path: /etc/ssl/private/syslog-ca.key
+        size: 4096
+        type: RSA
+        mode: '0600'
+        owner: root
+        group: root
+      when: not ca_cert.stat.exists
+
+    - name: Generate CA certificate
+      openssl_certificate:
+        path: /etc/ssl/certs/syslog-ca.crt
+        privatekey_path: /etc/ssl/private/syslog-ca.key
+        provider: selfsigned
+        selfsigned_not_after: "+{{ ca_validity_days }}d"
+        mode: '0644'
+        owner: root
+        group: root
+      when: not ca_cert.stat.exists
+
+    - name: Generate server private key
+      openssl_privatekey:
+        path: /etc/ssl/private/syslog-server.key
+        size: 4096
+        type: RSA
+        mode: '0600'
+        owner: root
+        group: root
+
+    - name: Generate server CSR
+      openssl_csr:
+        path: /etc/ssl/certs/syslog-server.csr
+        privatekey_path: /etc/ssl/private/syslog-server.key
+        common_name: "{{ ansible_hostname }}"
+        organization_name: "Syslog Infrastructure"
+        key_usage:
+          - digitalSignature
+          - keyEncipherment
+        extended_key_usage:
+          - serverAuth
+      register: server_csr
+
+    - name: Sign server certificate with CA
+      openssl_certificate:
+        path: /etc/ssl/certs/syslog-server.crt
+        csr_path: /etc/ssl/certs/syslog-server.csr
+        ownca_path: /etc/ssl/certs/syslog-ca.crt
+        ownca_privatekey_path: /etc/ssl/private/syslog-ca.key
+        provider: ownca
+        ownca_not_after: "+{{ cert_validity_days }}d"
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Generate client private key
+      openssl_privatekey:
+        path: /etc/ssl/private/syslog-client.key
+        size: 4096
+        type: RSA
+        mode: '0600'
+        owner: root
+        group: root
+
+    - name: Generate client CSR
+      openssl_csr:
+        path: /etc/ssl/certs/syslog-client.csr
+        privatekey_path: /etc/ssl/private/syslog-client.key
+        common_name: "{{ syslog_client_hostname }}"
+        organization_name: "Syslog Infrastructure"
+        key_usage:
+          - digitalSignature
+          - keyEncipherment
+        extended_key_usage:
+          - clientAuth
+      register: client_csr
+
+    - name: Sign client certificate with CA
+      openssl_certificate:
+        path: /etc/ssl/certs/syslog-client.crt
+        csr_path: /etc/ssl/certs/syslog-client.csr
+        ownca_path: /etc/ssl/certs/syslog-ca.crt
+        ownca_privatekey_path: /etc/ssl/private/syslog-ca.key
+        provider: ownca
+        ownca_not_after: "+{{ cert_validity_days }}d"
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Set strict permissions on private keys
+      file:
+        path: "{{ item }}"
+        mode: '0600'
+        owner: root
+        group: root
+      loop:
+        - /etc/ssl/private/syslog-ca.key
+        - /etc/ssl/private/syslog-server.key
+        - /etc/ssl/private/syslog-client.key
+
+- name: Deploy client certificates to syslog client
+  hosts: syslog_sink
+  become: true
+  tasks:
+    - name: Fetch CA certificate from sink
+      fetch:
+        src: /etc/ssl/certs/syslog-ca.crt
+        dest: /tmp/syslog-ca.crt
+        flat: yes
+
+    - name: Fetch client certificate from sink
+      fetch:
+        src: /etc/ssl/certs/syslog-client.crt
+        dest: /tmp/syslog-client.crt
+        flat: yes
+
+    - name: Fetch client private key from sink
+      fetch:
+        src: /etc/ssl/private/syslog-client.key
+        dest: /tmp/syslog-client.key
+        flat: yes
+
+- name: Install certificates on syslog client
+  hosts: syslog_client
+  become: true
+  tasks:
+    - name: Create SSL directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+      loop:
+        - /etc/ssl/private
+        - /etc/ssl/certs
+
+    - name: Copy CA certificate to client
+      copy:
+        src: /tmp/syslog-ca.crt
+        dest: /etc/ssl/certs/syslog-ca.crt
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Copy client certificate to client
+      copy:
+        src: /tmp/syslog-client.crt
+        dest: /etc/ssl/certs/syslog-client.crt
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Copy client private key to client
+      copy:
+        src: /tmp/syslog-client.key
+        dest: /etc/ssl/private/syslog-client.key
+        mode: '0600'
+        owner: root
+        group: root
+
+- name: Clean up temporary files
+  hosts: localhost
+  connection: local
+  tasks:
+    - name: Remove temporary certificate files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/syslog-ca.crt
+        - /tmp/syslog-client.crt
+        - /tmp/syslog-client.key

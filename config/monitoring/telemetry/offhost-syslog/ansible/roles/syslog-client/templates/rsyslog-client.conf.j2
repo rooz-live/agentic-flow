@@ -1,0 +1,95 @@
+# Rsyslog Client Configuration - Off-Host Syslog Black Box Recorder
+# TLS-enabled syslog forwarder
+
+# Global settings
+$MaxMessageSize 64k
+$ActionQueueSize 100000
+$ActionQueueType LinkedList
+$ActionQueueDiskSpoolMode on
+$ActionQueueFileName rsyslog-queue
+$WorkDirectory /var/spool/rsyslog
+
+# Module configuration
+module(load="imuxsock")
+module(load="omfwd")
+module(load="mmjsonparse")
+
+# Unix socket input for journald forwarding
+input(type="imuxsock"
+       Socket="/run/systemd/journal/syslog"
+       CreatePath="on")
+
+# TLS Certificate Configuration
+$DefaultNetstreamDriver gtls
+$DefaultNetstreamDriverCAFile {{ ca_cert_path }}
+$DefaultNetstreamDriverCertFile {{ client_cert_path }}
+$DefaultNetstreamDriverKeyFile {{ client_key_path }}
+
+# Log templates
+template(name="ForwardFormat" type="string"
+         string="<%PRI%>%TIMESTAMP% %HOSTNAME% %syslogtag% %msg%\n")
+
+template(name="JSONFormat" type="string"
+         string="{\"timestamp\":\"%timereported%\",\"hostname\":\"%hostname%\",\"program\":\"%programname%\",\"pid\":\"%procid%\",\"message\":\"%msg%\"}\n")
+
+# Forward auth/sudo logs with TLS
+if $syslogtag contains 'auth' or $syslogtag contains 'sudo' then {
+    action(type="omfwd"
+           target="{{ syslog_server }}"
+           port="{{ syslog_port }}"
+           protocol="tcp"
+           tls="on"
+           tls.cafile="{{ ca_cert_path }}"
+           tls.myprivkeyfile="{{ client_key_path }}"
+           tls.mycertfile="{{ client_cert_path }}"
+           tls.peername="{{ syslog_server }}"
+           template="ForwardFormat"
+           action.resumeRetryCount="-1"
+           action.resumeInterval="30"
+           queue.type="LinkedList"
+           queue.size="100000"
+           queue.diskspoolmode="on")
+    stop
+}
+
+# Forward system warning logs with TLS
+if $syslogseverity <= 4 then {
+    action(type="omfwd"
+           target="{{ syslog_server }}"
+           port="{{ syslog_port }}"
+           protocol="tcp"
+           tls="on"
+           tls.cafile="{{ ca_cert_path }}"
+           tls.myprivkeyfile="{{ client_key_path }}"
+           tls.mycertfile="{{ client_cert_path }}"
+           tls.peername="{{ syslog_server }}"
+           template="ForwardFormat"
+           action.resumeRetryCount="-1"
+           action.resumeInterval="30"
+           queue.type="LinkedList"
+           queue.size="100000"
+           queue.diskspoolmode="on")
+    stop
+}
+
+# Forward all logs with TLS (fallback)
+action(type="omfwd"
+       target="{{ syslog_server }}"
+       port="{{ syslog_port }}"
+       protocol="tcp"
+       tls="on"
+       tls.cafile="{{ ca_cert_path }}"
+       tls.myprivkeyfile="{{ client_key_path }}"
+       tls.mycertfile="{{ client_cert_path }}"
+       tls.peername="{{ syslog_server }}"
+       template="ForwardFormat"
+       action.resumeRetryCount="-1"
+       action.resumeInterval="30"
+       queue.type="LinkedList"
+       queue.size="100000"
+       queue.diskspoolmode="on")
+
+# Local logging for debugging (optional)
+# action(type="omfile"
+#        file="/var/log/syslog/local.log"
+#        template="ForwardFormat")

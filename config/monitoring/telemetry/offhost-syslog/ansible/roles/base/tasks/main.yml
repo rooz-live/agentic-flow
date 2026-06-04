@@ -1,0 +1,217 @@
+---
+# =============================================================================
+# Base Role - OS Hardening and Prerequisites
+# =============================================================================
+# Purpose: Configure basic security and system requirements for syslog sink
+# Target: Ubuntu 22.04 VPS
+# =============================================================================
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  tags: [packages]
+
+- name: Install required packages
+  ansible.builtin.apt:
+    name:
+      - rsyslog
+      - rsyslog-gnutls
+      - ufw
+      - fail2ban
+      - unattended-upgrades
+      - ca-certificates
+      - openssl
+    state: present
+  tags: [packages]
+
+# =============================================================================
+# Firewall Configuration (Non-negotiable security)
+# =============================================================================
+
+- name: Reset UFW to default
+  community.general.ufw:
+    state: reset
+  tags: [firewall]
+
+- name: Set UFW default deny incoming
+  community.general.ufw:
+    direction: incoming
+    policy: deny
+  tags: [firewall]
+
+- name: Set UFW default allow outgoing
+  community.general.ufw:
+    direction: outgoing
+    policy: allow
+  tags: [firewall]
+
+- name: Allow SSH from admin IP only
+  community.general.ufw:
+    rule: allow
+    port: '22'
+    proto: tcp
+    from_ip: "{{ admin_ssh_ip }}/32"
+    comment: "Admin SSH access - {{ admin_ssh_ip }}"
+  tags: [firewall]
+
+- name: Allow syslog TLS from StarlingX only
+  community.general.ufw:
+    rule: allow
+    port: "{{ syslog_port }}"
+    proto: tcp
+    from_ip: "{{ syslog_source_ip }}/32"
+    comment: "Syslog TLS from stx-aio-0 - {{ syslog_source_ip }}"
+  tags: [firewall]
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+  tags: [firewall]
+
+- name: Display firewall status
+  ansible.builtin.command: ufw status verbose
+  register: ufw_status
+  changed_when: false
+  tags: [firewall]
+
+- name: Show firewall rules
+  ansible.builtin.debug:
+    msg: "{{ ufw_status.stdout_lines }}"
+  tags: [firewall]
+
+# =============================================================================
+# Log Directory Setup
+# =============================================================================
+
+- name: Create remote log directory
+  ansible.builtin.file:
+    path: "{{ log_base_dir }}"
+    state: directory
+    owner: root
+    group: adm
+    mode: '0750'
+  tags: [logs]
+
+- name: Create auth log file
+  ansible.builtin.file:
+    path: "{{ auth_log_path }}"
+    state: touch
+    owner: syslog
+    group: adm
+    mode: '0640'
+    modification_time: preserve
+    access_time: preserve
+  tags: [logs]
+
+- name: Create system log file
+  ansible.builtin.file:
+    path: "{{ system_log_path }}"
+    state: touch
+    owner: syslog
+    group: adm
+    mode: '0640'
+    modification_time: preserve
+    access_time: preserve
+  tags: [logs]
+
+# =============================================================================
+# TLS Certificate Directory
+# =============================================================================
+
+- name: Ensure SSL private directory exists
+  ansible.builtin.file:
+    path: /etc/ssl/private
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  tags: [tls]
+
+- name: Verify certificates are deployed
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: cert_check
+  loop:
+    - "{{ ca_cert_path }}"
+    - "{{ server_cert_path }}"
+    - "{{ server_key_path }}"
+  tags: [tls]
+
+- name: Display certificate status
+  ansible.builtin.debug:
+    msg: "{{ item.stat.path }}: {{ 'EXISTS' if item.stat.exists else 'MISSING' }}"
+  loop: "{{ cert_check.results }}"
+  tags: [tls]
+
+# =============================================================================
+# SSH Hardening
+# =============================================================================
+
+- name: Disable password authentication
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PasswordAuthentication'
+    line: 'PasswordAuthentication no'
+  notify: restart ssh
+  tags: [ssh, security]
+
+- name: Disable root login
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin no'
+  notify: restart ssh
+  tags: [ssh, security]
+
+# =============================================================================
+# Fail2ban Configuration
+# =============================================================================
+
+- name: Configure fail2ban for SSH
+  ansible.builtin.copy:
+    dest: /etc/fail2ban/jail.local
+    content: |
+      [sshd]
+      enabled = true
+      port = ssh
+      filter = sshd
+      logpath = /var/log/auth.log
+      maxretry = 3
+      bantime = 3600
+      findtime = 600
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart fail2ban
+  tags: [fail2ban, security]
+
+- name: Enable fail2ban
+  ansible.builtin.systemd:
+    name: fail2ban
+    state: started
+    enabled: true
+  tags: [fail2ban, security]
+
+# =============================================================================
+# System Hardening
+# =============================================================================
+
+- name: Set timezone to UTC
+  ansible.builtin.timezone:
+    name: UTC
+  tags: [system]
+
+- name: Configure automatic security updates
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+    owner: root
+    group: root
+    mode: '0644'
+  tags: [system, security]
+
+# Note: Handlers are defined in handlers/main.yml

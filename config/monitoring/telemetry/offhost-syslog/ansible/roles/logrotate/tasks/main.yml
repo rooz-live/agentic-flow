@@ -1,0 +1,53 @@
+---
+# =============================================================================
+# Logrotate Role - Log Retention Configuration
+# =============================================================================
+# Purpose: Configure log rotation for off-host syslog files
+# Retention: Auth logs - 30 days, System logs - 7 days
+# =============================================================================
+
+- name: Ensure logrotate is installed
+  ansible.builtin.apt:
+    name: logrotate
+    state: present
+  tags: [packages]
+
+- name: Deploy syslog sink logrotate configuration
+  ansible.builtin.template:
+    src: logrotate-syslog-sink.j2
+    dest: /etc/logrotate.d/syslog-sink
+    owner: root
+    group: root
+    mode: '0644'
+  tags: [logrotate]
+
+- name: Verify logrotate configuration
+  ansible.builtin.command: logrotate -d /etc/logrotate.d/syslog-sink
+  register: logrotate_check
+  changed_when: false
+  failed_when: false
+  tags: [logrotate, validate]
+
+- name: Display logrotate validation
+  ansible.builtin.debug:
+    msg: |
+      Logrotate configuration status:
+      {{ logrotate_check.stderr_lines | default(['No output']) | join('\n') }}
+  tags: [logrotate, validate]
+
+- name: Ensure logrotate timer is enabled
+  ansible.builtin.systemd:
+    name: logrotate.timer
+    state: started
+    enabled: true
+  tags: [logrotate]
+
+- name: Display retention policy summary
+  ansible.builtin.debug:
+    msg: |
+      Log Retention Policy:
+      - Auth logs ({{ auth_log_path }}): {{ auth_log_retention_days }} days
+      - System logs ({{ system_log_path }}): {{ system_log_retention_days }} days
+      - Compression: gzip (delayed)
+      - Rotation: daily
+  tags: [logrotate]

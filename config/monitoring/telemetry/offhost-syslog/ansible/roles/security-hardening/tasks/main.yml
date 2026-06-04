@@ -1,0 +1,159 @@
+---
+# Security Hardening Role Tasks - Off-Host Syslog Black Box Recorder
+
+- name: Ensure UFW is installed
+  apt:
+    name: ufw
+    state: present
+    update_cache: yes
+
+- name: Configure UFW default policies
+  ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - { direction: incoming, policy: deny }
+    - { direction: outgoing, policy: allow }
+
+- name: Allow SSH from admin IP only
+  ufw:
+    rule: allow
+    port: "{{ ssh_port }}"
+    proto: tcp
+    src: "{{ admin_ip }}"
+    comment: "Allow SSH from admin IP"
+
+- name: Allow syslog TLS from source server
+  ufw:
+    rule: allow
+    port: "{{ syslog_port }}"
+    proto: tcp
+    src: "{{ source_server_ip }}"
+    comment: "Allow syslog TLS from source server"
+
+- name: Enable UFW
+  ufw:
+    state: enabled
+  notify: restart ufw
+
+- name: Ensure fail2ban is installed
+  apt:
+    name: fail2ban
+    state: present
+
+- name: Configure fail2ban for SSH
+  copy:
+    dest: /etc/fail2ban/jail.local
+    content: |
+      [DEFAULT]
+      bantime = 3600
+      findtime = 600
+      maxretry = 5
+
+      [sshd]
+      enabled = true
+      port = {{ ssh_port }}
+      filter = sshd
+      logpath = /var/log/auth.log
+      maxretry = 3
+  notify: restart fail2ban
+
+- name: Ensure fail2ban is enabled and started
+  systemd:
+    name: fail2ban
+    enabled: yes
+    state: started
+
+- name: Harden SSH configuration
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?{{ item.key }}'
+    line: '{{ item.key }} {{ item.value }}'
+    state: present
+    validate: 'sshd -t %s'
+  loop:
+    - { key: 'PermitRootLogin', value: 'prohibit-password' }
+    - { key: 'PasswordAuthentication', value: 'no' }
+    - { key: 'PubkeyAuthentication', value: 'yes' }
+    - { key: 'Protocol', value: '2' }
+    - { key: 'X11Forwarding', value: 'no' }
+    - { key: 'MaxAuthTries', value: '3' }
+    - { key: 'ClientAliveInterval', value: '300' }
+    - { key: 'ClientAliveCountMax', value: '2' }
+    - { key: 'LoginGraceTime', value: '60' }
+  notify: restart sshd
+
+- name: Disable unused services
+  systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: no
+  loop:
+    - telnet
+    - rlogin
+    - rsh
+  ignore_errors: true
+
+- name: Configure kernel parameters for security
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+  loop:
+    - { name: net.ipv4.ip_forward, value: 0 }
+    - { name: net.ipv4.conf.all.send_redirects, value: 0 }
+    - { name: net.ipv4.conf.default.send_redirects, value: 0 }
+    - { name: net.ipv4.conf.all.accept_source_route, value: 0 }
+    - { name: net.ipv4.conf.default.accept_source_route, value: 0 }
+    - { name: net.ipv4.conf.all.accept_redirects, value: 0 }
+    - { name: net.ipv4.conf.default.accept_redirects, value: 0 }
+    - { name: net.ipv4.conf.all.secure_redirects, value: 1 }
+    - { name: net.ipv4.conf.default.secure_redirects, value: 1 }
+    - { name: net.ipv4.icmp_echo_ignore_broadcasts, value: 1 }
+    - { name: net.ipv4.conf.all.log_martians, value: 1 }
+    - { name: net.ipv4.conf.default.log_martians, value: 1 }
+
+- name: Configure file permissions for log directory
+  file:
+    path: "{{ log_dir }}"
+    state: directory
+    mode: '0750'
+    owner: root
+    group: adm
+
+- name: Ensure sensitive files have correct permissions
+  file:
+    path: "{{ item.path }}"
+    mode: "{{ item.mode }}"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+  loop:
+    - { path: /etc/ssh/sshd_config, mode: '0600', owner: root, group: root }
+    - { path: /etc/fail2ban/jail.local, mode: '0644', owner: root, group: root }
+
+- name: Install unattended-upgrades for automatic security updates
+  apt:
+    name: unattended-upgrades
+    state: present
+  when: enable_automatic_updates
+
+- name: Configure unattended-upgrades
+  copy:
+    dest: /etc/apt/apt.conf.d/50unattended-upgrades
+    content: |
+      Unattended-Upgrade::Allowed-Origins {
+        "${distro_id}:${distro_codename}";
+        "${distro_id}:${distro_codename}-security";
+      };
+      Unattended-Upgrade::AutoFixInterruptedDpkg "true";
+      Unattended-Upgrade::MinimalSteps "true";
+      Unattended-Upgrade::Remove-Unused-Dependencies "true";
+      Unattended-Upgrade::Automatic-Reboot "false";
+  when: enable_automatic_updates
+
+- name: Enable unattended-upgrades service
+  systemd:
+    name: unattended-upgrades
+    enabled: yes
+  when: enable_automatic_updates

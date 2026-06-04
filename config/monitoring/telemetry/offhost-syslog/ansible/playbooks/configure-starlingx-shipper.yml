@@ -1,0 +1,163 @@
+---
+# Configure StarlingX (stx-aio-0) to Ship Logs to Off-Host Sink
+#
+# This playbook configures:
+# - Journald forwarding to syslog
+# - Rsyslog TLS client configuration
+# - Log filtering for authpriv.* and *.warn
+#
+# Prerequisites:
+# - TLS client certificates copied from syslog sink
+# - Network connectivity to syslog sink on port 6514
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.yml playbooks/configure-starlingx-shipper.yml
+#
+# MANUAL APPROVAL REQUIRED - This affects the production StarlingX system
+
+- name: Configure StarlingX Log Shipping
+  hosts: starlingx
+  become: yes
+  vars:
+    sink_hostname: "{{ hostvars['syslog-sink-01']['ansible_host'] }}"
+    tls_dir: /etc/rsyslog.d/tls
+    syslog_port: 6514
+
+  tasks:
+    # ========================================================================
+    # Pre-flight Checks
+    # ========================================================================
+    - name: Verify TLS certificates exist
+      stat:
+        path: "{{ tls_dir }}/{{ item }}"
+      register: cert_check
+      loop:
+        - ca.crt
+        - client.crt
+        - client.key
+      failed_when: not cert_check.stat.exists
+
+    - name: Test connectivity to syslog sink
+      wait_for:
+        host: "{{ sink_hostname }}"
+        port: "{{ syslog_port }}"
+        timeout: 10
+      register: connectivity_check
+
+    # ========================================================================
+    # Journald Configuration
+    # ========================================================================
+    - name: Configure journald to forward to syslog
+      lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: '^#?ForwardToSyslog='
+        line: 'ForwardToSyslog=yes'
+      notify: Restart journald
+
+    # ========================================================================
+    # Rsyslog TLS Shipper Configuration
+    # ========================================================================
+    - name: Install rsyslog-gnutls
+      package:
+        name: rsyslog-gnutls
+        state: present
+
+    - name: Configure rsyslog TLS shipper
+      copy:
+        dest: /etc/rsyslog.d/50-offhost-forward.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Off-Host Syslog Forwarding Configuration
+          # Managed by Ansible - Do not edit manually
+          #
+          # Forwards authpriv.* and *.warn to syslog sink over TLS
+
+          # Load TLS module
+          module(load="omfwd")
+
+          # TLS Configuration
+          global(
+              DefaultNetstreamDriver="gtls"
+              DefaultNetstreamDriverCAFile="{{ tls_dir }}/ca.crt"
+              DefaultNetstreamDriverCertFile="{{ tls_dir }}/client.crt"
+              DefaultNetstreamDriverKeyFile="{{ tls_dir }}/client.key"
+          )
+
+          # Template for forwarded messages
+          template(name="ForwardFormat" type="string"
+              string="<%PRI%>%TIMESTAMP% %HOSTNAME% %syslogtag%%msg%\n")
+
+          # Forward authpriv.* (auth logs)
+          authpriv.* action(
+              type="omfwd"
+              target="{{ sink_hostname }}"
+              port="{{ syslog_port }}"
+              protocol="tcp"
+              StreamDriver="gtls"
+              StreamDriverMode="1"
+              StreamDriverAuthMode="x509/name"
+              StreamDriverPermittedPeers="{{ sink_hostname }}"
+              template="ForwardFormat"
+              queue.type="LinkedList"
+              queue.filename="fwd_authpriv"
+              queue.maxdiskspace="100m"
+              queue.saveonshutdown="on"
+              action.resumeRetryCount="-1"
+          )
+
+          # Forward *.warn and above (excluding authpriv to avoid duplicates)
+          if $syslogfacility-text != 'authpriv' and $syslogseverity <= 4 then {
+              action(
+                  type="omfwd"
+                  target="{{ sink_hostname }}"
+                  port="{{ syslog_port }}"
+                  protocol="tcp"
+                  StreamDriver="gtls"
+                  StreamDriverMode="1"
+                  StreamDriverAuthMode="x509/name"
+                  StreamDriverPermittedPeers="{{ sink_hostname }}"
+                  template="ForwardFormat"
+                  queue.type="LinkedList"
+                  queue.filename="fwd_system"
+                  queue.maxdiskspace="100m"
+                  queue.saveonshutdown="on"
+                  action.resumeRetryCount="-1"
+              )
+          }
+      notify: Restart rsyslog
+
+  handlers:
+    - name: Restart journald
+      systemd:
+        name: systemd-journald
+        state: restarted
+
+    - name: Restart rsyslog
+      service:
+        name: rsyslog
+        state: restarted
+
+# ============================================================================
+# Verification Tasks
+# ============================================================================
+- name: Verify Log Forwarding
+  hosts: starlingx
+  become: yes
+  gather_facts: no
+  tasks:
+    - name: Send test log message
+      command: logger -p authpriv.info -t ansible-test "Syslog forwarding test message"
+
+    - name: Wait for log propagation
+      pause:
+        seconds: 5
+
+    - name: Verify test message on sink
+      delegate_to: syslog-sink-01
+      shell: grep "Syslog forwarding test message" /var/log/remote/auth.log
+      register: log_check
+      failed_when: log_check.rc != 0
+      changed_when: false
+

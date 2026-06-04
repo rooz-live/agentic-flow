@@ -1,0 +1,83 @@
+---
+# =============================================================================
+# rsyslog Role - TLS Server Configuration
+# =============================================================================
+# Purpose: Configure rsyslog TLS listener for off-host syslog collection
+# Target: Ubuntu 22.04 VPS
+# =============================================================================
+
+- name: Ensure rsyslog is installed
+  ansible.builtin.apt:
+    name:
+      - rsyslog
+      - rsyslog-gnutls
+    state: present
+  tags: [packages]
+
+- name: Create rsyslog work directory
+  ansible.builtin.file:
+    path: /var/spool/rsyslog
+    state: directory
+    owner: syslog
+    group: syslog
+    mode: '0700'
+  tags: [rsyslog]
+
+- name: Verify TLS certificates exist
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: tls_certs
+  loop:
+    - "{{ ca_cert_path }}"
+    - "{{ server_cert_path }}"
+    - "{{ server_key_path }}"
+  tags: [tls]
+
+- name: Fail if certificates missing
+  ansible.builtin.fail:
+    msg: "Missing certificate: {{ item.item }}"
+  when: not item.stat.exists
+  loop: "{{ tls_certs.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  tags: [tls]
+
+- name: Deploy rsyslog TLS server configuration
+  ansible.builtin.template:
+    src: rsyslog-tls-server.conf.j2
+    dest: /etc/rsyslog.d/99-tls-server.conf
+    owner: root
+    group: root
+    mode: '0644'
+    validate: 'rsyslogd -N1 -f %s'
+  notify: restart rsyslog
+  tags: [rsyslog, config]
+
+- name: Deploy rsyslog filter rules
+  ansible.builtin.template:
+    src: rsyslog-filters.conf.j2
+    dest: /etc/rsyslog.d/98-filters.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart rsyslog
+  tags: [rsyslog, config]
+
+- name: Ensure rsyslog service is enabled
+  ansible.builtin.systemd:
+    name: rsyslog
+    enabled: true
+    state: started
+  tags: [rsyslog]
+
+- name: Validate rsyslog configuration
+  ansible.builtin.command: rsyslogd -N1
+  register: rsyslog_validate
+  changed_when: false
+  failed_when: rsyslog_validate.rc != 0
+  tags: [rsyslog, validate]
+
+- name: Display rsyslog validation result
+  ansible.builtin.debug:
+    msg: "rsyslog configuration: {{ 'VALID' if rsyslog_validate.rc == 0 else 'INVALID' }}"
+  tags: [rsyslog, validate]

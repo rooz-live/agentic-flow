@@ -1,0 +1,82 @@
+---
+# Ansible Playbook: Configure Syslog Sink (VPS)
+# Off-Host Syslog Black Box Recorder
+
+- name: Configure VPS as TLS syslog sink
+  hosts: syslog_sink
+  become: true
+  vars:
+    log_dir: "/var/log/syslog"
+    syslog_port: 6514
+
+  tasks:
+    - name: Check if syslog path exists
+      stat:
+        path: "{{ log_dir }}"
+      register: syslog_stat
+
+    - name: Remove existing syslog file if it exists
+      file:
+        path: "{{ log_dir }}"
+        state: absent
+      when: syslog_stat.stat.exists and syslog_stat.stat.isdir == false
+
+    - name: Create log directory
+      file:
+        path: "{{ log_dir }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: adm
+
+    - name: Ensure rsyslog is installed
+      apt:
+        name: rsyslog
+        state: present
+        update_cache: yes
+
+    - name: Ensure rsyslog-gnutls is installed
+      apt:
+        name: rsyslog-gnutls
+        state: present
+
+    - name: Deploy firewall rules
+      copy:
+        src: "{{ playbook_dir }}/../roles/syslog-sink/files/firewall-rules.sh"
+        dest: /usr/local/bin/configure-firewall.sh
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Apply firewall rules
+      command: /usr/local/bin/configure-firewall.sh
+      changed_when: true
+
+    - name: Deploy rsyslog server configuration
+      template:
+        src: "{{ playbook_dir }}/../roles/syslog-sink/templates/rsyslog-server.conf"
+        dest: /etc/rsyslog.d/99-tls-server.conf
+        mode: '0644'
+        owner: root
+        group: root
+      notify: restart rsyslog
+
+    - name: Deploy logrotate configuration
+      template:
+        src: "{{ playbook_dir }}/../roles/syslog-sink/templates/logrotate-syslog"
+        dest: /etc/logrotate.d/syslog-sink
+        mode: '0644'
+        owner: root
+        group: root
+
+    - name: Ensure rsyslog service is enabled and started
+      systemd:
+        name: rsyslog
+        enabled: yes
+        state: started
+
+  handlers:
+    - name: restart rsyslog
+      systemd:
+        name: rsyslog
+        state: restarted

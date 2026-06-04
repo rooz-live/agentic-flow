@@ -1,0 +1,52 @@
+# Ansible Inventory for Off-Host Syslog Infrastructure
+# 
+# Servers:
+# - syslog_sink: Hetzner VPS at 77.42.28.179 (receives logs)
+# - stx_aio_0: StarlingX server at 23.92.79.2 (sends logs)
+#
+# Usage:
+#   ansible-playbook -i inventory.yml deploy-sink.yml
+#   ansible-playbook -i inventory.yml deploy-forwarder.yml
+
+all:
+  children:
+    syslog_sinks:
+      hosts:
+        syslog-sink:
+          ansible_host: 77.42.28.179
+          ansible_user: root
+          ansible_port: 22
+          ansible_python_interpreter: /usr/bin/python3
+          # TLS certificate files
+          tls_cert_name: syslog-sink
+          tls_listen_port: 6514
+          # Log retention (days)
+          auth_retention_days: 30
+          system_retention_days: 7
+          
+    syslog_forwarders:
+      hosts:
+        stx-aio-0:
+          ansible_host: 23.92.79.2
+          ansible_user: sysadmin
+          ansible_port: 2222
+          ansible_python_interpreter: /usr/bin/python3
+          ansible_become: yes
+          ansible_become_method: sudo
+          # TLS certificate files
+          tls_cert_name: stx-aio-0-client
+          # Syslog sink destination
+          syslog_sink_host: 77.42.28.179
+          syslog_sink_port: 6514
+
+  vars:
+    # Common variables
+    tls_dir: /etc/rsyslog.d/tls
+    rsyslog_conf_dir: /etc/rsyslog.d
+    
+    # CA certificate (same for all hosts)
+    ca_cert_src: "{{ playbook_dir }}/../pki/ca/certs/ca.crt"
+    
+    # Security settings
+    tls_mode: x509/name
+    tls_auth_mode: x509/certvalid

@@ -78,3 +78,57 @@ cls_trust_ok() {
   fi
   bash "$REPO_ROOT/scripts/one.sh" verify-contract "$REPO_ROOT/.goalie/evidence/last_gate_one_pass.json" >/dev/null 2>&1
 }
+
+cls_loop_prompts_path() { echo "$REPO_ROOT/config/cicd/loop_prompts.yaml"; }
+
+cls_budget_get() {
+  local key="${1:?key}" default="${2:-}"
+  python3 - "$REPO_ROOT" "$key" "$default" <<'PY'
+import os, sys, yaml
+root, key, default = sys.argv[1:4]
+path = os.path.join(root, "config/cicd/loop_prompts.yaml")
+if not os.path.isfile(path):
+    print(default)
+    raise SystemExit(0)
+cfg = yaml.safe_load(open(path)) or {}
+budget = cfg.get("budget") or {}
+val = budget
+for part in key.split("."):
+    if isinstance(val, dict) and part in val:
+        val = val[part]
+    else:
+        print(default)
+        raise SystemExit(0)
+print(val)
+PY
+}
+
+cls_load_wave_retry_max() {
+  if [[ -n "${WAVE_RETRY_MAX:-}" ]]; then
+    export WAVE_RETRY_MAX
+    return 0
+  fi
+  local from_yaml
+  from_yaml="$(cls_budget_get max_remediate_retries 2)"
+  export WAVE_RETRY_MAX="$from_yaml"
+}
+
+cls_refuse_auto_commit_on_main() {
+  [[ "${CLS_AUTO_COMMIT:-0}" != "1" ]] && return 0
+  local branch="${CLS_BRANCH_OVERRIDE:-$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)}"
+  if [[ "$branch" == "main" || "$branch" == "master" ]]; then
+    echo "ERROR: CLS_AUTO_COMMIT=1 refused on protected branch: $branch" >&2
+    return 1
+  fi
+  return 0
+}
+
+cls_warn_session_tick_budget() {
+  local tick_count="${LOOP_TICK_COUNT:-0}"
+  [[ "$tick_count" -eq 0 ]] && return 0
+  local reset_at
+  reset_at="$(cls_budget_get session.max_ticks_before_reset 5)"
+  if [[ "$tick_count" -gt "$reset_at" ]]; then
+    echo "WARN: LOOP_TICK_COUNT=$tick_count exceeds session max_ticks_before_reset=$reset_at (summarize/reset recommended)" >&2
+  fi
+}

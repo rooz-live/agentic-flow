@@ -4,13 +4,15 @@ set -euo pipefail
 source "$(dirname "$0")/lib/cls_common.sh"
 cls_repo_root
 [[ "${1:-}" == "--dry-run" ]] && { echo dry-run-ok; exit 0; }
+cls_load_wave_retry_max
+cls_refuse_auto_commit_on_main || exit 1
 RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 MAX="${WAVE_RETRY_MAX:-2}"
 REMEDIATE="${CLS_REMEDIATE:-1}"
 AUTO_COMMIT="${CLS_AUTO_COMMIT:-0}"
 DOD="$(cls_dod_gate)"
 
-echo "=== wave_autopilot | $(git rev-parse --short HEAD) | $RUN_ID ==="
+echo "=== wave_autopilot | $(git rev-parse --short HEAD) | $RUN_ID | retry_max=$MAX ==="
 bash "$REPO_ROOT/scripts/cicd/unstage_scope_creep.sh" 2>/dev/null || true
 bash "$REPO_ROOT/scripts/cicd/perceive_reader.sh" >/dev/null || true
 
@@ -33,8 +35,9 @@ CLS_SKIP_REMEDIATE=1 bash "$REPO_ROOT/scripts/cicd/continuous_learning_swarm.sh"
 CE=$?
 set -e
 if [[ "$AUTO_COMMIT" == "1" && $PE -eq 0 ]] && ! git diff --cached --quiet; then
+  cls_refuse_auto_commit_on_main || exit 1
   git commit -m "chore(cicd): wave autopilot slice ${RUN_ID}" || true
 fi
-echo "AGENT_LOOP_TICK_CLS {\"run_id\":\"$RUN_ID\",\"perceive_ec\":$PE,\"cls_ec\":$CE}"
+echo "AGENT_LOOP_TICK_CLS {\"run_id\":\"$RUN_ID\",\"perceive_ec\":$PE,\"cls_ec\":$CE,\"retry_max\":$MAX}"
 [[ $PE -eq 0 && $CE -eq 0 ]] && exit 0
 exit 1

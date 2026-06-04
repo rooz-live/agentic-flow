@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 
 from src.identity.entity_registry import UUIDGenerator, EntityType, EntityRole
 from src.validation.schema_engine import SchemaEngine
+from src.resilience.circuit_breaker import get_global_registry
 
 # ─── In-Memory Storage ──────────────────────────────────────────────────────
 
@@ -89,7 +90,16 @@ app = FastAPI(title="Sovereign Billing API Server", version="1.0.0")
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+    try:
+        registry = get_global_registry()
+        cb_report = registry.health_report()
+    except Exception:
+        cb_report = {}
+    return {
+        "status": "ok",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "circuit_breaker": cb_report
+    }
 
 # ─── Entity Identity Endpoints ───────────────────────────────────────────────
 

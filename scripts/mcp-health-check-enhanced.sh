@@ -86,7 +86,7 @@ check_provider() {
   
   log_info "Checking $provider..."
   
-  local start_ms=$(date +%s%3N)
+  local start_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
   local stderr_file=$(mktemp)
   local exit_code=0
   
@@ -97,7 +97,7 @@ check_provider() {
     exit_code=$?
   fi
   
-  local end_ms=$(date +%s%3N)
+  local end_ms=$(python3 -c 'import time; print(int(time.time() * 1000))')
   local duration_ms=$((end_ms - start_ms))
   local stderr_output=$(cat "$stderr_file")
   rm -f "$stderr_file"

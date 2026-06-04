@@ -1,0 +1,346 @@
+# Grafana Notification Policies Provisioning Configuration
+# STX Production Infrastructure
+#
+# This file defines how alerts are routed to different contact points based on
+# labels such as severity, team, namespace, and other criteria.
+#
+# Deployment:
+#   kubectl -n monitoring create configmap grafana-notification-policies \
+#     --from-file=notification-policies.yaml=config/grafana/alerting/notification-policies.yaml \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#
+# Reference: https://grafana.com/docs/grafana/latest/alerting/set-up/provision-alerting-resources/file-provisioning/
+
+apiVersion: 1
+
+# Reset notification policies on provisioning
+resetPolicies: false
+
+# Notification Policy Tree
+policies:
+  # =============================================================================
+  # ROOT POLICY (Default Receiver)
+  # =============================================================================
+  - orgId: 1
+    # Default receiver when no other routes match
+    receiver: default-email
+    
+    # Group alerts by these labels before sending notifications
+    # This reduces alert noise by batching related alerts
+    group_by:
+      - alertname
+      - severity
+      - namespace
+    
+    # How long to wait before sending first notification for a new group
+    group_wait: 30s
+    
+    # How long to wait before sending notifications about new alerts in existing group
+    group_interval: 5m
+    
+    # How long to wait before resending an alert (if still firing)
+    repeat_interval: 4h
+    
+    # Child routes (evaluated in order, first match wins unless continue=true)
+    routes:
+      # =========================================================================
+      # CRITICAL SEVERITY ROUTING
+      # =========================================================================
+      - receiver: pagerduty-critical
+        matchers:
+          - severity = critical
+        # Continue to next matching route
+        continue: true
+        # Faster response for critical alerts
+        group_wait: 10s
+        group_interval: 1m
+        repeat_interval: 1h
+        mute_time_intervals:
+          - maintenance-window
+      
+      # Also send critical to Slack for visibility
+      - receiver: slack-critical
+        matchers:
+          - severity = critical
+        continue: false
+        group_wait: 10s
+        group_interval: 1m
+        repeat_interval: 1h
+      
+      # =========================================================================
+      # WARNING SEVERITY ROUTING
+      # =========================================================================
+      - receiver: slack-warnings
+        matchers:
+          - severity = warning
+        continue: false
+        group_wait: 1m
+        group_interval: 5m
+        repeat_interval: 2h
+        mute_time_intervals:
+          - maintenance-window
+          - off-hours
+      
+      # =========================================================================
+      # INFO SEVERITY ROUTING (Low priority)
+      # =========================================================================
+      - receiver: default-email
+        matchers:
+          - severity = info
+        continue: false
+        group_wait: 5m
+        group_interval: 15m
+        repeat_interval: 12h
+        mute_time_intervals:
+          - maintenance-window
+          - off-hours
+          - weekends
+      
+      # =========================================================================
+      # TEAM-BASED ROUTING
+      # =========================================================================
+      
+      # Platform Team - Kubernetes control plane, monitoring, core infrastructure
+      - receiver: platform-team
+        matchers:
+          - team = platform
+        continue: false
+        group_by:
+          - alertname
+          - namespace
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 2h
+      
+      # Application Team - Application-specific alerts
+      - receiver: application-team
+        matchers:
+          - team = application
+        continue: false
+        group_by:
+          - alertname
+          - service
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 2h
+      
+      # Infrastructure Team - Node, disk, network alerts
+      - receiver: infrastructure-team
+        matchers:
+          - team = infrastructure
+        continue: false
+        group_by:
+          - alertname
+          - instance
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 2h
+      
+      # =========================================================================
+      # NAMESPACE-BASED ROUTING
+      # =========================================================================
+      
+      # Applications namespace - Route to application team
+      - receiver: application-team
+        matchers:
+          - namespace = applications
+        continue: false
+        group_by:
+          - alertname
+          - pod
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 2h
+      
+      # Monitoring namespace - Route to platform team
+      - receiver: platform-team
+        matchers:
+          - namespace = monitoring
+        continue: false
+        group_by:
+          - alertname
+        group_wait: 30s
+        group_interval: 5m
+        repeat_interval: 2h
+      
+      # kube-system namespace - Route to platform team with high priority
+      - receiver: platform-team
+        matchers:
+          - namespace = kube-system
+        continue: true
+        group_wait: 10s
+        group_interval: 2m
+        repeat_interval: 1h
+      
+      # Also page for kube-system critical issues
+      - receiver: pagerduty-critical
+        matchers:
+          - namespace = kube-system
+          - severity = critical
+        continue: false
+        group_wait: 10s
+        group_interval: 1m
+        repeat_interval: 30m
+      
+      # =========================================================================
+      # SPECIFIC ALERT ROUTING
+      # =========================================================================
+      
+      # Disk alerts - Always route to infrastructure + pagerduty for critical
+      - receiver: infrastructure-team
+        matchers:
+          - alertname =~ NodeDisk.*
+        continue: true
+        group_wait: 30s
+      
+      - receiver: pagerduty-critical
+        matchers:
+          - alertname = NodeDiskHigh
+          - severity = critical
+        continue: false
+        group_wait: 10s
+      
+      # Pod crash looping - Route to both platform and application teams
+      - receiver: platform-team
+        matchers:
+          - alertname = PodCrashLooping
+        continue: true
+        group_wait: 10s
+      
+      - receiver: application-team
+        matchers:
+          - alertname = PodCrashLooping
+          - namespace = applications
+        continue: false
+        group_wait: 10s
+      
+      # Alertmanager down - High priority, multiple channels
+      - receiver: pagerduty-critical
+        matchers:
+          - alertname = AlertmanagerDown
+        continue: true
+        group_wait: 0s
+      
+      - receiver: slack-critical
+        matchers:
+          - alertname = AlertmanagerDown
+        continue: true
+        group_wait: 0s
+      
+      - receiver: teams-alerts
+        matchers:
+          - alertname = AlertmanagerDown
+        continue: false
+        group_wait: 0s
+
+# =============================================================================
+# MUTE TIME INTERVALS
+# =============================================================================
+# Define time intervals during which certain alerts should be muted
+
+muteTimes:
+  # Planned maintenance window - Mute all non-critical alerts
+  - orgId: 1
+    name: maintenance-window
+    time_intervals:
+      # Example: Every Sunday 2-4 AM UTC for maintenance
+      - times:
+          - start_time: "02:00"
+            end_time: "04:00"
+        weekdays:
+          - sunday
+  
+  # Off-hours - Mute low-priority alerts outside business hours
+  - orgId: 1
+    name: off-hours
+    time_intervals:
+      # Monday-Friday, outside 9 AM - 6 PM (adjust for your timezone)
+      - times:
+          - start_time: "00:00"
+            end_time: "09:00"
+        weekdays:
+          - monday
+          - tuesday
+          - wednesday
+          - thursday
+          - friday
+      - times:
+          - start_time: "18:00"
+            end_time: "23:59"
+        weekdays:
+          - monday
+          - tuesday
+          - wednesday
+          - thursday
+          - friday
+  
+  # Weekends - Mute info-level alerts on weekends
+  - orgId: 1
+    name: weekends
+    time_intervals:
+      - weekdays:
+          - saturday
+          - sunday
+
+# =============================================================================
+# ROUTING DECISION TREE VISUALIZATION
+# =============================================================================
+#
+# Alert Received
+# │
+# ├─ severity=critical?
+# │   ├─ YES → PagerDuty + Slack (continue)
+# │   │   └─ Immediate notification (10s group_wait)
+# │   └─ NO → Continue to next rule
+# │
+# ├─ severity=warning?
+# │   ├─ YES → Slack #platform-alerts
+# │   │   └─ Standard timing (1m group_wait)
+# │   └─ NO → Continue to next rule
+# │
+# ├─ severity=info?
+# │   ├─ YES → Email only
+# │   │   └─ Relaxed timing (5m group_wait)
+# │   └─ NO → Continue to next rule
+# │
+# ├─ team=platform?
+# │   └─ YES → Platform Team (Slack + Email)
+# │
+# ├─ team=application?
+# │   └─ YES → Application Team (Slack + Email)
+# │
+# ├─ team=infrastructure?
+# │   └─ YES → Infrastructure Team (Slack + Email)
+# │
+# ├─ namespace=applications?
+# │   └─ YES → Application Team
+# │
+# ├─ namespace=monitoring?
+# │   └─ YES → Platform Team
+# │
+# ├─ namespace=kube-system?
+# │   └─ YES → Platform Team (+ PagerDuty if critical)
+# │
+# └─ DEFAULT → default-email receiver
+#
+# =============================================================================
+# ESCALATION TIMELINE (CRITICAL)
+# =============================================================================
+#
+# T+0:      Alert fires
+# T+10s:    First notification sent (PagerDuty + Slack)
+# T+1m:     Additional alerts in group added to notification
+# T+1h:     Repeat notification if still firing
+# T+2h:     Escalation to secondary on-call (PagerDuty policy)
+# T+4h:     Escalation to team lead
+#
+# =============================================================================
+# ESCALATION TIMELINE (WARNING)
+# =============================================================================
+#
+# T+0:      Alert fires
+# T+1m:     First notification sent (Slack)
+# T+5m:     Additional alerts in group added
+# T+2h:     Repeat notification if still firing
+# T+4h:     Consider escalating manually if not addressed
+#

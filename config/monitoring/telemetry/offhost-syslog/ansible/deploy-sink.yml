@@ -1,0 +1,187 @@
+---
+# Ansible Playbook: Deploy rsyslog-gnutls Sink
+#
+# Deploys TLS-secured syslog receiver on Hetzner VPS (77.42.28.179)
+#
+# Usage:
+#   ansible-playbook -i inventory.yml deploy-sink.yml
+#
+# Prerequisites:
+#   - Certificates generated via ../pki/generate-all-certs.sh
+#   - SSH access to syslog-sink as root
+
+- name: Deploy rsyslog-gnutls Syslog Sink
+  hosts: syslog_sinks
+  become: yes
+  gather_facts: yes
+
+  vars:
+    # Certificate paths (local)
+    local_ca_cert: "{{ playbook_dir }}/../pki/ca/certs/ca.crt"
+    local_server_cert: "{{ playbook_dir }}/../pki/ca/certs/{{ tls_cert_name }}.crt"
+    local_server_key: "{{ playbook_dir }}/../pki/ca/private/{{ tls_cert_name }}.key"
+    
+    # Remote paths
+    remote_tls_dir: /etc/rsyslog.d/tls
+    remote_log_dir: /var/log/remote
+    
+    # Log files
+    auth_log_file: "{{ remote_log_dir }}/auth.log"
+    system_log_file: "{{ remote_log_dir }}/system.log"
+
+  tasks:
+    - name: Display target information
+      debug:
+        msg: "Deploying rsyslog sink to {{ inventory_hostname }} ({{ ansible_host }})"
+
+    # Package Installation
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install rsyslog and TLS support
+      apt:
+        name:
+          - rsyslog
+          - rsyslog-gnutls
+          - logrotate
+        state: present
+
+    # TLS Directory Setup
+    - name: Create TLS directory
+      file:
+        path: "{{ remote_tls_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: Create remote log directory
+      file:
+        path: "{{ remote_log_dir }}"
+        state: directory
+        owner: syslog
+        group: adm
+        mode: '0750'
+
+    # Certificate Deployment
+    - name: Deploy CA certificate
+      copy:
+        src: "{{ local_ca_cert }}"
+        dest: "{{ remote_tls_dir }}/ca.crt"
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart rsyslog
+
+    - name: Deploy server certificate
+      copy:
+        src: "{{ local_server_cert }}"
+        dest: "{{ remote_tls_dir }}/server.crt"
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart rsyslog
+
+    - name: Deploy server private key
+      copy:
+        src: "{{ local_server_key }}"
+        dest: "{{ remote_tls_dir }}/server.key"
+        owner: root
+        group: root
+        mode: '0600'
+      notify: Restart rsyslog
+
+    # rsyslog Configuration
+    - name: Deploy rsyslog TLS sink configuration
+      template:
+        src: templates/rsyslog-sink.conf.j2
+        dest: /etc/rsyslog.d/10-tls-sink.conf
+        owner: root
+        group: root
+        mode: '0644'
+        validate: 'rsyslogd -N1 -f %s || true'
+      notify: Restart rsyslog
+
+    # Logrotate Configuration
+    - name: Deploy logrotate configuration for remote logs
+      template:
+        src: templates/logrotate-remote.j2
+        dest: /etc/logrotate.d/remote-syslog
+        owner: root
+        group: root
+        mode: '0644'
+
+    # Firewall Configuration (UFW)
+    - name: Install UFW
+      apt:
+        name: ufw
+        state: present
+
+    - name: Allow SSH from admin IP only
+      ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+        from_ip: 173.94.53.113
+        comment: 'Admin SSH access'
+
+    - name: Allow syslog TLS from stx-aio-0 only
+      ufw:
+        rule: allow
+        port: '6514'
+        proto: tcp
+        from_ip: 23.92.79.2
+        comment: 'stx-aio-0 syslog TLS'
+
+    - name: Set UFW default deny incoming
+      ufw:
+        direction: incoming
+        policy: deny
+
+    - name: Set UFW default allow outgoing
+      ufw:
+        direction: outgoing
+        policy: allow
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+
+    # Service Management
+    - name: Ensure rsyslog is enabled and started
+      systemd:
+        name: rsyslog
+        enabled: yes
+        state: started
+
+    # Verification
+    - name: Verify rsyslog is listening on TLS port
+      wait_for:
+        port: "{{ tls_listen_port }}"
+        host: 0.0.0.0
+        timeout: 30
+      register: port_check
+
+    - name: Display deployment summary
+      debug:
+        msg: |
+          ✅ rsyslog-gnutls sink deployed successfully!
+          
+          Configuration:
+          - TLS Port: {{ tls_listen_port }}
+          - Auth logs: {{ auth_log_file }} ({{ auth_retention_days }}-day retention)
+          - System logs: {{ system_log_file }} ({{ system_retention_days }}-day retention)
+          
+          Firewall Rules:
+          - SSH: Only from 173.94.53.113
+          - Syslog TLS: Only from 23.92.79.2
+          
+          Next: Deploy forwarder on stx-aio-0
+
+  handlers:
+    - name: Restart rsyslog
+      systemd:
+        name: rsyslog
+        state: restarted

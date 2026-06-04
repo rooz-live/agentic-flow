@@ -1,0 +1,334 @@
+# Grafana Contact Points Provisioning Configuration
+# STX Production Infrastructure
+#
+# ⚠️ SECURITY NOTE: All sensitive values (passwords, tokens, API keys) MUST be
+# provided via environment variables or Kubernetes secrets. Never commit credentials!
+#
+# Deployment:
+#   kubectl -n monitoring create configmap grafana-contact-points \
+#     --from-file=contact-points.yaml=config/grafana/alerting/contact-points.yaml \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#
+# Reference: https://grafana.com/docs/grafana/latest/alerting/set-up/provision-alerting-resources/file-provisioning/
+
+apiVersion: 1
+
+# Delete contact points not present in this file
+deleteContactPoints:
+  - orgId: 1
+    uid: stx-deprecated-contact
+
+# Contact Point Definitions
+contactPoints:
+  # =============================================================================
+  # DEFAULT EMAIL CONTACT POINT
+  # =============================================================================
+  - orgId: 1
+    name: default-email
+    receivers:
+      - uid: stx-email-oncall
+        type: email
+        settings:
+          # Multiple addresses separated by semicolons
+          addresses: "oncall@example.com;platform-alerts@example.com"
+          # Send a single email with all alerts (vs one per alert)
+          singleEmail: false
+          # Custom message template
+          message: |
+            {{ range .Alerts }}
+            ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            🔔 Alert: {{ .Labels.alertname }}
+            
+            Severity: {{ .Labels.severity | toUpper }}
+            Status: {{ .Status | toUpper }}
+            
+            📋 Summary: {{ .Annotations.summary }}
+            
+            📝 Description: {{ .Annotations.description }}
+            
+            🔗 Runbook: {{ .Annotations.runbook_url }}
+            
+            📊 Labels:
+            {{ range .Labels.SortedPairs }}  • {{ .Name }}: {{ .Value }}
+            {{ end }}
+            
+            ⏰ Started: {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}
+            {{ if .EndsAt }}🏁 Ended: {{ .EndsAt.Format "2006-01-02 15:04:05 MST" }}{{ end }}
+            {{ end }}
+        disableResolveMessage: false
+
+  # =============================================================================
+  # SLACK CONTACT POINTS
+  # =============================================================================
+  - orgId: 1
+    name: slack-critical
+    receivers:
+      - uid: stx-slack-critical
+        type: slack
+        settings:
+          # ⚠️ Use environment variable: ${SLACK_CRITICAL_WEBHOOK_URL}
+          url: "${SLACK_CRITICAL_WEBHOOK_URL}"
+          recipient: "#critical-alerts"
+          username: "STX Alerting"
+          icon_emoji: ":rotating_light:"
+          # Mention users for critical alerts (comma-separated Slack user IDs)
+          mentionUsers: "${SLACK_ONCALL_USER_IDS}"
+          mentionChannel: "here"
+          title: |
+            {{ if eq .Status "firing" }}🔴 CRITICAL{{ else }}🟢 RESOLVED{{ end }} | {{ .CommonLabels.alertname }}
+          text: |
+            *Alerts:* {{ .Alerts | len }}
+            *Cluster:* STX Production (23.92.79.2)
+            
+            {{ range .Alerts }}
+            ───────────────────────────
+            *Alert:* {{ .Labels.alertname }}
+            *Severity:* {{ .Labels.severity }}
+            *Status:* {{ .Status }}
+            
+            *Summary:* {{ .Annotations.summary }}
+            {{ if .Annotations.description }}*Description:* {{ .Annotations.description }}{{ end }}
+            {{ if .Annotations.runbook_url }}*Runbook:* <{{ .Annotations.runbook_url }}|View Runbook>{{ end }}
+            {{ end }}
+          fallback: "Alert: {{ .CommonLabels.alertname }} - {{ .Status }}"
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: slack-warnings
+    receivers:
+      - uid: stx-slack-warnings
+        type: slack
+        settings:
+          url: "${SLACK_WARNINGS_WEBHOOK_URL}"
+          recipient: "#platform-alerts"
+          username: "STX Alerting"
+          icon_emoji: ":warning:"
+          title: |
+            {{ if eq .Status "firing" }}🟠 WARNING{{ else }}🟢 RESOLVED{{ end }} | {{ .CommonLabels.alertname }}
+          text: |
+            {{ range .Alerts }}
+            *{{ .Labels.alertname }}* ({{ .Labels.severity }})
+            {{ .Annotations.summary }}
+            {{ if .Annotations.runbook_url }}<{{ .Annotations.runbook_url }}|Runbook>{{ end }}
+            {{ end }}
+        disableResolveMessage: false
+
+  # =============================================================================
+  # PAGERDUTY CONTACT POINT
+  # =============================================================================
+  - orgId: 1
+    name: pagerduty-critical
+    receivers:
+      - uid: stx-pagerduty-critical
+        type: pagerduty
+        settings:
+          # ⚠️ Use environment variable: ${PAGERDUTY_INTEGRATION_KEY}
+          integrationKey: "${PAGERDUTY_INTEGRATION_KEY}"
+          # Map Grafana severity to PagerDuty severity
+          severity: "{{ .CommonLabels.severity }}"
+          class: "{{ .CommonLabels.alertname }}"
+          component: "{{ .CommonLabels.service }}"
+          group: "{{ .CommonLabels.team }}"
+          summary: "{{ .CommonAnnotations.summary }}"
+          source: "grafana-stx-production"
+          client: "Grafana STX"
+          clientURL: "http://grafana.stx.local:30090"
+          # Custom details sent to PagerDuty
+          details:
+            firing_count: "{{ .Alerts.Firing | len }}"
+            resolved_count: "{{ .Alerts.Resolved | len }}"
+            cluster: "STX Production"
+            description: "{{ .CommonAnnotations.description }}"
+            runbook: "{{ .CommonAnnotations.runbook_url }}"
+        disableResolveMessage: false
+
+  # =============================================================================
+  # MICROSOFT TEAMS CONTACT POINT
+  # =============================================================================
+  - orgId: 1
+    name: teams-alerts
+    receivers:
+      - uid: stx-teams-alerts
+        type: teams
+        settings:
+          # ⚠️ Use environment variable: ${TEAMS_WEBHOOK_URL}
+          url: "${TEAMS_WEBHOOK_URL}"
+          title: |
+            {{ if eq .Status "firing" }}🔴{{ else }}🟢{{ end }} {{ .CommonLabels.alertname }}
+          sectiontitle: "Alert Details"
+          message: |
+            **Status:** {{ .Status | toUpper }}
+            **Severity:** {{ .CommonLabels.severity | toUpper }}
+            **Cluster:** STX Production (23.92.79.2)
+            
+            ---
+            
+            {{ range .Alerts }}
+            ### {{ .Labels.alertname }}
+            
+            **Summary:** {{ .Annotations.summary }}
+            
+            **Description:** {{ .Annotations.description }}
+            
+            {{ if .Annotations.runbook_url }}[📖 View Runbook]({{ .Annotations.runbook_url }}){{ end }}
+            
+            **Labels:**
+            {{ range .Labels.SortedPairs }}- {{ .Name }}: {{ .Value }}
+            {{ end }}
+            {{ end }}
+        disableResolveMessage: false
+
+  # =============================================================================
+  # GENERIC WEBHOOK CONTACT POINT
+  # =============================================================================
+  - orgId: 1
+    name: webhook-custom
+    receivers:
+      - uid: stx-webhook-custom
+        type: webhook
+        settings:
+          # ⚠️ Use environment variable: ${CUSTOM_WEBHOOK_URL}
+          url: "${CUSTOM_WEBHOOK_URL}"
+          httpMethod: POST
+          maxAlerts: 10
+          # Optional: Basic auth credentials (use env vars)
+          # username: "${WEBHOOK_USERNAME}"
+          # password: "${WEBHOOK_PASSWORD}"
+          # Optional: Bearer token auth
+          # authorization_scheme: Bearer
+          # authorization_credentials: "${WEBHOOK_TOKEN}"
+        disableResolveMessage: false
+
+  # =============================================================================
+  # OPSGENIE CONTACT POINT (Alternative to PagerDuty)
+  # =============================================================================
+  - orgId: 1
+    name: opsgenie-critical
+    receivers:
+      - uid: stx-opsgenie-critical
+        type: opsgenie
+        settings:
+          # ⚠️ Use environment variable: ${OPSGENIE_API_KEY}
+          apiKey: "${OPSGENIE_API_KEY}"
+          apiUrl: "https://api.opsgenie.com"
+          message: "{{ .CommonLabels.alertname }}: {{ .CommonAnnotations.summary }}"
+          description: |
+            {{ range .Alerts }}
+            Alert: {{ .Labels.alertname }}
+            Severity: {{ .Labels.severity }}
+            Description: {{ .Annotations.description }}
+            Runbook: {{ .Annotations.runbook_url }}
+            {{ end }}
+          autoClose: true
+          overridePriority: true
+          sendTagsAs: "both"
+        disableResolveMessage: false
+
+  # =============================================================================
+  # TEAM-SPECIFIC CONTACT POINTS
+  # =============================================================================
+  - orgId: 1
+    name: platform-team
+    receivers:
+      - uid: stx-platform-team-slack
+        type: slack
+        settings:
+          url: "${SLACK_PLATFORM_TEAM_WEBHOOK_URL}"
+          recipient: "#platform-team-alerts"
+          username: "STX Platform Alerts"
+          icon_emoji: ":kubernetes:"
+          title: "{{ .CommonLabels.alertname }} | {{ .Status }}"
+          text: |
+            *Team:* Platform
+            {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+        disableResolveMessage: false
+      - uid: stx-platform-team-email
+        type: email
+        settings:
+          addresses: "platform-team@example.com"
+          singleEmail: true
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: application-team
+    receivers:
+      - uid: stx-application-team-slack
+        type: slack
+        settings:
+          url: "${SLACK_APP_TEAM_WEBHOOK_URL}"
+          recipient: "#application-team-alerts"
+          username: "STX Application Alerts"
+          icon_emoji: ":package:"
+          title: "{{ .CommonLabels.alertname }} | {{ .Status }}"
+          text: |
+            *Team:* Application
+            *Service:* {{ .CommonLabels.service }}
+            {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+        disableResolveMessage: false
+      - uid: stx-application-team-email
+        type: email
+        settings:
+          addresses: "application-team@example.com"
+          singleEmail: true
+        disableResolveMessage: false
+
+  - orgId: 1
+    name: infrastructure-team
+    receivers:
+      - uid: stx-infrastructure-team-slack
+        type: slack
+        settings:
+          url: "${SLACK_INFRA_TEAM_WEBHOOK_URL}"
+          recipient: "#infrastructure-alerts"
+          username: "STX Infrastructure Alerts"
+          icon_emoji: ":gear:"
+          title: "{{ .CommonLabels.alertname }} | {{ .Status }}"
+          text: |
+            *Team:* Infrastructure
+            *Instance:* {{ .CommonLabels.instance }}
+            {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+        disableResolveMessage: false
+      - uid: stx-infrastructure-team-email
+        type: email
+        settings:
+          addresses: "infrastructure-team@example.com"
+          singleEmail: true
+        disableResolveMessage: false
+
+# =============================================================================
+# ENVIRONMENT VARIABLE REFERENCE
+# =============================================================================
+# The following environment variables must be set for this configuration:
+#
+# Email:
+#   GF_SMTP_PASSWORD           - SMTP password for sending emails
+#
+# Slack:
+#   SLACK_CRITICAL_WEBHOOK_URL - Webhook for #critical-alerts
+#   SLACK_WARNINGS_WEBHOOK_URL - Webhook for #platform-alerts
+#   SLACK_PLATFORM_TEAM_WEBHOOK_URL - Webhook for #platform-team-alerts
+#   SLACK_APP_TEAM_WEBHOOK_URL - Webhook for #application-team-alerts
+#   SLACK_INFRA_TEAM_WEBHOOK_URL - Webhook for #infrastructure-alerts
+#   SLACK_ONCALL_USER_IDS      - Comma-separated user IDs for mentions
+#
+# PagerDuty:
+#   PAGERDUTY_INTEGRATION_KEY  - Events API v2 integration key
+#
+# Microsoft Teams:
+#   TEAMS_WEBHOOK_URL          - Incoming webhook URL
+#
+# OpsGenie:
+#   OPSGENIE_API_KEY           - API key for OpsGenie integration
+#
+# Custom Webhook:
+#   CUSTOM_WEBHOOK_URL         - URL for custom webhook receiver
+#   WEBHOOK_USERNAME           - (Optional) Basic auth username
+#   WEBHOOK_PASSWORD           - (Optional) Basic auth password
+#   WEBHOOK_TOKEN              - (Optional) Bearer token
+#
+# Create Kubernetes secret:
+# kubectl -n monitoring create secret generic grafana-alerting-secrets \
+#   --from-literal=SLACK_CRITICAL_WEBHOOK_URL='https://hooks.slack.com/...' \
+#   --from-literal=PAGERDUTY_INTEGRATION_KEY='xxxxx' \
+#   --from-literal=TEAMS_WEBHOOK_URL='https://outlook.office.com/webhook/...' \
+#   ...

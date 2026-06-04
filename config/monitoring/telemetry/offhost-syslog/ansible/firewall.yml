@@ -1,0 +1,75 @@
+---
+# Ansible Playbook: Configure Firewall for Syslog Sink
+# Implements strict firewall rules for syslog sink (VPS)
+
+- name: Configure Firewall for Syslog Sink
+  hosts: syslog_sink
+  become: yes
+  vars:
+    admin_ssh_ip: 173.94.53.113/32
+    syslog_client_ip: 23.92.79.2/32
+
+  tasks:
+    - name: Install UFW if not present
+      apt:
+        name: ufw
+        state: present
+        update_cache: yes
+
+    - name: Reset UFW to default deny
+      ufw:
+        state: reset
+
+    - name: Set default deny incoming
+      ufw:
+        direction: incoming
+        policy: deny
+
+    - name: Set default allow outgoing
+      ufw:
+        direction: outgoing
+        policy: allow
+
+    - name: Allow SSH from admin IP only
+      ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+        src: "{{ admin_ssh_ip }}"
+        comment: 'Allow SSH from admin IP (173.94.53.113/32)'
+
+    - name: Allow syslog TLS from stx-aio-0
+      ufw:
+        rule: allow
+        port: '6514'
+        proto: tcp
+        src: "{{ syslog_client_ip }}"
+        comment: 'Allow syslog TLS from stx-aio-0 (23.92.79.2/32)'
+
+    - name: Allow established connections
+      ufw:
+        rule: allow
+        direction: out
+
+    - name: Display current UFW rules
+      command: ufw show added
+      register: ufw_rules
+      changed_when: false
+
+    - name: Display UFW rules
+      debug:
+        var: ufw_rules.stdout_lines
+
+    - name: Enable UFW
+      ufw:
+        state: enabled
+        logging: on
+
+    - name: Verify UFW status
+      command: ufw status verbose
+      register: ufw_status
+      changed_when: false
+
+    - name: Display UFW status
+      debug:
+        var: ufw_status.stdout_lines

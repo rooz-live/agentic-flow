@@ -1,0 +1,142 @@
+---
+# Ansible Playbook: Deploy rsyslog Forwarder
+#
+# Configures stx-aio-0 (23.92.79.2) to forward logs to syslog-sink over TLS
+#
+# Usage:
+#   ansible-playbook -i inventory.yml deploy-forwarder.yml
+#
+# Prerequisites:
+#   - Certificates generated via ../pki/generate-all-certs.sh
+#   - SSH access to stx-aio-0 as sysadmin with sudo
+
+- name: Deploy rsyslog TLS Forwarder
+  hosts: syslog_forwarders
+  become: yes
+  gather_facts: yes
+
+  vars:
+    # Certificate paths (local)
+    local_ca_cert: "{{ playbook_dir }}/../pki/ca/certs/ca.crt"
+    local_client_cert: "{{ playbook_dir }}/../pki/ca/certs/{{ tls_cert_name }}.crt"
+    local_client_key: "{{ playbook_dir }}/../pki/ca/private/{{ tls_cert_name }}.key"
+    
+    # Remote paths
+    remote_tls_dir: /etc/rsyslog.d/tls
+
+  tasks:
+    - name: Display target information
+      debug:
+        msg: "Deploying rsyslog forwarder to {{ inventory_hostname }} ({{ ansible_host }})"
+
+    # Package Installation
+    - name: Install rsyslog and TLS support
+      apt:
+        name:
+          - rsyslog
+          - rsyslog-gnutls
+        state: present
+        update_cache: yes
+
+    # TLS Directory Setup
+    - name: Create TLS directory
+      file:
+        path: "{{ remote_tls_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    # Certificate Deployment
+    - name: Deploy CA certificate
+      copy:
+        src: "{{ local_ca_cert }}"
+        dest: "{{ remote_tls_dir }}/ca.crt"
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart rsyslog
+
+    - name: Deploy client certificate
+      copy:
+        src: "{{ local_client_cert }}"
+        dest: "{{ remote_tls_dir }}/client.crt"
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart rsyslog
+
+    - name: Deploy client private key
+      copy:
+        src: "{{ local_client_key }}"
+        dest: "{{ remote_tls_dir }}/client.key"
+        owner: root
+        group: root
+        mode: '0600'
+      notify: Restart rsyslog
+
+    # rsyslog Forwarder Configuration
+    - name: Deploy rsyslog TLS forwarder configuration
+      template:
+        src: templates/rsyslog-forwarder.conf.j2
+        dest: /etc/rsyslog.d/50-tls-forward.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart rsyslog
+
+    # Configure journald to forward to syslog
+    - name: Configure journald to forward to syslog
+      lineinfile:
+        path: /etc/systemd/journald.conf
+        regexp: '^#?ForwardToSyslog='
+        line: 'ForwardToSyslog=yes'
+      notify: Restart journald
+
+    # Service Management
+    - name: Ensure rsyslog is enabled and started
+      systemd:
+        name: rsyslog
+        enabled: yes
+        state: started
+
+    # Verification
+    - name: Test TLS connectivity to syslog sink
+      wait_for:
+        host: "{{ syslog_sink_host }}"
+        port: "{{ syslog_sink_port }}"
+        timeout: 30
+        state: started
+      register: connectivity_check
+      ignore_errors: yes
+
+    - name: Send test log message
+      shell: logger -p authpriv.info -t ansible-test "Syslog forwarder deployed successfully from {{ inventory_hostname }}"
+      when: connectivity_check is succeeded
+
+    - name: Display deployment summary
+      debug:
+        msg: |
+          ✅ rsyslog forwarder deployed successfully!
+          
+          Configuration:
+          - Sink Host: {{ syslog_sink_host }}
+          - Sink Port: {{ syslog_sink_port }}
+          - TLS: Mutual authentication enabled
+          
+          Forwarding Rules:
+          - authpriv.* -> Forwarded (auth logs)
+          - *.warn -> Forwarded (system warnings)
+          
+          Next: Verify logs appear on syslog-sink
+
+  handlers:
+    - name: Restart rsyslog
+      systemd:
+        name: rsyslog
+        state: restarted
+
+    - name: Restart journald
+      systemd:
+        name: systemd-journald
+        state: restarted

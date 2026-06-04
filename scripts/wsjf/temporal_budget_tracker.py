@@ -7,11 +7,13 @@ Time-based budget allocation, monitoring, and forecasting
 import json
 import logging
 import os
+import sys
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 from enum import Enum
+
 
 class BudgetType(Enum):
     """Types of temporal budgets"""
@@ -19,6 +21,7 @@ class BudgetType(Enum):
     RESOURCE_HOURS = "resource_hours"
     EFFORT_POINTS = "effort_points"
     COST_DOLLARS = "cost_dollars"
+
 
 class BudgetStatus(Enum):
     """Budget status states"""
@@ -28,15 +31,16 @@ class BudgetStatus(Enum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
 
+
 @dataclass
 class BudgetAllocation:
     """Budget allocation for a specific time period"""
     budget_id: str
     budget_type: BudgetType
     allocated_amount: float
-    used_amount: float = 0.0
     start_time: str
     end_time: str
+    used_amount: float = 0.0
     circle: Optional[str] = None
     tags: Optional[List[str]] = None
     status: BudgetStatus = BudgetStatus.ACTIVE

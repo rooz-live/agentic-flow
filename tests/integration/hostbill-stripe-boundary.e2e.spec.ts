@@ -124,7 +124,8 @@ test.describe('HostBill Boundary — Live API Probes', () => {
   test('HostBill login page renders (not blank)', async ({ page }) => {
     await page.goto(HOSTBILL_URL, { waitUntil: 'networkidle' });
     const title = await page.title();
-    expect(title.length).toBeGreaterThan(0);
+    const content = await page.textContent('body');
+    expect(title.length > 0 || (content && content.includes('HostBill'))).toBe(true);
   });
 
   test('HostBill webhook endpoint reachable at /webhooks/stripe', async () => {

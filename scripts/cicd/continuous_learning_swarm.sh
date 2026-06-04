@@ -81,6 +81,7 @@ BREAKTHROUGH=false
 
 # Read step statuses
 set +e
+SMOKE_EC=$(cat "/tmp/cls_ec_cog_edge_smoke" 2>/dev/null || echo 0)
 PERCEIVE_EC=$(cat "/tmp/cls_ec_perceive" 2>/dev/null || echo 1)
 INDEX_EC=$(cat "/tmp/cls_ec_index_tick" 2>/dev/null || echo 1)
 PUB_EC=$(cat "/tmp/cls_ec_public_synthetic" 2>/dev/null || echo 1)
@@ -100,9 +101,13 @@ elif [[ "$PUB_EC" -ne 0 ]]; then
   REMEDIATION="Fix TLS/DNS; PUBLIC_WRITE_EVIDENCE=1 public_synthetic_check.sh"
   UPSTREAM_ACTION="P2-BILL-01"
 elif [[ "$COMP_EC" -ne 0 ]]; then
-  FAILURE_CATEGORY="compliance_fail"
+  FAILURE_CATEGORY="trust_stale"
   REMEDIATION="Resolve CVT compliance rule violations"
   UPSTREAM_ACTION="P1-ADB-01"
+elif [[ "$SMOKE_EC" -ne 0 ]]; then
+  FAILURE_CATEGORY="cog_smoke_secret"
+  REMEDIATION="Configure COGNITUM_WEBHOOK_SECRET and check edge path mapping"
+  UPSTREAM_ACTION="P1-INDEX-01"
 elif [[ $HARD_FAIL -ne 0 ]]; then
   FAILURE_CATEGORY="cls_gate_fail"
   REMEDIATION="See learning/steps logs and DLQ"
@@ -112,6 +117,49 @@ fi
 OVERALL_EC=0
 [[ $HARD_FAIL -ne 0 ]] && OVERALL_EC=1
 [[ -n "$FAILURE_CATEGORY" ]] && append_dlq "$FAILURE_CATEGORY" "$REMEDIATION"
+
+if [[ -n "$FAILURE_CATEGORY" ]]; then
+  python3 - "$FAILURE_CATEGORY" "$RUN_ID" <<'PY'
+import sys, re
+from pathlib import Path
+
+roam_file = ".goalie/ROAM_TRACKER_COG.yaml"
+if not Path(roam_file).exists():
+    sys.exit(0)
+
+cat = sys.argv[1]
+run_id = sys.argv[2]
+
+mapping = {
+    "public_edge_fail": "R-CLS-06",
+    "trust_stale": "R-CLS-03",
+    "cog_smoke_secret": "R04"
+}
+
+if cat in mapping:
+    target_id = mapping[cat]
+    text = Path(roam_file).read_text()
+    
+    lines = text.splitlines()
+    new_lines = []
+    in_target = False
+    for line in lines:
+        if line.strip().startswith("- id:") and target_id in line:
+            in_target = True
+        elif in_target and line.strip().startswith("- id:"):
+            in_target = False
+        
+        if in_target:
+            if line.strip().startswith("status:"):
+                line = re.sub(r"status:\s*\S+", "status: open", line)
+            elif line.strip().startswith("last_result:"):
+                line = f'    last_result: "dlq_trigger_{cat}_run_{run_id}"'
+        new_lines.append(line)
+        
+    Path(roam_file).write_text("\n".join(new_lines) + "\n")
+    print(f"Triggered DLQ mapping: {cat} -> {target_id} re-opened")
+PY
+fi
 
 if [[ -n "$FAILURE_CATEGORY" ]] && [[ -f "$DLQ_PATH" ]]; then
   COUNT=$(grep -c "$FAILURE_CATEGORY" "$DLQ_PATH" 2>/dev/null || echo 0)

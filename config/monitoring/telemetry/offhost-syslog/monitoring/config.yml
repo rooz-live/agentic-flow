@@ -1,0 +1,418 @@
+# Provider Drift Monitoring Configuration
+# Phase 5: High-WSJF Continuous Improvement
+#
+# This configuration file defines monitoring intervals, alert thresholds,
+# webhook URLs, SNS topics, and syslog sink endpoint for
+# provider drift monitoring.
+
+# ============================================================================
+# Monitoring Intervals
+# ============================================================================
+
+monitoring:
+  # Health check intervals (in seconds)
+  health_check_interval: 300  # 5 minutes - run health checks every 5 minutes
+  drift_detection_interval: 900  # 15 minutes - run drift detection every 15 minutes
+  incident_retention_days: 90  # Keep incident data for 90 days
+
+  # Timeout settings
+  health_check_timeout: 10  # seconds to wait for health check response
+  drift_detection_timeout: 30  # seconds to wait for drift detection
+
+  # Retry settings
+  health_check_retries: 3  # Number of retries for failed health checks
+  drift_detection_retries: 2  # Number of retries for drift detection
+
+# ============================================================================
+# Alert Thresholds
+# ============================================================================
+
+alerts:
+  # Minimum severity level to trigger alerts
+  min_severity: warning  # Options: info, warning, error, critical
+
+  # Duplicate alert suppression
+  suppress_duplicates: true
+  suppression_window_ms: 300000  # 5 minutes - suppress duplicate alerts within this window
+
+  # Severity thresholds for automatic escalation
+  severity_escalation:
+    warning_to_error_minutes: 15  # Escalate warning to error after 15 minutes
+    error_to_critical_minutes: 30  # Escalate error to critical after 30 minutes
+
+# ============================================================================
+# Hivelocity Monitoring
+# ============================================================================
+
+hivelocity:
+  # API configuration
+  api_key: ${HIVELOCITY_API_KEY}  # Loaded from environment variable
+  api_base_url: https://core.hivelocity.net/api/v2
+  device_id: ${HIVELOCITY_DEVICE_ID}  # Loaded from environment variable
+
+  # Health checks to perform
+  health_checks:
+    - type: power_state
+      enabled: true
+      interval: 60  # seconds
+
+    - type: port_config
+      enabled: true
+      interval: 300  # seconds
+
+    - type: ipmi
+      enabled: true
+      interval: 300  # seconds
+
+  # Expected configuration for drift detection
+  expected_config:
+    power_state: on
+    ipmi_available: true
+    network_connected: true
+
+  # Health thresholds
+  thresholds:
+    max_cpu_usage: 80  # percent
+    max_memory_usage: 85  # percent
+    max_disk_usage: 90  # percent
+    max_packet_loss: 5  # percent
+    max_latency_ms: 500  # milliseconds
+
+# ============================================================================
+# AWS Lightsail Monitoring
+# ============================================================================
+
+aws:
+  # AWS configuration
+  region: ${AWS_REGION:-us-east-1}
+  access_key_id: ${AWS_ACCESS_KEY_ID}  # Loaded from environment variable
+  secret_access_key: ${AWS_SECRET_ACCESS_KEY}  # Loaded from environment variable
+
+  # Instance configuration
+  instance_id: ${AWS_INSTANCE_ID:-syslog-sink-instance}
+  instance_name: Syslog Sink Instance
+
+  # Health checks to perform
+  health_checks:
+    - type: https
+      enabled: true
+      url: ${AWS_HTTPS_URL:-https://example.com}
+      interval: 60  # seconds
+      timeout: 10  # seconds
+
+    - type: ssh
+      enabled: true
+      host: ${AWS_SSH_HOST:-192.168.1.1}
+      port: ${AWS_SSH_PORT:-22}
+      interval: 60  # seconds
+      timeout: 5  # seconds
+
+    - type: tcp
+      enabled: true
+      host: ${AWS_SSH_HOST:-192.168.1.1}
+      port: 6514
+      interval: 30  # seconds
+      timeout: 5  # seconds
+
+  # CloudWatch metrics to monitor
+  cloudwatch_metrics:
+    - name: CPUUtilization
+      namespace: AWS/Lightsail
+      threshold: 90  # percent
+      period: 300  # seconds
+
+    - name: NetworkIn
+      namespace: AWS/Lightsail
+      threshold: 10000000  # bytes
+      period: 300  # seconds
+
+    - name: NetworkOut
+      namespace: AWS/Lightsail
+      threshold: 10000000  # bytes
+      period: 300  # seconds
+
+  # Expected metrics for drift detection
+  expected_metrics:
+    availability_threshold: 99.5  # percent
+    response_time_threshold: 500  # milliseconds
+
+# ============================================================================
+# Alert Routing
+# ============================================================================
+
+alert_routing:
+  # SNS configuration
+  sns:
+    enabled: ${SNS_ENABLED:-false}
+    topic_arn: ${SNS_TOPIC_ARN}
+    region: ${AWS_REGION:-us-east-1}
+    message_attributes:
+      severity: String
+      source: String
+      priority: String
+
+  # Webhook configuration
+  webhooks:
+    - name: slack
+      enabled: ${SLACK_WEBHOOK_ENABLED:-false}
+      url: ${SLACK_WEBHOOK_URL}
+      method: POST
+      headers:
+        Content-Type: application/json
+      retries: 3
+      timeout_ms: 5000
+
+    - name: pagerduty
+      enabled: ${PAGERDUTY_WEBHOOK_ENABLED:-false}
+      url: ${PAGERDUTY_WEBHOOK_URL}
+      method: POST
+      headers:
+        Content-Type: application/json
+        Accept: application/vnd.pagerduty+json;version=2
+      retries: 3
+      timeout_ms: 10000
+
+    - name: custom
+      enabled: ${CUSTOM_WEBHOOK_ENABLED:-false}
+      url: ${CUSTOM_WEBHOOK_URL}
+      method: POST
+      headers:
+        Content-Type: application/json
+        Authorization: Bearer ${WEBHOOK_AUTH_TOKEN}
+      retries: 3
+      timeout_ms: 5000
+
+  # Alert deduplication
+  deduplication:
+    enabled: true
+    window_ms: 300000  # 5 minutes
+    key_fields:
+      - source
+      - severity
+      - title
+      - deviceId
+      - instanceName
+
+  # Alert aggregation
+  aggregation:
+    enabled: true
+    window_ms: 60000  # 1 minute
+    max_batch_size: 10  # Maximum alerts to batch together
+
+# ============================================================================
+# Syslog Sink Integration
+# ============================================================================
+
+syslog_sink:
+  # Syslog server configuration
+  host: ${SYSLOG_SINK_HOST:-syslog.example.com}
+  port: ${SYSLOG_SINK_PORT:-6514}
+  protocol: ${SYSLOG_PROTOCOL:-tls}  # Options: tcp, udp, tls
+
+  # TLS configuration (when protocol is tls)
+  tls:
+    enabled: true
+    reject_unauthorized: true
+    ca_file: ${SYSLOG_TLS_CA_FILE}
+    cert_file: ${SYSLOG_TLS_CERT_FILE}
+    key_file: ${SYSLOG_TLS_KEY_FILE}
+
+  # Syslog message format
+  format: rfc5424  # RFC 5424 structured data format
+  facility: 1  # user-level messages (0-23)
+  app_name: provider-drift-monitor
+  proc_id: ${PROCESS_ID:-monitor}
+
+  # Structured data parameters
+  structured_data:
+    provider@52311:
+      name: provider
+      eventType: eventType
+    meta@52311:
+      deviceId: deviceId
+      instanceName: instanceName
+      checkType: checkType
+      severity: severity
+      wsjfPriority: wsjfPriority
+
+  # Connection handling
+  connection:
+    max_retries: 3
+    retry_delay_ms: 1000
+    connection_timeout_ms: 5000
+    reconnect_interval_ms: 60000  # 1 minute
+
+  # Buffer configuration
+  buffer:
+    enabled: true
+    max_size_mb: 10  # Maximum buffer size before flush
+    flush_interval_ms: 5000  # Flush interval in milliseconds
+
+  # Failure handling
+  on_failure:
+    action: retry  # Options: retry, drop, local_fallback
+    local_fallback_path: /var/log/provider-drift-monitor-fallback.log
+    max_queue_size: 1000  # Maximum events to queue when sink is unavailable
+
+# ============================================================================
+# WSJF Priority Calculation
+# ============================================================================
+
+wsjf:
+  # WSJF calculation parameters
+  enabled: true
+  calculator:
+    # Cost of Delay components
+    user_business_value_range: 1-10
+    time_criticality_range: 1-10
+    risk_reduction_range: 1-10
+    job_size_range: 1-100
+
+  # Priority thresholds
+  thresholds:
+    critical: 75  # Normalized score >= 75
+    high: 50  # Normalized score >= 50
+    medium: 25  # Normalized score >= 25
+    low: 0  # Normalized score < 25
+
+  # Drift type weights for WSJF calculation
+  drift_weights:
+    configuration: 1.0
+    cost: 1.2  # Cost drift has higher priority
+    availability: 1.5  # Availability drift has highest priority
+    security: 1.3  # Security drift has high priority
+
+# ============================================================================
+# Incident Management
+# ============================================================================
+
+incidents:
+  # Auto-incident creation
+  auto_create: true
+  creation_threshold: 1  # Number of events to create an incident
+
+  # Incident status
+  auto_resolve:
+    enabled: true
+    resolve_after_healthy_checks: 3  # Resolve after 3 consecutive healthy checks
+    resolve_timeout_hours: 24  # Auto-resolve after 24 hours if no resolution
+
+  # Incident escalation
+  escalation:
+    enabled: true
+    levels:
+      - name: level1
+        severity: warning
+        delay_minutes: 15
+
+      - name: level2
+        severity: error
+        delay_minutes: 30
+
+      - name: level3
+        severity: critical
+        delay_minutes: 60
+
+    # Escalation actions
+    actions:
+      level1:
+        - send_webhook
+        - log_incident
+
+      level2:
+        - send_webhook
+        - send_sns
+        - log_incident
+
+      level3:
+        - send_webhook
+        - send_sns
+        - page_on_call
+        - log_incident
+
+# ============================================================================
+# StarlingX Source Monitoring
+# ============================================================================
+
+starlingx:
+  # Source server configuration
+  source_host: ${STX_SOURCE_HOST:-stx-aio-0.corp.interface.tag.ooo}
+  source_ip: ${STX_SOURCE_IP:-23.92.79.2}
+
+  # Hivelocity device mapping (if source is a Hivelocity device)
+  device_id: ${STX_DEVICE_ID:-24460}
+
+  # Monitoring configuration
+  health_checks:
+    - type: power_state
+      enabled: true
+      interval: 60
+
+    - type: ipmi
+      enabled: true
+      interval: 300
+
+  # Expected state
+  expected_state:
+    power: on
+    ipmi: available
+
+# ============================================================================
+# Logging Configuration
+# ============================================================================
+
+logging:
+  # Log level
+  level: ${LOG_LEVEL:-info}  # Options: debug, info, warn, error
+
+  # Log format
+  format: json  # Options: json, text
+
+  # Log output
+  output:
+    - console
+    - file
+    path: /var/log/provider-drift-monitor.log
+
+  # Log rotation
+  rotation:
+    enabled: true
+    max_size_mb: 100
+    max_files: 10
+    compress: true
+
+  # Structured logging
+  structured:
+    timestamp: true
+    level: true
+    caller: true
+    stack_trace: false
+
+# ============================================================================
+# Environment Variable Reference
+# ============================================================================
+
+# Required environment variables:
+#   HIVELOCITY_API_KEY - Hivelocity API key
+#   HIVELOCITY_DEVICE_ID - Hivelocity device ID
+#   AWS_ACCESS_KEY_ID - AWS access key ID
+#   AWS_SECRET_ACCESS_KEY - AWS secret access key
+#   AWS_REGION - AWS region
+#   SYSLOG_SINK_HOST - Syslog sink host
+#   SYSLOG_SINK_PORT - Syslog sink port
+
+# Optional environment variables:
+#   SNS_TOPIC_ARN - SNS topic ARN for alerts
+#   SLACK_WEBHOOK_URL - Slack webhook URL
+#   PAGERDUTY_WEBHOOK_URL - PagerDuty webhook URL
+#   CUSTOM_WEBHOOK_URL - Custom webhook URL
+#   WEBHOOK_AUTH_TOKEN - Webhook authentication token
+#   LOG_LEVEL - Log level (default: info)
+#   STX_SOURCE_HOST - StarlingX source host
+#   STX_DEVICE_ID - StarlingX device ID
+
+# TLS configuration (optional):
+#   SYSLOG_PROTOCOL - Syslog protocol (default: tls)
+#   SYSLOG_TLS_CA_FILE - TLS CA certificate file
+#   SYSLOG_TLS_CERT_FILE - TLS certificate file
+#   SYSLOG_TLS_KEY_FILE - TLS key file

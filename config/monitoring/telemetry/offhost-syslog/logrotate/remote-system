@@ -1,0 +1,151 @@
+# =============================================================================
+# Logrotate Configuration - Remote System Logs
+# =============================================================================
+# Purpose: Rotate and retain system warning logs from remote sources
+# Target: Syslog Sink VPS - /var/log/remote/system/
+# Retention: 7 days
+# Phase: 3.4 - Log Retention and Logrotate
+# =============================================================================
+#
+# INSTALLATION:
+#   sudo cp remote-system /etc/logrotate.d/remote-system
+#   sudo chmod 644 /etc/logrotate.d/remote-system
+#
+# TEST:
+#   sudo logrotate -d /etc/logrotate.d/remote-system  # Dry run
+#   sudo logrotate -f /etc/logrotate.d/remote-system  # Force rotation
+#
+# =============================================================================
+
+# Main system warnings log (unified)
+/var/log/remote/system/syslog.warn {
+    # Rotation frequency
+    daily
+    
+    # Retention period: 7 days
+    rotate 7
+    
+    # Compression settings
+    compress
+    compresscmd /usr/bin/gzip
+    compressext .gz
+    compressoptions -9
+    delaycompress
+    
+    # Handle missing files gracefully
+    missingok
+    notifempty
+    
+    # Create new log file with appropriate permissions
+    create 0640 root adm
+    
+    # Date extension for rotated files
+    dateext
+    dateformat -%Y%m%d
+    
+    # Post-rotation script to notify rsyslog
+    postrotate
+        /usr/lib/rsyslog/rsyslog-rotate 2>/dev/null || true
+        if [ -f /var/run/rsyslogd.pid ]; then
+            kill -HUP $(cat /var/run/rsyslogd.pid) 2>/dev/null || true
+        fi
+    endscript
+    
+    prerotate
+        logger -t logrotate "Rotating remote system logs"
+    endscript
+}
+
+# Daily system logs (organized by date)
+/var/log/remote/system/*/*/*/*/syslog.warn {
+    # Rotation frequency
+    daily
+    
+    # Retention: 7 days
+    rotate 7
+    
+    # Compression
+    compress
+    compresscmd /usr/bin/gzip
+    compressext .gz
+    compressoptions -9
+    delaycompress
+    
+    # Handle missing files
+    missingok
+    notifempty
+    
+    # Permissions
+    create 0640 root adm
+    
+    # Date-based naming
+    dateext
+    dateformat -%Y%m%d
+    
+    # Use shared scripts for efficiency
+    sharedscripts
+    
+    postrotate
+        /usr/lib/rsyslog/rsyslog-rotate 2>/dev/null || true
+        if [ -f /var/run/rsyslogd.pid ]; then
+            kill -HUP $(cat /var/run/rsyslogd.pid) 2>/dev/null || true
+        fi
+    endscript
+}
+
+# General/catchall logs
+/var/log/remote/general/*/*/*/*/*/messages.log {
+    daily
+    rotate 7
+    compress
+    compresscmd /usr/bin/gzip
+    compressext .gz
+    compressoptions -9
+    delaycompress
+    missingok
+    notifempty
+    create 0640 root adm
+    dateext
+    dateformat -%Y%m%d
+    sharedscripts
+    
+    postrotate
+        /usr/lib/rsyslog/rsyslog-rotate 2>/dev/null || true
+    endscript
+}
+
+# All remote logs (catchall pattern)
+/var/log/remote/all.log {
+    daily
+    rotate 7
+    compress
+    compresscmd /usr/bin/gzip
+    compressext .gz
+    compressoptions -9
+    delaycompress
+    missingok
+    notifempty
+    create 0640 root adm
+    dateext
+    dateformat -%Y%m%d
+    
+    postrotate
+        /usr/lib/rsyslog/rsyslog-rotate 2>/dev/null || true
+    endscript
+}
+
+# =============================================================================
+# Disk Space Management
+# =============================================================================
+# 
+# Estimated disk usage (system logs):
+#   - Average system log size: ~10-20MB/day (depends on activity)
+#   - 7 days retention: ~70-140MB uncompressed
+#   - With gzip -9: ~7-15MB total
+#
+# Monitor disk usage with:
+#   du -sh /var/log/remote/system/
+#
+# Alert threshold: Consider alerting at 80% of allocated space
+#
+# =============================================================================

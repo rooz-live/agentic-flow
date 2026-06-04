@@ -1,0 +1,157 @@
+# =============================================================================
+# Logrotate Configuration - Remote Auth Logs
+# =============================================================================
+# Purpose: Rotate and retain authentication logs from remote sources
+# Target: Syslog Sink VPS - /var/log/remote/auth/
+# Retention: 30 days
+# Phase: 3.4 - Log Retention and Logrotate
+# =============================================================================
+#
+# INSTALLATION:
+#   sudo cp remote-auth /etc/logrotate.d/remote-auth
+#   sudo chmod 644 /etc/logrotate.d/remote-auth
+#
+# TEST:
+#   sudo logrotate -d /etc/logrotate.d/remote-auth  # Dry run
+#   sudo logrotate -f /etc/logrotate.d/remote-auth  # Force rotation
+#
+# =============================================================================
+
+# Main auth log (unified)
+/var/log/remote/auth/auth.log {
+    # Rotation frequency
+    daily
+    
+    # Retention period: 30 days
+    rotate 30
+    
+    # Compression settings
+    compress
+    compresscmd /usr/bin/gzip
+    compressext .gz
+    compressoptions -9
+    delaycompress
+    
+    # Handle missing files gracefully
+    missingok
+    notifempty
+    
+    # Create new log file with secure permissions
+    create 0600 root adm
+    
+    # Date extension for rotated files
+    dateext
+    dateformat -%Y%m%d
+    
+    # Don't rotate if empty
+    notifempty
+    
+    # Post-rotation script to notify rsyslog
+    postrotate
+        # Signal rsyslog to reopen log files
+        /usr/lib/rsyslog/rsyslog-rotate 2>/dev/null || true
+        # Alternative method if above doesn't exist
+        if [ -f /var/run/rsyslogd.pid ]; then
+            kill -HUP $(cat /var/run/rsyslogd.pid) 2>/dev/null || true
+        fi
+    endscript
+    
+    # Pre-rotation script for backup notification
+    prerotate
+        # Optional: notify monitoring system of impending rotation
+        logger -t logrotate "Rotating remote auth logs"
+    endscript
+}
+
+# Daily auth logs (organized by date)
+/var/log/remote/auth/*/*/*/*/auth.log {
+    # Rotation frequency
+    daily
+    
+    # Retention: 30 days
+    rotate 30
+    
+    # Compression
+    compress
+    compresscmd /usr/bin/gzip
+    compressext .gz
+    compressoptions -9
+    delaycompress
+    
+    # Handle missing files
+    missingok
+    notifempty
+    
+    # Secure permissions
+    create 0600 root adm
+    
+    # Date-based naming
+    dateext
+    dateformat -%Y%m%d
+    
+    # Use shared scripts for efficiency
+    sharedscripts
+    
+    postrotate
+        /usr/lib/rsyslog/rsyslog-rotate 2>/dev/null || true
+        if [ -f /var/run/rsyslogd.pid ]; then
+            kill -HUP $(cat /var/run/rsyslogd.pid) 2>/dev/null || true
+        fi
+    endscript
+}
+
+# SSH-specific logs
+/var/log/remote/auth/ssh/*/*/*/*/ssh.log {
+    daily
+    rotate 30
+    compress
+    compresscmd /usr/bin/gzip
+    compressext .gz
+    compressoptions -9
+    delaycompress
+    missingok
+    notifempty
+    create 0600 root adm
+    dateext
+    dateformat -%Y%m%d
+    sharedscripts
+    
+    postrotate
+        /usr/lib/rsyslog/rsyslog-rotate 2>/dev/null || true
+    endscript
+}
+
+# Sudo-specific logs
+/var/log/remote/auth/sudo/*/*/*/*/sudo.log {
+    daily
+    rotate 30
+    compress
+    compresscmd /usr/bin/gzip
+    compressext .gz
+    compressoptions -9
+    delaycompress
+    missingok
+    notifempty
+    create 0600 root adm
+    dateext
+    dateformat -%Y%m%d
+    sharedscripts
+    
+    postrotate
+        /usr/lib/rsyslog/rsyslog-rotate 2>/dev/null || true
+    endscript
+}
+
+# =============================================================================
+# Disk Space Management
+# =============================================================================
+# 
+# Estimated disk usage (auth logs):
+#   - Average auth log size: ~5MB/day
+#   - 30 days retention: ~150MB uncompressed
+#   - With gzip -9: ~15-20MB total
+#
+# Monitor disk usage with:
+#   du -sh /var/log/remote/auth/
+#
+# =============================================================================

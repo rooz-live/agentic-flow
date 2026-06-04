@@ -8,9 +8,9 @@ export const failedRequests = new Rate("failed_requests");
 
 export const options = {
   stages: [
-    { duration: "1m", target: 100 }, // ramp-up to 100 VUs
-    { duration: "3m", target: 100 }, // hold at 100 VUs
-    { duration: "1m", target: 0 },   // ramp-down to 0
+    { duration: "10s", target: 150 }, // ramp-up to 150 VUs (150% capacity)
+    { duration: "30s", target: 150 }, // hold at 150 VUs
+    { duration: "10s", target: 0 },   // ramp-down to 0
   ],
   thresholds: {
     http_req_duration: ["p(95)<200"],

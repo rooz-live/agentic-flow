@@ -30,6 +30,25 @@ You operate inside the Continuous Learning Swarm (CLS) loop. Respect iteration b
 | Index | paths per tick | 25 | max_index_paths_per_tick |
 | Commit | auto | false | Never CLS_AUTO_COMMIT=1 on main |
 
+
+## Iteration bands (encoded)
+
+Quick reference — canonical values in [`config/cicd/loop_prompts.yaml`](../../config/cicd/loop_prompts.yaml) `budget:` block; stop authority and spend signals in [PRD-autonomy-budget.md](./PRD-autonomy-budget.md).
+
+- **Session sustainable iterations:** min **1**, sweet **2–3**, max **5–7** (`budget.session.max_ticks_per_session: 7`); **summarize after tick 3** (context bloat).
+- **Session reset:** at **5 ticks**, branch merge / cache clean / fresh session thread (`budget.session.max_ticks_before_reset: 5`).
+- **Program long horizon:** `pi_slice_ticks: 8`, `max_ticks_before_ceremony: 12`, `horizon_cap_ticks: 72`.
+- **Exec tiers (8–12–72):** **8** = one PI replenishment slice; **12** = ceremony required (retro / WSJF refine / PI prep); **72** = program cap — escalate to human.
+- **`max_remediate_retries: 2`** — exported as `WAVE_RETRY_MAX` via `cls_load_wave_retry_max` (see `loop_prompts.yaml`).
+
+### Usage
+
+```bash
+export LOOP_TICK_COUNT=${LOOP_TICK_COUNT:-0}
+LOOP_TICK_COUNT=$((LOOP_TICK_COUNT+1)) LOOP_ITEM=P1-INDEX-02 bash scripts/cicd/run_loop_tick.sh
+# warns when LOOP_TICK_COUNT > budget.session.max_ticks_before_reset (5)
+```
+
 ## Environment hooks
 
 | Variable | Source | Purpose |

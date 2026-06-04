@@ -1,0 +1,133 @@
+# Vector Search Integration Bridge
+# Deconstructed from config monolith - focused single purpose
+# Integrates existing AgentDB/ReasoningBank with new domain adapters
+#
+# ROAM Risks:
+#   - Embedding API rate limits: MITIGATED (local fallback via transformers)
+#   - Vector dimension mismatch: MITIGATED (adaptive dimension detection)
+#   - Storage bloat: MITIGATED (configurable quantization tiers)
+#   - Schema drift: OWNED (versioned migrations)
+
+version: "1.0.0"
+
+# Inherit from existing AgentDB (don't recreate)
+agentdb:
+  # Reuse existing database path or override
+  db_path: ${AGENTDB_PATH:-./.agentdb/vectors.db}
+  
+  # Import existing controllers (anti-fragile: extend don't replace)
+  controllers:
+    - ReflexionMemory
+    - SkillLibrary
+    - EmbeddingService
+    - CausalMemoryGraph
+
+# Embedding configuration (adaptive)
+embedding:
+  # Primary: OpenAI (if key present)
+  primary_provider: ${EMBEDDING_PROVIDER:-openai}
+  
+  # Fallback chain (anti-fragile)
+  fallback_chain:
+    - transformers  # all-MiniLM-L6-v2 local
+    - openai        # retry
+  
+  # Dimension detection (auto-configure)
+  dimensions:
+    openai: 1536
+    transformers: 384
+  
+  # Quantization tiers per domain
+  quantization:
+    code:
+      type: scalar
+      bits: 8
+      reduction: 4x
+    telemetry:
+      type: binary
+      bits: 1
+      reduction: 32x
+    docs:
+      type: scalar
+      bits: 8
+      reduction: 4x
+
+# Domain adapters (incremental rollout)
+domains:
+  # NOW: Reuse existing telemetry/logs
+  telemetry:
+    enabled: true
+    source: ${TELEMETRY_PATH:-./logs}
+    pattern: "*.jsonl"
+    batch_size: 100
+    
+  # NEXT: Code patterns (incremental)
+  code:
+    enabled: ${ENABLE_CODE_VECTORS:-false}
+    source: ${CODE_SOURCE_PATH:-./src}
+    include:
+      - "*.ts"
+      - "*.js"
+      - "*.py"
+    exclude:
+      - "node_modules"
+      - ".git"
+    
+  # LATER: Documentation RAG
+  docs:
+    enabled: ${ENABLE_DOCS_VECTORS:-false}
+    source: ${DOCS_PATH:-./docs}
+    include:
+      - "*.md"
+      - "*.mdx"
+
+# Integration bridges (tri-modal access)
+bridges:
+  # CLI: Reuse existing cmd_semantic_search.py
+  cli:
+    enabled: true
+    script: ./scripts/cmd_semantic_search.py
+    
+  # MCP: IDE-native (incremental)
+  mcp:
+    enabled: ${ENABLE_MCP:-false}
+    server: ./src/vector/integrations/mcp-server.ts
+    
+  # API: Headless agent access
+  api:
+    enabled: ${ENABLE_API:-false}
+    port: ${VECTOR_API_PORT:-7654}
+
+# Anti-fragile feature flags (retain capabilities via config)
+features:
+  # Can toggle without breaking (invert thinking)
+  mmr_diversity: ${ENABLE_MMR:-true}
+  hybrid_search: ${ENABLE_HYBRID:-true}
+  cross_domain: ${ENABLE_CROSS_DOMAIN:-false}
+  
+  # Performance knobs
+  cache_size: ${VECTOR_CACHE_SIZE:-1000}
+  max_results: ${VECTOR_MAX_RESULTS:-100}
+  timeout_ms: ${VECTOR_TIMEOUT:-5000}
+
+# WSJF Prioritization (configurable cost of delay)
+priorities:
+  user_value:
+    telemetry_search: 5
+    code_search: 3
+    doc_rag: 2
+  
+  time_criticality:
+    telemetry_search: 5  # Immediate operational need
+    code_search: 3
+    doc_rag: 1
+  
+  risk_reduction:
+    telemetry_search: 3
+    code_search: 4  # Reduces technical debt discovery time
+    doc_rag: 2
+  
+  job_size:
+    telemetry_search: 2  # Already have data
+    code_search: 5  # Need AST parsing
+    doc_rag: 3

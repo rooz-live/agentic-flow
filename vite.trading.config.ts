@@ -32,11 +32,46 @@ export default defineConfig({
               }
             } catch (e) {}
 
+            // 3. Dynamic Circuit Breaker Trips computation
+            let circuit_breaker_trips = 0;
+            try {
+              const path = require('path');
+              const evidencePath = path.resolve(__dirname, '.goalie/mcp_health_evidence.jsonl');
+              if (fs.existsSync(evidencePath)) {
+                const content = fs.readFileSync(evidencePath, 'utf-8');
+                const lines = content.trim().split('\n');
+                for (const line of lines) {
+                  if (!line) continue;
+                  try {
+                    const event = JSON.parse(line);
+                    if (event.error_type && event.error_type !== 'success') {
+                      circuit_breaker_trips++;
+                    }
+                  } catch (err) {}
+                }
+              }
+              
+              const patternMetricsPath = path.resolve(__dirname, '.goalie/pattern_metrics.jsonl');
+              if (fs.existsSync(patternMetricsPath)) {
+                const content = fs.readFileSync(patternMetricsPath, 'utf-8');
+                const lines = content.trim().split('\n');
+                for (const line of lines) {
+                  if (!line) continue;
+                  try {
+                    const event = JSON.parse(line);
+                    if (event.pattern === 'safe-degrade' || event.pattern === 'circuit-breaker') {
+                      circuit_breaker_trips++;
+                    }
+                  } catch (err) {}
+                }
+              }
+            } catch (e) {}
+
             server.ws.send('telemetry:stream', {
               gravity_breach,
               sovereignty_manifest,
               scenario: gravity_breach ? 'critical' : 'baseline',
-              metrics: { latency_ms: Math.random() * 50 + 50, throughput_rps: 142, circuit_breaker_trips: 0, error_rate: 0.01, cpu_percent: 45, memory_mb: 1200, active_agents: 6 },
+              metrics: { latency_ms: Math.random() * 50 + 50, throughput_rps: 142, circuit_breaker_trips, error_rate: 0.01, cpu_percent: 45, memory_mb: 1200, active_agents: 6 },
               pewma: { latency: 85, anomalyScore: gravity_breach ? 0.9 : 0.1 }
             });
           } catch (e) {}

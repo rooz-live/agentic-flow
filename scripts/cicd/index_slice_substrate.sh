@@ -57,7 +57,8 @@ for spec in priority_specs:
             continue
         if p in gate:
             continue
-        to_stage.append(p)
+        if p not in to_stage:
+            to_stage.append(p)
         if len(to_stage) >= max_n:
             break
     if len(to_stage) >= max_n:

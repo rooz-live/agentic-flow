@@ -528,6 +528,24 @@ def handle_subscribe():
     emit('pattern_update', {'message': 'Subscribed to pattern stream'})
 
 
+@app.route('/api/mcp/slo')
+def api_mcp_slo():
+    """MCP Provider health check evidence"""
+    evidence_path = GOALIE_DIR / "mcp_health_evidence.jsonl"
+    events = []
+    if evidence_path.exists():
+        with open(evidence_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    return jsonify(events)
+
+
 def main():
     """Start the dashboard server"""
     import argparse

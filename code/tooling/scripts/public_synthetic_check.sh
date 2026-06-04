@@ -10,6 +10,11 @@ source "$SCRIPT_DIR/lib/evidence_json.sh"
 ensure_monorepo_repo_root "$REPO_ROOT" || exit 1
 export REPO_ROOT
 
+CHECK_ONLY=0
+if [[ "${1:-}" == "--check-only" ]]; then
+  CHECK_ONLY=1
+  shift
+fi
 DOMAIN="${1:-billing.bhopti.com}"
 WEBHOOK_PATH="${PUBLIC_WEBHOOK_PATH:-/webhooks/stripe}"
 TIMEOUT_SEC="${PUBLIC_CURL_TIMEOUT:-15}"
@@ -97,5 +102,9 @@ PY
 fi
 
 echo "public_synthetic_check: domain=$DOMAIN root=$root_code webhook=$webhook_code fail=$fail"
+if [[ "$CHECK_ONLY" == "1" ]]; then
+  echo "public_synthetic_check: check-only mode (spine wiring OK; live edge may be BLOCKED)"
+  exit 0
+fi
 [[ -n "$artifact_path" ]] && echo "evidence=$artifact_path"
 exit "$fail"

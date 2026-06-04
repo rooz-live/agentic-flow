@@ -1,0 +1,179 @@
+name: Syslog Sink CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'config/telemetry/offhost-syslog/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'config/telemetry/offhost-syslog/**'
+  workflow_dispatch:
+    inputs:
+      deploy_terraform:
+        description: 'Deploy Terraform changes'
+        required: false
+        type: boolean
+        default: false
+      deploy_ansible:
+        description: 'Deploy Ansible configuration'
+        required: false
+        type: boolean
+        default: false
+      deploy_shipper:
+        description: 'Deploy shipper config on stx-aio-0 (CAUTION)'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  TF_WORKING_DIR: config/telemetry/offhost-syslog/terraform
+  ANSIBLE_DIR: config/telemetry/offhost-syslog/ansible
+
+jobs:
+  # ============================================================================
+  # Continuous Integration (Every PR)
+  # ============================================================================
+  terraform-validate:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Init
+        run: terraform init -backend=false
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+  ansible-lint:
+    name: Ansible Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ansible-lint
+        run: pip install ansible-lint
+
+      - name: Run Ansible-lint
+        run: ansible-lint playbooks/
+        working-directory: ${{ env.ANSIBLE_DIR }}
+
+  secret-scanning:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install trufflehog
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /usr/local/bin
+
+      - name: Scan for secrets
+        run: |
+          trufflehog filesystem config/telemetry/offhost-syslog \
+            --no-update \
+            --fail \
+            --only-verified
+
+  policy-validation:
+    name: Policy Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for dangerous CIDR rules
+        run: |
+          echo "Checking for 0.0.0.0/0 on port 6514..."
+          if grep -r "0.0.0.0/0" config/telemetry/offhost-syslog/terraform/*.tf | grep -i "6514"; then
+            echo "ERROR: Found 0.0.0.0/0 CIDR on port 6514!"
+            exit 1
+          fi
+          echo "✓ No dangerous CIDR rules found"
+
+      - name: Verify allowlist contains only stx-aio-0
+        run: |
+          echo "Checking syslog allowlist..."
+          if ! grep -q "23.92.79.2/32" config/telemetry/offhost-syslog/terraform/main.tf; then
+            echo "ERROR: Syslog allowlist must contain 23.92.79.2/32"
+            exit 1
+          fi
+          echo "✓ Syslog allowlist verified"
+
+      - name: Verify TLS is enabled
+        run: |
+          echo "Checking for TLS configuration..."
+          if ! grep -q "StreamDriver.Mode.*1" config/telemetry/offhost-syslog/ansible/templates/*.j2; then
+            echo "ERROR: TLS mode not enabled in rsyslog configuration"
+            exit 1
+          fi
+          echo "✓ TLS enabled"
+
+  # ============================================================================
+  # Continuous Deployment (Manual Approval Gates)
+  # ============================================================================
+  terraform-apply:
+    name: Terraform Apply
+    needs: [terraform-validate, secret-scanning, policy-validation]
+    runs-on: ubuntu-latest
+    if: github.event.inputs.deploy_terraform == 'true'
+    environment: production  # Requires manual approval
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform init
+        working-directory: ${{ env.TF_WORKING_DIR }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+        working-directory: ${{ env.TF_WORKING_DIR }}
+
+  ansible-deploy:
+    name: Ansible Configuration
+    needs: [ansible-lint, terraform-apply]
+    runs-on: ubuntu-latest
+    if: github.event.inputs.deploy_ansible == 'true'
+    environment: production  # Requires manual approval
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Ansible
+        run: pip install ansible
+
+      - name: Run Ansible Playbook
+        run: |
+          ansible-playbook \
+            -i inventory/hosts.yml \
+            playbooks/configure-syslog-sink.yml
+        working-directory: ${{ env.ANSIBLE_DIR }}
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: 'false'
+

@@ -1,0 +1,387 @@
+# Migration Pipeline - Incremental Data Migration
+# Deconstructs: Big bang migration → Per-domain incremental phases
+# 
+# ROAM: R7 MITIGATED - Per-phase rollback, checksum validation
+# WSJF: NOW - Telemetry migration ready
+# Invert thinking: Small batches, reversible changes
+
+version: "1.0.0"
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Migration Principles
+# ═══════════════════════════════════════════════════════════════════════════
+
+principles:
+  - name: "Incremental Batches"
+    description: "Never migrate everything at once"
+    batch_size: 1000  # Rows per batch
+    
+  - name: "Validate Before Commit"
+    description: "Row-level checksum verification"
+    validation: checksum + count_match + referential_integrity
+    
+  - name: "Rollback Per Phase"
+    description: "Each phase can be rolled back independently"
+    rollback_strategy: blue_green_or_transactional
+    
+  - name: "Feature Flags"
+    description: "Migrate data behind flags, switch when ready"
+    flag_prefix: migration_
+    
+  - name: "Zero Downtime"
+    description: "Dual-write pattern, read from new, fallback to old"
+    pattern: expand_contract
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Migration Phases
+# ═══════════════════════════════════════════════════════════════════════════
+
+phases:
+  # ═══════════════════════════════════════════════════════════════════════
+  # PHASE 1: Telemetry Vectors
+  # Status: READY (Source data exists, immediate value)
+  # WSJF: 9.0 (High user value, time critical)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-1-telemetry
+    name: "Telemetry Vector Migration"
+    description: "Migrate pattern_metrics.jsonl to AgentDB vectors"
+    status: ready  # ready | in_progress | complete | failed
+    
+    source:
+      type: file
+      path: ./logs/pattern_metrics.jsonl
+      format: jsonl
+      schema:
+        timestamp: datetime
+        correlation_id: string
+        event_type: string
+        pattern: string
+        duration_ms: number
+        success: boolean
+        
+    target:
+      type: database
+      adapter: agentdb
+      table: telemetry_vectors
+      connection: ${AGENTDB_PATH:-./.agentdb/vectors.db}
+      
+    transformation:
+      - name: compute_embedding
+        description: "Generate vector embedding from pattern text"
+        implementation: AgentDBEmbeddingBridge
+        dimension: 384
+        
+      - name: normalize_timestamp
+        description: "Convert to Unix epoch milliseconds"
+        
+      - name: enrich_metadata
+        description: "Add migration metadata"
+        fields:
+          migrated_at: now()
+          migration_phase: phase-1-telemetry
+          source_file: pattern_metrics.jsonl
+          
+    validation:
+      - type: row_count
+        tolerance: 0  # Must match exactly
+        
+      - type: checksum
+        algorithm: sha256
+        columns: [correlation_id, timestamp, pattern]
+        
+      - type: sample_verification
+        sample_size: 100
+        query: "SELECT * FROM telemetry_vectors ORDER BY RANDOM() LIMIT 100"
+        
+    batch:
+      size: 1000
+      parallel: 4
+      retry: 3
+      backoff: exponential
+      
+    rollback:
+      enabled: true
+      strategy: transactional  # All or nothing per batch
+      backup_table: telemetry_vectors_backup_phase1
+      
+    flag:
+      name: migration_phase1_complete
+      default: false
+      switch_criteria: validation_passed
+      
+    estimated:
+      duration: 30 minutes
+      rows: 50000
+      storage_increase: 50MB
+      
+    # Runbook for this phase
+    runbook: ./docs/playbooks/MIGRATION-PHASE1-TELEMETRY.md
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # PHASE 2: Code Patterns
+  # Status: PLANNED (Needs AST parsing implementation)
+  # WSJF: 3.5 (Lower priority, complex job)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-2-code-patterns
+    name: "Code Pattern Extraction"
+    description: "Extract functions, classes, ADRs from source code"
+    status: planned
+    
+    source:
+      type: git
+      repository: .
+      include:
+        - "*.ts"
+        - "*.js"
+        - "*.tsx"
+        - "*.py"
+      exclude:
+        - "node_modules/**"
+        - ".git/**"
+        - "dist/**"
+        
+    target:
+      type: database
+      adapter: agentdb
+      table: code_patterns
+      
+    transformation:
+      - name: parse_ast
+        description: "Extract AST nodes using tree-sitter"
+        parser: tree-sitter
+        languages: [typescript, python]
+        
+      - name: extract_patterns
+        description: "Identify functions, classes, interfaces"
+        pattern_types:
+          - function
+          - class
+          - interface
+          - type_alias
+          - adr  # Architecture Decision Records
+          - ddd_context  # Bounded contexts
+          
+      - name: compute_embedding
+        description: "Generate code-aware embeddings"
+        model: codebert  # or graphcodebert for structural
+        dimension: 768
+        
+    validation:
+      - type: file_hash_match
+        verify: source_files_not_modified_during_migration
+        
+      - type: pattern_count
+        expected_minimum: 1000
+        
+    batch:
+      size: 100  # Files per batch
+      parallel: 2
+      retry: 3
+      
+    rollback:
+      enabled: true
+      strategy: idempotent  # Can re-run safely
+      
+    estimated:
+      duration: 2 hours
+      files: 500
+      patterns: 5000
+      
+    dependencies:
+      - phase-1-telemetry  # Wait for telemetry to validate pipeline
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # PHASE 3: Documentation Vectors
+  # Status: PLANNED (Markdown extraction)
+  # WSJF: 2.8 (RAG capability, larger job)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-3-documentation
+    name: "Documentation RAG Preparation"
+    description: "Chunk and vectorize markdown docs for RAG"
+    status: planned
+    
+    source:
+      type: file
+      path: ./docs
+      include:
+        - "*.md"
+        - "*.mdx"
+      exclude:
+        - "node_modules/**"
+        
+    target:
+      type: database
+      adapter: agentdb
+      table: document_chunks
+      
+    transformation:
+      - name: parse_markdown
+        description: "Extract sections and metadata"
+        parser: markdown-it
+        
+      - name: chunk_content
+        description: "Split into semantic chunks"
+        strategy: heading_based  # Split on H2/H3
+        max_chunk_size: 1000  # tokens
+        overlap: 100  # tokens
+        
+      - name: compute_embedding
+        description: "Generate semantic embeddings"
+        dimension: 768
+        
+    validation:
+      - type: chunk_count
+        min_chunks_per_doc: 3
+        
+      - type: retrieval_quality
+        test_queries: 50
+        min_precision: 0.8
+        
+    estimated:
+      duration: 1 hour
+      documents: 200
+      chunks: 2000
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # PHASE 4: Cross-Domain Index
+  # Status: BACKLOG (Advanced feature)
+  # WSJF: 2.0 (Complex, lower immediate value)
+  # ═══════════════════════════════════════════════════════════════════════
+  - id: phase-4-cross-domain
+    name: "Cross-Domain Hybrid Index"
+    description: "Create unified search across all domains"
+    status: backlog
+    
+    source:
+      type: database
+      tables:
+        - telemetry_vectors
+        - code_patterns
+        - document_chunks
+        
+    target:
+      type: database
+      adapter: agentdb
+      table: unified_search_index
+      
+    transformation:
+      - name: normalize_vectors
+        description: "Align dimensions across domains"
+        target_dimension: 768
+        
+      - name: build_hnsw_index
+        description: "Create HNSW graph for similarity search"
+        ef_construction: 200
+        M: 16
+        
+      - name: add_cross_references
+        description: "Link related items across domains"
+        
+    estimated:
+      duration: 4 hours
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Migration Orchestration
+# ═══════════════════════════════════════════════════════════════════════════
+
+orchestration:
+  # How to run migrations
+  strategies:
+    - name: dry_run
+      description: "Validate without writing"
+      write_enabled: false
+      log_level: verbose
+      
+    - name: validate_only
+      description: "Run validations on existing data"
+      write_enabled: false
+      skip_transform: true
+      
+    - name: incremental
+      description: "Migrate in small batches"
+      batch_size: 1000
+      pause_between_batches: 10s
+      
+    - name: full
+      description: "Complete migration with rollback on failure"
+      batch_size: 10000
+      parallel_phases: false
+      
+    - name: blue_green
+      description: "Migrate to new table, switch atomically"
+      requires: dual_write_period
+      switch_strategy: feature_flag
+
+  # Execution hooks
+  hooks:
+    pre_migration:
+      - name: backup
+        command: cp ${AGENTDB_PATH} ${AGENTDB_PATH}.backup.$(date +%s)
+        
+      - name: health_check
+        command: curl -f http://localhost:7654/health || exit 1
+        
+    post_migration:
+      - name: validation
+        command: npm run test:migration
+        
+      - name: notify
+        command: curl -X POST ${SLACK_WEBHOOK} -d '{"text":"Migration complete"}'
+        
+    on_rollback:
+      - name: alert
+        command: curl -X POST ${PAGERDUTY_KEY} -d '{"incident":"Migration rollback"}'
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Monitoring & Observability
+# ═══════════════════════════════════════════════════════════════════════════
+
+monitoring:
+  metrics:
+    - name: migration_duration_seconds
+      type: histogram
+      labels: [phase, status]
+      
+    - name: rows_migrated_total
+      type: counter
+      labels: [phase]
+      
+    - name: validation_failures_total
+      type: counter
+      labels: [phase, check_type]
+      
+    - name: rollback_triggers_total
+      type: counter
+      labels: [phase]
+      
+  alerts:
+    - name: MigrationSlow
+      condition: duration > 2x estimated
+      severity: warning
+      
+    - name: MigrationValidationFailed
+      condition: validation_failures > 0
+      severity: critical
+      
+    - name: MigrationRollback
+      condition: rollback_triggered
+      severity: critical
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CLI Usage
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Dry run phase 1
+# npx migration-runner --phase phase-1-telemetry --strategy dry_run
+
+# Run phase 1
+# npx migration-runner --phase phase-1-telemetry --strategy incremental
+
+# Validate phase 1
+# npx migration-runner --phase phase-1-telemetry --strategy validate_only
+
+# Rollback phase 1
+# npx migration-runner --phase phase-1-telemetry --rollback
+
+# Run all phases
+# npx migration-runner --all --strategy blue_green

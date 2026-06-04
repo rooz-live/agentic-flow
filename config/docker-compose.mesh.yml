@@ -1,0 +1,121 @@
+# Vector Search Mesh - Docker Compose
+# Hierarchical mesh topology with queen and worker nodes
+#
+# Usage:
+#   docker-compose -f config/docker-compose.mesh.yml up -d
+#   
+# Plan: next-phase-swarm-api-mesh-019cbe.md
+
+version: '3.8'
+
+services:
+  # Queen node - handles cross-domain aggregation
+  queen:
+    build:
+      context: ..
+      dockerfile: config/Dockerfile.api
+    environment:
+      - MESH_ROLE=queen
+      - MESH_NODE_ID=queen-1
+      - MESH_DOMAIN=all
+      - PORT=8000
+      - HOST=0.0.0.0
+    ports:
+      - "8080:8000"
+    networks:
+      - mesh-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
+  # Worker: Code domain
+  worker-code:
+    build:
+      context: ..
+      dockerfile: config/Dockerfile.api
+    environment:
+      - MESH_ROLE=worker
+      - MESH_NODE_ID=worker-code-1
+      - MESH_DOMAIN=code
+      - QUEEN_URL=http://queen:8000
+      - PORT=8000
+    networks:
+      - mesh-network
+    depends_on:
+      queen:
+        condition: service_healthy
+    volumes:
+      - code-index:/data/code:ro
+
+  # Worker: Telemetry domain
+  worker-telemetry:
+    build:
+      context: ..
+      dockerfile: config/Dockerfile.api
+    environment:
+      - MESH_ROLE=worker
+      - MESH_NODE_ID=worker-tel-1
+      - MESH_DOMAIN=telemetry
+      - QUEEN_URL=http://queen:8000
+      - PORT=8000
+    networks:
+      - mesh-network
+    depends_on:
+      queen:
+        condition: service_healthy
+    volumes:
+      - telemetry-index:/data/telemetry:ro
+
+  # Worker: Documentation domain
+  worker-docs:
+    build:
+      context: ..
+      dockerfile: config/Dockerfile.api
+    environment:
+      - MESH_ROLE=worker
+      - MESH_NODE_ID=worker-docs-1
+      - MESH_DOMAIN=docs
+      - QUEEN_URL=http://queen:8000
+      - PORT=8000
+    networks:
+      - mesh-network
+    depends_on:
+      queen:
+        condition: service_healthy
+    volumes:
+      - docs-index:/data/docs:ro
+
+  # Load balancer (optional)
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.mesh.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - mesh-network
+    depends_on:
+      - queen
+
+networks:
+  mesh-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  code-index:
+    driver: local
+  telemetry-index:
+    driver: local
+  docs-index:
+    driver: local

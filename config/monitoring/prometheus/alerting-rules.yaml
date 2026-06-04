@@ -1,0 +1,458 @@
+# Prometheus Alerting Rules - PrometheusRule CRD Format
+# STX Production Infrastructure
+#
+# This file contains alerting rules for Prometheus Operator using the PrometheusRule CRD.
+# Deploy to the monitoring namespace alongside Prometheus.
+#
+# Deployment:
+#   kubectl apply -f config/prometheus/alerting-rules.yaml
+#
+# Verify:
+#   kubectl -n monitoring get prometheusrule stx-alerting-rules -o yaml
+#   curl -s http://23.92.79.2:30091/api/v1/rules | jq '.data.groups[].name'
+#
+# Reference: https://prometheus-operator.dev/docs/user-guides/alerting/
+
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: stx-alerting-rules
+  namespace: monitoring
+  labels:
+    app: prometheus
+    release: prometheus
+    prometheus: prometheus
+    role: alert-rules
+spec:
+  groups:
+    # =========================================================================
+    # POD HEALTH ALERTS - Applications Namespace
+    # =========================================================================
+    - name: stx-pod-health
+      interval: 30s
+      rules:
+        # PodRestartsTooMany - Alert when pod restarts > 3 in 15 minutes
+        - alert: PodRestartsTooMany
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace="applications"}[15m]) > 3
+          for: 0m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Pod {{ $labels.pod }} has restarted more than 3 times in 15 minutes"
+            description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has restarted {{ $value | printf \"%.0f\" }} times in the last 15 minutes. This may indicate application instability."
+            runbook_url: "https://wiki.example.com/runbooks/pod-restarts"
+            dashboard_url: "http://grafana.stx.local:30090/d/stx-application-health"
+
+        # PodCrashLooping - Alert when pod restart rate > 5/hour
+        - alert: PodCrashLooping
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace="applications"}[1h]) > 5
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Pod {{ $labels.pod }} is crash looping"
+            description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has restarted {{ $value | printf \"%.0f\" }} times in the last hour. Immediate investigation required."
+            runbook_url: "https://wiki.example.com/runbooks/crash-loop"
+            dashboard_url: "http://grafana.stx.local:30090/d/stx-application-health"
+
+        # PodNotReady - Alert when pod not ready for > 5 minutes
+        - alert: PodNotReady
+          expr: |
+            kube_pod_status_ready{namespace="applications",condition="true"} == 0
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Pod {{ $labels.pod }} is not ready"
+            description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has been in a non-ready state for more than 5 minutes."
+            runbook_url: "https://wiki.example.com/runbooks/pod-not-ready"
+
+        # DeploymentReplicasMismatch - Alert when desired != available replicas for > 10 minutes
+        - alert: DeploymentReplicasMismatch
+          expr: |
+            kube_deployment_spec_replicas{namespace="applications"} 
+            != 
+            kube_deployment_status_replicas_available{namespace="applications"}
+          for: 10m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Deployment {{ $labels.deployment }} has replica mismatch"
+            description: "Deployment {{ $labels.deployment }} in namespace {{ $labels.namespace }} has mismatched replicas for more than 10 minutes. Desired replicas may not be available."
+            runbook_url: "https://wiki.example.com/runbooks/replica-mismatch"
+
+    # =========================================================================
+    # NODE RESOURCE ALERTS
+    # =========================================================================
+    - name: stx-node-resources
+      interval: 30s
+      rules:
+        # NodeCPUHigh - Alert when CPU usage > 80% for > 5 minutes
+        - alert: NodeCPUHigh
+          expr: |
+            100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+          for: 5m
+          labels:
+            severity: warning
+            team: infrastructure
+          annotations:
+            summary: "High CPU usage on {{ $labels.instance }}"
+            description: "CPU usage is {{ $value | printf \"%.2f\" }}% on node {{ $labels.instance }}. Consider scaling or investigating high-consumption processes."
+            runbook_url: "https://wiki.example.com/runbooks/high-cpu"
+            dashboard_url: "http://grafana.stx.local:30090/d/stx-node-resources"
+
+        # NodeMemoryHigh - Alert when memory usage > 85% for > 5 minutes
+        - alert: NodeMemoryHigh
+          expr: |
+            (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+          for: 5m
+          labels:
+            severity: warning
+            team: infrastructure
+          annotations:
+            summary: "High memory usage on {{ $labels.instance }}"
+            description: "Memory usage is {{ $value | printf \"%.2f\" }}% on node {{ $labels.instance }}. Consider scaling or terminating memory-heavy processes."
+            runbook_url: "https://wiki.example.com/runbooks/high-memory"
+            dashboard_url: "http://grafana.stx.local:30090/d/stx-node-resources"
+
+        # NodeDiskHigh - Alert when disk usage > 90% for > 5 minutes
+        - alert: NodeDiskHigh
+          expr: |
+            (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"})) * 100 > 90
+          for: 5m
+          labels:
+            severity: critical
+            team: infrastructure
+          annotations:
+            summary: "High disk usage on {{ $labels.instance }}"
+            description: "Disk usage is {{ $value | printf \"%.2f\" }}% on {{ $labels.mountpoint }} of node {{ $labels.instance }}. Clean up space immediately."
+            runbook_url: "https://wiki.example.com/runbooks/high-disk"
+            dashboard_url: "http://grafana.stx.local:30090/d/stx-node-resources"
+
+        # NodeDiskPredictedFull - Alert when disk predicted full in < 24 hours
+        - alert: NodeDiskPredictedFull
+          expr: |
+            predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"}[6h], 24*60*60) < 0
+          for: 30m
+          labels:
+            severity: warning
+            team: infrastructure
+          annotations:
+            summary: "Disk predicted to fill within 24 hours on {{ $labels.instance }}"
+            description: "Based on current trend, disk {{ $labels.mountpoint }} on {{ $labels.instance }} will be full within 24 hours. Proactive cleanup recommended."
+            runbook_url: "https://wiki.example.com/runbooks/disk-prediction"
+
+        # NodeNotReady - Alert when node is not ready
+        - alert: NodeNotReady
+          expr: |
+            kube_node_status_condition{condition="Ready",status="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            team: infrastructure
+          annotations:
+            summary: "Node {{ $labels.node }} is not ready"
+            description: "Kubernetes node {{ $labels.node }} has been in a NotReady state for more than 5 minutes."
+            runbook_url: "https://wiki.example.com/runbooks/node-not-ready"
+
+        # NodeHighLoad - Alert when load average is high
+        - alert: NodeHighLoad
+          expr: |
+            node_load15 / count without (cpu, mode) (node_cpu_seconds_total{mode="idle"}) > 2
+          for: 15m
+          labels:
+            severity: warning
+            team: infrastructure
+          annotations:
+            summary: "High load average on {{ $labels.instance }}"
+            description: "15-minute load average is {{ $value | printf \"%.2f\" }} times the CPU count on {{ $labels.instance }}."
+            runbook_url: "https://wiki.example.com/runbooks/high-load"
+
+    # =========================================================================
+    # APPLICATION HEALTH ALERTS
+    # =========================================================================
+    - name: stx-application-health
+      interval: 30s
+      rules:
+        # AppEndpointDown - Alert when HTTP probe returns non-2xx for > 2 minutes
+        - alert: AppEndpointDown
+          expr: |
+            probe_success{job="blackbox-http",namespace="applications"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            team: application
+          annotations:
+            summary: "Application endpoint {{ $labels.instance }} is down"
+            description: "HTTP probe to {{ $labels.instance }} has been failing for more than 2 minutes. Application may be unavailable."
+            runbook_url: "https://wiki.example.com/runbooks/endpoint-down"
+            dashboard_url: "http://grafana.stx.local:30090/d/stx-application-health"
+
+        # AppHighLatency - Alert when p95 latency > 5 seconds for > 5 minutes
+        - alert: AppHighLatency
+          expr: |
+            histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace="applications"}[5m])) by (le, service)) > 5
+          for: 5m
+          labels:
+            severity: warning
+            team: application
+          annotations:
+            summary: "High latency on {{ $labels.service }}"
+            description: "95th percentile latency for {{ $labels.service }} is {{ $value | printf \"%.2f\" }} seconds. User experience may be degraded."
+            runbook_url: "https://wiki.example.com/runbooks/high-latency"
+
+        # AppErrorRateHigh - Alert when error rate > 5% for > 5 minutes
+        - alert: AppErrorRateHigh
+          expr: |
+            (
+              sum(rate(http_requests_total{namespace="applications",status=~"5.."}[5m])) by (service)
+              /
+              sum(rate(http_requests_total{namespace="applications"}[5m])) by (service)
+              * 100
+            ) > 5
+          for: 5m
+          labels:
+            severity: critical
+            team: application
+          annotations:
+            summary: "High error rate on {{ $labels.service }}"
+            description: "Error rate for {{ $labels.service }} is {{ $value | printf \"%.2f\" }}%. Investigate application logs for root cause."
+            runbook_url: "https://wiki.example.com/runbooks/high-error-rate"
+
+        # ServiceDown - Alert when service has no endpoints
+        - alert: ServiceDown
+          expr: |
+            kube_endpoint_address_available{namespace="applications"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            team: application
+          annotations:
+            summary: "Service {{ $labels.endpoint }} has no endpoints"
+            description: "Service {{ $labels.endpoint }} in namespace {{ $labels.namespace }} has no available endpoints."
+            runbook_url: "https://wiki.example.com/runbooks/service-down"
+
+    # =========================================================================
+    # KUBERNETES CONTROL PLANE ALERTS
+    # =========================================================================
+    - name: stx-kubernetes-control-plane
+      interval: 30s
+      rules:
+        # KubeAPIErrorsHigh - Alert when API server 5xx error rate > 1% for > 5 minutes
+        - alert: KubeAPIErrorsHigh
+          expr: |
+            (
+              sum(rate(apiserver_request_total{code=~"5.."}[5m])) 
+              / 
+              sum(rate(apiserver_request_total[5m])) 
+              * 100
+            ) > 1
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Kubernetes API server has high error rate"
+            description: "API server 5xx error rate is {{ $value | printf \"%.2f\" }}%. Control plane may be experiencing issues."
+            runbook_url: "https://wiki.example.com/runbooks/api-errors"
+
+        # KubeAPILatencyHigh - Alert when API server p99 latency > 4 seconds for > 5 minutes
+        - alert: KubeAPILatencyHigh
+          expr: |
+            histogram_quantile(0.99, sum(rate(apiserver_request_duration_seconds_bucket{verb!="WATCH"}[5m])) by (le, verb)) > 4
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Kubernetes API server has high latency"
+            description: "API server p99 latency for {{ $labels.verb }} requests is {{ $value | printf \"%.2f\" }} seconds. Control plane performance degraded."
+            runbook_url: "https://wiki.example.com/runbooks/api-latency"
+
+        # EtcdHighCommitDuration - Alert when etcd commit duration > 500ms
+        - alert: EtcdHighCommitDuration
+          expr: |
+            histogram_quantile(0.99, rate(etcd_disk_backend_commit_duration_seconds_bucket[5m])) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "etcd has high commit duration"
+            description: "etcd p99 commit duration is {{ $value | printf \"%.3f\" }} seconds. This may indicate disk I/O issues or etcd overload."
+            runbook_url: "https://wiki.example.com/runbooks/etcd-commit"
+
+        # EtcdHighFsyncDuration - Alert when etcd fsync duration is high
+        - alert: EtcdHighFsyncDuration
+          expr: |
+            histogram_quantile(0.99, rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m])) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "etcd has high fsync duration"
+            description: "etcd p99 WAL fsync duration is {{ $value | printf \"%.3f\" }} seconds. Check disk I/O performance."
+            runbook_url: "https://wiki.example.com/runbooks/etcd-fsync"
+
+        # EtcdNoLeader - Alert when etcd has no leader
+        - alert: EtcdNoLeader
+          expr: |
+            etcd_server_has_leader == 0
+          for: 1m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "etcd cluster has no leader"
+            description: "etcd cluster on {{ $labels.instance }} has no leader. Cluster may be unavailable."
+            runbook_url: "https://wiki.example.com/runbooks/etcd-no-leader"
+
+        # KubeSchedulerDown - Alert when scheduler is down
+        - alert: KubeSchedulerDown
+          expr: |
+            absent(up{job="kube-scheduler"} == 1)
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Kubernetes scheduler is down"
+            description: "Kubernetes scheduler is not responding. New pods will not be scheduled."
+            runbook_url: "https://wiki.example.com/runbooks/scheduler-down"
+
+        # KubeControllerManagerDown - Alert when controller manager is down
+        - alert: KubeControllerManagerDown
+          expr: |
+            absent(up{job="kube-controller-manager"} == 1)
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Kubernetes controller manager is down"
+            description: "Kubernetes controller manager is not responding. Controllers will not function."
+            runbook_url: "https://wiki.example.com/runbooks/controller-manager-down"
+
+    # =========================================================================
+    # MONITORING INFRASTRUCTURE ALERTS
+    # =========================================================================
+    - name: stx-monitoring-health
+      interval: 30s
+      rules:
+        # PrometheusTargetDown - Alert when Prometheus target is down
+        - alert: PrometheusTargetDown
+          expr: |
+            up == 0
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Prometheus target {{ $labels.job }}/{{ $labels.instance }} is down"
+            description: "Prometheus target {{ $labels.instance }} in job {{ $labels.job }} has been down for more than 5 minutes."
+            runbook_url: "https://wiki.example.com/runbooks/target-down"
+
+        # AlertmanagerDown - Alert when Alertmanager is not responding
+        - alert: AlertmanagerDown
+          expr: |
+            up{job="alertmanager"} == 0
+          for: 2m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Alertmanager is down"
+            description: "Alertmanager instance {{ $labels.instance }} has been down for more than 2 minutes. Alert notifications may not be delivered."
+            runbook_url: "https://wiki.example.com/runbooks/alertmanager-down"
+
+        # PrometheusConfigReloadFailed - Alert when config reload failed
+        - alert: PrometheusConfigReloadFailed
+          expr: |
+            prometheus_config_last_reload_successful == 0
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Prometheus config reload failed"
+            description: "Prometheus {{ $labels.instance }} failed to reload its configuration. Check for syntax errors."
+            runbook_url: "https://wiki.example.com/runbooks/prometheus-config"
+
+        # PrometheusNotConnectedToAlertmanager - Alert when Prometheus can't reach Alertmanager
+        - alert: PrometheusNotConnectedToAlertmanager
+          expr: |
+            prometheus_notifications_alertmanagers_discovered < 1
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Prometheus is not connected to Alertmanager"
+            description: "Prometheus {{ $labels.instance }} is not connected to any Alertmanager. Alerts will not be delivered."
+            runbook_url: "https://wiki.example.com/runbooks/prometheus-alertmanager"
+
+        # PrometheusRuleEvaluationFailures - Alert when rule evaluation is failing
+        - alert: PrometheusRuleEvaluationFailures
+          expr: |
+            rate(prometheus_rule_evaluation_failures_total[5m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Prometheus rule evaluation failures"
+            description: "Prometheus {{ $labels.instance }} has {{ $value | printf \"%.0f\" }} rule evaluation failures per second."
+            runbook_url: "https://wiki.example.com/runbooks/prometheus-rules"
+
+        # PrometheusStorageFull - Alert when Prometheus storage is filling up
+        - alert: PrometheusStorageFull
+          expr: |
+            (
+              prometheus_tsdb_storage_blocks_bytes 
+              / 
+              prometheus_tsdb_retention_limit_bytes
+            ) * 100 > 80
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "Prometheus storage is filling up"
+            description: "Prometheus {{ $labels.instance }} storage is {{ $value | printf \"%.0f\" }}% full. Consider adjusting retention or adding storage."
+            runbook_url: "https://wiki.example.com/runbooks/prometheus-storage"
+
+    # =========================================================================
+    # WATCHDOG (Synthetic Alert for Monitoring Health)
+    # =========================================================================
+    - name: stx-watchdog
+      interval: 30s
+      rules:
+        # Watchdog - Always-firing alert to verify alerting pipeline
+        - alert: Watchdog
+          expr: vector(1)
+          for: 0m
+          labels:
+            severity: none
+            team: platform
+          annotations:
+            summary: "Alerting pipeline is functional"
+            description: "This is a watchdog alert that should always be firing. If this alert is not firing, the alerting pipeline is broken."
+
+        # DeadMansSwitch - Alert when Watchdog is not firing
+        - alert: DeadMansSwitch
+          expr: absent(ALERTS{alertname="Watchdog"})
+          for: 5m
+          labels:
+            severity: critical
+            team: platform
+          annotations:
+            summary: "Alerting pipeline may be broken"
+            description: "Watchdog alert is not firing. This indicates that the alerting pipeline may be broken."
+            runbook_url: "https://wiki.example.com/runbooks/dead-mans-switch"

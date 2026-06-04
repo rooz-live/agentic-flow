@@ -1,0 +1,500 @@
+# Grafana Alerting Rules Provisioning Configuration
+# STX Production Infrastructure
+#
+# Deployment:
+#   kubectl -n monitoring create configmap grafana-alerting-rules \
+#     --from-file=rules.yaml=config/grafana/alerting/rules.yaml \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#
+# Reference: https://grafana.com/docs/grafana/latest/alerting/set-up/provision-alerting-resources/file-provisioning/
+
+apiVersion: 1
+
+# Alert rule groups
+groups:
+  # =============================================================================
+  # POD HEALTH ALERTS - Applications Namespace
+  # =============================================================================
+  - orgId: 1
+    name: STX Pod Health
+    folder: STX Infrastructure
+    interval: 1m
+    rules:
+      # PodRestartsTooMany - Alert when pod restarts > 3 in 15 minutes
+      - uid: stx-pod-restarts-too-many
+        title: PodRestartsTooMany
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 900
+              to: 0
+            datasourceUid: prometheus-stx-uid
+            model:
+              expr: increase(kube_pod_container_status_restarts_total{namespace="applications"}[15m]) > 3
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 0m
+        annotations:
+          summary: "Pod {{ $labels.pod }} has restarted more than 3 times in 15 minutes"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has restarted {{ $value }} times in the last 15 minutes. This may indicate application instability."
+          runbook_url: "https://wiki.example.com/runbooks/pod-restarts"
+        labels:
+          severity: warning
+          team: platform
+          namespace: "{{ $labels.namespace }}"
+
+      # PodCrashLooping - Alert when pod restart rate > 5/hour
+      - uid: stx-pod-crash-looping
+        title: PodCrashLooping
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            datasourceUid: prometheus-stx-uid
+            model:
+              expr: increase(kube_pod_container_status_restarts_total{namespace="applications"}[1h]) > 5
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "Pod {{ $labels.pod }} is crash looping"
+          description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in the last hour, indicating a crash loop. Immediate investigation required."
+          runbook_url: "https://wiki.example.com/runbooks/crash-loop"
+        labels:
+          severity: critical
+          team: platform
+          namespace: "{{ $labels.namespace }}"
+
+      # PodNotReady - Alert when pod not ready for > 5 minutes
+      - uid: stx-pod-not-ready
+        title: PodNotReady
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus-stx-uid
+            model:
+              expr: kube_pod_status_ready{namespace="applications",condition="true"} == 0
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "Pod {{ $labels.pod }} is not ready"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} has been in a non-ready state for more than 5 minutes."
+          runbook_url: "https://wiki.example.com/runbooks/pod-not-ready"
+        labels:
+          severity: warning
+          team: platform
+          namespace: "{{ $labels.namespace }}"
+
+      # DeploymentReplicasMismatch - Alert when desired != available replicas for > 10 minutes
+      - uid: stx-deployment-replicas-mismatch
+        title: DeploymentReplicasMismatch
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus-stx-uid
+            model:
+              expr: |
+                kube_deployment_spec_replicas{namespace="applications"} 
+                != 
+                kube_deployment_status_replicas_available{namespace="applications"}
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        annotations:
+          summary: "Deployment {{ $labels.deployment }} has replica mismatch"
+          description: "Deployment {{ $labels.deployment }} in namespace {{ $labels.namespace }} has mismatched replicas for more than 10 minutes. Desired replicas may not be available."
+          runbook_url: "https://wiki.example.com/runbooks/replica-mismatch"
+        labels:
+          severity: critical
+          team: platform
+          namespace: "{{ $labels.namespace }}"
+
+  # =============================================================================
+  # NODE RESOURCE ALERTS
+  # =============================================================================
+  - orgId: 1
+    name: STX Node Resources
+    folder: STX Infrastructure
+    interval: 1m
+    rules:
+      # NodeCPUHigh - Alert when CPU usage > 80% for > 5 minutes
+      - uid: stx-node-cpu-high
+        title: NodeCPUHigh
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus-stx-uid
+            model:
+              expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ printf \"%.2f\" $value }}% on node {{ $labels.instance }}. Consider scaling or investigating high-consumption processes."
+          runbook_url: "https://wiki.example.com/runbooks/high-cpu"
+        labels:
+          severity: warning
+          team: infrastructure
+
+      # NodeMemoryHigh - Alert when memory usage > 85% for > 5 minutes
+      - uid: stx-node-memory-high
+        title: NodeMemoryHigh
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus-stx-uid
+            model:
+              expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ printf \"%.2f\" $value }}% on node {{ $labels.instance }}. Consider scaling or terminating memory-heavy processes."
+          runbook_url: "https://wiki.example.com/runbooks/high-memory"
+        labels:
+          severity: warning
+          team: infrastructure
+
+      # NodeDiskHigh - Alert when disk usage > 90% for > 5 minutes
+      - uid: stx-node-disk-high
+        title: NodeDiskHigh
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus-stx-uid
+            model:
+              expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay"})) * 100 > 90
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+        noDataState: NoData
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "High disk usage on {{ $labels.instance }}"
+          description: "Disk usage is {{ printf \"%.2f\" $value }}% on {{ $labels.mountpoint }} of node {{ $labels.instance }}. Clean up space immediately."
+          runbook_url: "https://wiki.example.com/runbooks/high-disk"
+        labels:
+          severity: critical
+          team: infrastructure
+
+      # NodeDiskPredictedFull - Alert when disk predicted full in < 24 hours
+      - uid: stx-node-disk-predicted-full
+        title: NodeDiskPredictedFull
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 21600
+              to: 0
+            datasourceUid: prometheus-stx-uid
+            model:
+              expr: predict_linear(node_filesystem_avail_bytes{fstype!~"tmpfs|overlay"}[6h], 24*60*60) < 0
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 30m
+        annotations:
+          summary: "Disk predicted to fill within 24 hours on {{ $labels.instance }}"
+          description: "Based on current trend, disk {{ $labels.mountpoint }} on {{ $labels.instance }} will be full within 24 hours. Proactive cleanup recommended."
+          runbook_url: "https://wiki.example.com/runbooks/disk-prediction"
+        labels:
+          severity: warning
+          team: infrastructure
+
+  # =============================================================================
+  # APPLICATION HEALTH ALERTS
+  # =============================================================================
+  - orgId: 1
+    name: STX Application Health
+    folder: STX Infrastructure
+    interval: 30s
+    rules:
+      # AppEndpointDown - Alert when HTTP probe returns non-2xx for > 2 minutes
+      - uid: stx-app-endpoint-down
+        title: AppEndpointDown
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 120
+              to: 0
+            datasourceUid: prometheus-stx-uid
+            model:
+              expr: probe_success{job="blackbox-http",namespace="applications"} == 0
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "Application endpoint {{ $labels.instance }} is down"
+          description: "HTTP probe to {{ $labels.instance }} has been failing for more than 2 minutes. Application may be unavailable."
+          runbook_url: "https://wiki.example.com/runbooks/endpoint-down"
+        labels:
+          severity: critical
+          team: application
+
+      # AppHighLatency - Alert when p95 latency > 5 seconds for > 5 minutes
+      - uid: stx-app-high-latency
+        title: AppHighLatency
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus-stx-uid
+            model:
+              expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{namespace="applications"}[5m])) by (le, service)) > 5
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "High latency on {{ $labels.service }}"
+          description: "95th percentile latency for {{ $labels.service }} is {{ printf \"%.2f\" $value }} seconds. User experience may be degraded."
+          runbook_url: "https://wiki.example.com/runbooks/high-latency"
+        labels:
+          severity: warning
+          team: application
+
+      # AppErrorRateHigh - Alert when error rate > 5% for > 5 minutes
+      - uid: stx-app-error-rate-high
+        title: AppErrorRateHigh
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus-stx-uid
+            model:
+              expr: |
+                (sum(rate(http_requests_total{namespace="applications",status=~"5.."}[5m])) by (service)
+                /
+                sum(rate(http_requests_total{namespace="applications"}[5m])) by (service)
+                * 100) > 5
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "High error rate on {{ $labels.service }}"
+          description: "Error rate for {{ $labels.service }} is {{ printf \"%.2f\" $value }}%. Investigate application logs for root cause."
+          runbook_url: "https://wiki.example.com/runbooks/high-error-rate"
+        labels:
+          severity: critical
+          team: application
+
+  # =============================================================================
+  # KUBERNETES CONTROL PLANE ALERTS
+  # =============================================================================
+  - orgId: 1
+    name: STX Kubernetes Control Plane
+    folder: STX Infrastructure
+    interval: 1m
+    rules:
+      # KubeAPIErrorsHigh - Alert when API server 5xx error rate > 1% for > 5 minutes
+      - uid: stx-kube-api-errors-high
+        title: KubeAPIErrorsHigh
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus-stx-uid
+            model:
+              expr: |
+                (sum(rate(apiserver_request_total{code=~"5.."}[5m])) 
+                / 
+                sum(rate(apiserver_request_total[5m])) 
+                * 100) > 1
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "Kubernetes API server has high error rate"
+          description: "API server 5xx error rate is {{ printf \"%.2f\" $value }}%. Control plane may be experiencing issues."
+          runbook_url: "https://wiki.example.com/runbooks/api-errors"
+        labels:
+          severity: critical
+          team: platform
+
+      # KubeAPILatencyHigh - Alert when API server p99 latency > 4 seconds for > 5 minutes
+      - uid: stx-kube-api-latency-high
+        title: KubeAPILatencyHigh
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus-stx-uid
+            model:
+              expr: histogram_quantile(0.99, sum(rate(apiserver_request_duration_seconds_bucket{verb!="WATCH"}[5m])) by (le, verb)) > 4
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "Kubernetes API server has high latency"
+          description: "API server p99 latency for {{ $labels.verb }} requests is {{ printf \"%.2f\" $value }} seconds. Control plane performance degraded."
+          runbook_url: "https://wiki.example.com/runbooks/api-latency"
+        labels:
+          severity: warning
+          team: platform
+
+      # EtcdHighCommitDuration - Alert when etcd commit duration > 500ms
+      - uid: stx-etcd-high-commit-duration
+        title: EtcdHighCommitDuration
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus-stx-uid
+            model:
+              expr: histogram_quantile(0.99, rate(etcd_disk_backend_commit_duration_seconds_bucket[5m])) > 0.5
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "etcd has high commit duration"
+          description: "etcd p99 commit duration is {{ printf \"%.3f\" $value }} seconds. This may indicate disk I/O issues or etcd overload."
+          runbook_url: "https://wiki.example.com/runbooks/etcd-commit"
+        labels:
+          severity: warning
+          team: platform
+
+  # =============================================================================
+  # MONITORING INFRASTRUCTURE ALERTS
+  # =============================================================================
+  - orgId: 1
+    name: STX Monitoring Health
+    folder: STX Infrastructure
+    interval: 1m
+    rules:
+      # PrometheusTargetDown - Alert when Prometheus target is down
+      - uid: stx-prometheus-target-down
+        title: PrometheusTargetDown
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus-stx-uid
+            model:
+              expr: up == 0
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "Prometheus target {{ $labels.job }}/{{ $labels.instance }} is down"
+          description: "Prometheus target {{ $labels.instance }} in job {{ $labels.job }} has been down for more than 5 minutes."
+          runbook_url: "https://wiki.example.com/runbooks/target-down"
+        labels:
+          severity: warning
+          team: platform
+
+      # AlertmanagerDown - Alert when Alertmanager is not responding
+      - uid: stx-alertmanager-down
+        title: AlertmanagerDown
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 300
+              to: 0
+            datasourceUid: prometheus-stx-uid
+            model:
+              expr: up{job="alertmanager"} == 0
+              instant: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+        noDataState: Alerting
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "Alertmanager is down"
+          description: "Alertmanager instance {{ $labels.instance }} has been down for more than 2 minutes. Alert notifications may not be delivered."
+          runbook_url: "https://wiki.example.com/runbooks/alertmanager-down"
+        labels:
+          severity: critical
+          team: platform

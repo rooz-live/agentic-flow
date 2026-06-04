@@ -1,0 +1,132 @@
+# Grafana Data Sources Provisioning Configuration
+# STX Production Infrastructure - Prometheus Integration
+#
+# Deployment:
+#   kubectl -n monitoring create configmap grafana-datasources \
+#     --from-file=datasources.yaml=config/grafana/datasources.yaml \
+#     --dry-run=client -o yaml | kubectl apply -f -
+#
+# Reference: https://grafana.com/docs/grafana/latest/administration/provisioning/#datasources
+
+apiVersion: 1
+
+# Delete data sources that are no longer defined in this file
+deleteDatasources:
+  - name: prometheus-stx-old
+    orgId: 1
+
+# Data source definitions
+datasources:
+  # Primary Prometheus data source (internal cluster access)
+  - name: prometheus-stx
+    type: prometheus
+    access: proxy
+    # Internal Kubernetes service URL (recommended for production)
+    url: http://prometheus-server.monitoring.svc.cluster.local:9090
+    # Alternative external URL: http://23.92.79.2:30091
+    isDefault: true
+    editable: false
+    uid: prometheus-stx-uid
+    orgId: 1
+    version: 1
+    jsonData:
+      # HTTP method for queries
+      httpMethod: POST
+      # Enable Grafana Alerting integration
+      manageAlerts: true
+      # Prometheus server type
+      prometheusType: Prometheus
+      prometheusVersion: "2.45.0"
+      # Default scrape interval
+      timeInterval: "15s"
+      # Query timeout
+      queryTimeout: "60s"
+      # Disable metrics browser for performance
+      disableMetricsLookup: false
+      # Exemplar configuration (for tracing integration)
+      exemplarTraceIdDestinations:
+        - name: traceID
+          datasourceUid: tempo
+          urlDisplayLabel: "View Trace"
+      # Incremental querying for better performance
+      incrementalQuerying: true
+      incrementalQueryOverlapWindow: "10m"
+
+  # Secondary Prometheus data source (external access for debugging)
+  - name: prometheus-stx-external
+    type: prometheus
+    access: proxy
+    # External NodePort URL
+    url: http://23.92.79.2:30091
+    isDefault: false
+    editable: true
+    uid: prometheus-stx-external-uid
+    orgId: 1
+    version: 1
+    jsonData:
+      httpMethod: POST
+      manageAlerts: false
+      prometheusType: Prometheus
+      prometheusVersion: "2.45.0"
+      timeInterval: "15s"
+      queryTimeout: "60s"
+
+  # Alertmanager data source
+  - name: alertmanager-stx
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager.monitoring.svc.cluster.local:9093
+    # Alternative external URL: http://23.92.79.2:30093
+    isDefault: false
+    editable: false
+    uid: alertmanager-stx-uid
+    orgId: 1
+    jsonData:
+      implementation: prometheus
+      handleGrafanaManagedAlerts: true
+
+  # Loki data source (if deployed for log aggregation)
+  # Uncomment when Loki is available
+  # - name: loki-stx
+  #   type: loki
+  #   access: proxy
+  #   url: http://loki.monitoring.svc.cluster.local:3100
+  #   isDefault: false
+  #   editable: false
+  #   uid: loki-stx-uid
+  #   orgId: 1
+  #   jsonData:
+  #     maxLines: 1000
+  #     derivedFields:
+  #       - datasourceUid: tempo
+  #         matcherRegex: "traceID=(\\w+)"
+  #         name: TraceID
+  #         url: "$${__value.raw}"
+
+  # Tempo data source (if deployed for distributed tracing)
+  # Uncomment when Tempo is available
+  # - name: tempo-stx
+  #   type: tempo
+  #   access: proxy
+  #   url: http://tempo.monitoring.svc.cluster.local:3200
+  #   isDefault: false
+  #   editable: false
+  #   uid: tempo
+  #   orgId: 1
+  #   jsonData:
+  #     httpMethod: GET
+  #     tracesToLogs:
+  #       datasourceUid: loki-stx
+  #       tags: ['job', 'instance', 'pod', 'namespace']
+  #       mappedTags: [{ key: 'service.name', value: 'service' }]
+  #       mapTagNamesEnabled: true
+  #       spanStartTimeShift: '-1h'
+  #       spanEndTimeShift: '1h'
+  #       filterByTraceID: true
+  #       filterBySpanID: false
+  #     tracesToMetrics:
+  #       datasourceUid: prometheus-stx-uid
+  #       tags: [{ key: 'service.name', value: 'service' }]
+  #       queries:
+  #         - name: 'Request rate'
+  #           query: 'sum(rate(http_server_requests_seconds_count{$$__tags}[5m]))'

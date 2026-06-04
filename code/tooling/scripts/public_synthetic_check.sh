@@ -17,13 +17,14 @@ WRITE_EVIDENCE="${PUBLIC_WRITE_EVIDENCE:-0}"
 
 run_curl() {
   local url="$1"
-  curl -fsS --max-time "$TIMEOUT_SEC" -o /dev/null -w '%{http_code}' "$url" 2>/dev/null \
+  local method="${2:-GET}"
+  curl -sS -X "$method" --max-time "$TIMEOUT_SEC" -o /dev/null -w '%{http_code}' "$url" 2>/dev/null \
     || echo "000"
 }
 
 base_url="https://${DOMAIN}"
-root_code="$(run_curl "${base_url}/")"
-webhook_code="$(run_curl "${base_url}${WEBHOOK_PATH}")"
+root_code="$(run_curl "${base_url}/" GET)"
+webhook_code="$(run_curl "${base_url}${WEBHOOK_PATH}" POST)"
 
 fail=0
 [[ "$root_code" =~ ^[23][0-9]{2}$ ]] || fail=1
@@ -35,10 +36,11 @@ payload="$(python3 - "$DOMAIN" "$root_code" "$webhook_code" "$WEBHOOK_PATH" <<'P
 import json, subprocess, sys
 domain, root_code, webhook_code, webhook_path = sys.argv[1:5]
 curl_diag = []
-for label, url in [("root", f"https://{domain}/"), ("webhook", f"https://{domain}{webhook_path}")]:
+for label, url, method in [("root", f"https://{domain}/", "GET"), ("webhook", f"https://{domain}{webhook_path}", "POST")]:
     try:
+        cmd = ["curl", "-fsS", "-I", "--max-time", "15", url] if method == "GET" else ["curl", "-fsS", "-X", "POST", "-I", "--max-time", "15", url]
         p = subprocess.run(
-            ["curl", "-fsS", "-I", "--max-time", "15", url],
+            cmd,
             capture_output=True,
             text=True,
         )

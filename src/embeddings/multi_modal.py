@@ -5,11 +5,11 @@ Unified embeddings combining code AST, log patterns, and metric signatures
 Plan: later-phase-support-proxies-migration-019cbe.md
 """
 
-import json
 import hashlib
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict
 from dataclasses import dataclass
 import re
+from pathlib import Path
 
 
 @dataclass
@@ -29,6 +29,9 @@ class LogFeatures:
     severity_distribution: Dict[str, int]
     error_types: List[str]
     temporal_spikes: List[int]
+    matched_patterns: List[str]
+    matched_fqdns: List[str]
+    matched_paths: List[str]
 
 
 @dataclass
@@ -149,6 +152,54 @@ class LogBERTEncoder:
             "INFO": 0.3,
             "DEBUG": 0.1
         }
+        
+        # Find project root
+        project_root = Path(__file__).resolve().parent.parent.parent
+        patterns_path = project_root / ".goalie" / "PATTERNS.yaml"
+        fqdn_path = project_root / "config" / "fqdn_registry.yaml"
+        
+        import yaml
+        self.known_patterns = set()
+        self.known_fqdns = set()
+        self.known_paths = set()
+        
+        # Load patterns
+        try:
+            if patterns_path.exists():
+                with open(patterns_path, 'r') as f:
+                    patterns_data = yaml.safe_load(f)
+                    if isinstance(patterns_data, dict) and "patterns" in patterns_data:
+                        for p in patterns_data["patterns"]:
+                            if "id" in p:
+                                self.known_patterns.add(p["id"])
+        except Exception:
+            pass
+            
+        # Add basic fallbacks
+        if not self.known_patterns:
+            self.known_patterns = {"safe-degrade", "guardrail-lock", "observability-first", "iteration-budget"}
+            
+        # Load FQDNs and paths
+        try:
+            if fqdn_path.exists():
+                with open(fqdn_path, 'r') as f:
+                    fqdn_data = yaml.safe_load(f)
+                    if isinstance(fqdn_data, dict) and "domains" in fqdn_data:
+                        for d in fqdn_data["domains"]:
+                            if "fqdn" in d:
+                                self.known_fqdns.add(d["fqdn"])
+                            if "stripe_webhook_path" in d:
+                                self.known_paths.add(d["stripe_webhook_path"])
+                            if "health_path" in d:
+                                self.known_paths.add(d["health_path"])
+        except Exception:
+            pass
+            
+        # Add basic fallbacks
+        if not self.known_fqdns:
+            self.known_fqdns = {"billing.bhopti.com", "crm.bhopti.com", "shop.bhopti.com", "docs.bhopti.com", "admin.bhopti.com"}
+        if not self.known_paths:
+            self.known_paths = {"/webhooks/stripe", "/health", "/"}
     
     def encode(self, logs: List[str]) -> List[float]:
         """Create embedding from log lines"""
@@ -169,6 +220,16 @@ class LogBERTEncoder:
         # Temporal spikes
         for spike in features.temporal_spikes:
             signature_parts.append(f"spike:{spike}")
+            
+        # Matched patterns, FQDNs, paths
+        for pat in sorted(features.matched_patterns):
+            signature_parts.append(f"pat:{pat}")
+            
+        for fqdn in sorted(features.matched_fqdns):
+            signature_parts.append(f"fqdn:{fqdn}")
+            
+        for path in sorted(features.matched_paths):
+            signature_parts.append(f"path:{path}")
         
         text = " ".join(signature_parts)
         return self._text_to_embedding(text, self.embedding_dim)
@@ -178,6 +239,10 @@ class LogBERTEncoder:
         patterns = []
         severity_dist = {}
         error_types = []
+        
+        matched_patterns = set()
+        matched_fqdns = set()
+        matched_paths = set()
         
         for log in logs:
             # Detect severity
@@ -194,6 +259,21 @@ class LogBERTEncoder:
             msg_match = re.search(r'\]\s*(.+)$', log)
             if msg_match:
                 patterns.append(msg_match.group(1)[:50])
+                
+            # Scan for known patterns
+            for pat in self.known_patterns:
+                if pat in log:
+                    matched_patterns.add(pat)
+            
+            # Scan for known FQDNs
+            for fqdn in self.known_fqdns:
+                if fqdn in log:
+                    matched_fqdns.add(fqdn)
+            
+            # Scan for known paths
+            for path in self.known_paths:
+                if path in log:
+                    matched_paths.add(path)
         
         # Detect temporal spikes (simplified)
         spikes = []
@@ -204,7 +284,10 @@ class LogBERTEncoder:
             patterns=list(set(patterns))[:10],
             severity_distribution=severity_dist,
             error_types=list(set(error_types)),
-            temporal_spikes=spikes
+            temporal_spikes=spikes,
+            matched_patterns=list(matched_patterns),
+            matched_fqdns=list(matched_fqdns),
+            matched_paths=list(matched_paths)
         )
     
     def _text_to_embedding(self, text: str, dim: int) -> List[float]:

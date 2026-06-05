@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { getDomainBatch } from './chunked-delivery.config';
+import { getDomainBatch } from '../harness/BaseBillingE2ESpec';
 
 // Sovereign Ingress - E2E Verification Phase Tests
 // Validation Gate: Contract is King (TDD Spec Retention)

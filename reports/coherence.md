@@ -1,20 +1,20 @@
 # DDD/TDD/ADR Coherence Validation Report
-**Generated:** 2026-06-05 07:21:17
+**Generated:** 2026-06-05 16:46:49
 **Project:** `/Users/shahroozbhopti/Documents/code`
 **Files Scanned:** 404
 **Automation Level:** Level 3 (With Review)
 
 ## ✅ Overall: PASS
-`██████████████████████████░░░░` **89.8%** (766/853 checks)
+`██████████████████████████░░░░` **88.4%** (744/842 checks)
 
 ## Layer Health
 
 | Layer | Health | Files | Gaps | Strengths |
 |:------|:------:|:-----:|:----:|:----------|
 | **PRD** | 🟡 76% | 11 | 5 | 11 PRD document(s) found |
-| **ADR** | 🟡 75% | 42 | 10 | 42 ADR document(s) found |
+| **ADR** | 🟡 60% | 42 | 16 | 42 ADR document(s) found |
 | **DDD** | 🟢 95% | 37 | 0 | 37 domain file(s) found |
-| **TDD** | 🟢 92% | 314 | 29 | 314 test file(s) found |
+| **TDD** | 🟢 94% | 314 | 21 | 314 test file(s) found |
 
 ## Cross-Layer Coherence
 
@@ -22,12 +22,12 @@
 - ✅ **COH-003** (prd→tdd): PRD criteria: ✓, Tests exist: ✓
 - ✅ **COH-004** (tdd→ddd): 63/63 domain terms found in test names (100%)
 - ✅ **COH-002** (adr→ddd): 42 ADR(s), 50 domain classes
-- ✅ **COH-005** (prd→adr): PRD: 11 doc(s), ADR: 42 doc(s), 31/42 with valid status
+- ✅ **COH-005** (prd→adr): PRD: 11 doc(s), ADR: 42 doc(s), 26/42 with valid status
 - ✅ **COH-010** (ddd→prd): 31/32 domain modules have DoR/DoD docstrings (97%)
 - ❌ **COH-006** (ddd→ddd): 14/41 Python packages have __init__.py (34%)
 - ✅ **COH-009** (ddd→ddd): 40/41 Rust domain structs derive Serialize (98%)
-- ✅ **COH-007** (tdd→tdd): 104/108 test files follow naming convention (96%)
-- ✅ **COH-008** (prd→prd): 10/11 PRD documents have measurable success metrics (91%) [2 stray PRD-like file(s) outside docs/prd/]
+- ✅ **COH-007** (tdd→tdd): 103/107 test files follow naming convention (96%)
+- ✅ **COH-008** (prd→prd): 10/11 PRD documents have measurable success metrics (91%) [1 stray PRD-like file(s) outside docs/prd/]
 - ✅ **COH-011** (ddd→tdd): Found 3 MCP component(s) and 3 test harness(es)
 - ✅ **COH-012** (ddd→tdd): Found 19 vector source file(s) and 5 vector test harness(es)
 - ✅ **COH-013** (ddd→tdd): Found 2 MPP components and 2 verification test(s)
@@ -78,43 +78,44 @@
 - ✅ [WARNING] ADR has required sections: 4/4 sections `docs/ADR-017-Portfolio-Hierarchy-Architecture.md`
 - ✅ [INFO] ADR has explicit status: Status: accepted `docs/ADR-017-Portfolio-Hierarchy-Architecture.md`
 - ✅ [INFO] ADR has date: Date present `docs/ADR-017-Portfolio-Hierarchy-Architecture.md`
-- ❌ [WARNING] ADR has required sections: 2/4 sections (missing: context, consequences) `docs/ADR-092-IMPLEMENTATION.md`
+- ❌ [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences) `docs/ADR-092-IMPLEMENTATION.md`
 - ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/ADR-092-IMPLEMENTATION.md`
   💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
-- ✅ [INFO] ADR has date: Date present `docs/ADR-092-IMPLEMENTATION.md`
+- ❌ [INFO] ADR has date: No date found `docs/ADR-092-IMPLEMENTATION.md`
 - ✅ [WARNING] ADR has required sections: 4/4 sections `docs/SEMI_AUTO_PATENT_SYSTEM_ADR.md`
 - ✅ [INFO] ADR has explicit status: Status: Proposed `docs/SEMI_AUTO_PATENT_SYSTEM_ADR.md`
 - ✅ [INFO] ADR has date: Date present `docs/SEMI_AUTO_PATENT_SYSTEM_ADR.md`
 - ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/000-TEMPLATE.md`
 - ✅ [INFO] ADR has explicit status: Status: Proposed `docs/adr/000-TEMPLATE.md`
 - ✅ [INFO] ADR has date: Date present `docs/adr/000-TEMPLATE.md`
-- ❌ [WARNING] ADR has required sections: 3/4 sections (missing: status) `docs/adr/001-decibel-audio-analytics.md`
+- ❌ [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences) `docs/adr/001-decibel-audio-analytics.md`
 - ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/adr/001-decibel-audio-analytics.md`
   💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
 - ❌ [INFO] ADR has date: No date found `docs/adr/001-decibel-audio-analytics.md`
-- ❌ [WARNING] ADR has required sections: 3/4 sections (missing: status) `docs/adr/002-summerjobswap-board.md`
+- ❌ [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences) `docs/adr/002-summerjobswap-board.md`
 - ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/adr/002-summerjobswap-board.md`
   💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
 - ❌ [INFO] ADR has date: No date found `docs/adr/002-summerjobswap-board.md`
-- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/ADR-001-Hierarchical-Progress.md`
+- ❌ [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences) `docs/adr/ADR-001-Hierarchical-Progress.md`
 - ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/adr/ADR-001-Hierarchical-Progress.md`
   💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
-- ✅ [INFO] ADR has date: Date present `docs/adr/ADR-001-Hierarchical-Progress.md`
+- ❌ [INFO] ADR has date: No date found `docs/adr/ADR-001-Hierarchical-Progress.md`
 - ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/ADR-001-yolife-dimensional-ui.md`
 - ✅ [INFO] ADR has explicit status: Status: accepted `docs/adr/ADR-001-yolife-dimensional-ui.md`
 - ✅ [INFO] ADR has date: Date present `docs/adr/ADR-001-yolife-dimensional-ui.md`
-- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/ADR-002-Completion-Tracking.md`
+- ❌ [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences) `docs/adr/ADR-002-Completion-Tracking.md`
 - ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/adr/ADR-002-Completion-Tracking.md`
   💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
-- ✅ [INFO] ADR has date: Date present `docs/adr/ADR-002-Completion-Tracking.md`
+- ❌ [INFO] ADR has date: No date found `docs/adr/ADR-002-Completion-Tracking.md`
 - ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/ADR-003-WEBHOOK-ARCHITECTURE.md`
 - ✅ [INFO] ADR has explicit status: Status: accepted `docs/adr/ADR-003-WEBHOOK-ARCHITECTURE.md`
 - ✅ [INFO] ADR has date: Date present `docs/adr/ADR-003-WEBHOOK-ARCHITECTURE.md`
 - ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/ADR-004-NAPI-RS-EVIDENCE-VALIDATOR.md`
 - ✅ [INFO] ADR has explicit status: Status: accepted `docs/adr/ADR-004-NAPI-RS-EVIDENCE-VALIDATOR.md`
 - ✅ [INFO] ADR has date: Date present `docs/adr/ADR-004-NAPI-RS-EVIDENCE-VALIDATOR.md`
-- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/ADR-016-LEGAL-ENTITY-RESOLUTION.md`
-- ✅ [INFO] ADR has explicit status: Status: Accepted `docs/adr/ADR-016-LEGAL-ENTITY-RESOLUTION.md`
+- ❌ [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences) `docs/adr/ADR-016-LEGAL-ENTITY-RESOLUTION.md`
+- ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/adr/ADR-016-LEGAL-ENTITY-RESOLUTION.md`
+  💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
 - ❌ [INFO] ADR has date: No date found `docs/adr/ADR-016-LEGAL-ENTITY-RESOLUTION.md`
 - ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/ADR-018-WSJF-Anti-Pattern-Framework.md`
 - ✅ [INFO] ADR has explicit status: Status: accepted `docs/adr/ADR-018-WSJF-Anti-Pattern-Framework.md`
@@ -138,7 +139,7 @@
 - ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/adr/ADR-023-DR-HA-Billing-Shutdown-Protocol.md`
   💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
 - ❌ [INFO] ADR has date: No date found `docs/adr/ADR-023-DR-HA-Billing-Shutdown-Protocol.md`
-- ❌ [WARNING] ADR has required sections: 1/4 sections (missing: status, decision, consequences) `docs/adr/ADR-024-DDD-Agentic-Economy.md`
+- ❌ [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences) `docs/adr/ADR-024-DDD-Agentic-Economy.md`
 - ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/adr/ADR-024-DDD-Agentic-Economy.md`
   💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
 - ❌ [INFO] ADR has date: No date found `docs/adr/ADR-024-DDD-Agentic-Economy.md`
@@ -148,23 +149,24 @@
 - ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/ADR-026-DAG-RELAXATION.md`
 - ✅ [INFO] ADR has explicit status: Status: Accepted `docs/adr/ADR-026-DAG-RELAXATION.md`
 - ❌ [INFO] ADR has date: No date found `docs/adr/ADR-026-DAG-RELAXATION.md`
-- ❌ [WARNING] ADR has required sections: 1/4 sections (missing: context, decision, consequences) `docs/adr/ADR-026-DAG-Relaxation-Implementation.md`
+- ❌ [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences) `docs/adr/ADR-026-DAG-Relaxation-Implementation.md`
 - ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/adr/ADR-026-DAG-Relaxation-Implementation.md`
   💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
-- ✅ [INFO] ADR has date: Date present `docs/adr/ADR-026-DAG-Relaxation-Implementation.md`
-- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/ADR-027-RUFLOFISH-OSINT-SENSING.md`
-- ✅ [INFO] ADR has explicit status: Status: Accepted `docs/adr/ADR-027-RUFLOFISH-OSINT-SENSING.md`
-- ✅ [INFO] ADR has date: Date present `docs/adr/ADR-027-RUFLOFISH-OSINT-SENSING.md`
+- ❌ [INFO] ADR has date: No date found `docs/adr/ADR-026-DAG-Relaxation-Implementation.md`
+- ❌ [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences) `docs/adr/ADR-027-RUFLOFISH-OSINT-SENSING.md`
+- ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/adr/ADR-027-RUFLOFISH-OSINT-SENSING.md`
+  💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
+- ❌ [INFO] ADR has date: No date found `docs/adr/ADR-027-RUFLOFISH-OSINT-SENSING.md`
 - ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/ADR-065-validation-dashboard-feature-flag.md`
 - ✅ [INFO] ADR has explicit status: Status: Accepted `docs/adr/ADR-065-validation-dashboard-feature-flag.md`
 - ✅ [INFO] ADR has date: Date present `docs/adr/ADR-065-validation-dashboard-feature-flag.md`
 - ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/ADR-CLS-003-session-rehydration-bridge.md`
 - ✅ [INFO] ADR has explicit status: Status: Accepted `docs/adr/ADR-CLS-003-session-rehydration-bridge.md`
 - ❌ [INFO] ADR has date: No date found `docs/adr/ADR-CLS-003-session-rehydration-bridge.md`
-- ❌ [WARNING] ADR has required sections: 3/4 sections (missing: consequences) `docs/adr/ADR-DR-001-Backup-Infrastructure.md`
+- ❌ [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences) `docs/adr/ADR-DR-001-Backup-Infrastructure.md`
 - ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/adr/ADR-DR-001-Backup-Infrastructure.md`
   💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
-- ✅ [INFO] ADR has date: Date present `docs/adr/ADR-DR-001-Backup-Infrastructure.md`
+- ❌ [INFO] ADR has date: No date found `docs/adr/ADR-DR-001-Backup-Infrastructure.md`
 - ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/ADR-TEMPLATE.md`
 - ✅ [INFO] ADR has explicit status: Status: accepted `docs/adr/ADR-TEMPLATE.md`
 - ✅ [INFO] ADR has date: Date present `docs/adr/ADR-TEMPLATE.md`
@@ -181,15 +183,18 @@
 - ❌ [WARNING] ADR has required sections: 3/4 sections (missing: consequences) `docs/agentics/ADR-CLS-002-dependabot-scope.md`
 - ✅ [INFO] ADR has explicit status: Status: Accepted `docs/agentics/ADR-CLS-002-dependabot-scope.md`
 - ✅ [INFO] ADR has date: Date present `docs/agentics/ADR-CLS-002-dependabot-scope.md`
-- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/architecture/ADR-001-hierarchical-progress-tracking.md`
-- ✅ [INFO] ADR has explicit status: Status: Accepted `docs/architecture/ADR-001-hierarchical-progress-tracking.md`
+- ❌ [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences) `docs/architecture/ADR-001-hierarchical-progress-tracking.md`
+- ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/architecture/ADR-001-hierarchical-progress-tracking.md`
+  💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
 - ❌ [INFO] ADR has date: No date found `docs/architecture/ADR-001-hierarchical-progress-tracking.md`
-- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/architecture/ADR-002-completion-tracking.md`
-- ✅ [INFO] ADR has explicit status: Status: Accepted `docs/architecture/ADR-002-completion-tracking.md`
-- ✅ [INFO] ADR has date: Date present `docs/architecture/ADR-002-completion-tracking.md`
-- ❌ [WARNING] ADR has required sections: 3/4 sections (missing: consequences) `docs/architecture/ADR-003-ay-prod-yo-integration.md`
-- ✅ [INFO] ADR has explicit status: Status: Proposed `docs/architecture/ADR-003-ay-prod-yo-integration.md`
-- ✅ [INFO] ADR has date: Date present `docs/architecture/ADR-003-ay-prod-yo-integration.md`
+- ❌ [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences) `docs/architecture/ADR-002-completion-tracking.md`
+- ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/architecture/ADR-002-completion-tracking.md`
+  💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
+- ❌ [INFO] ADR has date: No date found `docs/architecture/ADR-002-completion-tracking.md`
+- ❌ [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences) `docs/architecture/ADR-003-ay-prod-yo-integration.md`
+- ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/architecture/ADR-003-ay-prod-yo-integration.md`
+  💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
+- ❌ [INFO] ADR has date: No date found `docs/architecture/ADR-003-ay-prod-yo-integration.md`
 - ✅ [WARNING] ADR has required sections: 4/4 sections `docs/architecture/ADR-006-VECTOR-MERGE-PROVISIONING.md`
 - ✅ [INFO] ADR has explicit status: Status: accepted `docs/architecture/ADR-006-VECTOR-MERGE-PROVISIONING.md`
 - ✅ [INFO] ADR has date: Date present `docs/architecture/ADR-006-VECTOR-MERGE-PROVISIONING.md`
@@ -333,9 +338,7 @@
 - ✅ [INFO] Test file follows naming convention: Correct: quick_test.js `rust/evidence-validator/quick_test.js`
 - ❌ [INFO] Test file follows naming convention: Non-standard: test.js `rust/evidence-validator/test.js`
 - ✅ [INFO] Test file follows naming convention: Correct: orchestration_test.rs `rust/tests/orchestration_test.rs`
-- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.7 assertions/test (7 assertions, 10 tests) `rust/tests/orchestration_test.rs`
 - ✅ [INFO] Test file follows naming convention: Correct: quantum_i18n_test.rs `rust/tests/quantum_i18n_test.rs`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (8 assertions, 2 tests) `rust/tests/quantum_i18n_test.rs`
 - ✅ [INFO] Test file follows naming convention: Correct: simple_test.py `simple_test.py`
 - ✅ [INFO] Test file follows naming convention: Correct: index.test.ts `src/adrs/ADR-001-Hierarchical-Progress/index.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.4 assertions/test (44 assertions, 13 tests) `src/adrs/ADR-001-Hierarchical-Progress/index.test.ts`
@@ -393,21 +396,16 @@
 - ✅ [INFO] Test file follows naming convention: Correct: test-dashboard.js `test-dashboard.js`
 - ✅ [INFO] Test file follows naming convention: Correct: test-dom.js `test-dom.js`
 - ✅ [INFO] Test file follows naming convention: Correct: test-governance.js `test-governance.js`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 6.6 assertions/test (66 assertions, 10 tests) `test-governance.js`
 - ✅ [INFO] Test file follows naming convention: Correct: test-network.js `test-network.js`
 - ✅ [INFO] Test file follows naming convention: Correct: test-roam.ts `test-roam.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: test-scheduler.ts `test-scheduler.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: test_device_improvements.py `test_device_improvements.py`
-- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 1 tests) `test_device_improvements.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_device_state.py `test_device_state.py`
-- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 1 tests) `test_device_state.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_indexer.py `test_indexer.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_invoke.py `test_invoke.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_openstack_stx_bridge.py `test_openstack_stx_bridge.py`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (16 assertions, 8 tests) `test_openstack_stx_bridge.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_playwright.js `test_playwright.js`
 - ✅ [INFO] Test file follows naming convention: Correct: test_staging.py `test_staging.py`
-- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 2 tests) `test_staging.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_syntax.js `test_syntax.js`
 - ✅ [INFO] Test file follows naming convention: Correct: test_tls.py `test_tls.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_tls_8888.py `test_tls_8888.py`
@@ -415,10 +413,8 @@
 - ✅ [INFO] Test file follows naming convention: Correct: test_tls_mac.py `test_tls_mac.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_upload.py `test_upload.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_variant_controls.py `test_variant_controls.py`
-- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 4 tests) `test_variant_controls.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_whm.py `test_whm.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_write_status.py `test_write_status.py`
-- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 2 tests) `test_write_status.py`
 - ✅ [INFO] Test file follows naming convention: Correct: circuit-breaker.test.ts `tests/advisor/circuit-breaker.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.7 assertions/test (24 assertions, 9 tests) `tests/advisor/circuit-breaker.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: opex-authorizer.test.ts `tests/advisor/opex-authorizer.test.ts`
@@ -500,7 +496,6 @@
 - ✅ [INFO] Test file follows naming convention: Correct: ceremony-logger-verify.e2e.spec.ts `tests/ceremony-logger-verify.e2e.spec.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.6 assertions/test (32 assertions, 9 tests) `tests/ceremony-logger-verify.e2e.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: test_integration_suite.py `tests/claude_ecosystem/test_integration_suite.py`
-- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.5 assertions/test (10 assertions, 19 tests) `tests/claude_ecosystem/test_integration_suite.py`
 - ✅ [INFO] Test file follows naming convention: Correct: advocate.test.ts `tests/cli/advocate.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.6 assertions/test (123 assertions, 34 tests) `tests/cli/advocate.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: test_pipeline.py `tests/coherence/test_pipeline.py`
@@ -849,7 +844,6 @@
 - ✅ [INFO] Test file follows naming convention: Correct: test_matrix_hermes_bead.py `tests/unit/test_matrix_hermes_bead.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.0 assertions/test (3 assertions, 3 tests) `tests/unit/test_matrix_hermes_bead.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_performance_predictor.py `tests/unit/test_performance_predictor.py`
-- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.2 assertions/test (2 assertions, 9 tests) `tests/unit/test_performance_predictor.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_roam_classifier_bead.py `tests/unit/test_roam_classifier_bead.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (9 assertions, 3 tests) `tests/unit/test_roam_classifier_bead.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_rust_bridge_pyo3.py `tests/unit/test_rust_bridge_pyo3.py`
@@ -896,18 +890,18 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (28 assertions, 13 tests) `tests/verification/verification-pipeline.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: vscode-extension-mocks.test.ts `tests/vscode-extension/vscode-extension-mocks.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (109 assertions, 31 tests) `tests/vscode-extension/vscode-extension-mocks.test.ts`
-- ✅ [CRITICAL] Unit tests present: 2969 test functions found
-- ✅ [WARNING] Integration tests present: 123 integration test file(s)
-- ✅ [INFO] Total assertion count reasonable: 9188 total assertions across 314 files
+- ✅ [CRITICAL] Unit tests present: 2901 test functions found
+- ✅ [WARNING] Integration tests present: 115 integration test file(s)
+- ✅ [INFO] Total assertion count reasonable: 9079 total assertions across 314 files
 
 ## Recommendations
 
 -   → [WARNING] PRD has required sections: 0/4 sections present (missing: objective, requirements, acceptance criteria, success metric)
 -   → [WARNING] PRD has measurable success metrics: Quantifiable metrics: 0 pattern(s) found
 -   → [WARNING] PRD has required sections: 1/4 sections present (missing: objective, requirements, acceptance criteria)
--   → [WARNING] ADR has required sections: 2/4 sections (missing: context, consequences)
--   → [WARNING] ADR has required sections: 3/4 sections (missing: status)
--   → [WARNING] ADR has required sections: 3/4 sections (missing: status)
+-   → [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences)
+-   → [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences)
+-   → [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences)
 -   → [WARNING] Test assertion density ≥ 1.0 per test: 0.2 assertions/test (1 assertions, 5 tests)
 -   → [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 1 tests)
 -   → [WARNING] Test assertion density ≥ 1.0 per test: 0.2 assertions/test (2 assertions, 9 tests)
@@ -918,9 +912,9 @@
 | Phase | Coherence Action |
 |:------|:-----------------|
 | **Observe** | Scanned 404 files across 4 layers |
-| **Orient** | Health: PRD=76%, ADR=75%, DDD=95%, TDD=92% |
-| **Decide** | Verdict: PASS at 90% |
+| **Orient** | Health: PRD=76%, ADR=60%, DDD=95%, TDD=94% |
+| **Decide** | Verdict: PASS at 88% |
 | **Act** | 10 recommendations to implement |
 
 ---
-*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-06-05 07:21:17*
+*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-06-05 16:46:49*

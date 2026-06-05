@@ -555,6 +555,16 @@ def run_cog_compliance(scope: str = "full") -> int:
         json.dumps({"path": str(out_path), "scope": scope, "overall": report["overall"], "exit_code": exit_code}, indent=2) + "\n"
     )
     print(f"Wrote {out_path}")
+    # #region agent log
+    try:
+        import time
+        logp = __import__("os").environ.get("DEBUG_LOG", "/Users/shahroozbhopti/.cursor/debug-logs/debug-254b22.log")
+        rules_run = [r["rule_id"] for r in report.get("passes", [])] + [r["rule_id"] for r in report.get("violations", [])]
+        with open(logp, "a") as lf:
+            lf.write(__import__("json").dumps({"sessionId":"254b22","timestamp":int(time.time()*1000),"location":"compliance_as_code.py","message":"cog_run","data":{"scope":scope,"exit_code":exit_code,"hard":report["hard_violations"],"cvt001_ran":"CVT-001" in rules_run},"runId":"compliance","hypothesisId":"H-scope"}) + "\n")
+    except Exception:
+        pass
+    # #endregion
     print(json.dumps({"scope": scope, "overall": report["overall"], "exit_code": exit_code, "hard_violations": report["hard_violations"]}))
     return exit_code
 

@@ -88,7 +88,16 @@ def main():
         "df / 2>/dev/null | awk 'NR==2{print $5}' | tr -d '%'"
     )
     try:
-        used_pct = int(out.strip())
+        lines = [line.strip() for line in out.strip().split('\n') if line.strip()]
+        pct_line = None
+        for line in reversed(lines):
+            if line.isdigit():
+                pct_line = line
+                break
+        if pct_line is not None:
+            used_pct = int(pct_line)
+        else:
+            used_pct = int(out.strip())
     except ValueError:
         used_pct = 100
     disk_ok = used_pct < 90

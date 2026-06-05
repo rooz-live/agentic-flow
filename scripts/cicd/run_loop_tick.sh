@@ -7,6 +7,7 @@ cls_load_wave_retry_max
 cls_warn_session_tick_budget
 ITEM="${LOOP_ITEM:-P1-INDEX-01}"
 echo "Loop tick: $ITEM (LOOP_TICK_COUNT=${LOOP_TICK_COUNT:-0}, WAVE_RETRY_MAX=$WAVE_RETRY_MAX)"
+bash scripts/cicd/session_rehydration_reader.sh --emit 2>/dev/null || true
 TICK_EXIT=0
 set +e
 case "$ITEM" in

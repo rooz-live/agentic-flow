@@ -1,11 +1,11 @@
 # DDD/TDD/ADR Coherence Validation Report
-**Generated:** 2026-06-04 23:08:06
+**Generated:** 2026-06-04 23:08:50
 **Project:** `/Users/shahroozbhopti/Documents/code`
 **Files Scanned:** 404
 **Automation Level:** Level 3 (With Review)
 
 ## ✅ Overall: PASS
-`██████████████████████████░░░░` **89.7%** (763/851 checks)
+`██████████████████████████░░░░` **89.9%** (766/852 checks)
 
 ## Layer Health
 
@@ -24,7 +24,7 @@
 - ✅ **COH-002** (adr→ddd): 41 ADR(s), 50 domain classes
 - ✅ **COH-005** (prd→adr): PRD: 11 doc(s), ADR: 41 doc(s), 30/41 with valid status
 - ✅ **COH-010** (ddd→prd): 31/32 domain modules have DoR/DoD docstrings (97%)
-- ❌ **COH-006** (ddd→ddd): 14/42 Python packages have __init__.py (33%)
+- ❌ **COH-006** (ddd→ddd): 14/41 Python packages have __init__.py (34%)
 - ✅ **COH-009** (ddd→ddd): 40/41 Rust domain structs derive Serialize (98%)
 - ✅ **COH-007** (tdd→tdd): 104/108 test files follow naming convention (96%)
 - ✅ **COH-008** (prd→prd): 10/11 PRD documents have measurable success metrics (91%) [2 stray PRD-like file(s) outside docs/prd/]
@@ -360,17 +360,10 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.1 assertions/test (23 assertions, 11 tests) `src/api/wsjf-tenant-manager.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: Dashboard.test.tsx `src/dashboard/tests/Dashboard.test.tsx`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.3 assertions/test (35 assertions, 15 tests) `src/dashboard/tests/Dashboard.test.tsx`
-- ✅ [INFO] Test file follows naming convention: Correct: passbolt-regression.spec.ts `src/dashboard/tests/passbolt-regression.spec.ts`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.4 assertions/test (10 assertions, 7 tests) `src/dashboard/tests/passbolt-regression.spec.ts`
-- ✅ [INFO] Test file follows naming convention: Correct: visual-sweep.spec.ts `src/dashboard/tests/visual-sweep.spec.ts`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.3 assertions/test (16 assertions, 7 tests) `src/dashboard/tests/visual-sweep.spec.ts`
-- ❌ [INFO] Test file follows naming convention: Non-standard: tests.rs `src/eventops_benchmark/src/tests.rs`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.0 assertions/test (4 assertions, 4 tests) `src/eventops_benchmark/src/tests.rs`
 - ✅ [INFO] Test file follows naming convention: Correct: test_harness.py `src/harnesses/test_harness.py`
 - ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 1 tests) `src/harnesses/test_harness.py`
 - ❌ [INFO] Test file follows naming convention: Non-standard: opex-test-budget-authorizer.ts `src/integrations/opex-test-budget-authorizer.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: test_dspy.py `src/integrations/test_dspy.py`
-- ❌ [INFO] Test file follows naming convention: Non-standard: circle-perspective-telemetry.ts `src/neural-trading-risk-management/production-cycle/circle-perspective-telemetry.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: cross-circle-dependency-manager.test.ts `src/orchestration/cross-circle-dependency-manager.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: test-harness.ts `src/primitives/harness/test-harness.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: wsjf-executive-report.test.ts `src/reporting/wsjf-executive-report.test.ts`
@@ -519,14 +512,22 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.4 assertions/test (22 assertions, 9 tests) `tests/cost-ledger-verify.e2e.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: dashboard.spec.js `tests/dashboard.spec.js`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (20 assertions, 9 tests) `tests/dashboard.spec.js`
+- ✅ [INFO] Test file follows naming convention: Correct: epic-17-quant-alpha.spec.ts `tests/e2e/epic-17-quant-alpha.spec.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (3 assertions, 1 tests) `tests/e2e/epic-17-quant-alpha.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: epic-18-hypertrophy.spec.ts `tests/e2e/epic-18-hypertrophy.spec.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (3 assertions, 1 tests) `tests/e2e/epic-18-hypertrophy.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: epic-19-ogov-core.spec.ts `tests/e2e/epic-19-ogov-core.spec.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (4 assertions, 1 tests) `tests/e2e/epic-19-ogov-core.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: epic-20-env-rehydrator.spec.ts `tests/e2e/epic-20-env-rehydrator.spec.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (3 assertions, 1 tests) `tests/e2e/epic-20-env-rehydrator.spec.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: epic-23-refactor-loop.spec.ts `tests/e2e/epic-23-refactor-loop.spec.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (4 assertions, 1 tests) `tests/e2e/epic-23-refactor-loop.spec.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: epic-27-quantum.spec.ts `tests/e2e/epic-27-quantum.spec.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (4 assertions, 1 tests) `tests/e2e/epic-27-quantum.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: epic-37-push.spec.ts `tests/e2e/epic-37-push.spec.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (2 assertions, 1 tests) `tests/e2e/epic-37-push.spec.ts`
+- ✅ [INFO] Test file follows naming convention: Correct: trading-dashboard.spec.ts `tests/e2e/trading-dashboard.spec.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (26 assertions, 13 tests) `tests/e2e/trading-dashboard.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: e2e-mcp-mpp-dimensional.test.ts `tests/e2e-mcp-mpp-dimensional.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.3 assertions/test (47 assertions, 11 tests) `tests/e2e-mcp-mpp-dimensional.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: entity-identity-tdd.e2e.spec.ts `tests/entity-identity-tdd.e2e.spec.ts`
@@ -894,9 +895,9 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (28 assertions, 13 tests) `tests/verification/verification-pipeline.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: vscode-extension-mocks.test.ts `tests/vscode-extension/vscode-extension-mocks.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (109 assertions, 31 tests) `tests/vscode-extension/vscode-extension-mocks.test.ts`
-- ✅ [CRITICAL] Unit tests present: 2972 test functions found
+- ✅ [CRITICAL] Unit tests present: 2970 test functions found
 - ✅ [WARNING] Integration tests present: 123 integration test file(s)
-- ✅ [INFO] Total assertion count reasonable: 9185 total assertions across 315 files
+- ✅ [INFO] Total assertion count reasonable: 9192 total assertions across 315 files
 
 ## Recommendations
 
@@ -909,7 +910,7 @@
 -   → [WARNING] Test assertion density ≥ 1.0 per test: 0.2 assertions/test (1 assertions, 5 tests)
 -   → [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 1 tests)
 -   → [WARNING] Test assertion density ≥ 1.0 per test: 0.2 assertions/test (2 assertions, 9 tests)
-- ❌ COH-006 (ddd→ddd): 14/42 Python packages have __init__.py (33%)
+- ❌ COH-006 (ddd→ddd): 14/41 Python packages have __init__.py (34%)
 
 ## OODA Integration
 
@@ -921,4 +922,4 @@
 | **Act** | 10 recommendations to implement |
 
 ---
-*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-06-04 23:08:06*
+*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-06-04 23:08:50*

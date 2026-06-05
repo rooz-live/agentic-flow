@@ -25,6 +25,7 @@ ensure_monorepo_repo_root() {
 ensure_monorepo_repo_root "$PROJECT_ROOT" || exit 1
 
 DLQ_PATH="${CLS_DLQ_PATH:-.goalie/evidence/learning/dlq.jsonl}"
+DLQ_MAP="${PROJECT_ROOT}/config/cicd/dlq_roam_mapping.yaml"
 LEARNING_DIR=".goalie/evidence/learning"
 mkdir -p "$LEARNING_DIR" "$(dirname "$DLQ_PATH")"
 
@@ -119,46 +120,7 @@ OVERALL_EC=0
 [[ -n "$FAILURE_CATEGORY" ]] && append_dlq "$FAILURE_CATEGORY" "$REMEDIATION"
 
 if [[ -n "$FAILURE_CATEGORY" ]]; then
-  python3 - "$FAILURE_CATEGORY" "$RUN_ID" <<'PY'
-import sys, re
-from pathlib import Path
-
-roam_file = ".goalie/ROAM_TRACKER_COG.yaml"
-if not Path(roam_file).exists():
-    sys.exit(0)
-
-cat = sys.argv[1]
-run_id = sys.argv[2]
-
-mapping = {
-    "public_edge_fail": "R-CLS-06",
-    "trust_stale": "R-CLS-03",
-    "cog_smoke_secret": "R04"
-}
-
-if cat in mapping:
-    target_id = mapping[cat]
-    text = Path(roam_file).read_text()
-    
-    lines = text.splitlines()
-    new_lines = []
-    in_target = False
-    for line in lines:
-        if line.strip().startswith("- id:") and target_id in line:
-            in_target = True
-        elif in_target and line.strip().startswith("- id:"):
-            in_target = False
-        
-        if in_target:
-            if line.strip().startswith("status:"):
-                line = re.sub(r"status:\s*\S+", "status: open", line)
-            elif line.strip().startswith("last_result:"):
-                line = f'    last_result: "dlq_trigger_{cat}_run_{run_id}"'
-        new_lines.append(line)
-        
-    Path(roam_file).write_text("\n".join(new_lines) + "\n")
-    print(f"Triggered DLQ mapping: {cat} -> {target_id} re-opened")
-PY
+  python3 "$PROJECT_ROOT/scripts/cicd/lib/dlq_roam_apply.py" "$FAILURE_CATEGORY" "$RUN_ID" "$PROJECT_ROOT" || true
 fi
 
 if [[ -n "$FAILURE_CATEGORY" ]] && [[ -f "$DLQ_PATH" ]]; then

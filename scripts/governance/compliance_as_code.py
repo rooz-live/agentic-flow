@@ -243,7 +243,7 @@ class CogRule:
 
 
 COG_RULES_SCOPED: List[CogRule] = [
-    CogRule("CVT-001", "Staged files for commit claims", "git diff --cached non-empty (commit scope only)", ("commit", "full"), "hard", "check_staged_files"),
+    CogRule("CVT-001", "Staged files for commit claims", "git diff --cached non-empty (commit scope only)", ("commit",), "hard", "check_staged_files"),
     CogRule("CVT-002", "COG smoke pass", "Latest smoke must pass — no false green", ("edge", "full"), "hard", "check_cog_smoke_recent", 48),
     CogRule("CVT-EDGE-001", "interface.tag.vote live edge", "Public health=200 and cog=302", ("edge", "full"), "hard", "check_cog_edge_live"),
     CogRule("CVT-FWD-001", "tag.vote/cog forwarder alive", "cPanel path must remain 302", ("edge", "full"), "hard", "check_tag_vote_forwarder"),
@@ -463,8 +463,13 @@ def check_webhook_secret_unset(self, rule: CogRule) -> ComplianceResult:
 
 class CogComplianceEngine:
     def __init__(self, scope: str):
-        self.scope = scope if scope in COG_SCOPES else "full"
-        self.rules = [r for r in COG_RULES_SCOPED if self.scope == "full" or self.scope in r.scopes]
+        self.scope = scope if scope in COG_SCOPES else "edge"
+        if self.scope == "full":
+            self.rules = [r for r in COG_RULES_SCOPED if "full" in r.scopes]
+        elif self.scope == "commit":
+            self.rules = [r for r in COG_RULES_SCOPED if "commit" in r.scopes]
+        else:
+            self.rules = [r for r in COG_RULES_SCOPED if self.scope in r.scopes]
 
     def run(self) -> Tuple[int, Dict[str, Any]]:
         results: List[ComplianceResult] = []
@@ -509,7 +514,7 @@ class CogComplianceEngine:
             },
             "commit_readiness": {
                 "staged_ok": any(r.rule_id == "CVT-001" and r.status == ComplianceStatus.PASS for r in results),
-                "scope_applies": self.scope in ("commit", "full"),
+                "scope_applies": self.scope == "commit",
             },
             "violations": [
                 {"rule_id": r.rule_id, "status": r.status.value, "message": r.message, "level": COG_RULES_BY_ID[r.rule_id].level}

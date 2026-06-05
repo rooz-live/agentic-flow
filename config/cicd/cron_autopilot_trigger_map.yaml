@@ -1,0 +1,44 @@
+version: 1.0.0
+repo_root: ~/Documents/code
+timezone: UTC
+marker: "# agentic-flow-cron-autopilot"
+
+triggers:
+  - id: cls_wave_daily
+    schedule: "0 6 * * *"
+    description: "Daily WSJF substrate drain + wave autopilot (P1-INDEX-02)"
+    script: scripts/cicd/run_loop_tick.sh
+    env:
+      LOOP_ITEM: P1-INDEX-02
+      LOOP_TICK_COUNT: "0"
+      CLS_AUTO_COMMIT: "0"
+    log: logs/cls_wave_daily.log
+
+  - id: cls_observe_hourly
+    schedule: "0 * * * *"
+    description: "Hourly observe-only CLS (no remediate); DLQ + learning artifact"
+    script: scripts/cicd/continuous_learning_swarm.sh
+    env:
+      CLS_REMEDIATE: "0"
+      CLS_SKIP_REMEDIATE: "1"
+    log: logs/cls_observe_hourly.log
+    advisory: true
+
+  - id: upstream_daily
+    schedule: "0 9 * * *"
+    description: "Daily upstream dependency drift check"
+    script: scripts/check_upstream_updates.sh
+    args: [run]
+    log: logs/upstream_check_cron.log
+
+  - id: prod_maturity_weekly
+    schedule: "0 7 * * 1"
+    description: "Weekly prod maturity + ROAM hygiene"
+    script: scripts/wsjf/prod_maturity_flow.sh
+    log: logs/prod_maturity_weekly.log
+    advisory: true
+
+install:
+  macos: launchd
+  linux: cron
+  dry_run_default: true

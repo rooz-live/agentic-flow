@@ -164,7 +164,12 @@ cls_require_trust_green() {
   if cls_trust_ok; then
     return 0
   fi
-  echo "ERROR: trust artifact stale (tick=$tick). Run TRUST_FORCE_RERUN=1 bash scripts/one.sh trust-path" >&2
+  echo "WARN: trust artifact stale (tick=$tick). Attempting auto-recovery..." >&2
+  if TRUST_FORCE_RERUN=1 bash "$REPO_ROOT/scripts/one.sh" trust-path; then
+    echo "✓ trust auto-recovery successful" >&2
+    return 0
+  fi
+  echo "ERROR: trust artifact stale and auto-recovery failed." >&2
   return 1
 }
 

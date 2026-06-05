@@ -126,9 +126,28 @@ cls_refuse_auto_commit_on_main() {
 cls_warn_session_tick_budget() {
   local tick_count="${LOOP_TICK_COUNT:-0}"
   [[ "$tick_count" -eq 0 ]] && return 0
-  local reset_at
+  local reset_at sweet
   reset_at="$(cls_budget_get session.max_ticks_before_reset 5)"
-  if [[ "$tick_count" -gt "$reset_at" ]]; then
-    echo "WARN: LOOP_TICK_COUNT=$tick_count exceeds session max_ticks_before_reset=$reset_at (summarize/reset recommended)" >&2
+  sweet="$(cls_budget_get session.sweet_spot_ticks 3)"
+  if [[ "$tick_count" -ge "$sweet" ]]; then
+    echo "WARN: LOOP_TICK_COUNT=$tick_count >= sweet_spot_ticks=$sweet (context decay risk; prefer rehydration manifest)" >&2
   fi
+  if [[ "$tick_count" -ge "$reset_at" ]]; then
+    echo "WARN: LOOP_TICK_COUNT=$tick_count >= max_ticks_before_reset=$reset_at (squash-merge + clean session recommended)" >&2
+    cls_session_reset_callback "$tick_count" "$reset_at" || true
+  fi
+}
+
+cls_session_reset_callback() {
+  local tick_count="${1:-0}" reset_at="${2:-5}"
+  local url="${CLS_HOST_RESET_URL:-}"
+  if [[ -z "$url" ]]; then
+    url="$(cls_budget_get rehydration.host_reset_url "")"
+  fi
+  echo "BT-9 session-rehydration-bridge: host reset API not configured (set CLS_HOST_RESET_URL when IDE exposes POST /session/reset)" >&2
+  bash "$REPO_ROOT/scripts/cicd/session_rehydration_reader.sh" --compact 2>/dev/null || true
+  if [[ -n "$url" ]] && command -v curl >/dev/null 2>&1; then
+    curl -fsS -m 2 -X POST "$url"       -H 'Content-Type: application/json'       -d "{"loop_tick_count":$tick_count,"reset_at":$reset_at,"schema":"cls.rehydration.v1"}"       >/dev/null 2>&1 && echo "host_reset_callback: POST $url ok" >&2 ||       echo "host_reset_callback: POST $url failed (fail-open; manual reset)" >&2
+  fi
+  return 0
 }

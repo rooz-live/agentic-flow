@@ -532,7 +532,9 @@ def _parse_cog_scope(argv: List[str]) -> str:
     for arg in argv:
         if arg.startswith("--scope="):
             return arg.split("=", 1)[1].strip()
-    return "full"
+        if arg in ("--commit", "--commit-readiness"):
+            return "commit"
+    return "edge"  # substrate perception default; use --scope=full for commit gates
 
 
 def run_cog_compliance(scope: str = "full") -> int:

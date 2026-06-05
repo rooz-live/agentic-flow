@@ -38,6 +38,7 @@ allow = {
     "scripts/cicd/edge_writer.sh",
     "scripts/cicd/perceive_reader.sh",
     "scripts/cicd/wave_autopilot.sh",
+    "scripts/cicd/micro_runtime_manager.sh",
     "docs/agentics/DYNAMIC_WORKFLOW_SLICES.md",
     "docs/agentics/RESEARCH_REGISTRY.yaml",
     ".github/workflows/continuous-learning-swarm.yml",

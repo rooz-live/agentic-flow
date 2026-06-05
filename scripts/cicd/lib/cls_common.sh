@@ -126,9 +126,62 @@ cls_refuse_auto_commit_on_main() {
 cls_warn_session_tick_budget() {
   local tick_count="${LOOP_TICK_COUNT:-0}"
   [[ "$tick_count" -eq 0 ]] && return 0
-  local reset_at
+  local reset_at sweet
   reset_at="$(cls_budget_get session.max_ticks_before_reset 5)"
-  if [[ "$tick_count" -gt "$reset_at" ]]; then
-    echo "WARN: LOOP_TICK_COUNT=$tick_count exceeds session max_ticks_before_reset=$reset_at (summarize/reset recommended)" >&2
+  sweet="$(cls_budget_get session.sweet_spot_ticks 3)"
+  if [[ "$tick_count" -ge "$sweet" ]]; then
+    echo "WARN: LOOP_TICK_COUNT=$tick_count >= sweet_spot_ticks=$sweet (context decay risk; prefer rehydration manifest)" >&2
   fi
+  if [[ "$tick_count" -ge "$reset_at" ]]; then
+    echo "WARN: LOOP_TICK_COUNT=$tick_count >= max_ticks_before_reset=$reset_at (squash-merge + clean session recommended)" >&2
+    cls_session_reset_callback "$tick_count" "$reset_at" || true
+  fi
+}
+
+cls_session_reset_callback() {
+  local tick_count="${1:-0}" reset_at="${2:-5}"
+  local url="${CLS_HOST_RESET_URL:-}"
+  if [[ -z "$url" ]]; then
+    url="$(cls_budget_get rehydration.host_reset_url "")"
+  fi
+  echo "BT-9 session-rehydration-bridge: host reset API not configured (set CLS_HOST_RESET_URL when IDE exposes POST /session/reset)" >&2
+  bash "$REPO_ROOT/scripts/cicd/session_rehydration_reader.sh" --compact 2>/dev/null || true
+  if [[ -n "$url" ]] && command -v curl >/dev/null 2>&1; then
+    payload=$(printf '{"loop_tick_count":%s,"reset_at":%s,"schema":"cls.rehydration.v1"}' "$tick_count" "$reset_at")
+    if curl -fsS -m 2 -X POST "$url" -H "Content-Type: application/json" -d "$payload" >/dev/null 2>&1; then
+      echo "host_reset_callback: POST $url ok" >&2
+    else
+      echo "host_reset_callback: POST $url failed (fail-open; manual reset)" >&2
+    fi
+  fi
+  return 0
+}
+
+
+cls_require_trust_green() {
+  local tick="${LOOP_TICK_COUNT:-0}"
+  [[ "$tick" -lt 2 ]] && return 0
+  if cls_trust_ok; then
+    return 0
+  fi
+  echo "ERROR: trust artifact stale (tick=$tick). Run TRUST_FORCE_RERUN=1 bash scripts/one.sh trust-path" >&2
+  return 1
+}
+
+cls_enforce_session_tick_budget() {
+  local tick="${LOOP_TICK_COUNT:-0}"
+  [[ "$tick" -eq 0 ]] && return 0
+  local sweet max_session
+  sweet="$(cls_budget_get session.sweet_spot_ticks 3)"
+  max_session="$(cls_budget_get session.max_ticks_per_session 7)"
+  if [[ "$tick" -gt "$max_session" ]]; then
+    echo "ERROR: LOOP_TICK_COUNT=$tick > max_ticks_per_session=$max_session" >&2
+    return 2
+  fi
+  if [[ "${CLS_STRICT_SESSION:-0}" == "1" && "$tick" -gt "$sweet" ]]; then
+    echo "ERROR: CLS_STRICT_SESSION=1 tick=$tick > sweet_spot=$sweet — reset and read session_rehydration_reader.sh" >&2
+    return 2
+  fi
+  cls_warn_session_tick_budget
+  return 0
 }

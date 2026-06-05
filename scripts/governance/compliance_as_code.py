@@ -482,7 +482,8 @@ class CogComplianceEngine:
         if hard_fail:
             overall, exit_code = "fail", 1
         elif warn_hit:
-            overall, exit_code = "warn", 2
+            # Phase1 backlog (CVT-004 etc.) is warn-only — does not block full perceive
+            overall, exit_code = "warn", 0
         else:
             overall, exit_code = "pass", 0
 

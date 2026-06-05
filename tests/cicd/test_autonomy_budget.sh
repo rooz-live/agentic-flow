@@ -65,3 +65,32 @@ loaded="$(REPO_ROOT="$ROOT" bash -c 'source "'"$COMMON"'"; cls_load_wave_retry_m
 [[ "$loaded" == "2" ]] || fail "WAVE_RETRY_MAX from yaml must default to 2, got: $loaded"
 
 echo "PASS autonomy_budget"
+
+READER="$ROOT/scripts/cicd/session_rehydration_reader.sh"
+WRITER="$ROOT/scripts/cicd/write_tick_rehydration_manifest.sh"
+[[ -x "$READER" ]] || fail "missing session_rehydration_reader.sh"
+[[ -x "$WRITER" ]] || fail "missing write_tick_rehydration_manifest.sh"
+
+python3 - "$PROMPTS" <<'PYRH'
+import sys, yaml
+cfg = yaml.safe_load(open(sys.argv[1]))
+r = (cfg.get("budget") or {}).get("rehydration")
+if not r:
+    raise SystemExit("missing budget.rehydration (BT-9)")
+for k in ("breakthrough_id", "schema", "writer", "reader"):
+    if k not in r:
+        raise SystemExit(f"missing budget.rehydration.{k}")
+if r["breakthrough_id"] != "BT-9":
+    raise SystemExit("breakthrough_id must be BT-9")
+if r["schema"] != "cls.rehydration.v1":
+    raise SystemExit("schema must be cls.rehydration.v1")
+print("PASS rehydration budget block")
+PYRH
+
+out=$(REPO_ROOT="$ROOT" bash "$READER" --emit)
+echo "$out" | grep -q AGENT_LOOP_WAKE_CLS || fail "reader must emit AGENT_LOOP_WAKE_CLS"
+
+grep -q 'cls_session_reset_callback' "$COMMON" || fail "cls_common missing session reset callback"
+grep -q 'sweet_spot_ticks' "$COMMON" || fail "cls_common missing sweet_spot warn"
+
+echo "PASS autonomy_budget_rehydration_bridge"

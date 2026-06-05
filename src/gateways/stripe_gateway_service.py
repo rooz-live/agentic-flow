@@ -5,24 +5,30 @@ import eventops_pyo3
 
 SECRET = "whsec_bhopti_12345"
 
+
 class StripeGatewayHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         if self.path == '/webhooks/stripe':
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length).decode('utf-8')
             sig_header = self.headers.get('Stripe-Signature', '')
-            
+
             try:
                 # Validation Gate: PyO3 Rust Bridge enforces cryptography
-                eventops_pyo3.validate_stripe_signature(post_data, sig_header, SECRET)
-                
+                eventops_pyo3.validate_stripe_signature(
+                    post_data, sig_header, SECRET
+                )
+
+                # Process payment intent (writes successful events to EventStore)
+                eventops_pyo3.process_stripe_payment(post_data)
+
                 # If it doesn't throw, it's valid! Forward to HostBill (mocked)
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(b'{"status": "forwarded_to_hostbill"}')
-                
+                self.wfile.write(b'{"status": "processed_and_forwarded"}')
+
             except Exception as e:
-                # Validation Failed -> Return 400 Bad Request to reject Stripe payload
+                # Reject payload: return 400 Bad Request
                 self.send_response(400)
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))

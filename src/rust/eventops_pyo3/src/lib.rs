@@ -166,6 +166,14 @@ fn validate_stripe_signature(payload: &str, sig_header: &str, secret: &str) -> P
     }
 }
 
+#[pyfunction]
+fn process_stripe_payment(payload: &str) -> PyResult<bool> {
+    stripe_gateway::process_payment_intent(payload)
+        .map_err(|e| PyValueError::new_err(format!("ERR_PAYMENT_PROCESS: {}", e)))?;
+    Ok(true)
+}
+
+
 /// Generate UUID v7 (timestamp-ordered, monotonic)
 #[pyfunction]
 fn generate_uuid_v7() -> PyResult<String> {
@@ -460,6 +468,7 @@ fn chunk_domain_payloads(payload: &str, batch_size: usize) -> PyResult<String> {
 fn eventops_pyo3(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(validate_eventops_schema, m)?)?;
     m.add_function(wrap_pyfunction!(validate_stripe_signature, m)?)?;
+    m.add_function(wrap_pyfunction!(process_stripe_payment, m)?)?;
     m.add_function(wrap_pyfunction!(emit_to_hostbill, m)?)?;
     m.add_function(wrap_pyfunction!(generate_uuid_v7, m)?)?;
     m.add_function(wrap_pyfunction!(calculate_rate, m)?)?;

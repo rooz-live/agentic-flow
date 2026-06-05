@@ -88,7 +88,7 @@ print("PASS rehydration budget block")
 PYRH
 
 out=$(REPO_ROOT="$ROOT" bash "$READER" --emit)
-echo "$out" | grep -q AGENT_REHYDRATION_CLS || fail "reader must emit AGENT_REHYDRATION_CLS"
+echo "$out" | grep -q AGENT_LOOP_WAKE_CLS || fail "reader must emit AGENT_LOOP_WAKE_CLS"
 
 grep -q 'cls_session_reset_callback' "$COMMON" || fail "cls_common missing session reset callback"
 grep -q 'sweet_spot_ticks' "$COMMON" || fail "cls_common missing sweet_spot warn"

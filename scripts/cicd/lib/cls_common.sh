@@ -151,3 +151,32 @@ cls_session_reset_callback() {
   fi
   return 0
 }
+
+
+cls_require_trust_green() {
+  local tick="${LOOP_TICK_COUNT:-0}"
+  [[ "$tick" -lt 2 ]] && return 0
+  if cls_trust_ok; then
+    return 0
+  fi
+  echo "ERROR: trust artifact stale (tick=$tick). Run TRUST_FORCE_RERUN=1 bash scripts/one.sh trust-path" >&2
+  return 1
+}
+
+cls_enforce_session_tick_budget() {
+  local tick="${LOOP_TICK_COUNT:-0}"
+  [[ "$tick" -eq 0 ]] && return 0
+  local sweet max_session
+  sweet="$(cls_budget_get session.sweet_spot_ticks 3)"
+  max_session="$(cls_budget_get session.max_ticks_per_session 7)"
+  if [[ "$tick" -gt "$max_session" ]]; then
+    echo "ERROR: LOOP_TICK_COUNT=$tick > max_ticks_per_session=$max_session" >&2
+    return 2
+  fi
+  if [[ "${CLS_STRICT_SESSION:-0}" == "1" && "$tick" -gt "$sweet" ]]; then
+    echo "ERROR: CLS_STRICT_SESSION=1 tick=$tick > sweet_spot=$sweet — reset and read session_rehydration_reader.sh" >&2
+    return 2
+  fi
+  cls_warn_session_tick_budget
+  return 0
+}

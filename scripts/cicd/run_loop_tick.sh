@@ -4,6 +4,8 @@ cd "$(dirname "$0")/../.."
 export REPO_ROOT="$PWD"
 source "$REPO_ROOT/scripts/cicd/lib/cls_common.sh"
 cls_load_wave_retry_max
+cls_enforce_session_tick_budget || exit $?
+cls_require_trust_green || exit 1
 cls_warn_session_tick_budget
 ITEM="${LOOP_ITEM:-P1-INDEX-01}"
 echo "Loop tick: $ITEM (LOOP_TICK_COUNT=${LOOP_TICK_COUNT:-0}, WAVE_RETRY_MAX=$WAVE_RETRY_MAX)"

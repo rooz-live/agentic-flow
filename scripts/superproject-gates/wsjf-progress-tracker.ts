@@ -194,10 +194,11 @@ export class WSJFProgressTracker {
    * Generate status line
    */
   generateStatusLine(progress: WSJFProgress): string {
+    const agentsPct = ((progress.swarmState.activeAgents * 100) / progress.swarmState.maxAgents).toFixed(1);
     return `[Iter ${progress.iteration}.${progress.cycle}] Progress: ${progress.progressPercent.toFixed(1)}% | ` +
            `Mesh Coverage: ${progress.hierarchicalMeshCoverage.toFixed(1)}% | ` +
            `Sparse Attention: ${progress.sparseAttentionCoverage.toFixed(1)}% | ` +
-           `Swarm: ${progress.swarmState.activeAgents}/${progress.swarmState.maxAgents} agents`;
+           `Swarm: ${agentsPct}% (${progress.swarmState.activeAgents}/${progress.swarmState.maxAgents})`;
   }
 }
 

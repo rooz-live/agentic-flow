@@ -58,3 +58,35 @@ If your edits succeed or if you discover new failures:
    ```
 4. Stage the modified config files, ROAM tracker, LNNNL schedule, and trust bundle, and commit them.
 ```
+
+---
+
+## 6. Architectural Rationale: Bounded Autonomy & Horizontal Scaling
+
+This section documents the design principles of the Continuous Learning Swarm (CLS) micro-runtime and explains the rationale behind the horizontal execution model.
+
+### A. Attention and Semantic Horizon Cap (Context Decay)
+* **Problem**: Large language models suffer from attention degradation and the "Lost in the Middle" phenomenon as the prompt history grows.
+* **Consequence**: Monolithic, long-horizon runs inevitably lead to rule-drift, hallucinated file paths, or regression bugs. As the tick history, logs, diffs, and environment outputs accumulate, the model's capacity to strictly enforce canonical rules (like the Anti-CVT rules in `AGENTS.md`) diminishes.
+* **Solution**: Instead of maintaining the entire codebase or extensive log history in the context, CLS uses **Hierarchical Context Scopes** to only inject relevant schema definitions (like `billing.proto`) or the active slice index via semantic indexing (RAG) when a file edit is scheduled.
+
+### B. Why Swarm Expands Horizontally via Bounded Ticks
+* **Micro-Runtime Autonomy**: To scale horizontally to dozens or hundreds of ticks sustainably, the system uses a deconstructed, federated execution pattern rather than one continuous run:
+  1. Run a bounded slice of ticks (e.g. 3–5 ticks).
+  2. The runtime serializes the environment state into a structured JSON manifest at the end of each tick.
+  3. Commit and push the branch to main/origin.
+  4. Reset/Clear the chat session (wiping the token history clean).
+  5. Start the next thread, reading the newly updated tracked indices, learning manifests, and ROAM files as the fresh starting baseline ("rehydration").
+
+### C. Eliminating Divergent Remediation Cascades
+* **Transactional Branching and Rollbacks**: The `one.sh` orchestration script enforces automated git checkpoints. If a build gate or pytest suite fails, the system automatically runs `git reset --hard` to rollback the working directory to the last verified checkpoint before attempting the next remediation branch. This prevents running dozens of ticks on top of a broken base branch.
+* **Hermetic Sandbox Isolation**: Run execution ticks inside ephemeral containers that are completely destroyed and rebuilt from clean image snapshots if a check fails.
+
+### D. Automating Ceremonies Without Compromising Sovereignty
+* **Zero-Trust Consent Boundaries**: Value stream ceremonies (PI Sync, Retros, Sign-offs) are designed as arbitration barriers between the Sovereign Agent (SA) and the Functional Agent/Human (FA). If the swarm could autonomously perform its own ceremonies and write its own `phase2_signoff.json`, the zero-trust gate would collapse into self-referential "completion theater."
+* **Consensus Contracts**: Instead of a single agent validating its own work, the swarm uses a multi-role validation matrix (e.g., an independent Assessor Agent and a Security Agent). Each role must cryptographically sign off on the commit payload using separate key pairs before the orchestrator merges the PR.
+
+### E. Why a Clean Session Isn't Automatically Started by the Swarm
+* **Client-Side Orchestration Control**: The session history is managed by the IDE client/user interface environment, not the local container/shell. The terminal has no API access to clear the LLM client's active thread memory or force a new session context. The agent can warn or suggest, but the final authority to clear thread state rests with the client/user.
+* **State Persistence Safeguards**: Starting a fresh session requires persisting essential learnings and discarding transient logs. If done completely automatically, any unexpected crash during the reset handshake would lead to state loss.
+* **Upward RPC Channel (Proposed)**: Local API endpoint (e.g. a WebSocket or SSE channel) between the sandbox container and the IDE host. When the agent tick counter reaches 5, the runtime executes a command (`curl -X POST http://localhost:8888/session/reset`). The host IDE client intercepts this signal, saves the current learning manifests, terminates the active chat thread, and opens a clean thread.

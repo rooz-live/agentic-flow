@@ -18,5 +18,5 @@ if [[ "$SLICE" == publication && -f "$M" ]]; then
 else fail "need publication manifest"
 fi
 T="$REPO_ROOT/.goalie/evidence/last_gate_one_pass.json"
-bash "$REPO_ROOT/scripts/one.sh" verify-contract "$T" >/dev/null 2>&1 && echo "OK trust artifact" || echo "INFO trust stale"
+bash "$REPO_ROOT/scripts/one.sh" verify-contract "$T" </dev/null >/dev/null 2>&1 && echo "OK trust artifact" || echo "INFO trust stale"
 echo "=== Agent session DoR passed ==="

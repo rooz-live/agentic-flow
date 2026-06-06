@@ -57,6 +57,47 @@ def calculate_metrics(root_path=None):
             
     status = "CLEAN" if cves_fixed == 3 else "PENDING"
     
+    # 4. Inbox Zero (from INBOX_ZERO_SAFLA_BOARD.yaml)
+    inbox_path = root / ".goalie/INBOX_ZERO_SAFLA_BOARD.yaml"
+    inbox_completed = 0
+    inbox_total = 0
+    inbox_progress = 0.0
+    if inbox_path.exists():
+        try:
+            with open(inbox_path, "r") as f:
+                inbox_data = yaml.safe_load(f)
+            if isinstance(inbox_data, dict):
+                items = []
+                retros = inbox_data.get("retrospective_insights")
+                if isinstance(retros, list):
+                    items.extend(retros)
+                refinement = inbox_data.get("refinement_queue")
+                if isinstance(refinement, list):
+                    items.extend(refinement)
+                backlog = inbox_data.get("backlog")
+                if isinstance(backlog, dict):
+                    for key in ["now", "next", "later"]:
+                        lst = backlog.get(key)
+                        if isinstance(lst, list):
+                            items.extend(lst)
+                in_progress_list = inbox_data.get("in_progress")
+                if isinstance(in_progress_list, list):
+                    items.extend(in_progress_list)
+                
+                inbox_total = len(items)
+                done_statuses = {"done", "completed", "closed", "mitigated"}
+                for item in items:
+                    if isinstance(item, dict):
+                        status_val = str(item.get("status", "")).lower()
+                        if status_val in done_statuses:
+                            inbox_completed += 1
+                if inbox_total > 0:
+                    inbox_progress = float(inbox_completed) * 100.0 / float(inbox_total)
+        except Exception:
+            inbox_completed = 0
+            inbox_total = 0
+            inbox_progress = 0.0
+
     # Ensure directories exist
     metrics_dir = root / ".claude-flow/metrics"
     security_dir = root / ".claude-flow/security"
@@ -75,6 +116,13 @@ def calculate_metrics(root_path=None):
         "swarm": {
             "activeAgents": active_agents,
             "maxAgents": 15
+        },
+        "inbox": {
+            "completed": inbox_completed,
+            "total": inbox_total
+        },
+        "zero": {
+            "progress": inbox_progress
         }
     }
     with open(metrics_dir / "v3-progress.json", "w") as f:
@@ -95,6 +143,7 @@ def calculate_metrics(root_path=None):
     print(f"  DDD Domains: {ddd_progress:.1f}% ({domains_completed}/5)")
     print(f"  Swarm Agents: {active_agents}/15")
     print(f"  CVE Fixes: {cves_fixed}/3 (Status: {status})")
+    print(f"  Inbox Zero: {inbox_progress:.1f}% ({inbox_completed}/{inbox_total})")
 
 if __name__ == "__main__":
     calculate_metrics()

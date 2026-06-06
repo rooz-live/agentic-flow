@@ -75,6 +75,9 @@ if [ -f "$V3_METRICS" ]; then
   DOMAINS_COMPLETED=$(jq -r '.domains.completed // 0' "$V3_METRICS" 2>/dev/null || echo "0")
   DDD_PROGRESS=$(jq -r '.ddd.progress // 0' "$V3_METRICS" 2>/dev/null || echo "0")
   AGENTS_ACTIVE=$(jq -r '.swarm.activeAgents // 0' "$V3_METRICS" 2>/dev/null || echo "0")
+  INBOX_COMPLETED=$(jq -r '.inbox.completed // 0' "$V3_METRICS" 2>/dev/null || echo "0")
+  INBOX_TOTAL=$(jq -r '.inbox.total // 0' "$V3_METRICS" 2>/dev/null || echo "0")
+  INBOX_ZERO_PROGRESS=$(jq -r '.zero.progress // 0' "$V3_METRICS" 2>/dev/null || echo "0")
 else
   # Check for actual domain directories
   DOMAINS_COMPLETED=0
@@ -83,6 +86,9 @@ else
   [ -d "src/domains/health-monitoring" ] && ((DOMAINS_COMPLETED++))
   [ -d "src/domains/lifecycle-management" ] && ((DOMAINS_COMPLETED++))
   [ -d "src/domains/event-coordination" ] && ((DOMAINS_COMPLETED++))
+  INBOX_COMPLETED=0
+  INBOX_TOTAL=0
+  INBOX_ZERO_PROGRESS=0
 fi
 
 # Check security audit status
@@ -391,8 +397,13 @@ fi
 # Format DDD progress with decimal precision (%.# format)
 DDD_DISPLAY=$(printf "%.1f" "$DDD_PROGRESS" 2>/dev/null || printf "%.1f" 0)
 
+# Format Inbox Zero progress
+INBOX_PCT_DISPLAY=$(printf "%.1f" "$INBOX_ZERO_PROGRESS" 2>/dev/null || printf "%.1f" 0)
+ZERO_DISPLAY=$(printf "%.1f" "$INBOX_ZERO_PROGRESS" 2>/dev/null || printf "%.1f" 0)
+
 OUTPUT="${OUTPUT}\n${BRIGHT_PURPLE}🔧 Architecture${RESET}    ${CYAN}DDD${RESET} ${DDD_COLOR}●${DDD_DISPLAY}%${RESET}  ${DIM}│${RESET}  ${CYAN}Security${RESET} ${SECURITY_COLOR}●${SECURITY_STATUS}${RESET}"
 OUTPUT="${OUTPUT}  ${DIM}│${RESET}  ${CYAN}Memory${RESET} ${BRIGHT_GREEN}●AgentDB${RESET}  ${DIM}│${RESET}  ${CYAN}Integration${RESET} ${INTEGRATION_COLOR}●${RESET}"
+OUTPUT="${OUTPUT}  ${DIM}│${RESET}  ${CYAN}Inbox${RESET} ${BRIGHT_BLUE}${INBOX_PCT_DISPLAY}% (${INBOX_COMPLETED}/${INBOX_TOTAL})${RESET}  ${DIM}│${RESET}  ${CYAN}Zero${RESET} ${BRIGHT_GREEN}${ZERO_DISPLAY}%${RESET}"
 
 # Footer separator
 OUTPUT="${OUTPUT}\n${DIM}─────────────────────────────────────────────────────${RESET}"

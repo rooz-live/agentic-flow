@@ -42,6 +42,35 @@ risks:
     with open(roam_dir / "ROAM_TRACKER_COG.yaml", "w") as f:
         f.write(roam_content)
 
+    # 3.5. Create INBOX_ZERO_SAFLA_BOARD.yaml under tmp_path
+    inbox_content = """
+retrospective_insights:
+  - id: RETRO-001
+    status: TO_REFINE
+  - id: RETRO-002
+    status: DONE
+refinement_queue:
+  - id: REFINE-001
+    status: READY_FOR_BACKLOG
+backlog:
+  now:
+    - id: NOW-001
+      status: DONE
+    - id: NOW-002
+      status: TODO
+  next:
+    - id: NEXT-001
+      status: BACKLOG
+  later:
+    - id: LATER-001
+      status: BACKLOG
+in_progress:
+  - id: WIP-001
+    status: IN_PROGRESS
+"""
+    with open(roam_dir / "INBOX_ZERO_SAFLA_BOARD.yaml", "w") as f:
+        f.write(inbox_content)
+
     # 4. Run calculation with tmp_path root
     calculate_metrics(tmp_path)
 
@@ -53,6 +82,11 @@ risks:
     assert progress_data["domains"]["completed"] == 5
     assert progress_data["ddd"]["progress"] == 100.0
     assert progress_data["swarm"]["activeAgents"] == 2
+    
+    # Assert inbox/zero metrics
+    assert progress_data["inbox"]["completed"] == 2
+    assert progress_data["inbox"]["total"] == 8
+    assert progress_data["zero"]["progress"] == 25.0
 
     # 6. Verify generated audit-status.json
     audit_file = tmp_path / ".claude-flow/security/audit-status.json"

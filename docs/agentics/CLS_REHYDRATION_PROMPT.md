@@ -2,6 +2,20 @@
 
 This prompt is designed to steer swarm agents during autonomous loop ticks. It enforces zero-trust compliance, performs dynamic priority targeting, and executes both horizontal and vertical verification gates.
 
+## 0. Canonical Gate Matrix (DoR/DoD — single source; do not re-run redundantly)
+
+| Lane | Ready (DoR) | Done (DoD) | Stop authority |
+|------|-------------|------------|----------------|
+| **Repo** | `AGENT_SLICE=publication bash code/tooling/scripts/agent_session_dor.sh` → 0 | `./scripts/dod-gate.sh --post-task` + staged diff + FA commit | untracked_critical>0 after remediate |
+| **CLS perceive** | trust artifact fresh OR autopilot reruns trust | `bash code/tooling/scripts/dod-gate.sh --perceive` → 0 | substrate advisory only |
+| **Trust spine** | HEAD unchanged since last artifact | `TRUST_FORCE_RERUN=1 bash scripts/one.sh trust-path` + `verify-contract` | R-CLS-03 if commit without one.sh |
+| **Autopilot DAG** | contract tests green | `npm run autopilot:run` / `wave_autopilot.sh` → perceive_ec=0 cls_ec=0 | max_remediate_retries=2 |
+| **Dev tick** | feature branch, manifest honored | `npm run dev:tick` → rehydration manifest written | tick≥5 → clean session |
+| **Mail overlay** | `bash scripts/mail/mail-wave-dor-dod.sh --dor` | `bash scripts/mail/mail-wave-dor-dod.sh --dod` | FA for MTA cutover, Comet scope |
+| **Billing edge** | artifact-based | `public_synthetic_check.sh --check-only` | DNS blocked ≠ code fail |
+
+**Inherit rule:** Mail waves inherit repo gates; mail DoD never substitutes CLS/trust. WSJF inbox: track `#` paths staged / `%` FA-free closure per lane — not tick count in one chat.
+
 ---
 
 ```markdown

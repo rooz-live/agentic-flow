@@ -130,3 +130,26 @@ test.describe('[rust-hostbill-api-contract]', () => {
     expect(content).toContain('ERR_HOSTBILL_NETWORK');
   });
 });
+
+// ─── 5. Affiliate Gateway Routes Contract ───────────────────────────────────
+
+test.describe('[affiliate-gateway-routes]', () => {
+  const SERVER_JS = 'swarm-core-app/server.js';
+
+  test('app.get(/health) is registered in server.js', () => {
+    const content = readFile(SERVER_JS);
+    expect(content).toContain("app.get('/health'");
+  });
+
+  test('app.get(/cog) redirects to cognitum link', () => {
+    const content = readFile(SERVER_JS);
+    expect(content).toContain("app.get('/cog'");
+    expect(content).toContain("https://cognitum.one/?ref=2rbzTT");
+  });
+
+  test('app.post(/webhooks/cognitum) checks signature and returns 200', () => {
+    const content = readFile(SERVER_JS);
+    expect(content).toContain("app.post('/webhooks/cognitum'");
+    expect(content).toContain("COGNITUM_WEBHOOK_SECRET");
+  });
+});

@@ -25,7 +25,7 @@ class StripeGatewayHandler(BaseHTTPRequestHandler):
                 # If it doesn't throw, it's valid! Forward to HostBill (mocked)
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(b'{"status": "processed_and_forwarded"}')
+                self.wfile.write(b'{"status": "forwarded_to_hostbill"}')
 
             except Exception as e:
                 # Reject payload: return 400 Bad Request

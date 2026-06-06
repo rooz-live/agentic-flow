@@ -87,7 +87,7 @@ class TestStripeWebhookE2E:
         with urllib.request.urlopen(req) as response:
             assert response.status == 200
             resp_body = json.loads(response.read().decode('utf-8'))
-            assert resp_body["status"] == "processed_and_forwarded"
+            assert resp_body["status"] == "forwarded_to_hostbill"
 
         # Verify EventStore logging (.goalie/event_store_payments.jsonl)
         event_store_path = Path(".goalie/event_store_payments.jsonl")

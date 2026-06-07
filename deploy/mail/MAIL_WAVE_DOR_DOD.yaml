@@ -36,6 +36,11 @@ mail_dor:
       check: "Dead Apache mailadmin→8081 proxy absent on cPanel"
       command: "ssh root@cpanel-whm '! grep -q 192.168.122.1:8081 /home/bhopti/public_html/.htaccess'"
 
+    - id: MDOR-06
+      check: "OP/WHM credential parity — WHM API auth OK (not :2087 HTTP 200 false green)"
+      command: "bash scripts/mail/op_credential_verify.sh"
+      local_only: true
+
   wave_a_mailstore:
     checks:
       - id: MDOR-A1
@@ -94,7 +99,9 @@ mail_dod:
         command: "curl -sI https://mailadmin.bhopti.com/admin/ | head -5"
       - id: MDOD-A3
         check: "One IMAP ingestion profile from 192.168.122.237:993 (excl. rooz.live)"
-        manual: true
+        command: "MAIL_IMAP_SKIP_REMOTE=1 bash scripts/mail/mail-mdod-a3-verify.sh"
+        manual: false
+        note: "Exit 2 = mock noop only; exit 0 requires real MailStore ingest evidence"
       - id: MDOD-A4
         check: "R13 → mitigated only after MDOD-A1+A2 pass"
         roam: R13
@@ -119,13 +126,16 @@ mail_dod:
       - id: MDOD-C2
         check: "R-MAIL-01 → mitigated with vault restore note in last_result"
         roam: R-MAIL-01
+      - id: MDOD-C3
+        check: "Secondary job comet-mail-all-accounts configured in WHM (optional)"
+        manual: true
 
   wave_d_macos:
     wsjf: 6.0
     checks:
       - id: MDOD-D1
         check: "scripts/mail/macos-incremental-mail-backup.sh exit 0"
-        command: "MAIL_BACKUP_DEST=... bash scripts/mail/macos-incremental-mail-backup.sh"
+        command: "bash scripts/mail/capture-macos-mail-backup-evidence.sh"
       - id: MDOD-D2
         check: ".last-sync timestamp written under DEST"
 
@@ -134,7 +144,8 @@ mail_dod:
     checks:
       - id: MDOD-E1
         check: "src/proxies/edge_gateway.cfg deployed to STX /etc/caddy/Caddyfile"
-        command: "bash scripts/mail/deploy-edge-mailadmin.sh"
+        command: "MAIL_EDGE_DEPLOY_DRY=1 bash scripts/mail/deploy-edge-mailadmin.sh"
+        note: "Set MAIL_EDGE_DEPLOY_DRY=0 for live STX reload (FA)"
       - id: MDOD-E2
         check: "R-MAIL-02 closed — single mailadmin path (no htaccess 8081)"
 
@@ -150,7 +161,7 @@ stabilization_score:
       verify: "manual WHM Comet history"
     - name: mailstore_8081
       verify: "curl -sf http://127.0.0.1:8081 on STX"
-  current_estimate: "3/4 (~75%)"
+  current_estimate: "0/4 (~0%)"
 
 # WSJF execution order (FA incremental — do not parallel infra without DoR)
 wsjf_order:

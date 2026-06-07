@@ -26,7 +26,7 @@ uapi --user=tagvote Mime add_redirect domain=youtube.tag.vote src=/ redirect=htt
 # 3. epic.cab 
 # NOTE: epic.cab was not in the live server mapping, meaning it wasn't migrated/created yet!
 # Once you create it in WHM, you can run these:
-# uapi --user=epiccab SubDomain addsubdomain domain=telegram rootdomain=epic.cab dir=public_html/telegram > /dev/null
-# uapi --user=epiccab Mime add_redirect domain=telegram.epic.cab src=/ redirect=https://t.me/+6RUdERX1EKo2YTRh type=permanent > /dev/null
+uapi --user=epiccab SubDomain addsubdomain domain=telegram rootdomain=epic.cab dir=public_html/telegram > /dev/null
+# uapi --user=epiccab Mime add_redirect domain=telegram.epic.cab src=/ redirect=https://t.me/+9v7FcPdnDVxhMmQx type=permanent > /dev/null
 
 echo "✅ All Social Subdomains & Redirects injected into the UAPI routing layer!"

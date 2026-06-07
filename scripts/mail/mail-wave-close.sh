@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # FA goal orchestrator — chains existing mail scripts; no duplicate DoD gates.
-# Usage: bash scripts/mail/mail-wave-close.sh [--skip-dnssec] [--wave e|c|all]
+# Usage: bash scripts/mail/mail-wave-close.sh [--skip-dnssec] [--wave e|c|d|all]
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
@@ -22,9 +22,11 @@ if [[ "$WAVE" == "all" || "$WAVE" == "c" ]]; then
   run bash scripts/mail/capture-comet-evidence.sh
 fi
 
-# Wave A
+# Wave A — IMAP SoT probe then MailStore evidence (honest MDOD-A3)
 if [[ "$WAVE" == "all" || "$WAVE" == "a" ]]; then
+  run bash scripts/mail/mail-imap-source-probe.sh
   run bash scripts/mail/capture-mailstore-evidence.sh
+  run bash scripts/mail/mail-mdod-a3-verify.sh
 fi
 
 # DNSSEC → Wave E
@@ -44,8 +46,15 @@ if [[ "$WAVE" == "all" || "$WAVE" == "e" ]]; then
   fi
 fi
 
+
+# Wave D (macOS backup evidence — verify-only unless MAIL_BACKUP_RUN=1)
+if [[ "$WAVE" == "all" || "$WAVE" == "d" ]]; then
+  run bash scripts/mail/capture-macos-mail-backup-evidence.sh
+fi
 run bash scripts/mail/mail-stabilization-score.sh
+run bash scripts/mail/capture-mail-dashboard.sh
 run bash scripts/mail/mail-roam-audit.sh
+run bash scripts/mail/mail-roam-sync.sh
 
 # Trust spine only if repo has staged ROAM/evidence changes
 if git diff --quiet .goalie/ROAM_TRACKER_COG.yaml 2>/dev/null; then

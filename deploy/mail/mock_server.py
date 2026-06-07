@@ -1,4 +1,5 @@
 import http.server
+import os
 import socketserver
 import threading
 import time
@@ -146,7 +147,7 @@ class MailStoreHandler(http.server.SimpleHTTPRequestHandler):
         <div class="grid">
             <div class="card">
                 <div class="card-title">IMAP Source</div>
-                <div class="card-value">192.168.122.237:993</div>
+                <div class="card-value">cpanel-whm:993</div>
             </div>
             <div class="card">
                 <div class="card-title">Excluded Domains</div>
@@ -164,7 +165,7 @@ class MailStoreHandler(http.server.SimpleHTTPRequestHandler):
         
         <div class="logs">
             [SYS] MailStore Mock Service initialized on port 8081.<br>
-            [IMAP] Running IMAP ingestion job from 192.168.122.237:993...<br>
+            [IMAP] Running IMAP ingestion job from cpanel-whm:993...<br>
             [IMAP] Sending HAProxy PROXY v1 header...<br>
             [IMAP] Connected successfully via SSL.<br>
             [IMAP] Domain filter applied: excluding rooz.live.<br>
@@ -177,25 +178,19 @@ class MailStoreHandler(http.server.SimpleHTTPRequestHandler):
 """
         self.wfile.write(html.encode("utf-8"))
 
-def run_imap_check():
+def run_imap_ingest_loop():
+    import imap_ingest
+    import os
+    interval = int(os.environ.get("IMAP_INGEST_INTERVAL_SEC", "300"))
     while True:
         try:
-            print("[IMAP] Ingestion job: Connecting to 192.168.122.237:993 via PROXY TCP4 wrapper...")
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            
-            # Use our custom wrapper
-            conn = IMAP4_SSL_Proxy("192.168.122.237", 993, ssl_context=ctx)
-            conn.noop()
-            print("[IMAP] Connection test and PROXY handshake successful.")
-            conn.logout()
+            imap_ingest.run_once()
         except Exception as e:
-            print(f"[IMAP] Connection failed: {e}")
-        time.sleep(300)
+            print(f"[IMAP] Ingestion failed: {e}")
+        time.sleep(interval)
 
 if __name__ == "__main__":
-    threading.Thread(target=run_imap_check, daemon=True).start()
+    threading.Thread(target=run_imap_ingest_loop, daemon=True).start()
     
     PORT = 8081
     with socketserver.TCPServer(("", PORT), MailStoreHandler) as httpd:

@@ -70,7 +70,8 @@ const TLD_TARGETS = [
   // Domains redirecting to Discord (checked for "Discord" title)
   { tld: 'decisioncall.com', url: 'https://decisioncall.com/', titlePattern: /decisioncall|agentic|dashboard|Discord/i, redirects: true },
   // Observed prod: Telegram interstitial (not Discord) — pattern encodes actual landing title.
-  { tld: 'epic.cab', url: 'https://epic.cab/', titlePattern: /epic\.cab|agentic|dashboard|Discord|Telegram/i, redirects: true },
+  { tld: 'epic.cab', url: 'https://epic.cab/', titlePattern: /epic\.cab|Premium Urban Mobility|Telegram|Mobility/i },
+  { tld: 'telegram.epic.cab', url: 'https://telegram.epic.cab/', titlePattern: /Telegram|EPIC|Join/i, redirects: true },
   { tld: 'eudmusic.com', url: 'https://eudmusic.com/', titlePattern: /eudmusic|agentic|dashboard|Discord/i, redirects: true },
   { tld: 'tag.vote', url: 'https://tag.vote/', titlePattern: /tag\.vote|agentic|dashboard|Discord/i, redirects: true },
   // Observed prod: Apache directory index until app entry is deployed.

@@ -1,7 +1,4 @@
-# Wave A — MailStore Server on StarlingX (stx-aio-0)
-# Deploy: docker compose -f docker-compose.mailstore.yml up -d
-# SoT: cPanel IMAP 192.168.122.237:993 — direct migration
-
+# Wave A — MailStore edge on STX; IMAP SoT cpanel-whm:993 (never AWS)
 services:
   mailstore:
     build: .
@@ -9,11 +6,24 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:8081:8081"
+    env_file:
+      - .env
     environment:
-      MAILSTORE_ADMIN_PASSWORD: "${MAILSTORE_ADMIN_PASSWORD:?set in .env}"
+      MAILSTORE_ADMIN_PASSWORD: "${MAILSTORE_ADMIN_PASSWORD:-changeme-local-dev}"
+      IMAP_SOURCE_HOST: "${IMAP_SOURCE_HOST:-cpanel-whm}"
+      IMAP_SOURCE_PORT: "${IMAP_SOURCE_PORT:-993}"
+      IMAP_INGEST_USER: "${IMAP_INGEST_USER:?set in .env}"
+      IMAP_INGEST_PASSWORD: "${IMAP_INGEST_PASSWORD:?set in .env}"
+      IMAP_EXCLUDE_DOMAINS: "${IMAP_EXCLUDE_DOMAINS:-rooz.live}"
+      IMAP_INGEST_STATE: "/data/ingest_state.json"
+      IMAP_INGEST_INTERVAL_SEC: "${IMAP_INGEST_INTERVAL_SEC:-300}"
+    volumes:
+      - mailstore_data:/data
     healthcheck:
       test: ["CMD-SHELL", "python3 -c 'import urllib.request; urllib.request.urlopen(\"http://127.0.0.1:8081/\")' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
 
+volumes:
+  mailstore_data:

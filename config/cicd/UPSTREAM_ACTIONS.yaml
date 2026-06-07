@@ -1,0 +1,69 @@
+version: "1.0"
+schema: upstream.actions.v1
+repo_root: ~/Documents/code
+
+actions:
+  - id: P1-INDEX-02
+    horizon: NOW
+    wsjf: 8.0
+    lane: cls_perceive
+    command: "LOOP_ITEM=P1-INDEX-02 npm run dev:tick"
+    dod: "learning_*.json perceive_ec=0 at HEAD"
+    evidence: ".goalie/evidence/learning/"
+
+  - id: MAIL-WAVE-C
+    horizon: NOW
+    wsjf: 8.5
+    lane: mail_overlay
+    dor: "bash scripts/mail/mail-wave-dor-dod.sh --dor --wave c"
+    work: "WHM Comet job comet-mail-bhopti-primary per deploy/mail/comet-mail-vault-scope.yaml"
+    dod: "bash scripts/mail/capture-comet-evidence.sh"
+    evidence: ".goalie/evidence/mail/comet_job_*.json"
+    roam: R-MAIL-01
+    fa_required: true
+
+  - id: MAIL-WAVE-A
+    horizon: NOW
+    wsjf: 7.5
+    lane: mail_overlay
+    dor: "bash scripts/mail/mail-wave-dor-dod.sh --dor --wave a"
+    work: "docker compose -f deploy/mail/docker-compose.mailstore.yml up -d on STX"
+    dod: "bash scripts/mail/capture-mailstore-evidence.sh"
+    evidence: ".goalie/evidence/mail/mailstore_*.json"
+    roam: R13
+    fa_required: true
+
+  - id: MAIL-WAVE-E
+    horizon: NEAR
+    wsjf: 4.5
+    lane: mail_overlay
+    depends_on: [MAIL-WAVE-A]
+    dor: "MailStore :8081 healthy"
+    work: "bash scripts/mail/deploy-edge-mailadmin.sh"
+    dod: "curl -sfI https://mailadmin.bhopti.com/admin/ | grep -qE 'HTTP/[0-9.]+ [23]'"
+    evidence: ".goalie/evidence/mail/"
+    roam: R-MAIL-02
+    fa_required: true
+    notes: "Blocked if DNSSEC prevents LE cert for mailadmin.bhopti.com"
+
+  - id: MAIL-WAVE-D
+    horizon: NEXT
+    wsjf: 6.0
+    lane: mail_overlay
+    work: "bash scripts/mail/macos-incremental-mail-backup.sh"
+    evidence: "external volume .last-sync"
+
+  - id: CLS-AUTOPILOT
+    horizon: NOW
+    wsjf: 9.0
+    lane: cls_perceive
+    command: "npm run autopilot:run"
+    dod: "perceive_ec=0 cls_ec=0"
+    evidence: ".goalie/evidence/learning/learning_*.json"
+
+  - id: TEST-CICD
+    horizon: NOW
+    wsjf: 5.0
+    lane: repo
+    command: "npm run test:cicd"
+    dod: "exit 0"

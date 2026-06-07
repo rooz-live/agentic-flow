@@ -28,7 +28,20 @@ class IMAP4_SSL_Proxy(imaplib.IMAP4_SSL):
         self.file = self.sock.makefile('rb')
 
 class MailStoreHandler(http.server.SimpleHTTPRequestHandler):
+    def do_HEAD(self):
+        if self.path not in ("/", "/admin", "/admin/"):
+            self.send_response(404)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.end_headers()
+
     def do_GET(self):
+        if self.path not in ("/", "/admin", "/admin/"):
+            self.send_response(404)
+            self.end_headers()
+            return
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
         self.end_headers()

@@ -25,8 +25,16 @@ if export_p.is_file():
         if " 2 " in f" {part} ":
             wanted.append(part)
 pub = subprocess.run(["dig", "+short", "DS", domain, "@8.8.8.8"], capture_output=True, text=True)
-public = [l.strip() for l in pub.stdout.splitlines() if l.strip() and not l.startswith("DS ")]
-matched = [w for w in wanted if w in public]
+public = []
+for line in pub.stdout.splitlines():
+    line = line.strip()
+    if not line or line.startswith("DS "):
+        continue
+    parts = line.split()
+    if len(parts) >= 4:
+        digest = "".join(parts[3:]).lower()
+        public.append(f"{parts[0]} {parts[1]} {parts[2]} {digest}".lower())
+matched = [w for w in wanted if w.lower() in public]
 ok = bool(wanted) and len(matched) >= 1
 doc = {
     "schema": "mail.dnssec.propagation.v1",

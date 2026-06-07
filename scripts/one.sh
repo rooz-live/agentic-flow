@@ -109,8 +109,12 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             
             echo "✅ CI Execution Passed. Strict Holacracy compliance verified."
             ;;
+        mail-wave-close)
+            shift
+            exec bash "$ROOT_DIR/scripts/mail/mail-wave-close.sh" "$@"
+            ;;
         help|*)
-            echo "Usage: ./scripts/one.sh <trust-path|verify-contract|ci>"
+            echo "Usage: ./scripts/one.sh <trust-path|verify-contract|ci|mail-wave-close>"
             exit 1
             ;;
     esac

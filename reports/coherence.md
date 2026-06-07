@@ -1,11 +1,11 @@
 # DDD/TDD/ADR Coherence Validation Report
-**Generated:** 2026-06-06 15:52:12
+**Generated:** 2026-06-07 11:58:58
 **Project:** `/Users/shahroozbhopti/Documents/code`
-**Files Scanned:** 405
+**Files Scanned:** 398
 **Automation Level:** Level 2 (Application)
 
 ## ❌ Overall: FAIL
-`██████████████████████░░░░░░░░` **74.2%** (584/787 checks)
+`██████████████████████░░░░░░░░` **73.6%** (570/774 checks)
 
 ## Layer Health
 
@@ -14,7 +14,7 @@
 | **PRD** | 🔴 0% | 11 | 22 | 11 PRD document(s) found |
 | **ADR** | 🔴 8% | 43 | 39 | 43 ADR document(s) found |
 | **DDD** | 🟢 84% | 37 | 1 | 37 domain file(s) found |
-| **TDD** | 🟢 92% | 314 | 22 | 314 test file(s) found |
+| **TDD** | 🟢 92% | 307 | 23 | 307 test file(s) found |
 
 ## Cross-Layer Coherence
 
@@ -448,6 +448,7 @@
 - ✅ [INFO] Test file follows naming convention: Correct: test_openstack_stx_bridge.py `test_openstack_stx_bridge.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_playwright.js `test_playwright.js`
 - ✅ [INFO] Test file follows naming convention: Correct: test_staging.py `test_staging.py`
+- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 2 tests) `test_staging.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_syntax.js `test_syntax.js`
 - ✅ [INFO] Test file follows naming convention: Correct: test_tls.py `test_tls.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_tls_8888.py `test_tls_8888.py`
@@ -552,18 +553,6 @@
 - ✅ [INFO] Test file follows naming convention: Correct: cost-ledger-verify.e2e.spec.ts `tests/cost-ledger-verify.e2e.spec.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.4 assertions/test (22 assertions, 9 tests) `tests/cost-ledger-verify.e2e.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: dashboard.spec.js `tests/dashboard.spec.js`
-- ✅ [INFO] Test file follows naming convention: Correct: epic-18-hypertrophy.spec.ts `tests/e2e/epic-18-hypertrophy.spec.ts`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (3 assertions, 1 tests) `tests/e2e/epic-18-hypertrophy.spec.ts`
-- ✅ [INFO] Test file follows naming convention: Correct: epic-19-ogov-core.spec.ts `tests/e2e/epic-19-ogov-core.spec.ts`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (4 assertions, 1 tests) `tests/e2e/epic-19-ogov-core.spec.ts`
-- ✅ [INFO] Test file follows naming convention: Correct: epic-20-env-rehydrator.spec.ts `tests/e2e/epic-20-env-rehydrator.spec.ts`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (3 assertions, 1 tests) `tests/e2e/epic-20-env-rehydrator.spec.ts`
-- ✅ [INFO] Test file follows naming convention: Correct: epic-23-refactor-loop.spec.ts `tests/e2e/epic-23-refactor-loop.spec.ts`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (4 assertions, 1 tests) `tests/e2e/epic-23-refactor-loop.spec.ts`
-- ✅ [INFO] Test file follows naming convention: Correct: epic-37-push.spec.ts `tests/e2e/epic-37-push.spec.ts`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (2 assertions, 1 tests) `tests/e2e/epic-37-push.spec.ts`
-- ✅ [INFO] Test file follows naming convention: Correct: trading-dashboard.spec.ts `tests/e2e/trading-dashboard.spec.ts`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (26 assertions, 13 tests) `tests/e2e/trading-dashboard.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: e2e-mcp-mpp-dimensional.test.ts `tests/e2e-mcp-mpp-dimensional.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.3 assertions/test (47 assertions, 11 tests) `tests/e2e-mcp-mpp-dimensional.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: entity-identity-tdd.e2e.spec.ts `tests/entity-identity-tdd.e2e.spec.ts`
@@ -659,8 +648,6 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.4 assertions/test (135 assertions, 25 tests) `tests/pattern-metrics/schema-validation.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: timeline-verification.test.ts `tests/pattern-metrics/timeline-verification.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (111 assertions, 28 tests) `tests/pattern-metrics/timeline-verification.test.ts`
-- ✅ [INFO] Test file follows naming convention: Correct: high-load-benchmarks.test.ts `tests/performance/high-load-benchmarks.test.ts`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.5 assertions/test (58 assertions, 13 tests) `tests/performance/high-load-benchmarks.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: test_load_150pct.py `tests/performance/test_load_150pct.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (6 assertions, 3 tests) `tests/performance/test_load_150pct.py`
 - ✅ [INFO] Test file follows naming convention: Correct: project-context-tdd.e2e.spec.ts `tests/project-context-tdd.e2e.spec.ts`
@@ -874,9 +861,9 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (28 assertions, 13 tests) `tests/verification/verification-pipeline.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: vscode-extension-mocks.test.ts `tests/vscode-extension/vscode-extension-mocks.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (109 assertions, 31 tests) `tests/vscode-extension/vscode-extension-mocks.test.ts`
-- ✅ [CRITICAL] Unit tests present: 2234 test functions found
-- ✅ [WARNING] Integration tests present: 93 integration test file(s)
-- ✅ [INFO] Total assertion count reasonable: 7270 total assertions across 314 files
+- ✅ [CRITICAL] Unit tests present: 2205 test functions found
+- ✅ [WARNING] Integration tests present: 94 integration test file(s)
+- ✅ [INFO] Total assertion count reasonable: 7170 total assertions across 307 files
 
 ## Recommendations
 
@@ -900,10 +887,10 @@
 
 | Phase | Coherence Action |
 |:------|:-----------------|
-| **Observe** | Scanned 405 files across 4 layers |
+| **Observe** | Scanned 398 files across 4 layers |
 | **Orient** | Health: PRD=0%, ADR=8%, DDD=84%, TDD=92% |
 | **Decide** | Verdict: FAIL at 74% |
 | **Act** | 15 recommendations to implement |
 
 ---
-*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-06-06 15:52:12*
+*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-06-07 11:58:58*

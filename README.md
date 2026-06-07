@@ -1,5 +1,5 @@
 <!-- rooz-live contributions (fork) -->
-> **My contributions** — CLS v2 wave autopilot DAG, gate-scoped perceive, P1-INDEX-02 substrate WSJF indexing, ROAM R-CLS synthesis, and trust-spine `one.sh`. Staff IC delivery on top of upstream Agentic Flow.
+> **My contributions** — Designed and built the zero-trust compliance spine (`one.sh`), the CLS v2 wave autopilot DAG, and the P1-INDEX-02 substrate scheduler to eliminate code debt. Staff IC delivery for high-integrity autonomous platforms, Founder-level value-stream optimization (OODA/WSJF loops), and turnkey Technical Consultant/Contractor edge/gateway integrations.
 > Details: [docs/CONTRIBUTIONS.md](docs/CONTRIBUTIONS.md)
 
 # 🤖 Agentic Flow

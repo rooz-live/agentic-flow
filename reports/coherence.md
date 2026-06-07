@@ -1,18 +1,18 @@
 # DDD/TDD/ADR Coherence Validation Report
-**Generated:** 2026-06-07 14:15:38
+**Generated:** 2026-06-07 16:13:21
 **Project:** `/Users/shahroozbhopti/Documents/code`
 **Files Scanned:** 398
 **Automation Level:** Level 3 (With Review)
 
 ## ✅ Overall: PASS
-`█████████████████████████░░░░░` **85.6%** (712/832 checks)
+`█████████████████████████░░░░░` **86.6%** (729/842 checks)
 
 ## Layer Health
 
 | Layer | Health | Files | Gaps | Strengths |
 |:------|:------:|:-----:|:----:|:----------|
 | **PRD** | 🔴 36% | 11 | 14 | 11 PRD document(s) found |
-| **ADR** | 🟡 60% | 43 | 17 | 43 ADR document(s) found |
+| **ADR** | 🟡 66% | 43 | 15 | 43 ADR document(s) found |
 | **DDD** | 🟢 95% | 37 | 0 | 37 domain file(s) found |
 | **TDD** | 🟢 92% | 307 | 29 | 307 test file(s) found |
 
@@ -22,12 +22,12 @@
 - ✅ **COH-003** (prd→tdd): PRD criteria: ✓, Tests exist: ✓
 - ✅ **COH-004** (tdd→ddd): 63/63 domain terms found in test names (100%)
 - ✅ **COH-002** (adr→ddd): 43 ADR(s), 50 domain classes
-- ✅ **COH-005** (prd→adr): PRD: 11 doc(s), ADR: 43 doc(s), 28/43 with valid status
+- ✅ **COH-005** (prd→adr): PRD: 11 doc(s), ADR: 43 doc(s), 30/43 with valid status
 - ✅ **COH-010** (ddd→prd): 31/32 domain modules have DoR/DoD docstrings (97%)
 - ❌ **COH-006** (ddd→ddd): 14/41 Python packages have __init__.py (34%)
 - ✅ **COH-009** (ddd→ddd): 40/41 Rust domain structs derive Serialize (98%)
-- ✅ **COH-007** (tdd→tdd): 101/105 test files follow naming convention (96%)
-- ❌ **COH-008** (prd→prd): 5/11 PRD documents have measurable success metrics (45%) [1 stray PRD-like file(s) outside docs/prd/]
+- ✅ **COH-007** (tdd→tdd): 106/110 test files follow naming convention (96%)
+- ❌ **COH-008** (prd→prd): 5/11 PRD documents have measurable success metrics (45%) [2 stray PRD-like file(s) outside docs/prd/]
 - ✅ **COH-011** (ddd→tdd): Found 3 MCP component(s) and 3 test harness(es)
 - ✅ **COH-012** (ddd→tdd): Found 19 vector source file(s) and 5 vector test harness(es)
 - ✅ **COH-013** (ddd→tdd): Found 2 MPP components and 2 verification test(s)
@@ -84,18 +84,16 @@
 
 ### ADR Checks
 
-- ❌ [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences) `docs/ADR-017-Portfolio-Hierarchy-Architecture.md`
-- ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/ADR-017-Portfolio-Hierarchy-Architecture.md`
-  💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
-- ❌ [INFO] ADR has date: No date found `docs/ADR-017-Portfolio-Hierarchy-Architecture.md`
-- ❌ [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences) `docs/ADR-092-IMPLEMENTATION.md`
+- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/ADR-017-Portfolio-Hierarchy-Architecture.md`
+- ✅ [INFO] ADR has explicit status: Status: accepted `docs/ADR-017-Portfolio-Hierarchy-Architecture.md`
+- ✅ [INFO] ADR has date: Date present `docs/ADR-017-Portfolio-Hierarchy-Architecture.md`
+- ❌ [WARNING] ADR has required sections: 2/4 sections (missing: context, consequences) `docs/ADR-092-IMPLEMENTATION.md`
 - ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/ADR-092-IMPLEMENTATION.md`
   💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
-- ❌ [INFO] ADR has date: No date found `docs/ADR-092-IMPLEMENTATION.md`
-- ❌ [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences) `docs/SEMI_AUTO_PATENT_SYSTEM_ADR.md`
-- ❌ [INFO] ADR has explicit status: Status: NOT FOUND `docs/SEMI_AUTO_PATENT_SYSTEM_ADR.md`
-  💡 Add 'Status: accepted' (or proposed/deprecated/superseded)
-- ❌ [INFO] ADR has date: No date found `docs/SEMI_AUTO_PATENT_SYSTEM_ADR.md`
+- ✅ [INFO] ADR has date: Date present `docs/ADR-092-IMPLEMENTATION.md`
+- ✅ [WARNING] ADR has required sections: 4/4 sections `docs/SEMI_AUTO_PATENT_SYSTEM_ADR.md`
+- ✅ [INFO] ADR has explicit status: Status: Proposed `docs/SEMI_AUTO_PATENT_SYSTEM_ADR.md`
+- ✅ [INFO] ADR has date: Date present `docs/SEMI_AUTO_PATENT_SYSTEM_ADR.md`
 - ✅ [WARNING] ADR has required sections: 4/4 sections `docs/adr/000-TEMPLATE.md`
 - ✅ [INFO] ADR has explicit status: Status: Proposed `docs/adr/000-TEMPLATE.md`
 - ✅ [INFO] ADR has date: Date present `docs/adr/000-TEMPLATE.md`
@@ -559,6 +557,7 @@
 - ✅ [INFO] Test file follows naming convention: Correct: test_api_client.py `tests/hostbill/test_api_client.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.9 assertions/test (41 assertions, 14 tests) `tests/hostbill/test_api_client.py`
 - ✅ [INFO] Test file follows naming convention: Correct: AffiliateWorkflows.test.ts `tests/integration/AffiliateWorkflows.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.7 assertions/test (30 assertions, 11 tests) `tests/integration/AffiliateWorkflows.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: CICDPipeline.test.ts `tests/integration/CICDPipeline.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.4 assertions/test (41 assertions, 12 tests) `tests/integration/CICDPipeline.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: LearningCapture.test.ts `tests/integration/LearningCapture.test.ts`
@@ -574,15 +573,18 @@
 - ✅ [INFO] Test file follows naming convention: Correct: hostbill-stripe-boundary.e2e.spec.ts `tests/integration/hostbill-stripe-boundary.e2e.spec.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.9 assertions/test (40 assertions, 21 tests) `tests/integration/hostbill-stripe-boundary.e2e.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: napi_ffi_test.js `tests/integration/napi_ffi_test.js`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.9 assertions/test (81 assertions, 43 tests) `tests/integration/napi_ffi_test.js`
 - ✅ [INFO] Test file follows naming convention: Correct: post_restoration_test.ts `tests/integration/post_restoration_test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: provider-notification-flow.test.ts `tests/integration/provider-notification-flow.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.6 assertions/test (36 assertions, 10 tests) `tests/integration/provider-notification-flow.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: quic-proxy.test.ts `tests/integration/quic-proxy.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.6 assertions/test (50 assertions, 19 tests) `tests/integration/quic-proxy.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: starlingx-connectivity.test.ts `tests/integration/starlingx-connectivity.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (2 assertions, 1 tests) `tests/integration/starlingx-connectivity.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: test_feature_flag_off_returns_403.py `tests/integration/test_feature_flag_off_returns_403.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.7 assertions/test (5 assertions, 3 tests) `tests/integration/test_feature_flag_off_returns_403.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_feature_flag_on_returns_json_schema.py `tests/integration/test_feature_flag_on_returns_json_schema.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 6.7 assertions/test (20 assertions, 3 tests) `tests/integration/test_feature_flag_on_returns_json_schema.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_hostbill_integration.py `tests/integration/test_hostbill_integration.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.7 assertions/test (22 assertions, 6 tests) `tests/integration/test_hostbill_integration.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_hostbill_live.py `tests/integration/test_hostbill_live.py`
@@ -590,11 +592,15 @@
 - ✅ [INFO] Test file follows naming convention: Correct: test_pg_migration.py `tests/integration/test_pg_migration.py`
 - ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.8 assertions/test (4 assertions, 5 tests) `tests/integration/test_pg_migration.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_validation_dashboard_auth.py `tests/integration/test_validation_dashboard_auth.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.3 assertions/test (10 assertions, 3 tests) `tests/integration/test_validation_dashboard_auth.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_validation_dashboard_schema.py `tests/integration/test_validation_dashboard_schema.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 9.5 assertions/test (38 assertions, 4 tests) `tests/integration/test_validation_dashboard_schema.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_validation_system.py `tests/integration/test_validation_system.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (7 assertions, 2 tests) `tests/integration/test_validation_system.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_validator_pipeline.py `tests/integration/test_validator_pipeline.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (7 assertions, 2 tests) `tests/integration/test_validator_pipeline.py`
 - ✅ [INFO] Test file follows naming convention: Correct: validation-dashboard.test.ts `tests/integration/validation-dashboard.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 6.5 assertions/test (26 assertions, 4 tests) `tests/integration/validation-dashboard.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: validation-domain.integration.spec.ts `tests/integration/validation-domain.integration.spec.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.4 assertions/test (31 assertions, 7 tests) `tests/integration/validation-domain.integration.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: yolife-connectivity.test.ts `tests/integration/yolife-connectivity.test.ts`
@@ -781,6 +787,7 @@
 - ✅ [INFO] Test file follows naming convention: Correct: diffviewsync-engine.test.ts `tests/unit/diffviewsync-engine.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (3 assertions, 1 tests) `tests/unit/diffviewsync-engine.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: e2b.test.ts `tests/unit/e2b.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.3 assertions/test (10 assertions, 3 tests) `tests/unit/e2b.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: gembawalk-engine.test.ts `tests/unit/gembawalk-engine.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (3 assertions, 1 tests) `tests/unit/gembawalk-engine.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: generativeaccessnode-engine.test.ts `tests/unit/generativeaccessnode-engine.test.ts`
@@ -848,6 +855,7 @@
 - ✅ [INFO] Test file follows naming convention: Correct: test_rust_bridge_pyo3.py `tests/unit/test_rust_bridge_pyo3.py`
 - ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.9 assertions/test (8 assertions, 9 tests) `tests/unit/test_rust_bridge_pyo3.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_verify_beam_tags.py `tests/unit/test_verify_beam_tags.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (2 assertions, 1 tests) `tests/unit/test_verify_beam_tags.py`
 - ✅ [INFO] Test file follows naming convention: Correct: topology.test.ts `tests/unit/topology.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 6.5 assertions/test (142 assertions, 22 tests) `tests/unit/topology.test.ts`
 - ❌ [INFO] Test file follows naming convention: Non-standard: topology.tests.ts `tests/unit/topology.tests.ts`
@@ -888,9 +896,9 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (28 assertions, 13 tests) `tests/verification/verification-pipeline.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: vscode-extension-mocks.test.ts `tests/vscode-extension/vscode-extension-mocks.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (109 assertions, 31 tests) `tests/vscode-extension/vscode-extension-mocks.test.ts`
-- ✅ [CRITICAL] Unit tests present: 2848 test functions found
-- ✅ [WARNING] Integration tests present: 114 integration test file(s)
-- ✅ [INFO] Total assertion count reasonable: 8831 total assertions across 307 files
+- ✅ [CRITICAL] Unit tests present: 2941 test functions found
+- ✅ [WARNING] Integration tests present: 122 integration test file(s)
+- ✅ [INFO] Total assertion count reasonable: 9105 total assertions across 307 files
 
 ## Recommendations
 
@@ -898,23 +906,23 @@
 -   → [WARNING] PRD has required sections: 0/4 sections present (missing: objective, requirements, acceptance criteria, success metric)
 -   → [WARNING] PRD has measurable success metrics: Quantifiable metrics: 0 pattern(s) found
 -   → [WARNING] PRD has required sections: 0/4 sections present (missing: objective, requirements, acceptance criteria, success metric)
--   → [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences)
--   → [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences)
+-   → [WARNING] ADR has required sections: 2/4 sections (missing: context, consequences)
+-   → [WARNING] ADR has required sections: 3/4 sections (missing: status)
 -   → [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences)
 -   → [WARNING] Test assertion density ≥ 1.0 per test: 0.2 assertions/test (1 assertions, 5 tests)
 -   → [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 1 tests)
 -   → [WARNING] Test assertion density ≥ 1.0 per test: 0.2 assertions/test (2 assertions, 9 tests)
 - ❌ COH-006 (ddd→ddd): 14/41 Python packages have __init__.py (34%)
-- ❌ COH-008 (prd→prd): 5/11 PRD documents have measurable success metrics (45%) [1 stray PRD-like file(s) outside docs/prd/]
+- ❌ COH-008 (prd→prd): 5/11 PRD documents have measurable success metrics (45%) [2 stray PRD-like file(s) outside docs/prd/]
 
 ## OODA Integration
 
 | Phase | Coherence Action |
 |:------|:-----------------|
 | **Observe** | Scanned 398 files across 4 layers |
-| **Orient** | Health: PRD=36%, ADR=60%, DDD=95%, TDD=92% |
-| **Decide** | Verdict: PASS at 86% |
+| **Orient** | Health: PRD=36%, ADR=66%, DDD=95%, TDD=92% |
+| **Decide** | Verdict: PASS at 87% |
 | **Act** | 12 recommendations to implement |
 
 ---
-*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-06-07 14:15:38*
+*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-06-07 16:13:21*

@@ -7,7 +7,7 @@ This prompt is designed to steer swarm agents during autonomous loop ticks. It e
 | Lane | Ready (DoR) | Done (DoD) | Command | Exit artifact |
 |------|-------------|------------|---------|---------------|
 | **Repo index** | No untracked gate paths | N/A (perceive only) | `AGENT_SLICE=publication bash code/tooling/scripts/agent_session_dor.sh` | console |
-| **CLS perceive** | Repo DoR + trust readable | `perceive_ec=0`, `cls_ec=0` | `bash scripts/cicd/cog_gate_perceive.sh` **or** `npm run autopilot:run` | `.goalie/evidence/learning/learning_*.json` |
+| **CLS perceive** | Repo DoR + trust readable | `perceive_ec=0`, `cls_ec=0` | `bash scripts/cicd/cog_gate_perceive.sh` **or** `bash code/tooling/scripts/dod-gate.sh --perceive` **or** `npm run autopilot:run` | `.goalie/evidence/learning/learning_*.json` |
 | **Trust spine** | HEAD known | artifact `head_sha == HEAD` | `TRUST_FORCE_RERUN=1 bash scripts/one.sh trust-path` | `.goalie/evidence/last_gate_one_pass.json` |
 | **Commit claim** | Staged diff non-empty | post-task + trust refresh | `python3 scripts/governance/compliance_as_code.py --cog --scope=commit` + `./scripts/dod-gate.sh --post-task` | `compliance_cog_commit_*.json` |
 | **Autopilot DAG** | contract tests green | `npm run autopilot:run` / `bash scripts/cicd/wave_autopilot.sh` | same as CLS perceive | `learning_*.json` |
@@ -61,11 +61,15 @@ Before committing any changes, you MUST run:
    ```bash
    npx playwright test --list
    ```
-3. **Definition of Done Gate**:
+3. **CLS Perceive Gate** (canonical perceive entry):
+   ```bash
+   bash scripts/cicd/cog_gate_perceive.sh
+   ```
+4. **Definition of Done Gate**:
    ```bash
    ./scripts/dod-gate.sh --full
    ```
-4. **Public Edge Synthetic Check** (Only if testing live edge):
+5. **Public Edge Synthetic Check** (Only if testing live edge):
    ```bash
    bash code/tooling/scripts/public_synthetic_check.sh billing.bhopti.com
    ```

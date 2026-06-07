@@ -1,11 +1,11 @@
 # DDD/TDD/ADR Coherence Validation Report
-**Generated:** 2026-06-07 14:09:04
+**Generated:** 2026-06-07 14:12:08
 **Project:** `/Users/shahroozbhopti/Documents/code`
 **Files Scanned:** 398
 **Automation Level:** Level 2 (Application)
 
 ## ❌ Overall: FAIL
-`██████████████████████░░░░░░░░` **73.9%** (593/802 checks)
+`██████████████████████░░░░░░░░` **74.8%** (606/810 checks)
 
 ## Layer Health
 
@@ -13,7 +13,7 @@
 |:------|:------:|:-----:|:----:|:----------|
 | **PRD** | 🔴 0% | 11 | 22 | 11 PRD document(s) found |
 | **ADR** | 🔴 8% | 43 | 39 | 43 ADR document(s) found |
-| **DDD** | 🟢 84% | 37 | 1 | 37 domain file(s) found |
+| **DDD** | 🟢 91% | 37 | 0 | 37 domain file(s) found |
 | **TDD** | 🟢 91% | 307 | 28 | 307 test file(s) found |
 
 ## Cross-Layer Coherence
@@ -26,8 +26,8 @@
 - ✅ **COH-010** (ddd→prd): 31/32 domain modules have DoR/DoD docstrings (97%)
 - ❌ **COH-006** (ddd→ddd): 14/41 Python packages have __init__.py (34%)
 - ✅ **COH-009** (ddd→ddd): 40/41 Rust domain structs derive Serialize (98%)
-- ✅ **COH-007** (tdd→tdd): 99/103 test files follow naming convention (96%)
-- ❌ **COH-008** (prd→prd): 1/11 PRD documents have measurable success metrics (9%)
+- ✅ **COH-007** (tdd→tdd): 100/104 test files follow naming convention (96%)
+- ❌ **COH-008** (prd→prd): 1/11 PRD documents have measurable success metrics (9%) [1 stray PRD-like file(s) outside docs/prd/]
 - ✅ **COH-011** (ddd→tdd): Found 3 MCP component(s) and 3 test harness(es)
 - ✅ **COH-012** (ddd→tdd): Found 19 vector source file(s) and 5 vector test harness(es)
 - ✅ **COH-013** (ddd→tdd): Found 2 MPP components and 2 verification test(s)
@@ -339,18 +339,18 @@
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `src/wsjf/domain/aggregate_root.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `src/wsjf/domain/roam_risk_aggregate.py`
 - ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `tests/domain/test_aggregate_roots.py`
-- ❌ [WARNING] Module 'vibesthinker' has public API exports: Empty __init__.py `vibesthinker/__init__.py`
-- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `vibesthinker/advocate_cli.py`
-- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `vibesthinker/document_extractor.py`
-- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `vibesthinker/governance_council.py`
+- ✅ [WARNING] Module 'vibesthinker' has public API exports: __all__ or imports defined `vibesthinker/__init__.py`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `vibesthinker/advocate_cli.py`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `vibesthinker/document_extractor.py`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `vibesthinker/governance_council.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `vibesthinker/governance_council_33_roles.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `vibesthinker/legal_argument_reviewer.py`
-- ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `vibesthinker/pdf_classifier.py`
+- ✅ [INFO] Module has DoR/DoD in docstring: DoR/DoD found `vibesthinker/pdf_classifier.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `vibesthinker/session_manager.py`
 - ❌ [INFO] Module has DoR/DoD in docstring: No DoR/DoD in docstring `vibesthinker/vibesthinker_ai.py`
 - ✅ [CRITICAL] DDD aggregate root present: 58 aggregate root(s) detected
-- ✅ [WARNING] DDD value object present: 79 value object(s) detected
-- ✅ [WARNING] DDD service present: 6 service(s) detected
+- ✅ [WARNING] DDD value object present: 86 value object(s) detected
+- ✅ [WARNING] DDD service present: 43 service(s) detected
 
 ### TDD Checks
 
@@ -381,6 +381,7 @@
 - ❌ [INFO] Test file follows naming convention: Non-standard: test.js `rust/evidence-validator/test.js`
 - ✅ [INFO] Test file follows naming convention: Correct: orchestration_test.rs `rust/tests/orchestration_test.rs`
 - ✅ [INFO] Test file follows naming convention: Correct: quantum_i18n_test.rs `rust/tests/quantum_i18n_test.rs`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (8 assertions, 2 tests) `rust/tests/quantum_i18n_test.rs`
 - ✅ [INFO] Test file follows naming convention: Correct: simple_test.py `simple_test.py`
 - ✅ [INFO] Test file follows naming convention: Correct: index.test.ts `src/adrs/ADR-001-Hierarchical-Progress/index.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.4 assertions/test (44 assertions, 13 tests) `src/adrs/ADR-001-Hierarchical-Progress/index.test.ts`
@@ -614,6 +615,7 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (7 assertions, 2 tests) `tests/integration/test_validator_pipeline.py`
 - ✅ [INFO] Test file follows naming convention: Correct: validation-dashboard.test.ts `tests/integration/validation-dashboard.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: validation-domain.integration.spec.ts `tests/integration/validation-domain.integration.spec.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.4 assertions/test (31 assertions, 7 tests) `tests/integration/validation-domain.integration.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: yolife-connectivity.test.ts `tests/integration/yolife-connectivity.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: yolife-deployment.test.ts `tests/integration/yolife-deployment.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: test_notifiers.py `tests/integrations/test_notifiers.py`
@@ -791,6 +793,7 @@
 - ✅ [INFO] Test file follows naming convention: Correct: cicddashboard-engine.test.ts `tests/unit/cicddashboard-engine.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (3 assertions, 1 tests) `tests/unit/cicddashboard-engine.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: cli.test.ts `tests/unit/cli.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.3 assertions/test (30 assertions, 9 tests) `tests/unit/cli.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: diffviewsync-engine.test.ts `tests/unit/diffviewsync-engine.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (3 assertions, 1 tests) `tests/unit/diffviewsync-engine.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: e2b.test.ts `tests/unit/e2b.test.ts`
@@ -803,10 +806,12 @@
 - ✅ [INFO] Test file follows naming convention: Correct: hypertrophy-engine.test.ts `tests/unit/hypertrophy-engine.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.2 assertions/test (13 assertions, 4 tests) `tests/unit/hypertrophy-engine.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: kl-divergence-validation.test.ts `tests/unit/kl-divergence-validation.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.6 assertions/test (62 assertions, 17 tests) `tests/unit/kl-divergence-validation.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: lionrsAdapter.test.ts `tests/unit/lionrsAdapter.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: magicwand-engine.test.ts `tests/unit/magicwand-engine.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (3 assertions, 1 tests) `tests/unit/magicwand-engine.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: mcp-tools.test.ts `tests/unit/mcp-tools.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (36 assertions, 9 tests) `tests/unit/mcp-tools.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: multiagentcleanroom-engine.test.ts `tests/unit/multiagentcleanroom-engine.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (3 assertions, 1 tests) `tests/unit/multiagentcleanroom-engine.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: notification.test.ts `tests/unit/notification.test.ts`
@@ -823,6 +828,7 @@
 - ✅ [INFO] Test file follows naming convention: Correct: refactorloop-engine.test.ts `tests/unit/refactorloop-engine.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (3 assertions, 1 tests) `tests/unit/refactorloop-engine.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: riskAgentAllocation.test.ts `tests/unit/riskAgentAllocation.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (8 assertions, 4 tests) `tests/unit/riskAgentAllocation.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: skillsSnapshot.test.ts `tests/unit/skillsSnapshot.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: subalterngovmodule-engine.test.ts `tests/unit/subalterngovmodule-engine.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (3 assertions, 1 tests) `tests/unit/subalterngovmodule-engine.test.ts`
@@ -838,6 +844,7 @@
 - ✅ [INFO] Test file follows naming convention: Correct: terminalclosuregate-engine.test.ts `tests/unit/terminalclosuregate-engine.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (3 assertions, 1 tests) `tests/unit/terminalclosuregate-engine.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: test_convergence_calculator.py `tests/unit/test_convergence_calculator.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.9 assertions/test (13 assertions, 7 tests) `tests/unit/test_convergence_calculator.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_gmail_history_bead.py `tests/unit/test_gmail_history_bead.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.0 assertions/test (3 assertions, 3 tests) `tests/unit/test_gmail_history_bead.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_mailjet_sender_bead.py `tests/unit/test_mailjet_sender_bead.py`
@@ -858,6 +865,7 @@
 - ✅ [INFO] Test file follows naming convention: Correct: portfolio-analyzer.test.ts `tests/unit/trading/portfolio-analyzer.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.7 assertions/test (38 assertions, 14 tests) `tests/unit/trading/portfolio-analyzer.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: verification.test.ts `tests/unit/verification.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.2 assertions/test (41 assertions, 13 tests) `tests/unit/verification.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: visualtokens-engine.test.ts `tests/unit/visualtokens-engine.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (3 assertions, 1 tests) `tests/unit/visualtokens-engine.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: wsjfSsot.test.ts `tests/unit/wsjfSsot.test.ts`
@@ -889,9 +897,9 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (28 assertions, 13 tests) `tests/verification/verification-pipeline.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: vscode-extension-mocks.test.ts `tests/vscode-extension/vscode-extension-mocks.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (109 assertions, 31 tests) `tests/vscode-extension/vscode-extension-mocks.test.ts`
-- ✅ [CRITICAL] Unit tests present: 2613 test functions found
-- ✅ [WARNING] Integration tests present: 103 integration test file(s)
-- ✅ [INFO] Total assertion count reasonable: 7943 total assertions across 307 files
+- ✅ [CRITICAL] Unit tests present: 2681 test functions found
+- ✅ [WARNING] Integration tests present: 105 integration test file(s)
+- ✅ [INFO] Total assertion count reasonable: 8172 total assertions across 307 files
 
 ## Recommendations
 
@@ -903,22 +911,21 @@
 -   → [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences)
 -   → [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences)
 -   → [WARNING] ADR has required sections: 0/4 sections (missing: status, context, decision, consequences)
--   → [WARNING] Module 'vibesthinker' has public API exports: Empty __init__.py
 -   → [WARNING] Test assertion density ≥ 1.0 per test: 0.2 assertions/test (1 assertions, 5 tests)
 -   → [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 1 tests)
 -   → [WARNING] Test assertion density ≥ 1.0 per test: 0.2 assertions/test (2 assertions, 9 tests)
 - ❌ COH-003 (prd→tdd): PRD criteria: ✗, Tests exist: ✓
 - ❌ COH-006 (ddd→ddd): 14/41 Python packages have __init__.py (34%)
-- ❌ COH-008 (prd→prd): 1/11 PRD documents have measurable success metrics (9%)
+- ❌ COH-008 (prd→prd): 1/11 PRD documents have measurable success metrics (9%) [1 stray PRD-like file(s) outside docs/prd/]
 
 ## OODA Integration
 
 | Phase | Coherence Action |
 |:------|:-----------------|
 | **Observe** | Scanned 398 files across 4 layers |
-| **Orient** | Health: PRD=0%, ADR=8%, DDD=84%, TDD=91% |
-| **Decide** | Verdict: FAIL at 74% |
-| **Act** | 15 recommendations to implement |
+| **Orient** | Health: PRD=0%, ADR=8%, DDD=91%, TDD=91% |
+| **Decide** | Verdict: FAIL at 75% |
+| **Act** | 14 recommendations to implement |
 
 ---
-*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-06-07 14:09:04*
+*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-06-07 14:12:08*

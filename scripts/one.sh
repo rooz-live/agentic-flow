@@ -144,8 +144,13 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             shift
             exec bash "$ROOT_DIR/scripts/mail/mail-wave-close.sh" "$@"
             ;;
+        wsjf)
+            shift
+            echo "--> Running WSJF Schedule update..."
+            python3 "$ROOT_DIR/scripts/cicd/update_lnnnl.py"
+            ;;
         help|*)
-            echo "Usage: ./scripts/one.sh <trust-path|verify-contract|ci|run-safely|mail-wave-close>"
+            echo "Usage: ./scripts/one.sh <trust-path|verify-contract|ci|run-safely|mail-wave-close|wsjf>"
             exit 1
             ;;
     esac

@@ -109,12 +109,43 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             
             echo "✅ CI Execution Passed. Strict Holacracy compliance verified."
             ;;
+        run-safely)
+            shift
+            if [[ $# -eq 0 ]]; then
+                echo "Usage: ./scripts/one.sh run-safely <command> [args...]"
+                exit 1
+            fi
+            last_verified_sha=$(git rev-parse HEAD 2>/dev/null || echo "")
+            echo "--> Run Safely: Creating git checkpoint at HEAD: ${last_verified_sha:-no-git}"
+            has_changes=0
+            if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
+                has_changes=1
+                git stash push -m "one-sh-checkpoint-$(date +%s)" >/dev/null
+                echo "--> Run Safely: Dirty tree stashed."
+            fi
+            cmd_exit_code=0
+            "$@" || cmd_exit_code=$?
+            if [[ $cmd_exit_code -ne 0 ]]; then
+                echo "❌ [Run Safely] Command failed (exit $cmd_exit_code). Rolling back working directory..."
+                git reset --hard HEAD >/dev/null
+                git clean -fd >/dev/null
+                if [[ $has_changes -eq 1 ]]; then
+                    git stash pop >/dev/null || true
+                fi
+                exit $cmd_exit_code
+            else
+                echo "✅ [Run Safely] Command succeeded."
+                if [[ $has_changes -eq 1 ]]; then
+                    git stash pop >/dev/null || true
+                fi
+            fi
+            ;;
         mail-wave-close)
             shift
             exec bash "$ROOT_DIR/scripts/mail/mail-wave-close.sh" "$@"
             ;;
         help|*)
-            echo "Usage: ./scripts/one.sh <trust-path|verify-contract|ci|mail-wave-close>"
+            echo "Usage: ./scripts/one.sh <trust-path|verify-contract|ci|run-safely|mail-wave-close>"
             exit 1
             ;;
     esac

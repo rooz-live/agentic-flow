@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # FA: refresh WHM root password + API token after SSH key access.
-# Writes ~/.bhopti/whm-credentials-YYYYMMDD.txt (600) — copy to 1Password, then delete.
+# Writes handoff, syncs to 1Password via whm-op-sync.sh, verifies API, deletes handoff.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 # shellcheck disable=SC1091
-source "$(dirname "$0")/_mail_infra_env.sh"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck disable=SC1091
+source "$SCRIPT_DIR/_mail_infra_env.sh"
 CPANEL_SSH_HOST="${CPANEL_SSH_HOST:-cpanel-whm}"
-TOKEN_NAME="${WHM_TOKEN_NAME:-cls-mail-automation-prod}"
+TOKEN_NAME="${WHM_TOKEN_NAME:-cls-mail-automation-v2}"
 NEW_ROOT="${WHM_NEW_ROOT_PASSWORD:-$(openssl rand -base64 18 | tr -d '/+=' | head -c 20)}"
 
 ssh -o BatchMode=yes -o ConnectTimeout=20 "$CPANEL_SSH_HOST" "echo 'root:${NEW_ROOT}' | chpasswd"
@@ -41,4 +43,9 @@ WHM_API_TOKEN_NAME=${TOKEN_NAME}
 EOF
 chmod 600 "$HANDOFF"
 echo "OK credentials → $HANDOFF"
-echo "Next: update 1Password, test https://yo.tag.ooo:2087/, rm $HANDOFF"
+
+if [[ "${WHM_OP_SYNC:-1}" == "1" ]]; then
+  bash "$SCRIPT_DIR/whm-op-sync.sh" "$HANDOFF"
+else
+  echo "WARN WHM_OP_SYNC=0 — copy $HANDOFF to 1Password manually, then rm"
+fi

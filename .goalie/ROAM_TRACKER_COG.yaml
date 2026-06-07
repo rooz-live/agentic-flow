@@ -1,356 +1,372 @@
-# COG upgrade ROAM tracker — synced from roam_blockers_20260531.json
-# Watchdog: tooling/scripts/roam-staleness-watchdog.sh
-# HARD CONSTRAINT: cPanel forwarders stay until phase2_signoff.
-
-version: "1.0"
+version: '1.0'
 tracker: cog-upgrade
-source_artifact: "roam_blockers_20260531.json"
-generated_at: "2026-05-31T23:15:44Z"
-last_verified: "2026-06-07T16:29:18Z"
+source_artifact: roam_blockers_20260531.json
+generated_at: '2026-05-31T23:15:44Z'
+last_verified: '2026-06-07T16:29:18Z'
 default_staleness_ttl_hours: 24
-constraint: "cPanel tag.vote/cog redirect MUST remain until Phase 2 sign-off"
-
+constraint: cPanel tag.vote/cog redirect MUST remain until Phase 2 sign-off
 risks:
-  - id: R01
-    description: "interface.tag.vote nginx conf exists on disk but not deployed to 23.92.79.2"
-    roam: Mitigated
-    owner_layer: edge
-    severity: critical
-    staleness_ttl_hours: 12
-    last_verified: "2026-06-05T11:50:24Z"
-    verification_command: "ssh -i ~/.ssh/starlingx_key -p 2222 -o ConnectTimeout=15 ubuntu@23.92.79.2 'sudo nginx -t && curl -sI https://interface.tag.vote/health'"
-    last_result: "ssh2222_nginx_ok_health_200"
-    status: mitigated
-    artifact_path: ".goalie/evidence/cog-upgrade/deploy_runbook.md"
-    blockers:
-      - "SSH/deploy access"
-      - "letsencrypt cert on origin"
-    dependencies:
-      ['R02', 'R03']
-  - id: R02
-    description: "SSR swarm-api-server /cog and /webhooks/cognitum not in prod path (only in frontend copy until this slice)"
-    roam: Mitigated
-    owner_layer: app
-    severity: high
-    staleness_ttl_hours: 48
-    last_verified: "2026-06-05T11:50:24Z"
-    verification_command: "grep -n '/cog' src/api/swarm-api-server.ts"
-    last_result: "code_ready_local"
-    status: mitigated
-    artifact_path: "src/api/swarm-api-server.ts"
-    blockers:
-      - "systemd/pm2 unit for SSR on :3001"
-    dependencies:
-      ['R03', 'R04']
-  - id: R03
-    description: "Port conflict: :3000 occupied by Grafana; SSR must bind SWARM_API_PORT=3001"
-    roam: Mitigated
-    owner_layer: edge
-    severity: medium
-    staleness_ttl_hours: 168
-    last_verified: "2026-06-05T11:50:24Z"
-    verification_command: "ss -tlnp | grep -E ':3000|:3001'"
-    last_result: "nginx_conf_ok"
-    status: mitigated
-    artifact_path: "nginx_deployed/interface.tag.vote.conf"
-    blockers:
-      []
-    dependencies:
-      []
-  - id: R04
-    description: "COGNITUM_WEBHOOK_SECRET unset — webhook POST returns 401 or skipped in smoke"
-    roam: Mitigated
-    owner_layer: governance
-    severity: high
-    staleness_ttl_hours: 24
-    last_verified: "2026-06-05T22:39:47Z"
-    verification_command: "test -n \"$COGNITUM_WEBHOOK_SECRET\" && curl -X POST ..."
-    last_result: "webhook_returns_401"
-    status: mitigated
-    artifact_path: ".env.example"
-    blockers:
-      - "secret provisioning"
-      - "cognitum dashboard webhook config"
-    dependencies:
-      ['R01', 'R02']
-  - id: R05
-    description: "better-sqlite3 native module ABI mismatch on deploy host"
-    roam: Mitigated
-    owner_layer: data
-    severity: medium
-    staleness_ttl_hours: 168
-    last_verified: "2026-06-05T11:50:24Z"
-    verification_command: "npm rebuild better-sqlite3"
-    last_result: "not_run_on_prod"
-    status: open_on_deploy
-    artifact_path: ".goalie/evidence/cog-upgrade/smoke_*.json"
-    blockers:
-      - "node version drift"
-    dependencies:
-      []
-  - id: R06
-    description: "Double redirect race: cPanel /a/2rbzTT AND nginx /cog both live — attribution/logging divergence"
-    roam: Accepted
-    owner_layer: app
-    severity: low
-    staleness_ttl_hours: 72
-    last_verified: "2026-06-05T11:50:24Z"
-    verification_command: "curl -sI https://tag.vote/cog | grep -i location; curl -sI https://interface.tag.vote/cog | grep -i location"
-    last_result: "tag.vote_302_interface_404"
-    status: accepted
-    artifact_path: ".goalie/evidence/cog-upgrade/wsjf_lnnnl_slice.md"
-    blockers:
-      - "Phase 2 click parity proof"
-    dependencies:
-      ['R07', 'R10']
-  - id: R07
-    description: "interface.tag.vote vs tag.vote apex split — users hit different paths"
-    roam: Mitigated
-    owner_layer: edge
-    severity: medium
-    staleness_ttl_hours: 48
-    last_verified: "2026-06-06T15:53:00Z"
-    verification_command: "dig +short interface.tag.vote; dig +short tag.vote"
-    last_result: "resolves_both"
-    status: mitigated
-    artifact_path: "config/fqdn_registry.yaml"
-    blockers: []
-    dependencies:
-      ['R01']
-  - id: R08
-    description: "Trust-path substrate: affiliate click logs require AffiliateStateTracker + sqlite persistence"
-    roam: Ongoing
-    owner_layer: data
-    severity: medium
-    staleness_ttl_hours: 48
-    last_verified: "2026-06-05T11:50:24Z"
-    verification_command: "node -e require-better-sqlite3-check"
-    last_result: "code_exists"
-    status: open_on_deploy
-    artifact_path: "src/affiliate/AffiliateStateTracker.ts"
-    blockers:
-      - "R05"
-      - "db path permissions on server"
-    dependencies:
-      ['R02']
-  - id: R09
-    description: "Anti-CVT index gap — cog-upgrade artifacts untracked until user commits"
-    roam: Ongoing
-    owner_layer: governance
-    severity: low
-    staleness_ttl_hours: 168
-    last_verified: "2026-06-05T11:50:24Z"
-    verification_command: "git ls-files .goalie/evidence/cog-upgrade/"
-    last_result: "local_only"
-    status: accepted
-    artifact_path: ".goalie/evidence/cog-upgrade/roam_blockers_20260531.json"
-    blockers:
-      - "explicit user commit request"
-    dependencies:
-      []
-  - id: R10
-    description: "Duplicate swarm-api-server trees (src/, frontend/, scripts/, automation/) — drift risk"
-    roam: Mitigated
-    owner_layer: app
-    severity: medium
-    staleness_ttl_hours: 168
-    last_verified: "2026-06-05T11:50:24Z"
-    verification_command: "find . -name swarm-api-server.ts | wc -l"
-    last_result: "multiple_copies_documented"
-    status: mitigated
-    artifact_path: "src/integrations/cognitum_affiliate.ts"
-    blockers:
-      - "consolidation to single canonical src/api/"
-    dependencies:
-      ['R02']
-  - id: R11
-    description: "cPanel redirect removal before circle sign-off would break production affiliate path"
-    roam: Accepted
-    owner_layer: governance
-    severity: critical
-    staleness_ttl_hours: 720
-    last_verified: "2026-06-05T11:50:24Z"
-    verification_command: "manual checklist in deploy_runbook.md Phase 2 section"
-    last_result: "forwarders_required"
-    status: accepted
-    artifact_path: ".goalie/evidence/cog-upgrade/deploy_runbook.md"
-    blockers:
-      - "Phase 2 checklist incomplete"
-    dependencies:
-      ['R06', 'R01', 'R04']
-  - id: R12
-    description: "Public webhook edge 404 — nginx not proxying /webhooks/cognitum until deploy"
-    roam: Mitigated
-    owner_layer: edge
-    severity: high
-    staleness_ttl_hours: 12
-    last_verified: "2026-06-05T22:39:47Z"
-    verification_command: "tooling/scripts/cog_edge_smoke.sh"
-    last_result: "exit_0_success"
-    status: mitigated
-    artifact_path: "tooling/scripts/cog_edge_smoke.sh"
-    blockers:
-      - "R01"
-    dependencies:
-      ['R04']
-# last_compliance_verify: 2026-06-05T11:50:24Z edge=1 governance=2 commit=1 (substrate blocked TLS)
-
-  - id: R-CLS-01
-    description: "ROAM tracker stale vs CLS v2 autopilot verification surface"
-    roam: Ongoing
-    owner_layer: governance
-    severity: medium
-    staleness_ttl_hours: 24
-    last_verified: "2026-06-05T11:50:24Z"
-    verification_command: "bash scripts/cicd/wave_autopilot.sh"
-    last_result: "autopilot_dag_at_head"
-    status: mitigated
-    artifact_path: "scripts/cicd/wave_autopilot.sh"
-    blockers: []
-    dependencies: []
-  - id: R-CLS-02
-    description: "CLS billing perceive green does not close ROAM R01/R04 interface.tag.vote edge"
-    roam: Mitigated
-    owner_layer: edge
-    severity: critical
-    staleness_ttl_hours: 12
-    last_verified: "2026-06-05T22:39:47Z"
-    verification_command: "see R01 R04 verification_command"
-    last_result: "smoke_check_passed_all_green"
-    status: mitigated
-    artifact_path: ".goalie/UPSTREAM_ACTIONS.yaml"
-    blockers: ["deploy access", "phase2 forwarders constraint"]
-    dependencies: ["R01", "R04"]
-  - id: R-CLS-06
-    description: "tooling/ shim public_synthetic vs code/tooling canonical — false public_edge_fail"
-    roam: Ongoing
-    owner_layer: governance
-    severity: high
-    staleness_ttl_hours: 24
-    last_verified: "2026-06-05T11:50:24Z"
-    verification_command: "bash tests/cicd/test_cls_manifest_canonical.sh"
-    last_result: "manifest_tdd_enforced"
-    status: mitigated
-    artifact_path: "config/cicd/continuous_learning.yaml"
-    blockers: []
-    dependencies: []
-
-  - id: R-CLS-03
-    description: "Trust artifact ↔ HEAD coupling"
-    roam: Mitigated
-    owner_layer: governance
-    severity: medium
-    staleness_ttl_hours: 24
-    last_verified: "2026-06-06T15:30:00Z"
-    verification_command: "bash scripts/cicd/wave_autopilot.sh"
-    last_result: "autopilot_and_trust_path_green"
-    status: mitigated
-    artifact_path: "scripts/cicd/wave_autopilot.sh"
-    blockers: []
-    dependencies: []
-  - id: R-CLS-04
-    description: "Compliance warn vs commit claim"
-    roam: Ongoing
-    owner_layer: governance
-    severity: low
-    staleness_ttl_hours: 24
-    last_verified: "2026-06-05T11:50:24Z"
-    verification_command: "bash scripts/cicd/policy_compliance.sh"
-    last_result: "warn_exit_code_accepted"
-    status: accepted
-    artifact_path: "scripts/cicd/policy_compliance.sh"
-    blockers: []
-    dependencies: []
-  - id: R-CLS-05
-    description: "Substrate debt accretion"
-    roam: Ongoing
-    owner_layer: governance
-    severity: low
-    staleness_ttl_hours: 48
-    last_verified: "2026-06-07T15:45:00Z"
-    verification_command: "bash scripts/cicd/index_tick.sh"
-    last_result: "pi_sync_3_ticks_pass; substrate=2; perceive_ec=0"
-    status: open
-    artifact_path: "scripts/cicd/index_tick.sh"
-    blockers: []
-    dependencies: []
-  - id: R-CLS-07
-    description: "P1-INDEX-02 substrate slice 2 — staged and committed to main"
-    roam: Mitigated
-    owner_layer: governance
-    severity: medium
-    staleness_ttl_hours: 24
-    last_verified: "2026-06-07T17:17:56Z"
-    verification_command: "bash tests/pytest/test_continuous_learning_swarm.py"
-    last_result: "mock_server:8081 healthy; do_HEAD /admin/ fixed; imap_handshake_ok only — imap_ingest_verified=false MDOD-A3 unmet"
-    status: open_fail
-    artifact_path: ".goalie/evidence/learning/index_substrate_manifest.json"
-    blockers: []
-    dependencies: ["R-CLS-01"]
-  - id: R13
-    description: "mailadmin.bhopti.com — tls internal / WHM backend; MailStore :8081 not deployed (Wave A)"
-    roam: Open
-    owner_layer: edge
-    severity: high
-    staleness_ttl_hours: 24
-    last_verified: "2026-06-07T17:01:34Z"
-    verification_command: "curl -sI https://mailadmin.bhopti.com"
-    last_result: "mock_server:8081 healthy; noop-only IMAP handshake not ingest; MDOD-A3 unmet; mailadmin LE pending"
-    status: open_fail
-    artifact_path: ".goalie/evidence/mail/mailstore_*.json"
-    blockers: []
-    dependencies: []
-
-  - id: R-MAIL-01
-    description: "Single-site mail SoT — cPanel ~50GB maildirs; local migration path only; Comet vault not yet proven"
-    roam: Mitigated
-    owner_layer: mail
-    severity: critical
-    staleness_ttl_hours: 24
-    last_verified: "2026-06-07T17:17:56Z"
-    verification_command: "test -d /home/bhopti/mail && du -sh /home/bhopti/mail"
-    last_result: "dnssec propagated; wave_e https_ok=true LE live; htaccess clean; Caddy mailadmin.bhopti.com/admin/ HTTP 200"
-    status: mitigated
-    artifact_path: ".goalie/evidence/mail/comet_job_*.json"
-    blockers: []
-    dependencies: []
-
-  - id: R-MAIL-02
-    description: "Dual mailadmin truth — dead htaccess 8081 vs Caddy WHM/MailStore target"
-    roam: Open
-    owner_layer: edge
-    severity: high
-    staleness_ttl_hours: 12
-    last_verified: "2026-06-07T17:01:34Z"
-    verification_command: "grep 8081 /home/bhopti/public_html/.htaccess; curl -sI https://mailadmin.bhopti.com/admin/"
-    last_result: "dnssec_propagated=true; wave_e verify pending/running; htaccess clean"
-    status: open_fail
-    artifact_path: ".goalie/evidence/mail/wave_e_latest.json"
-    blockers: []
-    dependencies: ["R13"]
-  - id: R-MAIL-03
-    description: "Stalwart theater — 57-account payload + 0-byte CLI; no stalwart-mail service"
-    roam: Accepted
-    owner_layer: mail
-    severity: high
-    staleness_ttl_hours: 48
-    last_verified: "2026-06-07T16:29:18Z"
-    verification_command: "test ! -s /home/ubuntu/stalwart-cli.zip"
-    last_result: "deferred: Stalwart not prod mature for multi-tenant cutover"
-    status: monitoring
-    artifact_path: "deploy/mail/docker-compose.stalwart.yml"
-    blockers: []
-    dependencies: []
-  - id: R-MAIL-04
-    description: "rooz.live MX Google Workspace — exclude from cPanel MailStore ingest; GW Sent separate"
-    roam: Accepted
-    owner_layer: mail
-    severity: medium
-    staleness_ttl_hours: 168
-    last_verified: "2026-06-07T16:29:18Z"
-    verification_command: "dig +short MX rooz.live"
-    last_result: "mx_smtp_google_com"
-    status: accepted
-    artifact_path: "deploy/mail/comet-mail-vault-scope.yaml"
-    blockers: []
-    dependencies: []
+- id: R01
+  description: interface.tag.vote nginx conf exists on disk but not deployed to 23.92.79.2
+  roam: Mitigated
+  owner_layer: edge
+  severity: critical
+  staleness_ttl_hours: 12
+  last_verified: '2026-06-05T11:50:24Z'
+  verification_command: ssh -i ~/.ssh/starlingx_key -p 2222 -o ConnectTimeout=15 ubuntu@23.92.79.2
+    'sudo nginx -t && curl -sI https://interface.tag.vote/health'
+  last_result: ssh2222_nginx_ok_health_200
+  status: mitigated
+  artifact_path: .goalie/evidence/cog-upgrade/deploy_runbook.md
+  blockers:
+  - SSH/deploy access
+  - letsencrypt cert on origin
+  dependencies:
+  - R02
+  - R03
+- id: R02
+  description: SSR swarm-api-server /cog and /webhooks/cognitum not in prod path (only
+    in frontend copy until this slice)
+  roam: Mitigated
+  owner_layer: app
+  severity: high
+  staleness_ttl_hours: 48
+  last_verified: '2026-06-05T11:50:24Z'
+  verification_command: grep -n '/cog' src/api/swarm-api-server.ts
+  last_result: code_ready_local
+  status: mitigated
+  artifact_path: src/api/swarm-api-server.ts
+  blockers:
+  - systemd/pm2 unit for SSR on :3001
+  dependencies:
+  - R03
+  - R04
+- id: R03
+  description: 'Port conflict: :3000 occupied by Grafana; SSR must bind SWARM_API_PORT=3001'
+  roam: Mitigated
+  owner_layer: edge
+  severity: medium
+  staleness_ttl_hours: 168
+  last_verified: '2026-06-05T11:50:24Z'
+  verification_command: ss -tlnp | grep -E ':3000|:3001'
+  last_result: nginx_conf_ok
+  status: mitigated
+  artifact_path: nginx_deployed/interface.tag.vote.conf
+  blockers: []
+  dependencies: []
+- id: R04
+  description: COGNITUM_WEBHOOK_SECRET unset — webhook POST returns 401 or skipped
+    in smoke
+  roam: Mitigated
+  owner_layer: governance
+  severity: high
+  staleness_ttl_hours: 24
+  last_verified: '2026-06-05T22:39:47Z'
+  verification_command: test -n "$COGNITUM_WEBHOOK_SECRET" && curl -X POST ...
+  last_result: webhook_returns_401
+  status: mitigated
+  artifact_path: .env.example
+  blockers:
+  - secret provisioning
+  - cognitum dashboard webhook config
+  dependencies:
+  - R01
+  - R02
+- id: R05
+  description: better-sqlite3 native module ABI mismatch on deploy host
+  roam: Mitigated
+  owner_layer: data
+  severity: medium
+  staleness_ttl_hours: 168
+  last_verified: '2026-06-05T11:50:24Z'
+  verification_command: npm rebuild better-sqlite3
+  last_result: not_run_on_prod
+  status: open_on_deploy
+  artifact_path: .goalie/evidence/cog-upgrade/smoke_*.json
+  blockers:
+  - node version drift
+  dependencies: []
+- id: R06
+  description: 'Double redirect race: cPanel /a/2rbzTT AND nginx /cog both live —
+    attribution/logging divergence'
+  roam: Accepted
+  owner_layer: app
+  severity: low
+  staleness_ttl_hours: 72
+  last_verified: '2026-06-05T11:50:24Z'
+  verification_command: curl -sI https://tag.vote/cog | grep -i location; curl -sI
+    https://interface.tag.vote/cog | grep -i location
+  last_result: tag.vote_302_interface_404
+  status: accepted
+  artifact_path: .goalie/evidence/cog-upgrade/wsjf_lnnnl_slice.md
+  blockers:
+  - Phase 2 click parity proof
+  dependencies:
+  - R07
+  - R10
+- id: R07
+  description: interface.tag.vote vs tag.vote apex split — users hit different paths
+  roam: Mitigated
+  owner_layer: edge
+  severity: medium
+  staleness_ttl_hours: 48
+  last_verified: '2026-06-06T15:53:00Z'
+  verification_command: dig +short interface.tag.vote; dig +short tag.vote
+  last_result: resolves_both
+  status: mitigated
+  artifact_path: config/fqdn_registry.yaml
+  blockers: []
+  dependencies:
+  - R01
+- id: R08
+  description: 'Trust-path substrate: affiliate click logs require AffiliateStateTracker
+    + sqlite persistence'
+  roam: Ongoing
+  owner_layer: data
+  severity: medium
+  staleness_ttl_hours: 48
+  last_verified: '2026-06-05T11:50:24Z'
+  verification_command: node -e require-better-sqlite3-check
+  last_result: code_exists
+  status: open_on_deploy
+  artifact_path: src/affiliate/AffiliateStateTracker.ts
+  blockers:
+  - R05
+  - db path permissions on server
+  dependencies:
+  - R02
+- id: R09
+  description: Anti-CVT index gap — cog-upgrade artifacts untracked until user commits
+  roam: Ongoing
+  owner_layer: governance
+  severity: low
+  staleness_ttl_hours: 168
+  last_verified: '2026-06-05T11:50:24Z'
+  verification_command: git ls-files .goalie/evidence/cog-upgrade/
+  last_result: local_only
+  status: accepted
+  artifact_path: .goalie/evidence/cog-upgrade/roam_blockers_20260531.json
+  blockers:
+  - explicit user commit request
+  dependencies: []
+- id: R10
+  description: Duplicate swarm-api-server trees (src/, frontend/, scripts/, automation/)
+    — drift risk
+  roam: Mitigated
+  owner_layer: app
+  severity: medium
+  staleness_ttl_hours: 168
+  last_verified: '2026-06-05T11:50:24Z'
+  verification_command: find . -name swarm-api-server.ts | wc -l
+  last_result: multiple_copies_documented
+  status: mitigated
+  artifact_path: src/integrations/cognitum_affiliate.ts
+  blockers:
+  - consolidation to single canonical src/api/
+  dependencies:
+  - R02
+- id: R11
+  description: cPanel redirect removal before circle sign-off would break production
+    affiliate path
+  roam: Accepted
+  owner_layer: governance
+  severity: critical
+  staleness_ttl_hours: 720
+  last_verified: '2026-06-05T11:50:24Z'
+  verification_command: manual checklist in deploy_runbook.md Phase 2 section
+  last_result: forwarders_required
+  status: accepted
+  artifact_path: .goalie/evidence/cog-upgrade/deploy_runbook.md
+  blockers:
+  - Phase 2 checklist incomplete
+  dependencies:
+  - R06
+  - R01
+  - R04
+- id: R12
+  description: Public webhook edge 404 — nginx not proxying /webhooks/cognitum until
+    deploy
+  roam: Mitigated
+  owner_layer: edge
+  severity: high
+  staleness_ttl_hours: 12
+  last_verified: '2026-06-05T22:39:47Z'
+  verification_command: tooling/scripts/cog_edge_smoke.sh
+  last_result: exit_0_success
+  status: mitigated
+  artifact_path: tooling/scripts/cog_edge_smoke.sh
+  blockers:
+  - R01
+  dependencies:
+  - R04
+- id: R-CLS-01
+  description: ROAM tracker stale vs CLS v2 autopilot verification surface
+  roam: Ongoing
+  owner_layer: governance
+  severity: medium
+  staleness_ttl_hours: 24
+  last_verified: '2026-06-05T11:50:24Z'
+  verification_command: bash scripts/cicd/wave_autopilot.sh
+  last_result: autopilot_dag_at_head
+  status: mitigated
+  artifact_path: scripts/cicd/wave_autopilot.sh
+  blockers: []
+  dependencies: []
+- id: R-CLS-02
+  description: CLS billing perceive green does not close ROAM R01/R04 interface.tag.vote
+    edge
+  roam: Mitigated
+  owner_layer: edge
+  severity: critical
+  staleness_ttl_hours: 12
+  last_verified: '2026-06-05T22:39:47Z'
+  verification_command: see R01 R04 verification_command
+  last_result: smoke_check_passed_all_green
+  status: mitigated
+  artifact_path: .goalie/UPSTREAM_ACTIONS.yaml
+  blockers:
+  - deploy access
+  - phase2 forwarders constraint
+  dependencies:
+  - R01
+  - R04
+- id: R-CLS-06
+  description: tooling/ shim public_synthetic vs code/tooling canonical — false public_edge_fail
+  roam: Ongoing
+  owner_layer: governance
+  severity: high
+  staleness_ttl_hours: 24
+  last_verified: '2026-06-05T11:50:24Z'
+  verification_command: bash tests/cicd/test_cls_manifest_canonical.sh
+  last_result: manifest_tdd_enforced
+  status: mitigated
+  artifact_path: config/cicd/continuous_learning.yaml
+  blockers: []
+  dependencies: []
+- id: R-CLS-03
+  description: Trust artifact ↔ HEAD coupling
+  roam: Mitigated
+  owner_layer: governance
+  severity: medium
+  staleness_ttl_hours: 24
+  last_verified: '2026-06-06T15:30:00Z'
+  verification_command: bash scripts/cicd/wave_autopilot.sh
+  last_result: autopilot_and_trust_path_green
+  status: mitigated
+  artifact_path: scripts/cicd/wave_autopilot.sh
+  blockers: []
+  dependencies: []
+- id: R-CLS-04
+  description: Compliance warn vs commit claim
+  roam: Ongoing
+  owner_layer: governance
+  severity: low
+  staleness_ttl_hours: 24
+  last_verified: '2026-06-05T11:50:24Z'
+  verification_command: bash scripts/cicd/policy_compliance.sh
+  last_result: warn_exit_code_accepted
+  status: accepted
+  artifact_path: scripts/cicd/policy_compliance.sh
+  blockers: []
+  dependencies: []
+- id: R-CLS-05
+  description: Substrate debt accretion
+  roam: Ongoing
+  owner_layer: governance
+  severity: low
+  staleness_ttl_hours: 48
+  last_verified: '2026-06-07T15:45:00Z'
+  verification_command: bash scripts/cicd/index_tick.sh
+  last_result: pi_sync_3_ticks_pass; substrate=2; perceive_ec=0
+  status: open
+  artifact_path: scripts/cicd/index_tick.sh
+  blockers: []
+  dependencies: []
+- id: R-CLS-07
+  description: P1-INDEX-02 substrate slice 2 — staged and committed to main
+  roam: Mitigated
+  owner_layer: governance
+  severity: medium
+  staleness_ttl_hours: 24
+  last_verified: '2026-06-07T17:17:56Z'
+  verification_command: bash tests/pytest/test_continuous_learning_swarm.py
+  last_result: mock_server:8081 healthy; do_HEAD /admin/ fixed; imap_handshake_ok
+    only — imap_ingest_verified=false MDOD-A3 unmet
+  status: open_fail
+  artifact_path: .goalie/evidence/learning/index_substrate_manifest.json
+  blockers: []
+  dependencies:
+  - R-CLS-01
+- id: R13
+  description: mailadmin.bhopti.com — Wave A mock_server :8081; real MailStore ingest
+    not proven (MDOD-A3)
+  roam: Open
+  owner_layer: edge
+  severity: high
+  staleness_ttl_hours: 24
+  last_verified: '2026-06-07T17:22:58Z'
+  verification_command: curl -sI https://mailadmin.bhopti.com
+  last_result: mock_server:8081 healthy; imap_handshake_ok only — imap_ingest_verified=false;
+    MDOD-A3 needs real MailStore IMAP profile (FA UI)
+  status: open_fail
+  artifact_path: .goalie/evidence/mail/mailstore_*.json
+  blockers: []
+  dependencies: []
+- id: R-MAIL-01
+  description: Single-site mail SoT — cPanel ~50GB maildirs; local migration path
+    only; Comet vault not yet proven
+  roam: Mitigated
+  owner_layer: mail
+  severity: critical
+  staleness_ttl_hours: 24
+  last_verified: '2026-06-07T17:17:56Z'
+  verification_command: test -d /home/bhopti/mail && du -sh /home/bhopti/mail
+  last_result: dnssec propagated; wave_e https_ok=true LE live; htaccess clean; Caddy
+    mailadmin.bhopti.com/admin/ HTTP 200
+  status: mitigated
+  artifact_path: .goalie/evidence/mail/comet_job_*.json
+  blockers: []
+  dependencies: []
+- id: R-MAIL-02
+  description: Dual mailadmin truth — dead htaccess 8081 vs Caddy WHM/MailStore target
+  roam: Mitigated
+  owner_layer: edge
+  severity: high
+  staleness_ttl_hours: 12
+  last_verified: '2026-06-07T17:22:58Z'
+  verification_command: grep 8081 /home/bhopti/public_html/.htaccess; curl -sI https://mailadmin.bhopti.com/admin/
+  last_result: dnssec propagated; wave_e https_ok=true LE live; htaccess clean; Caddy
+    mailadmin.bhopti.com/admin/ HTTP 200
+  status: mitigated
+  artifact_path: .goalie/evidence/mail/wave_e_latest.json
+  blockers: []
+  dependencies:
+  - R13
+- id: R-MAIL-03
+  description: Stalwart theater — 57-account payload + 0-byte CLI; no stalwart-mail
+    service
+  roam: Accepted
+  owner_layer: mail
+  severity: high
+  staleness_ttl_hours: 48
+  last_verified: '2026-06-07T16:29:18Z'
+  verification_command: test ! -s /home/ubuntu/stalwart-cli.zip
+  last_result: 'deferred: Stalwart not prod mature for multi-tenant cutover'
+  status: monitoring
+  artifact_path: deploy/mail/docker-compose.stalwart.yml
+  blockers: []
+  dependencies: []
+- id: R-MAIL-04
+  description: rooz.live MX Google Workspace — exclude from cPanel MailStore ingest;
+    GW Sent separate
+  roam: Accepted
+  owner_layer: mail
+  severity: medium
+  staleness_ttl_hours: 168
+  last_verified: '2026-06-07T16:29:18Z'
+  verification_command: dig +short MX rooz.live
+  last_result: mx_smtp_google_com
+  status: accepted
+  artifact_path: deploy/mail/comet-mail-vault-scope.yaml
+  blockers: []
+  dependencies: []

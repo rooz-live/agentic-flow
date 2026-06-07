@@ -51,7 +51,7 @@ run bash scripts/mail/mail-roam-audit.sh
 if git diff --quiet .goalie/ROAM_TRACKER_COG.yaml 2>/dev/null; then
   echo "=== trust-path skipped (no ROAM diff) ==="
 else
-  run TRUST_FORCE_RERUN=1 bash scripts/one.sh trust-path
+  run env TRUST_FORCE_RERUN=1 bash scripts/one.sh trust-path
 fi
 
 echo "mail_wave_close_ec=$ec"

@@ -1,11 +1,11 @@
 # DDD/TDD/ADR Coherence Validation Report
-**Generated:** 2026-06-07 12:52:18
+**Generated:** 2026-06-07 14:09:04
 **Project:** `/Users/shahroozbhopti/Documents/code`
 **Files Scanned:** 398
 **Automation Level:** Level 2 (Application)
 
 ## ❌ Overall: FAIL
-`██████████████████████░░░░░░░░` **73.6%** (570/774 checks)
+`██████████████████████░░░░░░░░` **73.9%** (593/802 checks)
 
 ## Layer Health
 
@@ -14,19 +14,19 @@
 | **PRD** | 🔴 0% | 11 | 22 | 11 PRD document(s) found |
 | **ADR** | 🔴 8% | 43 | 39 | 43 ADR document(s) found |
 | **DDD** | 🟢 84% | 37 | 1 | 37 domain file(s) found |
-| **TDD** | 🟢 92% | 307 | 23 | 307 test file(s) found |
+| **TDD** | 🟢 91% | 307 | 28 | 307 test file(s) found |
 
 ## Cross-Layer Coherence
 
 - ✅ **COH-001** (ddd→tdd): 50/50 domain classes have test coverage (100%)
 - ❌ **COH-003** (prd→tdd): PRD criteria: ✗, Tests exist: ✓
-- ✅ **COH-004** (tdd→ddd): 45/63 domain terms found in test names (71%)
+- ✅ **COH-004** (tdd→ddd): 63/63 domain terms found in test names (100%)
 - ✅ **COH-002** (adr→ddd): 43 ADR(s), 50 domain classes
 - ✅ **COH-005** (prd→adr): PRD: 11 doc(s), ADR: 43 doc(s), 5/43 with valid status
 - ✅ **COH-010** (ddd→prd): 31/32 domain modules have DoR/DoD docstrings (97%)
 - ❌ **COH-006** (ddd→ddd): 14/41 Python packages have __init__.py (34%)
 - ✅ **COH-009** (ddd→ddd): 40/41 Rust domain structs derive Serialize (98%)
-- ✅ **COH-007** (tdd→tdd): 79/83 test files follow naming convention (95%)
+- ✅ **COH-007** (tdd→tdd): 99/103 test files follow naming convention (96%)
 - ❌ **COH-008** (prd→prd): 1/11 PRD documents have measurable success metrics (9%)
 - ✅ **COH-011** (ddd→tdd): Found 3 MCP component(s) and 3 test harness(es)
 - ✅ **COH-012** (ddd→tdd): Found 19 vector source file(s) and 5 vector test harness(es)
@@ -442,10 +442,13 @@
 - ✅ [INFO] Test file follows naming convention: Correct: test-roam.ts `test-roam.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: test-scheduler.ts `test-scheduler.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: test_device_improvements.py `test_device_improvements.py`
+- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 1 tests) `test_device_improvements.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_device_state.py `test_device_state.py`
+- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 1 tests) `test_device_state.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_indexer.py `test_indexer.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_invoke.py `test_invoke.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_openstack_stx_bridge.py `test_openstack_stx_bridge.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (16 assertions, 8 tests) `test_openstack_stx_bridge.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_playwright.js `test_playwright.js`
 - ✅ [INFO] Test file follows naming convention: Correct: test_staging.py `test_staging.py`
 - ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 2 tests) `test_staging.py`
@@ -456,8 +459,10 @@
 - ✅ [INFO] Test file follows naming convention: Correct: test_tls_mac.py `test_tls_mac.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_upload.py `test_upload.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_variant_controls.py `test_variant_controls.py`
+- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 4 tests) `test_variant_controls.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_whm.py `test_whm.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_write_status.py `test_write_status.py`
+- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 2 tests) `test_write_status.py`
 - ✅ [INFO] Test file follows naming convention: Correct: circuit-breaker.test.ts `tests/advisor/circuit-breaker.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.7 assertions/test (24 assertions, 9 tests) `tests/advisor/circuit-breaker.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: opex-authorizer.test.ts `tests/advisor/opex-authorizer.test.ts`
@@ -576,6 +581,7 @@
 - ✅ [INFO] Test file follows naming convention: Correct: semantic_context_enricher.test.ts `tests/governance/semantic_context_enricher.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.8 assertions/test (128 assertions, 22 tests) `tests/governance/semantic_context_enricher.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: guardrail.test.ts `tests/guardrail.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.3 assertions/test (65 assertions, 28 tests) `tests/guardrail.test.ts`
 - ❌ [INFO] Test file follows naming convention: Non-standard: BaseBillingE2ESpec.ts `tests/harness/BaseBillingE2ESpec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: test_api_client.py `tests/hostbill/test_api_client.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.9 assertions/test (41 assertions, 14 tests) `tests/hostbill/test_api_client.py`
@@ -623,6 +629,7 @@
 - ✅ [INFO] Test file follows naming convention: Correct: enhanced_governance_system.test.ts `tests/legacy/enhanced_governance_system.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 6.2 assertions/test (191 assertions, 31 tests) `tests/legacy/enhanced_governance_system.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: manthra-validation.test.ts `tests/manthra-validation.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.9 assertions/test (32 assertions, 11 tests) `tests/manthra-validation.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: ay-maturity.test.ts `tests/maturity/ay-maturity.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.2 assertions/test (21 assertions, 5 tests) `tests/maturity/ay-maturity.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: tui-monitor.test.ts `tests/monitoring/tui-monitor.test.ts`
@@ -671,6 +678,7 @@
 - ✅ [INFO] Test file follows naming convention: Correct: test_track_progress.py `tests/pytest/test_track_progress.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 10.0 assertions/test (10 assertions, 1 tests) `tests/pytest/test_track_progress.py`
 - ✅ [INFO] Test file follows naming convention: Correct: quic-workflow.test.ts `tests/quic-workflow.test.ts`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.7 assertions/test (67 assertions, 18 tests) `tests/quic-workflow.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: rate-engine-tdd.e2e.spec.ts `tests/rate-engine-tdd.e2e.spec.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 6.0 assertions/test (54 assertions, 9 tests) `tests/rate-engine-tdd.e2e.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: rate-engine-verify.e2e.spec.ts `tests/rate-engine-verify.e2e.spec.ts`
@@ -710,43 +718,63 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (4 assertions, 1 tests) `tests/telemetry/otel_bootstrap.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: test-helper.ts `tests/test-helper.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: test_break_glass_guard.py `tests/test_break_glass_guard.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.7 assertions/test (36 assertions, 21 tests) `tests/test_break_glass_guard.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_code_search_doc_query.py `tests/test_code_search_doc_query.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.4 assertions/test (34 assertions, 14 tests) `tests/test_code_search_doc_query.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_coherence_smoke.py `tests/test_coherence_smoke.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.0 assertions/test (2 assertions, 2 tests) `tests/test_coherence_smoke.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_compare_presets.py `tests/test_compare_presets.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 6.6 assertions/test (33 assertions, 5 tests) `tests/test_compare_presets.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_dashboard_integration.py `tests/test_dashboard_integration.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.6 assertions/test (52 assertions, 20 tests) `tests/test_dashboard_integration.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_domain_classes_coherence.py `tests/test_domain_classes_coherence.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.1 assertions/test (117 assertions, 110 tests) `tests/test_domain_classes_coherence.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_dt_schema.py `tests/test_dt_schema.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.3 assertions/test (33 assertions, 10 tests) `tests/test_dt_schema.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_governance_admission.py `tests/test_governance_admission.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.5 assertions/test (3 assertions, 2 tests) `tests/test_governance_admission.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_governance_capabilities.py `tests/test_governance_capabilities.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (8 assertions, 2 tests) `tests/test_governance_capabilities.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_governance_deltas.py `tests/test_governance_deltas.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.7 assertions/test (5 assertions, 3 tests) `tests/test_governance_deltas.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_governance_middleware.py `tests/test_governance_middleware.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.3 assertions/test (14 assertions, 6 tests) `tests/test_governance_middleware.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_guardrails.py `tests/test_guardrails.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (57 assertions, 29 tests) `tests/test_guardrails.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_hivelocity_device_manager.py `tests/test_hivelocity_device_manager.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.5 assertions/test (10 assertions, 4 tests) `tests/test_hivelocity_device_manager.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_hostbill_sync.py `tests/test_hostbill_sync.py`
+- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.8 assertions/test (3 assertions, 4 tests) `tests/test_hostbill_sync.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_k8s_conformance.py `tests/test_k8s_conformance.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (12 assertions, 3 tests) `tests/test_k8s_conformance.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_mcp_scheduler_daemon.py `tests/test_mcp_scheduler_daemon.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (8 assertions, 2 tests) `tests/test_mcp_scheduler_daemon.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_monitoring_dashboard.py `tests/test_monitoring_dashboard.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.0 assertions/test (1 assertions, 1 tests) `tests/test_monitoring_dashboard.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_orchestration_base.py `tests/test_orchestration_base.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (27 assertions, 12 tests) `tests/test_orchestration_base.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_parallel_blocker_dashboard.py `tests/test_parallel_blocker_dashboard.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.7 assertions/test (40 assertions, 24 tests) `tests/test_parallel_blocker_dashboard.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_pattern_schema.py `tests/test_pattern_schema.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.6 assertions/test (19 assertions, 12 tests) `tests/test_pattern_schema.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_performance_pattern_hook.py `tests/test_performance_pattern_hook.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.9 assertions/test (41 assertions, 14 tests) `tests/test_performance_pattern_hook.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_platform_connectors.py `tests/test_platform_connectors.py`
 - ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.4 assertions/test (3 assertions, 7 tests) `tests/test_platform_connectors.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_platform_strategies.py `tests/test_platform_strategies.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.6 assertions/test (32 assertions, 7 tests) `tests/test_platform_strategies.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_portfolio_domain_models.py `tests/test_portfolio_domain_models.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.5 assertions/test (94 assertions, 64 tests) `tests/test_portfolio_domain_models.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_prepare_dt_dataset_schema_alignment.py `tests/test_prepare_dt_dataset_schema_alignment.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 6.0 assertions/test (24 assertions, 4 tests) `tests/test_prepare_dt_dataset_schema_alignment.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_preview_rewards.py `tests/test_preview_rewards.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.6 assertions/test (50 assertions, 9 tests) `tests/test_preview_rewards.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_provider_selection.py `tests/test_provider_selection.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.8 assertions/test (15 assertions, 4 tests) `tests/test_provider_selection.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_resilience.py `tests/test_resilience.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.9 assertions/test (63 assertions, 33 tests) `tests/test_resilience.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_reward_presets.py `tests/test_reward_presets.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 7.8 assertions/test (39 assertions, 5 tests) `tests/test_reward_presets.py`
 - ✅ [INFO] Test file follows naming convention: Correct: prod-cycle-governance.test.ts `tests/tests/e2e/prod-cycle-governance.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 7.0 assertions/test (7 assertions, 1 tests) `tests/tests/e2e/prod-cycle-governance.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: quic.test.ts `tests/transport/quic.test.ts`
@@ -861,9 +889,9 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (28 assertions, 13 tests) `tests/verification/verification-pipeline.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: vscode-extension-mocks.test.ts `tests/vscode-extension/vscode-extension-mocks.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (109 assertions, 31 tests) `tests/vscode-extension/vscode-extension-mocks.test.ts`
-- ✅ [CRITICAL] Unit tests present: 2205 test functions found
-- ✅ [WARNING] Integration tests present: 94 integration test file(s)
-- ✅ [INFO] Total assertion count reasonable: 7170 total assertions across 307 files
+- ✅ [CRITICAL] Unit tests present: 2613 test functions found
+- ✅ [WARNING] Integration tests present: 103 integration test file(s)
+- ✅ [INFO] Total assertion count reasonable: 7943 total assertions across 307 files
 
 ## Recommendations
 
@@ -888,9 +916,9 @@
 | Phase | Coherence Action |
 |:------|:-----------------|
 | **Observe** | Scanned 398 files across 4 layers |
-| **Orient** | Health: PRD=0%, ADR=8%, DDD=84%, TDD=92% |
+| **Orient** | Health: PRD=0%, ADR=8%, DDD=84%, TDD=91% |
 | **Decide** | Verdict: FAIL at 74% |
 | **Act** | 15 recommendations to implement |
 
 ---
-*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-06-07 12:52:18*
+*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-06-07 14:09:04*

@@ -17,7 +17,7 @@ checks = [
     ("webmail_2096", "auto", "curl -skI --connect-timeout 10 https://mail.bhopti.com:2096 | grep -qE 'HTTP/[0-9.]+ [23]'", False),
     ("htaccess_no_8081", "auto", "ssh -o BatchMode=yes -o ConnectTimeout=10 root@cpanel-whm '! grep -q 8081 /home/bhopti/public_html/.htaccess'", False),
     ("comet_vault_ok", "manual", None, False),
-    ("mailstore_8081", "auto", "curl -sf --connect-timeout 5 http://127.0.0.1:8081/ >/dev/null", True),
+    ("mailstore_8081", "auto", "ssh -o BatchMode=yes -o ConnectTimeout=15 \"${STX_SSH_HOST:-stx}\" 'curl -sf --connect-timeout 5 http://127.0.0.1:8081/ >/dev/null'", False),
 ]
 results, passed, total = [], 0, 0
 for name, mode, cmd, local_only in checks:

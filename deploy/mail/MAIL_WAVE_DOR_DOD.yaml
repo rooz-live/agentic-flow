@@ -1,0 +1,171 @@
+# Mail wave DoR/DoD overlay — inherits repo gates; does NOT replace them.
+# Run repo DoR/DoD first; this file adds mail-lane entry/exit only.
+# Budget: HiveVelocity/STX/cPanel only — $0 AWS (migration_source: closed).
+
+inherits:
+  dor: "AGENT_SLICE=publication bash code/tooling/scripts/agent_session_dor.sh"
+  dod_pre: "./scripts/dod-gate.sh --pre-task"
+  dod_post: "./scripts/dod-gate.sh --post-task"
+  cls_perceive: "bash code/tooling/scripts/dod-gate.sh --perceive"
+  trust: "TRUST_FORCE_RERUN=1 bash scripts/one.sh trust-path"
+  autopilot: "bash scripts/cicd/wave_autopilot.sh"
+  note: "Mail work does not skip billing/CLS gates; mail claims are a separate lane."
+
+canonical:
+  webmail: "https://mail.bhopti.com:2096"
+  mail_sot: "cPanel VM 192.168.122.237 Dovecot maildirs (~50GB bhopti)"
+  mailadmin_intent: "MailStore archive UI on STX :8081 via Caddy LE"
+  exclude_domains: ["rooz.live"]  # MX → Google Workspace; not cPanel ingest
+
+# --- Definition of Ready (mail wave may START) ---
+mail_dor:
+  all_waves:
+    - id: MDOR-01
+      check: "Repo DoR exit 0"
+      command: "AGENT_SLICE=publication bash code/tooling/scripts/agent_session_dor.sh"
+    - id: MDOR-02
+      check: "FA confirmed $0 AWS — no legacy pull from 54.241.233.105"
+      manual: true
+    - id: MDOR-03
+      check: "SSH to cpanel-whm and stx-aio-0 reachable"
+      command: "ssh -o BatchMode=yes -i ~/.ssh/sovereign_swarm root@cpanel-whm hostname && ssh -p 2222 -o BatchMode=yes -i ~/.ssh/starlingx_key ubuntu@stx-aio-0.corp.interface.tag.ooo hostname"
+    - id: MDOR-04
+      check: "ROAM R-MAIL-* rows present; R13 not falsely mitigated"
+      artifact: ".goalie/ROAM_TRACKER_COG.yaml"
+    - id: MDOR-05
+      check: "Dead Apache mailadmin→8081 proxy absent on cPanel"
+      command: "ssh root@cpanel-whm '! grep -q 192.168.122.1:8081 /home/bhopti/public_html/.htaccess'"
+
+  wave_a_mailstore:
+    checks:
+      - id: MDOR-A1
+        check: "MAILSTORE_ADMIN_PASSWORD in STX .env (not in git)"
+        manual: true
+      - id: MDOR-A2
+        check: "deploy/mail/docker-compose.mailstore.yml committed"
+
+  wave_b_stalwart:
+    checks:
+      - id: MDOR-B1
+        check: "Wave A Comet vault snapshot proven OR FA waives"
+        roam: R-MAIL-01
+      - id: MDOR-B2
+        check: "FA signoff — MTA cutover blast radius accepted"
+        manual: true
+
+  wave_c_comet:
+    checks:
+      - id: MDOR-C1
+        check: "Comet Backup plugin active in WHM"
+        manual: true
+      - id: MDOR-C2
+        check: "deploy/mail/comet-mail-vault-scope.yaml committed"
+
+  wave_d_macos:
+    checks:
+      - id: MDOR-D1
+        check: "MAIL_BACKUP_DEST external volume mounted"
+        manual: true
+
+# --- Definition of Done (mail wave may CLAIM done) ---
+mail_dod:
+  all_waves:
+    - id: MDOD-01
+      check: "Repo post-task DoD exit 0 (if git commit in scope)"
+      command: "./scripts/dod-gate.sh --post-task"
+      skip_if: "no_commit"
+    - id: MDOD-02
+      check: "ROAM last_verified bumped for touched R-* rows"
+      artifact: ".goalie/ROAM_TRACKER_COG.yaml"
+    - id: MDOD-03
+      check: "Evidence path under .goalie/evidence/ or deploy/mail/ — no CVT theater"
+    - id: MDOD-04
+      check: "No IMAP folder prune on live server"
+      manual: true
+
+  wave_a_mailstore:
+    wsjf: 7.5
+    checks:
+      - id: MDOD-A1
+        check: "MailStore container healthy on STX 127.0.0.1:8081"
+        command: "ssh stx 'curl -sf http://127.0.0.1:8081/'"
+      - id: MDOD-A2
+        check: "Caddy mailadmin → :8081 with public CA (not tls internal only)"
+        command: "curl -sI https://mailadmin.bhopti.com/admin/ | head -5"
+      - id: MDOD-A3
+        check: "One IMAP ingestion profile from 192.168.122.237:993 (excl. rooz.live)"
+        manual: true
+      - id: MDOD-A4
+        check: "R13 → mitigated only after MDOD-A1+A2 pass"
+        roam: R13
+
+  wave_b_stalwart:
+    wsjf: 7.0
+    deferred: true
+    checks:
+      - id: MDOD-B1
+        check: "stalwart-mail container profile wave-b running"
+      - id: MDOD-B2
+        check: "No import of raw shadow JSON without password reset"
+      - id: MDOD-B3
+        check: "Separate hostname (not mailadmin) — e.g. mailstack.bhopti.com"
+
+  wave_c_comet:
+    wsjf: 8.5
+    checks:
+      - id: MDOD-C1
+        check: "Comet job comet-mail-bhopti-primary succeeded once"
+        manual: true
+      - id: MDOD-C2
+        check: "R-MAIL-01 → mitigated with vault restore note in last_result"
+        roam: R-MAIL-01
+
+  wave_d_macos:
+    wsjf: 6.0
+    checks:
+      - id: MDOD-D1
+        check: "scripts/mail/macos-incremental-mail-backup.sh exit 0"
+        command: "MAIL_BACKUP_DEST=... bash scripts/mail/macos-incremental-mail-backup.sh"
+      - id: MDOD-D2
+        check: ".last-sync timestamp written under DEST"
+
+  wave_e_edge:
+    wsjf: 4.5
+    checks:
+      - id: MDOD-E1
+        check: "src/proxies/edge_gateway.cfg deployed to STX /etc/caddy/Caddyfile"
+        command: "bash scripts/mail/deploy-edge-mailadmin.sh"
+      - id: MDOD-E2
+        check: "R-MAIL-02 closed — single mailadmin path (no htaccess 8081)"
+
+# Stabilization metric (inbox lane — separate from CLS billing %)
+stabilization_score:
+  formula: "passed_checks / total_checks"
+  checks:
+    - name: webmail_2096
+      verify: "curl -skI https://mail.bhopti.com:2096 | grep -q 200"
+    - name: htaccess_no_8081
+      verify: "ssh cpanel-whm '! grep 8081 .htaccess'"
+    - name: comet_vault_ok
+      verify: "manual WHM Comet history"
+    - name: mailstore_8081
+      verify: "curl -sf http://127.0.0.1:8081 on STX"
+  current_estimate: "0/4 (~0%)"
+
+# WSJF execution order (FA incremental — do not parallel infra without DoR)
+wsjf_order:
+  - wave: C
+    wsjf: 8.5
+    why: "Cheapest incremental offsite; unblocks R-MAIL-01"
+  - wave: A
+    wsjf: 7.5
+    why: "Archive UI + IMAP ingest; closes R13"
+  - wave: E
+    wsjf: 4.5
+    why: "Deploy Caddy after A is up"
+  - wave: D
+    wsjf: 6.0
+    why: "Local complement; optional"
+  - wave: B
+    wsjf: 7.0
+    why: "Deferred — MTA cutover"

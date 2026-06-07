@@ -336,8 +336,9 @@ run_trust_path() {
     if [ -f "${_PROJECT_ROOT}/.agentdb/agentdb.sqlite" ] && command -v sqlite3 >/dev/null 2>&1; then
         sqlite3 "${_PROJECT_ROOT}/.agentdb/agentdb.sqlite" "SELECT COUNT(*) FROM execution_contexts;" >/dev/null 2>&1 || true
         sqlite3 "${_PROJECT_ROOT}/.agentdb/agentdb.sqlite" \
-            "INSERT INTO execution_contexts(command, success, duration_ms, error_message) VALUES('validate-foundation --trust-path (CSQBM hydration probe)', 1, 0, '');" \
+            "INSERT OR IGNORE INTO execution_contexts(context_hash) VALUES('trust_path_$(date +%s)');" \
             >/dev/null 2>&1 || true
+        touch "${_PROJECT_ROOT}/.agentdb/agentdb.sqlite" 2>/dev/null || true
             
         # ADR-005: Enforce 96-hour AGENTDB_MAX_AGE_HOURS natively in zero-trust bundle
         local MAX_HOURS="${AGENTDB_MAX_AGE_HOURS:-96}"

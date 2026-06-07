@@ -11,6 +11,10 @@ if [ -z "$PROJECT_DIR" ] || [ "$PROJECT_DIR" = "null" ]; then
   PROJECT_DIR=$(pwd)
 fi
 
+# Run dynamic progress calculation to update metrics files before reading them
+python3 "${PROJECT_DIR}/scripts/cicd/track_progress.py" >/dev/null 2>&1
+
+
 # File paths relative to project directory
 V3_METRICS="${PROJECT_DIR}/.claude-flow/metrics/v3-progress.json"
 SECURITY_AUDIT="${PROJECT_DIR}/.claude-flow/security/audit-status.json"
@@ -71,6 +75,9 @@ if [ -f "$V3_METRICS" ]; then
   DOMAINS_COMPLETED=$(jq -r '.domains.completed // 0' "$V3_METRICS" 2>/dev/null || echo "0")
   DDD_PROGRESS=$(jq -r '.ddd.progress // 0' "$V3_METRICS" 2>/dev/null || echo "0")
   AGENTS_ACTIVE=$(jq -r '.swarm.activeAgents // 0' "$V3_METRICS" 2>/dev/null || echo "0")
+  INBOX_COMPLETED=$(jq -r '.inbox.completed // 0' "$V3_METRICS" 2>/dev/null || echo "0")
+  INBOX_TOTAL=$(jq -r '.inbox.total // 0' "$V3_METRICS" 2>/dev/null || echo "0")
+  INBOX_ZERO_PROGRESS=$(jq -r '.zero.progress // 0' "$V3_METRICS" 2>/dev/null || echo "0")
 else
   # Check for actual domain directories
   DOMAINS_COMPLETED=0
@@ -79,6 +86,9 @@ else
   [ -d "src/domains/health-monitoring" ] && ((DOMAINS_COMPLETED++))
   [ -d "src/domains/lifecycle-management" ] && ((DOMAINS_COMPLETED++))
   [ -d "src/domains/event-coordination" ] && ((DOMAINS_COMPLETED++))
+  INBOX_COMPLETED=0
+  INBOX_TOTAL=0
+  INBOX_ZERO_PROGRESS=0
 fi
 
 # Check security audit status
@@ -169,7 +179,7 @@ if [ -x "$SWARM_COMMS" ]; then
 fi
 
 # Get context window usage from Claude Code input
-CONTEXT_PCT=0
+CONTEXT_PCT=0.0
 CONTEXT_COLOR="${DIM}"
 if [ "$CLAUDE_INPUT" != "{}" ]; then
   # Try to get remaining percentage directly from Claude Code
@@ -177,7 +187,7 @@ if [ "$CLAUDE_INPUT" != "{}" ]; then
 
   if [ "$CONTEXT_REMAINING" != "null" ] && [ -n "$CONTEXT_REMAINING" ]; then
     # If we have remaining %, convert to used %
-    CONTEXT_PCT=$((100 - CONTEXT_REMAINING))
+    CONTEXT_PCT=$(echo "100.0 - $CONTEXT_REMAINING" | bc 2>/dev/null || echo "0.0")
   else
     # Fallback: calculate from token counts
     CURRENT_USAGE=$(echo "$CLAUDE_INPUT" | jq '.context_window.current_usage // null' 2>/dev/null)
@@ -189,15 +199,17 @@ if [ "$CLAUDE_INPUT" != "{}" ]; then
 
       TOTAL_TOKENS=$((INPUT_TOKENS + CACHE_CREATE + CACHE_READ))
       if [ "$CONTEXT_SIZE" -gt 0 ]; then
-        CONTEXT_PCT=$((TOTAL_TOKENS * 100 / CONTEXT_SIZE))
+        CONTEXT_PCT=$(echo "scale=1; $TOTAL_TOKENS * 100 / $CONTEXT_SIZE" | bc 2>/dev/null || echo "0.0")
       fi
     fi
   fi
 
   # Color based on usage (higher = worse)
-  if [ "$CONTEXT_PCT" -lt 50 ]; then
+  CONTEXT_INT=$(echo "$CONTEXT_PCT" | cut -d. -f1)
+  CONTEXT_INT=${CONTEXT_INT:-0}
+  if [ "$CONTEXT_INT" -lt 50 ]; then
     CONTEXT_COLOR="${BRIGHT_GREEN}"
-  elif [ "$CONTEXT_PCT" -lt 75 ]; then
+  elif [ "$CONTEXT_INT" -lt 75 ]; then
     CONTEXT_COLOR="${BRIGHT_YELLOW}"
   else
     CONTEXT_COLOR="${BRIGHT_RED}"
@@ -308,7 +320,11 @@ if [[ "$PERF_CURRENT" =~ ^[0-9]+\.[0-9]+x$ ]] && [[ "${PERF_CURRENT%x}" > "2.0" 
   PERF_COLOR="${BRIGHT_GREEN}"
 fi
 
-OUTPUT="${OUTPUT}\n${BRIGHT_CYAN}🏗️  DDD Domains${RESET}    [${DOMAIN_STATUS}]  ${DOMAINS_COLOR}${DOMAINS_COMPLETED}${RESET}/${BRIGHT_WHITE}${DOMAINS_TOTAL}${RESET}"
+# 1. Format DDD Domains percentage and count (%/# format)
+DOMAINS_PCT=$(echo "scale=4; $DOMAINS_COMPLETED * 100 / $DOMAINS_TOTAL" | bc 2>/dev/null || echo "0")
+DOMAINS_PCT_DISPLAY=$(printf "%.1f" "$DOMAINS_PCT" 2>/dev/null || printf "%.1f" 0)
+
+OUTPUT="${OUTPUT}\n${BRIGHT_CYAN}🏗️  DDD Domains${RESET}    [${DOMAIN_STATUS}]  ${DOMAINS_COLOR}${DOMAINS_PCT_DISPLAY}% (${DOMAINS_COMPLETED}/${DOMAINS_TOTAL})${RESET}"
 OUTPUT="${OUTPUT}    ${PERF_COLOR}⚡ ${PERF_CURRENT}${RESET} ${DIM}→${RESET} ${BRIGHT_YELLOW}${PERF_TARGET}${RESET}"
 
 # Line 2: 15-Agent Swarm Coordination Status
@@ -320,13 +336,24 @@ if [ "$AGENTS_ACTIVE" -eq 0 ]; then
   AGENTS_COLOR="${RED}"
 fi
 
+# Calculate memory reduction percentage and MB
+MEMORY_REDUCTION="0%"
+if [ -f "$PERFORMANCE_METRICS" ]; then
+  MEMORY_REDUCTION=$(jq -r '.memory.reduction // "0%"' "$PERFORMANCE_METRICS" 2>/dev/null || echo "0%")
+fi
+MEMORY_REDUCTION_NUM=${MEMORY_REDUCTION%\%}
+MEMORY_REDUCTION_DISPLAY=$(printf "%.1f" "$MEMORY_REDUCTION_NUM" 2>/dev/null || printf "%.1f" 0)
+MEMORY_DISPLAY="${NODE_MEM:-0}MB (${MEMORY_REDUCTION_DISPLAY}%)"
+
 MEMORY_COLOR="${BRIGHT_CYAN}"
 if [[ "$MEMORY_DISPLAY" == "--" ]]; then
   MEMORY_COLOR="${DIM}"
 fi
 
-# Format agent count with padding and activity indicator
-AGENT_DISPLAY=$(printf "%2d" "$AGENTS_ACTIVE")
+# Calculate Swarm percentage (%/# format)
+AGENTS_PCT=$(echo "scale=4; $AGENTS_ACTIVE * 100 / $AGENTS_TARGET" | bc 2>/dev/null || echo "0")
+AGENTS_PCT_DISPLAY=$(printf "%.1f" "$AGENTS_PCT" 2>/dev/null || printf "%.1f" 0)
+AGENT_DISPLAY="${AGENTS_PCT_DISPLAY}% (${AGENTS_ACTIVE}/${AGENTS_TARGET})"
 
 # Add activity indicator when processes are running
 ACTIVITY_INDICATOR=""
@@ -348,26 +375,35 @@ if [ "$QUEUE_PENDING" -gt 0 ]; then
   QUEUE_INDICATOR="  ${DIM}📨 ${QUEUE_PENDING}${RESET}"
 fi
 
-# Format context and intel with padding for alignment (3 digits for up to 100%)
-CONTEXT_DISPLAY=$(printf "%3d" "$CONTEXT_PCT")
-INTEL_DISPLAY=$(printf "%3d" "$INTEL_SCORE")
+# Format context and intel with decimal precision (%.# format)
+CONTEXT_DISPLAY=$(printf "%.1f" "$CONTEXT_PCT" 2>/dev/null || printf "%.1f" 0)
+INTEL_DISPLAY=$(printf "%.1f" "$INTEL_SCORE" 2>/dev/null || printf "%.1f" 0)
 
-OUTPUT="${OUTPUT}\n${BRIGHT_YELLOW}🤖 Swarm${RESET}  ${ACTIVITY_INDICATOR}[${AGENTS_COLOR}${AGENT_DISPLAY}${RESET}/${BRIGHT_WHITE}${AGENTS_TARGET}${RESET}]  ${SUBAGENT_COLOR}👥 ${SUBAGENT_COUNT}${RESET}${QUEUE_INDICATOR}    ${SECURITY_ICON} ${SECURITY_COLOR}CVE ${CVES_FIXED}${RESET}/${BRIGHT_WHITE}${SECURITY_CVES}${RESET}    ${MEMORY_COLOR}💾 ${MEMORY_DISPLAY}${RESET}    ${CONTEXT_COLOR}📂 ${CONTEXT_DISPLAY}%${RESET}    ${INTEL_COLOR}🧠 ${INTEL_DISPLAY}%${RESET}"
+# Calculate CVE percentage (%/# format)
+CVE_PCT=$(echo "scale=4; $CVES_FIXED * 100 / $SECURITY_CVES" | bc 2>/dev/null || echo "0")
+CVE_PCT_DISPLAY=$(printf "%.1f" "$CVE_PCT" 2>/dev/null || printf "%.1f" 0)
+
+OUTPUT="${OUTPUT}\n${BRIGHT_YELLOW}🤖 Swarm${RESET}  ${ACTIVITY_INDICATOR}[${AGENTS_COLOR}${AGENT_DISPLAY}${RESET}]  ${SUBAGENT_COLOR}👥 ${SUBAGENT_COUNT}${RESET}${QUEUE_INDICATOR}    ${SECURITY_ICON} ${SECURITY_COLOR}CVE ${CVE_PCT_DISPLAY}% (${CVES_FIXED}/${SECURITY_CVES})${RESET}    ${MEMORY_COLOR}💾 ${MEMORY_DISPLAY}${RESET}    ${CONTEXT_COLOR}📂 ${CONTEXT_DISPLAY}%${RESET}    ${INTEL_COLOR}🧠 ${INTEL_DISPLAY}%${RESET}"
 
 # Line 3: V3 Architecture Components with better alignment
 DDD_COLOR="${BRIGHT_GREEN}"
-if [ "$DDD_PROGRESS" -lt 50 ]; then
+if [ "$DOMAINS_COMPLETED" -lt 3 ]; then
   DDD_COLOR="${YELLOW}"
 fi
-if [ "$DDD_PROGRESS" -eq 0 ]; then
+if [ "$DOMAINS_COMPLETED" -eq 0 ]; then
   DDD_COLOR="${RED}"
 fi
 
-# Format DDD progress with padding
-DDD_DISPLAY=$(printf "%3d" "$DDD_PROGRESS")
+# Format DDD progress with decimal precision (%.# format)
+DDD_DISPLAY=$(printf "%.1f" "$DDD_PROGRESS" 2>/dev/null || printf "%.1f" 0)
+
+# Format Inbox Zero progress
+INBOX_PCT_DISPLAY=$(printf "%.1f" "$INBOX_ZERO_PROGRESS" 2>/dev/null || printf "%.1f" 0)
+ZERO_DISPLAY=$(printf "%.1f" "$INBOX_ZERO_PROGRESS" 2>/dev/null || printf "%.1f" 0)
 
 OUTPUT="${OUTPUT}\n${BRIGHT_PURPLE}🔧 Architecture${RESET}    ${CYAN}DDD${RESET} ${DDD_COLOR}●${DDD_DISPLAY}%${RESET}  ${DIM}│${RESET}  ${CYAN}Security${RESET} ${SECURITY_COLOR}●${SECURITY_STATUS}${RESET}"
 OUTPUT="${OUTPUT}  ${DIM}│${RESET}  ${CYAN}Memory${RESET} ${BRIGHT_GREEN}●AgentDB${RESET}  ${DIM}│${RESET}  ${CYAN}Integration${RESET} ${INTEGRATION_COLOR}●${RESET}"
+OUTPUT="${OUTPUT}  ${DIM}│${RESET}  ${CYAN}Inbox${RESET} ${BRIGHT_BLUE}${INBOX_PCT_DISPLAY}% (${INBOX_COMPLETED}/${INBOX_TOTAL})${RESET}  ${DIM}│${RESET}  ${CYAN}Zero${RESET} ${BRIGHT_GREEN}${ZERO_DISPLAY}%${RESET}"
 
 # Footer separator
 OUTPUT="${OUTPUT}\n${DIM}─────────────────────────────────────────────────────${RESET}"

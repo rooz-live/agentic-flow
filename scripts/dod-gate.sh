@@ -91,7 +91,8 @@ if [[ "$MODE" == "--post-task" || "$MODE" == "--full" ]]; then
     EXIT_CODE=1
   fi
   echo -n "  Playwright: "
-  PW_TOTAL=$(cd "$PROJECT_ROOT" && PLAYWRIGHT_TLD_ONLY=1 npx playwright test --list tests/billing-platform-integration.e2e.spec.ts 2>/dev/null | grep "Total:" | grep -oE "[0-9]+" | head -1 || echo "0")
+  PW_TOTAL=$(cd "$PROJECT_ROOT" && PLAYWRIGHT_TLD_ONLY=1 npx playwright test --list tests/rust-python-integration.e2e.spec.ts 2>/dev/null | grep "Total:" | grep -oE "[0-9]+" | head -1 || true)
+  PW_TOTAL="${PW_TOTAL:-0}"
   if [[ -n "$PW_TOTAL" && "$PW_TOTAL" -gt 0 ]]; then
     green "  $PW_TOTAL tests discoverable"
   else

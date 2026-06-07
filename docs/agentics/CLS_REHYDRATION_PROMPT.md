@@ -4,17 +4,28 @@ This prompt is designed to steer swarm agents during autonomous loop ticks. It e
 
 ## 0. Canonical Gate Matrix (DoR/DoD — single source; do not re-run redundantly)
 
-| Lane | Ready (DoR) | Done (DoD) | Stop authority |
-|------|-------------|------------|----------------|
-| **Repo** | `AGENT_SLICE=publication bash code/tooling/scripts/agent_session_dor.sh` → 0 | `./scripts/dod-gate.sh --post-task` + staged diff + FA commit | untracked_critical>0 after remediate |
-| **CLS perceive** | trust artifact fresh OR autopilot reruns trust | `bash code/tooling/scripts/dod-gate.sh --perceive` → 0 | substrate advisory only |
-| **Trust spine** | HEAD unchanged since last artifact | `TRUST_FORCE_RERUN=1 bash scripts/one.sh trust-path` + `verify-contract` | R-CLS-03 if commit without one.sh |
-| **Autopilot DAG** | contract tests green | `npm run autopilot:run` / `wave_autopilot.sh` → perceive_ec=0 cls_ec=0 | max_remediate_retries=2 |
-| **Dev tick** | feature branch, manifest honored | `npm run dev:tick` → rehydration manifest written | tick≥5 → clean session |
-| **Mail overlay** | `bash scripts/mail/mail-wave-dor-dod.sh --dor` | `bash scripts/mail/mail-wave-dor-dod.sh --dod` | FA for MTA cutover, Comet scope |
-| **Billing edge** | artifact-based | `public_synthetic_check.sh --check-only` | DNS blocked ≠ code fail |
+| Lane | Ready (DoR) | Done (DoD) | Command | Exit artifact |
+|------|-------------|------------|---------|---------------|
+| **Repo index** | No untracked gate paths | N/A (perceive only) | `AGENT_SLICE=publication bash code/tooling/scripts/agent_session_dor.sh` | console |
+| **CLS perceive** | Repo DoR + trust readable | `perceive_ec=0`, `cls_ec=0` | `bash scripts/cicd/cog_gate_perceive.sh` **or** `npm run autopilot:run` | `.goalie/evidence/learning/learning_*.json` |
+| **Trust spine** | HEAD known | artifact `head_sha == HEAD` | `TRUST_FORCE_RERUN=1 bash scripts/one.sh trust-path` | `.goalie/evidence/last_gate_one_pass.json` |
+| **Commit claim** | Staged diff non-empty | post-task + trust refresh | `python3 scripts/governance/compliance_as_code.py --cog --scope=commit` + `./scripts/dod-gate.sh --post-task` | `compliance_cog_commit_*.json` |
+| **Autopilot DAG** | contract tests green | `npm run autopilot:run` / `bash scripts/cicd/wave_autopilot.sh` | same as CLS perceive | `learning_*.json` |
+| **Dev tick** | feature branch, manifest honored | `npm run dev:tick` → rehydration manifest | `LOOP_ITEM=P1-INDEX-02 npm run dev:tick` | `rehydration_*.json` |
+| **Mail overlay** | Inherits repo DoR + MDOR-* | MDOD-* + ROAM bump | `bash scripts/mail/mail-wave-dor-dod.sh --dor\|--dod --wave c\|a\|e` | `.goalie/ROAM_TRACKER_COG.yaml` + `.goalie/evidence/mail/` |
+| **Billing edge** | artifact-based | `public_synthetic_check.sh --check-only` | DNS blocked ≠ code fail | synthetic JSON |
 
-**Inherit rule:** Mail waves inherit repo gates; mail DoD never substitutes CLS/trust. WSJF inbox: track `#` paths staged / `%` FA-free closure per lane — not tick count in one chat.
+**Mail wave spec:** [`deploy/mail/MAIL_WAVE_DOR_DOD.yaml`](deploy/mail/MAIL_WAVE_DOR_DOD.yaml) — MDOR/MDOD per wave; orchestrator `npm run mail:close` / `bash scripts/one.sh mail-wave-close`.
+
+**PI slice NOW:** Parallel Wave C (Comet vault) + Wave A (MailStore :8081 on STX); Wave E (Caddy mailadmin) follows A health + DNSSEC propagation.
+
+**Inherit rule:** Mail waves inherit repo gates; mail DoD never substitutes CLS/trust. Green CLS does **not** close R-MAIL-* or deploy lanes. Do not disable `tag.vote/cog` forwarders until `phase2_signoff.json` exists.
+
+**Anti-CVT:** `untracked_critical` blocks perceive; `untracked_substrate_total` is WSJF advisory only. Do not re-run full `public_synthetic` if `dod-gate --perceive` already OK for HEAD (`scripts/cicd/perceive_reader.sh`).
+
+**Budget** ([`config/cicd/loop_prompts.yaml`](config/cicd/loop_prompts.yaml)): `max_remediate_retries: 2`, `max_index_paths_per_tick: 25`, `auto_commit: false`; session warn @ tick 3, reset @ tick 5; BT-9 host reset disabled — FA resets chat manually after manifest write.
+
+
 
 ---
 

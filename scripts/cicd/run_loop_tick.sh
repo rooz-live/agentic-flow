@@ -10,6 +10,7 @@ cls_warn_session_tick_budget
 ITEM="${LOOP_ITEM:-P1-INDEX-01}"
 echo "Loop tick: $ITEM (LOOP_TICK_COUNT=${LOOP_TICK_COUNT:-0}, WAVE_RETRY_MAX=$WAVE_RETRY_MAX)"
 bash scripts/cicd/session_rehydration_reader.sh --emit 2>/dev/null || true
+START_SHA=$(git rev-parse HEAD 2>/dev/null || echo "")
 TICK_EXIT=0
 set +e
 case "$ITEM" in
@@ -42,6 +43,14 @@ PYADB
 esac
 TICK_EXIT=$?
 set -e
+if [[ $TICK_EXIT -ne 0 ]]; then
+  if [[ -n "$START_SHA" ]]; then
+    echo "ERROR: Loop tick failed with exit code $TICK_EXIT. Initiating transactional rollback to $START_SHA..." >&2
+    git reset --hard "$START_SHA" >&2
+    git clean -fd >&2
+    cls_session_reset_callback "${LOOP_TICK_COUNT:-0}" "$(cls_budget_get session.max_ticks_before_reset 5)" || true
+  fi
+fi
 export TICK_EXIT
 bash scripts/cicd/write_tick_rehydration_manifest.sh
 echo "AGENT_LOOP_TICK_CLS {\"item\":\"$ITEM\",\"tick_count\":${LOOP_TICK_COUNT:-0},\"tick_exit\":$TICK_EXIT}"

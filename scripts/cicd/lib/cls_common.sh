@@ -140,19 +140,27 @@ cls_warn_session_tick_budget() {
 
 cls_session_reset_callback() {
   local tick_count="${1:-0}" reset_at="${2:-5}"
+  local enabled
+  enabled="$(cls_budget_get rehydration.host_reset_enabled "false")"
+  if [[ "$enabled" != "true" && "$enabled" != "True" ]]; then
+    return 0
+  fi
   local url="${CLS_HOST_RESET_URL:-}"
   if [[ -z "$url" ]]; then
     url="$(cls_budget_get rehydration.host_reset_url "")"
   fi
-  echo "BT-9 session-rehydration-bridge: host reset API not configured (set CLS_HOST_RESET_URL when IDE exposes POST /session/reset)" >&2
   bash "$REPO_ROOT/scripts/cicd/session_rehydration_reader.sh" --compact 2>/dev/null || true
-  if [[ -n "$url" ]] && command -v curl >/dev/null 2>&1; then
-    payload=$(printf '{"loop_tick_count":%s,"reset_at":%s,"schema":"cls.rehydration.v1"}' "$tick_count" "$reset_at")
-    if curl -fsS -m 2 -X POST "$url" -H "Content-Type: application/json" -d "$payload" >/dev/null 2>&1; then
-      echo "host_reset_callback: POST $url ok" >&2
-    else
-      echo "host_reset_callback: POST $url failed (fail-open; manual reset)" >&2
+  if [[ -n "$url" ]]; then
+    if command -v curl >/dev/null 2>&1; then
+      payload=$(printf '{"loop_tick_count":%s,"reset_at":%s,"schema":"cls.rehydration.v1"}' "$tick_count" "$reset_at")
+      if curl -fsS -m 2 -X POST "$url" -H "Content-Type: application/json" -d "$payload" >/dev/null 2>&1; then
+        echo "host_reset_callback: POST $url ok" >&2
+      else
+        echo "host_reset_callback: POST $url failed (fail-open; manual reset)" >&2
+      fi
     fi
+  else
+    echo "BT-9 session-rehydration-bridge: host reset API not configured (set CLS_HOST_RESET_URL when IDE exposes POST /session/reset)" >&2
   fi
   return 0
 }

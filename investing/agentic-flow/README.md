@@ -47,6 +47,7 @@ investing/agentic-flow/
 │   ├── credentials/
 │   │   └── .env.cpanel.template  # Credential/threshold configuration
 │   ├── drift-check.sh            # Master audit orchestrator
+│   ├── disk-space-monitor.sh     # Tiered auto-cleanup (caches/snapshots)
 │   ├── com.agentic-flow.drift-check.plist  # launchd 4-hour schedule
 │   └── README.md                 # Script documentation
 └── README.md                     # This file
@@ -64,6 +65,7 @@ Automated infrastructure audit suite runs every 4 hours via launchd.
 | DNS/DNSSEC | `dns-zone-audit.sh` | Broken chain of trust, NSEC3 misconfiguration, orphaned DS records |
 | Firewall | `firewall-audit.sh` | Port drift vs baseline, CSF testing mode, high deny counts |
 | Nginx | `config-audit.sh` | Unresolvable upstreams, missing resolver directives, PHP extension gaps |
+| Disk Space | `disk-space-monitor.sh` | Free space < 100 GB (warn), < 50 GB (critical). Auto-cleans caches. |
 
 ### Running manually
 
@@ -140,3 +142,78 @@ launchctl load ~/Library/LaunchAgents/com.agentic-flow.drift-check.plist
 4. Triggered AutoSSL — cert issued within seconds
 
 **Prevention:** `dns-zone-audit.sh` and `config-audit.sh` now detect both failure classes.
+
+## Disaster Recovery
+
+### Echo 13 Emergency Boot (Sonnet Echo 13 — 4 TB Thunderbolt SSD)
+
+The Echo 13 has a prepared APFS volume and verified macOS installer for emergency recovery when the internal drive is full or unbootable.
+
+**Assets on Echo 13:**
+
+| Path | Size | Purpose |
+|------|------|--------|
+| `/Volumes/Echo 13 SSD/Recovery/Install macOS 27 Beta.app` | 16 GB | Verified installer (Apple-signed, DMG checksum valid) |
+| `/Volumes/macOS Emergency` (disk7s1) | 80 GB quota | Prepared APFS volume for macOS installation |
+| Time Machine backups | ~3.4 TB | Full system backup (latest: 2026-06-16) |
+
+### Recovery Procedures
+
+**Option 1: Install macOS to Echo 13 (full bootable external)**
+```bash
+# Open the installer GUI — select "macOS Emergency" as destination
+open "/Volumes/Echo 13 SSD/Recovery/Install macOS 27 Beta.app"
+# After install: hold Option at boot → select "macOS Emergency"
+```
+
+**Option 2: Restore from Time Machine**
+```bash
+# Boot into Recovery: hold Power button → Options → Restore from Time Machine
+# Source: Echo 13 SSD → select latest backup
+```
+
+**Option 3: Internet Recovery (Apple Silicon)**
+```bash
+# Hold Power button at boot → Options → Reinstall macOS
+# No external media needed, requires internet connection
+```
+
+**Option 4: Re-download installer (if Echo 13 installer becomes stale)**
+```bash
+# Check installed version
+sw_vers
+# Fetch latest matching installer
+softwareupdate --fetch-full-installer --full-installer-version $(sw_vers -productVersion)
+# Move to Echo 13
+sudo mv "/Applications/Install macOS"*.app "/Volumes/Echo 13 SSD/Recovery/"
+```
+
+### Disk Space Emergency Procedure
+
+If the internal drive fills up and becomes unresponsive:
+
+1. **Boot to Recovery** (hold Power button) → open Terminal
+2. **Delete TM snapshots**: `tmutil deletelocalsnapshots /`
+3. **Clear caches**: `rm -rf /Volumes/Data/private/var/folders/*/C/*`
+4. **Reboot normally** and run `./scripts/infra/disk-space-monitor.sh --auto-clean`
+
+### Disk Space Monitoring
+
+`disk-space-monitor.sh` runs every 4 hours and applies tiered cleanup:
+
+| Free Space | Status | Auto-action |
+|-----------|--------|------------|
+| > 100 GB | OK | None |
+| 50–100 GB | WARNING | Cleans npm/brew/pip caches + Xcode DerivedData |
+| < 50 GB | CRITICAL | Also purges TM local snapshots + simulator caches |
+
+```bash
+# Manual run
+./scripts/infra/disk-space-monitor.sh --auto-clean
+
+# Preview what would be cleaned
+./scripts/infra/disk-space-monitor.sh --dry-run
+
+# Check history
+cat scripts/infra/logs/disk-space.log
+```

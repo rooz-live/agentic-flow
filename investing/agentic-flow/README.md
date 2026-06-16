@@ -3,13 +3,13 @@
 ## Current State (v1.0.0-infra)
 
 **Tag:** `v1.0.0-infra` on `main`
-**Last audit:** 2026-04-10 — ALL CLEAR ✓
+**Last audit:** 2026-06-16 — ALL CLEAR ✓
 
 ### Managed Infrastructure
 
 | Server | Host | Services |
 |--------|------|----------|
-| cPanel/WHM | yo.tag.ooo | Apache, Nginx, PHP-FPM, CSF, MariaDB, PowerDNS, Exim |
+| cPanel/WHM | yo.tag.ooo (VM on STX) | Apache, Nginx, PHP-FPM, cPHulk, MariaDB, PowerDNS, Exim |
 | Passbolt | passbolt.yocloud.com | Password manager (CakePHP 5.3.2, PHP 8.4) |
 | StarlingX | stx-aio-0.corp.interface.tag.ooo:2222 | K8s, OpenStack CLI |
 
@@ -19,7 +19,7 @@
 |--------|--------|---------|
 | passbolt.yocloud.com | Let's Encrypt R13 | 2026-07-09 |
 | rooz.live | Let's Encrypt R13 | 2026-07-09 |
-| bhopti.com | Let's Encrypt R13 | 2026-07-05 |
+| bhopti.com | Let's Encrypt YR1 | **2026-09-14** (renewed 2026-06-16) |
 | yo.tag.ooo | Let's Encrypt R12 | 2026-05-16 |
 
 ### DNS
@@ -41,7 +41,8 @@ investing/agentic-flow/
 │   ├── cpanel/
 │   │   ├── dns-zone-audit.sh     # DNSSEC chain-of-trust validation
 │   │   ├── ssl-monitor.sh        # Certificate expiry monitoring
-│   │   └── firewall-audit.sh     # CSF port baseline comparison
+│   │   ├── firewall-audit.sh     # CSF port baseline comparison
+│   │   └── csf-whitelist.sh      # Automated IP unblock via WHM API
 │   ├── nginx/
 │   │   └── config-audit.sh       # Upstream resolution, PHP-FPM checks
 │   ├── credentials/
@@ -102,15 +103,70 @@ tail -f scripts/infra/logs/drift-check.log
 launchctl unload ~/Library/LaunchAgents/com.agentic-flow.drift-check.plist
 ```
 
+## SSH Architecture
+
+The cPanel server runs as a libvirt VM (`cpanel-sovereign-01`) on the STX hypervisor. SSH access requires a ProxyJump through STX.
+
+| Alias | Target | Method | Auth |
+|-------|--------|--------|------|
+| `stx` | STX hypervisor (port 2222) | Direct SSH | Key (`~/.ssh/starlingx_key`) |
+| `cpanel-vm` | cPanel VM (internal IP) | ProxyJump via `stx` | Password (1Password: `YoCloud - root`) |
+| `rooz-aws` | **STALE** — points to old AWS EC2 IP | Do not use | — |
+
+**SSH config (`~/.ssh/config`):**
+```
+Host cpanel-vm
+    HostName <VM internal IP>
+    User root
+    ProxyJump stx
+    PreferredAuthentications password
+    PubkeyAuthentication no
+```
+
+**Connecting:**
+```bash
+# Via sshpass (automated)
+sshpass -p "$(op item get 'YoCloud - root' --fields password)" ssh cpanel-vm
+
+# Interactive
+ssh cpanel-vm  # prompts for password
+```
+
+## WHM API Token Management
+
+The WHM API token enables programmatic access over HTTPS (port 2087), which is never blocked by cPHulk.
+
+**Token:** `oz_infra` (generated 2026-06-16)
+**Storage:** 1Password (`YoCloud - root` → `WHM API Token` field) + `.env.cpanel`
+
+**Usage:**
+```bash
+# Automated CSF/cPHulk unblock (when SSH is locked out)
+./scripts/infra/cpanel/csf-whitelist.sh
+
+# Check if your IP is blocked
+./scripts/infra/cpanel/csf-whitelist.sh --check
+
+# Initial setup (one-time)
+./scripts/infra/cpanel/csf-whitelist.sh --setup
+```
+
+**Credential chain** (checked in order):
+1. `WHM_API_TOKEN` environment variable
+2. `WHM_API_TOKEN` in `scripts/infra/credentials/.env.cpanel`
+3. 1Password CLI (`op item get "YoCloud - root" --fields "WHM API Token"`)
+
+**Brute-force protection:** cPHulk (not CSF) handles SSH lockouts. The WHM API automatically flushes cPHulk bans and whitelists your IP.
+
 ## Setup
 
 ```bash
 # 1. Configure credentials
 cp scripts/infra/credentials/.env.cpanel.template scripts/infra/credentials/.env.cpanel
-# Edit .env.cpanel — set SSH_ALIAS, MONITOR_DOMAINS, EXPECTED_TCP_IN
+# Edit .env.cpanel — set SSH_ALIAS, MONITOR_DOMAINS, EXPECTED_TCP_IN, WHM_API_TOKEN
 
 # 2. Verify SSH access
-ssh -o ConnectTimeout=10 rooz-aws "hostname"
+sshpass -p "$(op item get 'YoCloud - root' --fields password)" ssh cpanel-vm "hostname"
 
 # 3. Run initial audit
 ./scripts/infra/drift-check.sh
@@ -200,6 +256,22 @@ launchctl load ~/Library/LaunchAgents/com.agentic-flow.drift-check.plist
 4. Triggered AutoSSL — cert issued within seconds
 
 **Prevention:** `dns-zone-audit.sh` and `config-audit.sh` now detect both failure classes.
+
+### 2026-06-16: SSH Lockout + bhopti.com SSL Expiry
+
+**Root cause (SSH):** `rooz-aws` SSH alias pointed to decommissioned AWS EC2 IP. cPanel VM migrated to STX hypervisor but SSH config never updated. cPHulk (not CSF) was blocking IPs after failed connection attempts.
+
+**Root cause (SSL):** bhopti.com had 9 AutoSSL-excluded domains preventing cert renewal.
+
+**Fix:**
+1. Added `cpanel-vm` SSH alias with ProxyJump through STX
+2. Reset root password via QEMU guest agent + `sshpass` through STX
+3. Generated WHM API token (`oz_infra`) for programmatic access
+4. Flushed cPHulk bans and whitelisted IP via WHM API
+5. Cleared 9 AutoSSL domain exclusions for bhopti.com
+6. New wildcard cert issued: `*.bhopti.com` (expires 2026-09-14)
+
+**Prevention:** `csf-whitelist.sh` uses WHM API (port 2087, never blocked) to auto-unblock. 1Password stores root password and API token.
 
 ## Disaster Recovery
 

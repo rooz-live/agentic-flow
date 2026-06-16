@@ -128,6 +128,105 @@ launchctl load ~/Library/LaunchAgents/com.agentic-flow.drift-check.plist
 | `.goalie/` | 84 MB | Governance metrics, pattern logs, crontab backups |
 | `.ay-learning/` | 172 KB | Per-circle learning state (6 circles + iteration logs) |
 
+## STX Cluster State (2026-06-16)
+
+### Hardware
+
+| Disk | Size | Partitions | Status |
+|------|------|------------|--------|
+| `/dev/sda` | 447 GB | 9 partitions, fully allocated | Boot disk |
+| `/dev/nvme0n1` | 1.9 TB | 5 partitions (root, var, docker, nova, EFI) | **Not mounted** |
+| `/dev/nvme1n1` | 931 GB | Unpartitioned | **Not mounted** |
+
+### Disk Layout (sda — current)
+
+| Partition | Mount | Size | Used | Purpose |
+|-----------|-------|------|------|---------|
+| sda4 | `/` | 20 GB | 53% | Root filesystem |
+| sda5 | `/var` | 20 GB | 28% | Var (kubelet config, logs) |
+| sda9 | `/data` | 366 GB | 98% | cPanel VM (336 GB) + containerd (13 GB) + GitLab (1.7 GB) |
+| sda6 | `/home` | 10 GB | 34% | Home |
+| sda7 | `/opt` | 10 GB | 71% | Opt |
+| sda3 | — | 8 GB | — | Unmounted (swap?) |
+
+### NVMe Partitions (available, labeled)
+
+| Partition | Label | Size | Filesystem | Candidate for |
+|-----------|-------|------|------------|---------------|
+| nvme0n1p2 | `root` | 100 GB | ext4 | — |
+| nvme0n1p3 | `var` | 50 GB | ext4 | — |
+| nvme0n1p4 | **`docker`** | **100 GB** | ext4 | **Containerd storage** |
+| nvme0n1p5 | `nova` | 1.6 TB | ext4 | VM images / expansion |
+| nvme1n1 | — | 931 GB | unformatted | Future use |
+
+### K8s Workloads
+
+| Deployment | Replicas | Status | Notes |
+|-----------|----------|--------|-------|
+| hostbill | 1/1 | Running | Stable |
+| affiliate | 0 | Scaled down | Pending containerd migration |
+| flarum | 0 | Scaled down | Pending containerd migration |
+| mysql | 0 | Scaled down | Needs PVC on local-path |
+| trading | 0 | Scaled down | Pending containerd migration |
+| wordpress | 0 | Scaled down | Pending containerd migration |
+
+### Root Cause: Pod Thrashing
+
+`/data` at 98% → kubelet `DiskPressure` taint → pods evicted → rescheduled → image pull fills disk → evicted again. This cycle created ~10,000 dead pods before intervention. Fixed by scaling to 0 and purging ghosts.
+
+### Containerd Migration Plan
+
+Mount `nvme0n1p4` (labeled "docker", 100 GB ext4) as containerd storage to decouple container images from the `/data` partition.
+
+**Prerequisites:**
+- SSH access to STX (`ssh stx`)
+- All non-essential workloads scaled to 0 (done)
+- Maintenance window (~5 min downtime for kubelet restart)
+
+**Procedure:**
+```bash
+# 1. Mount the NVMe docker partition
+sudo mkdir -p /mnt/containerd
+sudo mount /dev/nvme0n1p4 /mnt/containerd
+
+# 2. Stop kubelet + containerd
+sudo systemctl stop kubelet
+sudo systemctl stop containerd
+
+# 3. Move containerd data from /data to NVMe
+sudo rsync -aHAX /data/containerd/ /mnt/containerd/
+sudo mv /data/containerd /data/containerd.old
+sudo ln -s /mnt/containerd /data/containerd
+
+# 4. Add to fstab for persistence
+echo 'UUID=5d2daddb-c905-49d5-8ff7-f6ffe0bb26a1 /mnt/containerd ext4 defaults 0 2' | sudo tee -a /etc/fstab
+
+# 5. Restart services
+sudo systemctl start containerd
+sudo systemctl start kubelet
+
+# 6. Verify
+sudo systemctl is-active containerd kubelet
+kubectl get node
+df -h /data /mnt/containerd
+
+# 7. Scale workloads back up
+kubectl scale deploy affiliate flarum trading wordpress -n applications --replicas=1
+kubectl scale statefulset mysql -n applications --replicas=1
+
+# 8. Clean up old data after confirming everything works
+sudo rm -rf /data/containerd.old
+```
+
+**Post-migration disk projection:**
+
+| Partition | Before | After |
+|-----------|--------|-------|
+| `/data` (sda9) | 98% (11 GB free) | ~94% (24 GB free) |
+| `/mnt/containerd` (nvme0n1p4) | unused | ~13% (87 GB free) |
+
+**Future:** Mount `nvme0n1p5` (1.6 TB, labeled "nova") for VM images to free `/data` further, or use `nvme1n1` (931 GB) as additional container/data storage.
+
 ## Incident Log
 
 ### 2026-04-10: Passbolt SSL + HTTP 500

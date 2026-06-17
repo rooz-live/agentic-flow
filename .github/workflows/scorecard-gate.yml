@@ -1,0 +1,32 @@
+name: Originality/Impact Scorecard Gate
+# GATE-002: enforces scripts/gates/scorecard_gate.py on every PR.
+# gate_integrity derives PASS from CI context (CI=true); coherence is derived
+# from real signals; the scorecard is bound to the PR diff (anti-replay).
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scorecard:
+    name: Scorecard Gate (verify + strict)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # needed for AF_DIFF_BASE diff hashing
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Evaluate Originality/Impact scorecard from PR body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          AF_DIFF_BASE: origin/${{ github.base_ref }}
+          # CI=true is set automatically by GitHub Actions -> gate_integrity PASS.
+        run: |
+          printf '%s' "$PR_BODY" \
+            | python3 scripts/gates/scorecard_gate.py --pr-body - --verify --strict --json

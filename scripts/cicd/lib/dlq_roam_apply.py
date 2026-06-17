@@ -38,7 +38,7 @@ def apply_roam(roam_file: Path, category: str, run_id: str, mapping: dict) -> bo
             if line.strip().startswith("status:"):
                 line = re.sub(r"status:\s*\S+", "status: open", line)
             elif line.strip().startswith("last_result:"):
-                line = f'    last_result: "dlq_trigger_{category}_run_{run_id}"'
+                line = f'  last_result: "dlq_trigger_{category}_run_{run_id}"'
         new_lines.append(line)
 
     roam_file.write_text("\n".join(new_lines) + "\n", encoding="utf-8")

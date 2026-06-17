@@ -571,6 +571,8 @@ This fork includes SRE tooling for production gate enforcement, monitoring, and 
 | **HITL Audit** | `bash scripts/validators/hitl-audit-safeguard.sh --audit` | Email tracking HITL compliance |
 | **Disk Guardian** | `bash scripts/monitoring/tm_disk_guardian.sh --cleanup` | TimeMachine/SQLite/git objects cleanup |
 | **Site Health** | `python3 scripts/monitoring/site_health_monitor.py --watch` | Multi-domain DNS/SSL/HTTP monitoring |
+| **Scorecard Gate** | `python3 scripts/gates/scorecard_gate.py --pr-body - --verify --strict` | Originality×Impact PR quality gate (required check on `main`) |
+| **Meta Gate** | `python3 scripts/gates/meta_gate.py --all` | Fails if CI/pre-commit reference scripts that don't exist |
 
 ### Scheduler (19 cron entries + 13 LaunchAgents)
 Consolidated crontab: `.goalie/crontab-consolidated.txt`
@@ -613,6 +615,27 @@ Redundant copies removed: 1.46 GB freed.
 - **OpenSSF Scorecard**: GitHub Actions, weekly
 - **Semgrep**: Local via `scripts/infra/security/scan-local.sh`
 - **Gitleaks**: Pre-commit hook (active)
+
+### 🛡️ Scorecard Enforcement Gate
+Every pull request is gated by the **Originality/Impact scorecard gate** (`.github/workflows/scorecard-gate.yml` → `scripts/gates/scorecard_gate.py`). **Branch protection on `main` requires the `Scorecard Gate (verify + strict)` check to pass before merging.**
+
+`--verify` derives the gate's inputs instead of trusting the PR author:
+- **Coherence** from real signals (`.goalie/scorecards/verify_signals.json`, e.g. `cargo check` + `pytest`) — a broken or confabulated change fails.
+- **Gate integrity** from CI provenance (`CI=true`), not a self-asserted field.
+- **Anti-replay binding** to the PR commit/diff — a stale scorecard is rejected.
+- **Sign-off** for one-way-door changes (`reversibility 0` × `blast_radius 1.5`) must be external (`AF_SIGNOFF` / approvals file), never a self-set boolean.
+- **No invented paths** — referenced files must resolve in `git ls-files`.
+
+Disposition → exit code: **SHIP** = 0, **SPIKE/DROP** = 1, **BLOCK** = 2.
+
+**Authoring**: embed a fenced code block tagged `scorecard` (JSON) in the PR description — template at `.goalie/scorecards/TEMPLATE.json`. A PR with **no** scorecard soft-skips (passes); set `AF_REQUIRE_SCORECARD=1` in the workflow to make a scorecard mandatory. Admins can currently override the required check (`enforce_admins=false`).
+
+**Run locally**
+| Command | Purpose |
+|---------|---------|
+| `python3 scripts/gates/scorecard_gate.py --file .goalie/scorecards/current.json --json` | Evaluate a scorecard |
+| `python3 -m pytest tests/gates -q` | Gate unit tests (74) |
+| `./scripts/one.sh ci` | Full local gate (meta-gate + scorecard + tests) |
 
 ---
 

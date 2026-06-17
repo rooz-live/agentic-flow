@@ -62,3 +62,23 @@
 - 8d319a715: Migration complete, 6/6 pods running
 - 0bdfd2084: CSF whitelist script
 - 33aa11acb: SSH architecture + WHM API token docs
+
+## Continuation: 2026-06-17
+
+### Local LLM Model Infrastructure
+- Installed Ollama (v0.30.8) via Homebrew
+- Downloaded: gemma3:12b (7.6 GB), gemma3:4b (3.1 GB), phi4-mini (2.3 GB), nomic-embed-text (0.3 GB)
+- All models stored on Echo 13 SSD (13 GB total, 307 GB remaining)
+- Configured OLLAMA_MODELS, HF_HOME, TRANSFORMERS_CACHE in bashrc + zshrc
+- LM Studio downloadsFolder pointed to Echo 13
+- ~/.codeium and ~/.cache/huggingface symlinked to Echo 13
+- 14/14 storage verification checks passing
+
+### IDE Integration
+- Continue extension v1.2.24 installed in VS Code + Cursor
+- ~/.continue/config.json: Gemma 3 12B (chat), Phi-4 Mini (autocomplete), LM Studio (alternate), nomic-embed-text (embeddings)
+- Inference verified: Gemma 3 12B + Phi-4 Mini both responding correctly
+
+### Documentation
+- scripts/infra/LLM-MODELS.md: storage architecture, IDE integration, operations, ROAM risks, OWC migration
+- PR #120 squash-merged to main (8bf89b221)

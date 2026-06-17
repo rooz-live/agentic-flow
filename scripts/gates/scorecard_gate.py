@@ -66,6 +66,7 @@ DEFAULT_SIGNALS = [
 ]
 GATE_CONTEXTS = {"ci", "review", "precommit"}
 EVIDENCE_DIR = os.environ.get("AF_EVIDENCE_DIR", ".goalie/evidence")
+APPROVALS_FILE = os.environ.get("AF_APPROVALS_FILE", ".goalie/scorecards/approvals.txt")
 
 
 def _num(value: Any) -> Optional[float]:
@@ -363,6 +364,39 @@ def derive_reward_direction(proxies: dict) -> tuple:
     return rd, notes
 
 
+def path_is_tracked(path: str, root: str = ".") -> bool:
+    """True if path is in the git index OR present on disk (capability index)."""
+    if _git(["ls-files", "--error-unmatch", "--", path]) is not None:
+        return True
+    return os.path.exists(os.path.join(root, path))
+
+
+def find_invented_paths(refs: list, root: str = ".") -> list:
+    """Referenced paths that resolve nowhere (git index or disk) = confabulated."""
+    return [p for p in (refs or []) if p and not path_is_tracked(p, root)]
+
+
+def verify_signoff(env: dict, actual_commit, actual_diff) -> tuple:
+    """External approval for THIS commit/diff. The card's boolean is never trusted.
+
+    Sources: AF_SIGNOFF env (== commit or diff), or a line in APPROVALS_FILE.
+    """
+    token = str(env.get("AF_SIGNOFF", "")).strip()
+    if token and token in (actual_commit, actual_diff):
+        kind = "commit" if token == actual_commit else "diff"
+        return True, f"AF_SIGNOFF matches {kind}"
+    try:
+        if os.path.exists(APPROVALS_FILE):
+            with open(APPROVALS_FILE, "r", encoding="utf-8") as fh:
+                for line in fh:
+                    line = line.strip()
+                    if line and not line.startswith("#") and line in (actual_commit, actual_diff):
+                        return True, f"approvals file entry matches {line[:12]}"
+    except OSError:
+        pass
+    return False, "no external approval matching current commit/diff"
+
+
 def harden(card: dict, *, env: dict, strict: bool) -> tuple:
     """Override self-asserted fields with verified signals.
 
@@ -375,8 +409,19 @@ def harden(card: dict, *, env: dict, strict: bool) -> tuple:
     # 1) coherence <- real signals
     results = run_signals(load_signals())
     coherence = derive_coherence(results)
-    card.setdefault("originality", {})["coherence"] = coherence
     meta["signals"] = results
+
+    # GATE-004: no-invented-paths -- referenced paths must resolve (index or disk)
+    refs = card.get("referenced_paths") or card.get("impact", {}).get("referenced_paths") or []
+    invented = find_invented_paths(refs)
+    if invented:
+        coherence = "FAIL"
+        extra_blocks.append(
+            "HARD GATE: invented paths (not in git index or on disk): "
+            + ", ".join(invented)
+        )
+        meta["invented_paths"] = invented
+    card.setdefault("originality", {})["coherence"] = coherence
     meta["coherence_derived"] = coherence
 
     # 2) gate_integrity <- execution provenance
@@ -394,12 +439,30 @@ def harden(card: dict, *, env: dict, strict: bool) -> tuple:
     extra_blocks += b
     extra_warnings += w
 
-    # 4) reward_direction <- proxy (advisory: warn on mismatch, do not override)
+    # GATE-003: sign_off <- external approval (never the self-asserted boolean)
+    verified_signoff, so_reason = verify_signoff(env, actual_commit, actual_diff)
+    card["sign_off"] = verified_signoff
+    meta["sign_off_verified"] = verified_signoff
+    meta["sign_off_reason"] = so_reason
+
+    # 4) reward_direction <- proxy (GATE-006)
+    #    Default advisory (warn). With AF_RD_ENFORCE=1 a negative objective signal
+    #    overrides the asserted value (blocks). Enforcement is opt-in because the
+    #    $HOME-rooted repo's untracked sprawl makes the bare untracked-delta proxy
+    #    noisy until a real per-diff baseline exists.
     proxies = collect_reward_proxies(env)
     rd_proxy, rnotes = derive_reward_direction(proxies)
     meta["reward_direction_proxy"] = rd_proxy
+    enforce_rd = str(env.get("AF_RD_ENFORCE", "0")) == "1"
+    meta["reward_direction_enforced"] = enforce_rd
     asserted = card.get("impact", {}).get("reward_direction")
-    if isinstance(asserted, (int, float)) and not isinstance(asserted, bool):
+    if enforce_rd and rd_proxy < 0:
+        card.setdefault("impact", {})["reward_direction"] = rd_proxy
+        extra_warnings.append(
+            f"reward_direction overridden to {rd_proxy} by objective signals "
+            f"({'; '.join(rnotes)})"
+        )
+    elif isinstance(asserted, (int, float)) and not isinstance(asserted, bool):
         if (asserted >= 0) != (rd_proxy >= 0):
             extra_warnings.append(
                 f"reward_direction asserted {asserted} but proxy={rd_proxy} "

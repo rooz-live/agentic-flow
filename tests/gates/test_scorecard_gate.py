@@ -505,3 +505,106 @@ def test_collect_reward_proxies_is_bounded(monkeypatch):
     assert "--" in calls["args"] and "src" in calls["args"]  # path-scoped
     assert calls["timeout"] <= 30  # time-capped
     assert proxies["untracked_added"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# GATE-004: no-invented-paths
+# --------------------------------------------------------------------------- #
+def test_find_invented_paths(monkeypatch):
+    monkeypatch.setattr(gate, "_git", lambda *a, **k: None)  # nothing "tracked"
+    invented = gate.find_invented_paths(
+        ["scripts/gates/scorecard_gate.py", "scripts/nope_xyz_123.py"]
+    )
+    assert invented == ["scripts/nope_xyz_123.py"]  # real file resolves via disk
+
+
+def test_main_verify_blocks_invented_paths(tmp_path, monkeypatch):
+    _verify_mocks(monkeypatch, signal_ok=True)
+    monkeypatch.setattr(
+        gate, "find_invented_paths", lambda refs, root=".": ["src/ghost.py"] if refs else []
+    )
+    c = base()
+    c["commit"] = "abc123"
+    c["referenced_paths"] = ["src/ghost.py"]
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps(c))
+    assert gate.main(["--file", str(p), "--verify"]) == 2
+
+
+# --------------------------------------------------------------------------- #
+# GATE-003: unforgeable sign_off
+# --------------------------------------------------------------------------- #
+def test_verify_signoff_env_commit():
+    ok, _ = gate.verify_signoff({"AF_SIGNOFF": "abc123"}, "abc123", "diffsha")
+    assert ok
+
+
+def test_verify_signoff_env_diff():
+    ok, _ = gate.verify_signoff({"AF_SIGNOFF": "diffsha"}, "abc123", "diffsha")
+    assert ok
+
+
+def test_verify_signoff_none():
+    ok, _ = gate.verify_signoff({}, "abc123", "diffsha")
+    assert not ok
+
+
+def test_verify_signoff_approvals_file(tmp_path, monkeypatch):
+    f = tmp_path / "approvals.txt"
+    f.write_text("# approvals\nabc123\n")
+    monkeypatch.setattr(gate, "APPROVALS_FILE", str(f))
+    ok, _ = gate.verify_signoff({}, "abc123", "diff")
+    assert ok
+
+
+def test_main_verify_one_way_door_blocks_self_signoff(tmp_path, monkeypatch):
+    _verify_mocks(monkeypatch, signal_ok=True)
+    monkeypatch.delenv("AF_SIGNOFF", raising=False)
+    c = base()
+    c["impact"]["reversibility"] = 0
+    c["impact"]["blast_radius"] = 1.5
+    c["sign_off"] = True  # self-asserted -> must be ignored
+    c["commit"] = "abc123"
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps(c))
+    assert gate.main(["--file", str(p), "--verify"]) == 2
+
+
+def test_main_verify_one_way_door_allows_external_signoff(tmp_path, monkeypatch):
+    _verify_mocks(monkeypatch, signal_ok=True)
+    monkeypatch.setenv("AF_SIGNOFF", "abc123")  # matches git_head
+    c = base()
+    c["impact"]["reversibility"] = 0
+    c["impact"]["blast_radius"] = 1.5
+    c["commit"] = "abc123"
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps(c))
+    assert gate.main(["--file", str(p), "--verify"]) == 0  # impact_net 2.25 -> SHIP
+
+
+# --------------------------------------------------------------------------- #
+# GATE-006: scored reward_direction (opt-in enforcement)
+# --------------------------------------------------------------------------- #
+def test_harden_rd_advisory_by_default(monkeypatch):
+    _verify_mocks(monkeypatch, signal_ok=True)
+    monkeypatch.setattr(gate, "collect_reward_proxies", lambda env: {"untracked_added": 5})
+    c = base()
+    c["commit"] = "abc123"
+    hardened, blocks, warns, meta = gate.harden(
+        c, env={"AF_GATE_CONTEXT": "ci"}, strict=False
+    )
+    assert hardened["impact"]["reward_direction"] == 1  # unchanged (advisory)
+    assert meta["reward_direction_enforced"] is False
+    assert any("proxy" in w for w in warns)
+
+
+def test_harden_rd_enforced_overrides_negative(monkeypatch):
+    _verify_mocks(monkeypatch, signal_ok=True)
+    monkeypatch.setattr(gate, "collect_reward_proxies", lambda env: {"untracked_added": 5})
+    c = base()
+    c["commit"] = "abc123"
+    hardened, blocks, warns, meta = gate.harden(
+        c, env={"AF_GATE_CONTEXT": "ci", "AF_RD_ENFORCE": "1"}, strict=False
+    )
+    assert hardened["impact"]["reward_direction"] == -1  # overridden by signals
+    assert meta["reward_direction_enforced"] is True

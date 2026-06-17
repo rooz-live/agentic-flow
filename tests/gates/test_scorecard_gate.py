@@ -1,0 +1,507 @@
+"""Unit tests for scripts/gates/scorecard_gate.py.
+
+The gate is a standalone script (not a package), so we import it by path.
+Expected values are derived from the actual logic, not the rubric prose.
+"""
+
+import copy
+import importlib.util
+import io
+import json
+import pathlib
+
+import pytest
+
+
+def _load_gate():
+    here = pathlib.Path(__file__).resolve()
+    for parent in here.parents:
+        cand = parent / "scripts" / "gates" / "scorecard_gate.py"
+        if cand.exists():
+            spec = importlib.util.spec_from_file_location("scorecard_gate", cand)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            return mod
+    raise RuntimeError("scorecard_gate.py not found above test file")
+
+
+gate = _load_gate()
+
+# A fully valid SHIP card: impact_net = (2 + 1 - 1.0) * 1.5 = 3.0, originality = 6.0
+VALID = {
+    "originality": {
+        "improbability": 2,
+        "resonance": 3,
+        "new_relationship": True,
+        "coherence": "PASS",
+    },
+    "impact": {
+        "baseline_value": 2,
+        "reward_direction": 1,
+        "tails": [{"name": "t", "severity": 2, "roam": "Mitigated"}],
+        "blast_radius": 1.0,
+        "cod_weight": 1.5,
+        "reversibility": 2,
+    },
+    "gates": {"gate_integrity": "PASS"},
+    "sign_off": False,
+}
+
+
+def base():
+    return copy.deepcopy(VALID)
+
+
+def has(blocks, needle):
+    return any(needle in b for b in blocks)
+
+
+# --------------------------------------------------------------------------- #
+# evaluate(): disposition + scoring
+# --------------------------------------------------------------------------- #
+def test_valid_card_ships():
+    r = gate.evaluate(base())
+    assert r["disposition"] == "SHIP"
+    assert r["impact_net"] == 3.0
+    assert r["originality_score"] == 6.0
+    assert r["tail_penalty"] == 1.0
+    assert r["blocks"] == []
+
+
+def test_ship_threshold_is_inclusive():
+    c = base()
+    c["originality"].update(improbability=1, resonance=1)  # low originality
+    c["impact"].update(
+        baseline_value=2, reward_direction=0, cod_weight=1.0, blast_radius=1.0, tails=[]
+    )
+    r = gate.evaluate(c)
+    assert r["impact_net"] == 2.0  # exactly the threshold
+    assert r["disposition"] == "SHIP"
+
+
+def test_just_below_threshold_drops():
+    c = base()
+    c["originality"].update(improbability=1, resonance=1)
+    c["impact"].update(
+        baseline_value=1, reward_direction=0, cod_weight=1.0, blast_radius=1.0, tails=[]
+    )
+    r = gate.evaluate(c)
+    assert r["impact_net"] == 1.0
+    assert r["disposition"] == "DROP"
+
+
+def test_high_originality_low_impact_spikes():
+    c = base()
+    c["originality"].update(improbability=2, resonance=2, new_relationship=True)
+    c["impact"].update(
+        baseline_value=0, reward_direction=0, blast_radius=0.5, cod_weight=0.5, tails=[]
+    )
+    r = gate.evaluate(c)
+    assert r["originality_score"] == 4.0
+    assert r["impact_net"] == 0.0
+    assert r["disposition"] == "SPIKE"
+
+
+# --------------------------------------------------------------------------- #
+# Hard gates, each in isolation (otherwise-valid card)
+# --------------------------------------------------------------------------- #
+def test_coherence_fail_blocks_and_zeros_originality():
+    c = base()
+    c["originality"]["coherence"] = "FAIL"
+    r = gate.evaluate(c)
+    assert r["disposition"] == "BLOCK"
+    assert r["originality_score"] == 0.0
+    assert has(r["blocks"], "coherence")
+
+
+def test_missing_gate_integrity_blocks():
+    c = base()
+    c["gates"] = {}
+    r = gate.evaluate(c)
+    assert r["disposition"] == "BLOCK"
+    assert has(r["blocks"], "gate_integrity")
+
+
+def test_negative_reward_direction_blocks():
+    c = base()
+    c["impact"]["reward_direction"] = -1
+    r = gate.evaluate(c)
+    assert r["disposition"] == "BLOCK"
+    assert has(r["blocks"], "reward_direction")
+
+
+def test_untagged_tail_blocks():
+    c = base()
+    c["impact"]["tails"] = [{"name": "x", "severity": 2}]
+    r = gate.evaluate(c)
+    assert r["disposition"] == "BLOCK"
+    assert has(r["blocks"], "untagged")
+
+
+def test_one_way_door_blocks_without_signoff():
+    c = base()
+    c["impact"]["reversibility"] = 0
+    c["impact"]["blast_radius"] = 1.5
+    r = gate.evaluate(c)
+    assert r["disposition"] == "BLOCK"
+    assert has(r["blocks"], "one-way door")
+
+
+def test_one_way_door_allowed_with_signoff():
+    c = base()
+    c["impact"]["reversibility"] = 0
+    c["impact"]["blast_radius"] = 1.5
+    c["sign_off"] = True
+    r = gate.evaluate(c)
+    assert r["blocks"] == []
+    assert r["impact_net"] == 2.25  # (2 + 1 - 2*0.5*1.5) * 1.5
+    assert r["disposition"] == "SHIP"
+
+
+# --------------------------------------------------------------------------- #
+# ROAM map + case-insensitivity
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "roam,mult", [("Resolved", 0.0), ("Mitigated", 0.5), ("Owned", 1.0), ("Accepted", 1.0)]
+)
+def test_roam_penalty_multipliers(roam, mult):
+    c = base()
+    c["impact"].update(blast_radius=1.0, cod_weight=1.0)
+    c["impact"]["tails"] = [{"name": "t", "severity": 2, "roam": roam}]
+    r = gate.evaluate(c)
+    assert r["tail_penalty"] == pytest.approx(2 * mult)
+    assert r["impact_net"] == pytest.approx(3 - 2 * mult)
+
+
+def test_coherence_case_insensitive():
+    c = base()
+    c["originality"]["coherence"] = "pass"
+    r = gate.evaluate(c)
+    assert not has(r["blocks"], "coherence")
+
+
+def test_roam_case_insensitive():
+    c = base()
+    c["impact"]["tails"] = [{"name": "t", "severity": 2, "roam": "mItIgAtEd"}]
+    r = gate.evaluate(c)
+    assert r["tail_penalty"] == pytest.approx(1.0)  # 2 * 0.5 * blast(1.0)
+
+
+# --------------------------------------------------------------------------- #
+# Range / type validation
+# --------------------------------------------------------------------------- #
+def test_invalid_blast_radius_blocks():
+    c = base()
+    c["impact"]["blast_radius"] = 2.0
+    r = gate.evaluate(c)
+    assert has(r["blocks"], "blast_radius")
+
+
+def test_invalid_cod_weight_blocks():
+    c = base()
+    c["impact"]["cod_weight"] = 0.7
+    r = gate.evaluate(c)
+    assert has(r["blocks"], "cod_weight")
+
+
+def test_missing_baseline_value_blocks():
+    c = base()
+    del c["impact"]["baseline_value"]
+    r = gate.evaluate(c)
+    assert has(r["blocks"], "baseline_value")
+
+
+def test_bool_is_not_a_number():
+    c = base()
+    c["originality"]["improbability"] = True
+    r = gate.evaluate(c)
+    assert has(r["blocks"], "improbability")
+
+
+def test_empty_card_blocks():
+    r = gate.evaluate({})
+    assert r["disposition"] == "BLOCK"
+
+
+def test_reversibility_missing_warns_not_blocks():
+    c = base()
+    del c["impact"]["reversibility"]
+    r = gate.evaluate(c)
+    assert r["disposition"] == "SHIP"
+    assert has(r["warnings"], "reversibility")
+
+
+def test_no_tails_warns():
+    c = base()
+    c["impact"]["tails"] = []
+    r = gate.evaluate(c)
+    assert has(r["warnings"], "no tails")
+
+
+def test_ship_threshold_override(monkeypatch):
+    monkeypatch.setattr(gate, "SHIP_THRESHOLD", 5.0)
+    r = gate.evaluate(base())  # impact_net 3.0 < 5.0, originality 6 >= 4 -> SPIKE
+    assert r["disposition"] == "SPIKE"
+
+
+# --------------------------------------------------------------------------- #
+# extract_from_text(): PR/MR body parsing
+# --------------------------------------------------------------------------- #
+def test_extract_scorecard_fence_nested():
+    text = '```scorecard\n{"originality": {"coherence": "PASS"}, "impact": {"x": 1}}\n```'
+    obj = gate.extract_from_text(text)
+    assert obj is not None
+    assert obj["originality"]["coherence"] == "PASS"
+
+
+def test_extract_json_fence():
+    assert gate.extract_from_text('```json\n{"originality": {}}\n```') is not None
+
+
+def test_extract_untagged_fence():
+    assert gate.extract_from_text('```\n{"originality": {"k": 1}}\n```') is not None
+
+
+def test_extract_html_comment_region():
+    text = "<!-- SCORECARD -->\n{\"originality\": {}}\n<!-- /SCORECARD -->"
+    assert gate.extract_from_text(text) is not None
+
+
+def test_extract_skips_nonscorecard_block_then_finds_it():
+    text = '```bash\necho hi\n```\n\n```scorecard\n{"originality": {"x": 1}}\n```'
+    obj = gate.extract_from_text(text)
+    assert obj is not None and "originality" in obj
+
+
+def test_extract_malformed_returns_none():
+    assert gate.extract_from_text("```scorecard\n{not json}\n```") is None
+
+
+def test_extract_no_block_returns_none():
+    assert gate.extract_from_text("just prose, no fences") is None
+
+
+def test_extract_block_without_originality_key_returns_none():
+    assert gate.extract_from_text('```json\n{"foo": 1}\n```') is None
+
+
+# --------------------------------------------------------------------------- #
+# main(): exit codes + source resolution
+# --------------------------------------------------------------------------- #
+def test_main_file_ship(tmp_path):
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps(VALID))
+    assert gate.main(["--file", str(p)]) == 0
+
+
+def test_main_file_block(tmp_path):
+    c = base()
+    c["originality"]["coherence"] = "FAIL"
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps(c))
+    assert gate.main(["--file", str(p)]) == 2
+
+
+def test_main_bad_json_returns_parse_error(tmp_path):
+    p = tmp_path / "bad.json"
+    p.write_text("{not json")
+    assert gate.main(["--file", str(p)]) == 3
+
+
+def test_main_precommit_soft_skip(tmp_path, monkeypatch):
+    monkeypatch.setattr(gate, "DEFAULT_SCORECARD", str(tmp_path / "nope.json"))
+    monkeypatch.delenv("AF_REQUIRE_SCORECARD", raising=False)
+    assert gate.main(["--precommit"]) == 0
+
+
+def test_main_precommit_enforced(tmp_path, monkeypatch):
+    monkeypatch.setattr(gate, "DEFAULT_SCORECARD", str(tmp_path / "nope.json"))
+    monkeypatch.setenv("AF_REQUIRE_SCORECARD", "1")
+    assert gate.main(["--precommit"]) == 2
+
+
+def test_main_pr_body_stdin(monkeypatch):
+    body = "## PR\n```scorecard\n" + json.dumps(VALID) + "\n```"
+    monkeypatch.setattr("sys.stdin", io.StringIO(body))
+    assert gate.main(["--pr-body", "-"]) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Hardening: derived signals replace self-asserted fields
+# --------------------------------------------------------------------------- #
+def test_derive_coherence_all_required_ok():
+    res = [
+        {"name": "a", "required": True, "ok": True},
+        {"name": "b", "required": True, "ok": True},
+    ]
+    assert gate.derive_coherence(res) == "PASS"
+
+
+def test_derive_coherence_one_required_fails():
+    res = [
+        {"name": "a", "required": True, "ok": True},
+        {"name": "b", "required": True, "ok": False},
+    ]
+    assert gate.derive_coherence(res) == "FAIL"
+
+
+def test_derive_coherence_ignores_non_required():
+    res = [
+        {"name": "a", "required": True, "ok": True},
+        {"name": "b", "required": False, "ok": False},
+    ]
+    assert gate.derive_coherence(res) == "PASS"
+
+
+def test_derive_coherence_nothing_required_is_fail():
+    res = [{"name": "a", "required": False, "ok": True}]
+    assert gate.derive_coherence(res) == "FAIL"
+
+
+def test_derive_gate_integrity_ci():
+    verdict, _ = gate.derive_gate_integrity({"CI": "true"})
+    assert verdict == "PASS"
+
+
+def test_derive_gate_integrity_context_token():
+    assert gate.derive_gate_integrity({"AF_GATE_CONTEXT": "review"})[0] == "PASS"
+
+
+def test_derive_gate_integrity_none():
+    assert gate.derive_gate_integrity({})[0] == "FAIL"
+
+
+def test_check_binding_missing_strict_blocks():
+    blocks, warns = gate.check_binding({}, "abc", "def", strict=True)
+    assert blocks and not warns
+
+
+def test_check_binding_missing_lenient_warns():
+    blocks, warns = gate.check_binding({}, "abc", "def", strict=False)
+    assert warns and not blocks
+
+
+def test_check_binding_commit_mismatch_blocks():
+    blocks, _ = gate.check_binding({"commit": "aaaa"}, "bbbb", None, strict=False)
+    assert any("stale" in b for b in blocks)
+
+
+def test_check_binding_commit_match_ok():
+    blocks, _ = gate.check_binding({"commit": "abc123"}, "abc123", None, strict=False)
+    assert not blocks
+
+
+def test_check_binding_diff_mismatch_blocks():
+    blocks, _ = gate.check_binding({"diff_sha256": "x"}, "abc", "y", strict=False)
+    assert any("diff_sha256" in b for b in blocks)
+
+
+def test_derive_reward_direction_untracked_negative():
+    rd, notes = gate.derive_reward_direction({"untracked_added": 3})
+    assert rd == -1 and notes
+
+
+def test_derive_reward_direction_clean_positive():
+    rd, _ = gate.derive_reward_direction({"untracked_added": 0})
+    assert rd == 1
+
+
+def test_run_signals_missing_executable():
+    res = gate.run_signals(
+        [{"name": "nope", "cmd": ["definitely-not-a-real-bin-xyz"], "required": True}]
+    )
+    assert res[0]["ok"] is False
+    assert res[0]["returncode"] == 127
+
+
+def test_run_signals_success_and_failure():
+    res = gate.run_signals(
+        [
+            {"name": "ok", "cmd": ["python3", "-c", "import sys; sys.exit(0)"], "required": True},
+            {"name": "bad", "cmd": ["python3", "-c", "import sys; sys.exit(1)"], "required": True},
+        ]
+    )
+    assert res[0]["ok"] is True
+    assert res[1]["ok"] is False
+
+
+def test_harden_overrides_self_asserted_fields(monkeypatch):
+    monkeypatch.setattr(gate, "load_signals", lambda: [])
+    monkeypatch.setattr(
+        gate, "run_signals", lambda *a, **k: [{"name": "x", "required": True, "ok": False}]
+    )
+    monkeypatch.setattr(gate, "git_head", lambda: "abc123")
+    monkeypatch.setattr(gate, "current_diff_sha", lambda env: None)
+    monkeypatch.setattr(gate, "collect_reward_proxies", lambda env: {"untracked_added": 0})
+    c = base()  # self-asserts coherence PASS + gate_integrity PASS
+    c["commit"] = "abc123"
+    hardened, blocks, warns, meta = gate.harden(
+        c, env={"AF_GATE_CONTEXT": "ci"}, strict=False
+    )
+    assert hardened["originality"]["coherence"] == "FAIL"  # signals overrode the lie
+    assert meta["coherence_derived"] == "FAIL"
+    assert hardened["gates"]["gate_integrity"] == "PASS"  # from provenance
+    assert not blocks  # commit matches HEAD
+
+
+def test_finalize_merges_blocks_and_attaches_meta():
+    r = gate.evaluate(base())  # SHIP
+    r2 = gate.finalize(r, ["HARD GATE: stale"], ["w"], {"commit": "x"})
+    assert r2["disposition"] == "BLOCK"
+    assert "verification" in r2
+
+
+def _verify_mocks(monkeypatch, signal_ok, head="abc123"):
+    monkeypatch.setattr(gate, "load_signals", lambda: [])
+    monkeypatch.setattr(
+        gate, "run_signals",
+        lambda *a, **k: [{"name": "cargo", "required": True, "ok": signal_ok}],
+    )
+    monkeypatch.setattr(gate, "git_head", lambda: head)
+    monkeypatch.setattr(gate, "current_diff_sha", lambda env: None)
+    monkeypatch.setattr(gate, "collect_reward_proxies", lambda env: {})
+    monkeypatch.setenv("AF_GATE_CONTEXT", "ci")
+
+
+def test_main_verify_blocks_when_coherence_signal_fails(tmp_path, monkeypatch):
+    _verify_mocks(monkeypatch, signal_ok=False)
+    c = base()  # LIES: self-asserts coherence PASS
+    c["commit"] = "abc123"
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps(c))
+    assert gate.main(["--file", str(p), "--verify"]) == 2
+
+
+def test_main_verify_ships_when_signals_pass(tmp_path, monkeypatch):
+    _verify_mocks(monkeypatch, signal_ok=True)
+    c = base()
+    c["commit"] = "abc123"
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps(c))
+    assert gate.main(["--file", str(p), "--verify"]) == 0
+
+
+def test_main_verify_blocks_on_stale_commit(tmp_path, monkeypatch):
+    _verify_mocks(monkeypatch, signal_ok=True, head="newsha")
+    c = base()
+    c["commit"] = "oldsha"  # stale binding
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps(c))
+    assert gate.main(["--file", str(p), "--verify"]) == 2
+
+
+def test_collect_reward_proxies_is_bounded(monkeypatch):
+    # Regression: the untracked scan must be path-scoped to src/ and time-capped,
+    # or it hangs in a huge / home-dir repo.
+    calls = {}
+
+    def fake_git(args, timeout=30):
+        calls["args"] = args
+        calls["timeout"] = timeout
+        return "src/foo.py\nother.py\n"
+
+    monkeypatch.setattr(gate, "_git", fake_git)
+    proxies = gate.collect_reward_proxies({})
+    assert "--" in calls["args"] and "src" in calls["args"]  # path-scoped
+    assert calls["timeout"] <= 30  # time-capped
+    assert proxies["untracked_added"] == 1

@@ -10,16 +10,87 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  one-gate-execution:
-    name: Holacracy Validation Gate
+  scorecard-gate:
+    name: Originality/Impact Scorecard Verification
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
+      - name: "Setup Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: "Install Rust toolchain"
+        uses: dtolnay/rust-action@stable
+
+      - name: "Run Scorecard Gate with --verify"
+        run: |
+          # Derive coherence from real signals (cargo check + pytest + git ls-files)
+          # This closes the trust gap - no self-asserted coherence/gate_integrity allowed
+          if [ -f .goalie/scorecards/current.json ]; then
+            python3 scripts/gates/scorecard_gate.py --file .goalie/scorecards/current.json --verify --json
+          elif [ -f .goalie/scorecards/required.json ]; then
+            python3 scripts/gates/scorecard_gate.py --file .goalie/scorecards/required.json --verify --json
+          else
+            echo "⚠️  No scorecard found. Running in --precommit mode (soft skip if missing)..."
+            python3 scripts/gates/scorecard_gate.py --precommit --verify --json || true
+          fi
+        env:
+          CI: true
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          AF_REQUIRE_SCORECARD: "1"
+
+  shell-gate-tests:
+    name: Shell Gate Tests (tests/gates/*.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Install bash 5 + dependencies"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y bash python3 python3-pip jq
+          # Confirm bash version (ubuntu ships bash 5)
+          bash --version | head -1
+
+      - name: "Install Python test deps"
+        run: pip install pytest
+
+      - name: "Run shell gate tests"
+        run: |
+          set -euo pipefail
+          PASS=0; FAIL=0
+          for f in tests/gates/test_*.sh; do
+            echo "▶ $f"
+            if bash "$f" > /tmp/gate_out.txt 2>&1; then
+              PASS=$((PASS + 1))
+              echo "  ✓ passed"
+            else
+              FAIL=$((FAIL + 1))
+              echo "  ✗ FAILED: $f"
+              tail -15 /tmp/gate_out.txt
+            fi
+          done
+          echo "Shell gate summary: $PASS passed, $FAIL failed"
+          [[ $FAIL -eq 0 ]]
+
+      - name: "Run Python gate tests (scorecard + meta)"
+        run: |
+          python3 -m pytest tests/gates/ --rootdir=. -q --tb=short
+
+  one-gate-execution:
+    name: Holacracy Validation Gate
+    runs-on: ubuntu-latest
+    needs: [scorecard-gate, shell-gate-tests]
+    steps:
+      - uses: actions/checkout@v4
+
       - name: "Orchestrator Circle: Execute Canonical One.sh Execution Ledger"
         run: |
           chmod +x scripts/one.sh
           ./scripts/one.sh ci
         env:
           CI: true
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
           PR_BODY: ${{ github.event.pull_request.body || github.event.head_commit.message }}

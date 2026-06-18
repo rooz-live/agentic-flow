@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/one.sh"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/one.sh" || source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/one.sh"
 #
 # setup_stx_deployment_env.sh
 #
@@ -100,7 +100,7 @@ retrieve_vault_password() {
     if command -v op >/dev/null 2>&1; then
         if op whoami >/dev/null 2>&1; then
             local password
-            password=$(op read "op://Private/AF-Prod/HIVELOCITY_SSH_PASSWORD" --no-newline 2>/dev/null || echo "")
+            password=$(op read "op://Dev/t7be7zbuxygupw2tot3sqtexj4/password" --no-newline 2>/dev/null || op read "op://Private/AF-Prod/HIVELOCITY_SSH_PASSWORD" --no-newline 2>/dev/null || echo "")
             if [[ -n "$password" ]]; then
                 export HIVELOCITY_SSH_PASSWORD="$password"
                 print_status "ok" "Password retrieved from 1Password vault"
@@ -335,6 +335,36 @@ EOF
     print_status "info" "Logged to .goalie/break_glass_audit.jsonl"
 }
 
+# Check remote /etc/hosts for duplicate entries to avoid network initialization blocks
+check_remote_hosts_duplicates() {
+    print_header "Remote Hosts Configuration Check"
+    
+    if ! ensure_password; then
+        print_status "error" "Cannot check remote hosts - password not available"
+        return 1
+    fi
+    
+    print_status "info" "Checking remote /etc/hosts for duplicate entries..."
+    
+    local hosts_content
+    if hosts_content=$(stx_ssh "cat /etc/hosts" 2>/dev/null); then
+        local duplicates
+        duplicates=$(echo "$hosts_content" | grep -v "^#" | awk '{print $2}' | sort | uniq -d | grep -v "^$" || true)
+        
+        if [[ -n "$duplicates" ]]; then
+            print_status "warn" "Duplicate entries found in remote /etc/hosts:"
+            echo "$duplicates" | sed 's/^/    - /'
+            print_status "warn" "Duplicate entries in /etc/hosts can block service startup and network routing."
+            return 1
+        else
+            print_status "ok" "No duplicate entries found in remote /etc/hosts"
+        fi
+    else
+        print_status "warn" "Could not read remote /etc/hosts file via SSH"
+    fi
+    return 0
+}
+
 # Run full validation
 run_full_validation() {
     print_header "Phase B Environment Validation"
@@ -343,10 +373,11 @@ run_full_validation() {
     
     local validation_errors=0
     
-    check_dependencies || ((validation_errors++))
+    check_dependencies sshpass op || ((validation_errors++))
     check_ssh_key
     check_network_connectivity || ((validation_errors++))
     test_ssh_connectivity || ((validation_errors++))
+    check_remote_hosts_duplicates || ((validation_errors++))
     check_remote_deployment_script
     show_environment_config
     

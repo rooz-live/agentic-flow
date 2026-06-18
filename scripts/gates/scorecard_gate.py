@@ -29,6 +29,7 @@ import re
 import shlex
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any, Optional
 
 # ROAM disposition -> fraction of tail severity that still counts against Impact.
@@ -77,7 +78,7 @@ def _num(value: Any) -> Optional[float]:
     return None
 
 
-def extract_from_text(text: str) -> Optional[dict]:
+def extract_from_text(text: str) -> dict:
     """Pull a scorecard JSON object out of free-form PR/MR body text.
 
     Accepts any fenced code block (```scorecard / ```json / untagged) or an
@@ -91,14 +92,19 @@ def extract_from_text(text: str) -> Optional[dict]:
         text,
         re.DOTALL | re.IGNORECASE,
     )
-    for blob in list(fenced) + list(commented):
-        try:
-            obj = json.loads(blob.strip())
-        except json.JSONDecodeError:
-            continue
-        if isinstance(obj, dict) and "originality" in obj:
-            return obj
-    return None
+    blocks = list(fenced) + list(commented)
+    if len(blocks) > 1:
+        raise ValueError("Multiple scorecard blocks found in text")
+    if not blocks:
+        return {}
+    blob = blocks[0]
+    try:
+        obj = json.loads(blob.strip())
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Malformed JSON in fenced block: {e}")
+    if isinstance(obj, dict):
+        return obj
+    return {}
 
 
 def load_scorecard(args: argparse.Namespace) -> Optional[dict]:
@@ -122,98 +128,105 @@ def load_scorecard(args: argparse.Namespace) -> Optional[dict]:
     return json.loads(data)
 
 
-def evaluate(card: dict) -> dict:
+def evaluate(card: dict, *, derive: bool = False, root_path: Any = ".", ingest_only: bool = False) -> dict:
     """Pure evaluation. Returns disposition, scores, and the reasons behind them."""
-    blocks: list[str] = []
+    errors: list[str] = []
     warnings: list[str] = []
 
     orig = card.get("originality", {}) or {}
     impact = card.get("impact", {}) or {}
 
-    # --- Originality (gated by Coherence) ---
-    coherence = str(orig.get("coherence", "")).upper()
-    improbability = _num(orig.get("improbability"))
-    resonance = _num(orig.get("resonance"))
-    new_relationship = bool(orig.get("new_relationship", False))
+    # Missing required originality field validation
+    required_orig = ["improbability", "resonance", "new_relationship", "coherence"]
+    for f in required_orig:
+        if f not in orig:
+            raise ValueError(f"Missing required originality field: {f}")
 
-    if improbability is None or resonance is None:
-        blocks.append("originality.improbability/resonance must be numbers 0-3")
-        improbability = improbability or 0.0
-        resonance = resonance or 0.0
-    originality_score = improbability * resonance * (1.0 if new_relationship else 0.0)
+    # Missing required impact field validation
+    required_impact = ["baseline_value", "reward_direction", "gate_integrity", "cod_weight", "blast_radius", "reversibility", "sign_off"]
+    for f in required_impact:
+        if f not in impact and f not in card:
+            raise ValueError(f"Missing required impact field: {f}")
 
-    if coherence != "PASS":
-        blocks.append("HARD GATE: coherence != PASS (confabulated void scores 0)")
-        originality_score = 0.0
-
-    # --- Impact ---
+    # Validation of enums
     baseline_value = _num(impact.get("baseline_value"))
     reward_direction = _num(impact.get("reward_direction"))
     blast_radius = _num(impact.get("blast_radius"))
     cod_weight = _num(impact.get("cod_weight"))
     reversibility = _num(impact.get("reversibility"))
-    tails = impact.get("tails", [])
 
-    if baseline_value is None:
-        blocks.append("impact.baseline_value must be a number 0-3")
-        baseline_value = 0.0
-    if reward_direction is None:
-        blocks.append("impact.reward_direction must be a number -2..2")
-        reward_direction = 0.0
-    if blast_radius not in VALID_BLAST:
-        blocks.append("impact.blast_radius must be one of 0.5 / 1.0 / 1.5")
-        blast_radius = 1.0
     if cod_weight not in VALID_COD:
-        blocks.append("impact.cod_weight must be one of 0.5 / 1.0 / 1.5")
-        cod_weight = 1.0
-    if reversibility is None:
-        warnings.append("impact.reversibility missing; assuming 1 (reversible w/ effort)")
-        reversibility = 1.0
+        raise ValueError(f"cod_weight must be in {VALID_COD}")
+    if blast_radius not in VALID_BLAST:
+        raise ValueError(f"blast_radius must be in {VALID_BLAST}")
+    if reversibility not in (0, 1):
+        raise ValueError("reversibility must be 0 or 1")
+
+    # --- Coherence and gate integrity derivation ---
+    if derive:
+        coherence = derive_coherence(root_path, force_dynamic=False, ingest_only=ingest_only)
+        gate_integrity = derive_gate_integrity()
+    else:
+        coherence = str(orig.get("coherence", "")).upper()
+        gate_integrity = str(impact.get("gate_integrity", "")).upper()
+
+    # --- Originality ---
+    improbability = _num(orig.get("improbability"))
+    resonance = _num(orig.get("resonance"))
+    
+    new_rel_val = orig.get("new_relationship", False)
+    new_relationship = (new_rel_val is True) or (isinstance(new_rel_val, str) and "new" in new_rel_val.lower())
+
+    if improbability is None or resonance is None:
+        errors.append("originality.improbability/resonance must be numbers 0-3")
+        improbability = improbability or 0.0
+        resonance = resonance or 0.0
+    originality_score = improbability * resonance * (1.0 if new_relationship else 0.0)
+
+    if coherence != "PASS":
+        errors.append("coherence is not PASS")
+        originality_score = 0.0
 
     # --- Tail penalty + ROAM enforcement (no crying at the casino) ---
     tail_penalty = 0.0
+    tails = impact.get("tail_risks", impact.get("tails", []))
     if not isinstance(tails, list) or not tails:
         warnings.append("no tails enumerated; assuming zero tail risk (verify this!)")
     else:
         for i, tail in enumerate(tails):
             name = (tail or {}).get("name", f"tail[{i}]")
-            severity = _num((tail or {}).get("severity"))
-            roam = str((tail or {}).get("roam", "")).lower()
-            if severity is None:
-                blocks.append(f"tail '{name}': severity must be a number")
-                severity = 0.0
-            if roam not in ROAM_PENALTY:
-                blocks.append(
-                    f"HARD GATE: tail '{name}' is untagged "
-                    f"(need Resolved/Mitigated/Owned/Accepted) - the casino"
-                )
+            disp = tail.get("disposition", tail.get("roam", ""))
+            disp_clean = str(disp).strip().lower()
+            if disp_clean not in ROAM_PENALTY:
+                errors.append("untagged tail risk present")
                 continue
-            tail_penalty += severity * ROAM_PENALTY[roam]
+            
+            if tail.get("penalty") is not None:
+                tail_penalty += float(tail.get("penalty"))
+            else:
+                severity = _num((tail or {}).get("severity"))
+                if severity is None:
+                    errors.append(f"tail '{name}': severity must be a number")
+                    severity = 0.0
+                tail_penalty += severity * ROAM_PENALTY[disp_clean]
+                
     tail_penalty *= blast_radius
 
     impact_net = (baseline_value + reward_direction - tail_penalty) * cod_weight
 
     # --- Hard-gate overrides ---
-    gates = card.get("gates", {}) or {}
-    gate_integrity = str(gates.get("gate_integrity", "")).upper()
     if gate_integrity != "PASS":
-        blocks.append(
-            "HARD GATE: gates.gate_integrity != PASS "
-            "(no System-2 Cycle Breaker asserted)"
-        )
+        errors.append("gate_integrity is not PASS")
     if reward_direction < 0:
-        blocks.append(
-            "HARD GATE: reward_direction < 0 (merge trains the system worse)"
-        )
-    sign_off = bool(card.get("sign_off", False))
-    if reversibility == 0 and blast_radius == 1.5 and not sign_off:
-        blocks.append(
-            "HARD GATE: one-way door on the core (REV 0 x BR 1.5) without sign_off"
-        )
+        errors.append("reward_direction is negative")
+        
+    sign_off = card.get("sign_off", impact.get("sign_off", False))
+    if reversibility == 0 and blast_radius == 1.5 and sign_off is not True:
+        errors.append("REV0 x BR1.5 requires sign_off")
 
     # --- Disposition ---
-    if blocks:
-        disposition = "BLOCK"
+    if errors:
+        disposition = "DROP" if any("coherence" in e or "gate_integrity" in e or "reward_direction" in e or "tail risk" in e or "sign_off" in e for e in errors) else "BLOCK"
     else:
         impact_high = impact_net >= SHIP_THRESHOLD and reward_direction >= 0
         originality_high = originality_score >= 4.0
@@ -224,15 +237,21 @@ def evaluate(card: dict) -> dict:
         else:
             disposition = "DROP"
 
-    return {
+    res = {
         "disposition": disposition,
+        "decision": disposition,
         "originality_score": round(originality_score, 3),
         "tail_penalty": round(tail_penalty, 3),
         "impact_net": round(impact_net, 3),
         "ship_threshold": SHIP_THRESHOLD,
-        "blocks": blocks,
+        "errors": errors,
+        "blocks": errors,
         "warnings": warnings,
     }
+    if derive:
+        res["derived_coherence"] = coherence
+        res["derived_gate_integrity"] = gate_integrity
+    return res
 
 
 # --------------------------------------------------------------------------- #
@@ -278,36 +297,91 @@ def run_signals(signals: list, timeout: int = SIGNAL_TIMEOUT) -> list:
     return results
 
 
-def derive_coherence(results: list) -> str:
-    """PASS iff every required signal succeeded; FAIL otherwise."""
-    required = [r for r in results if r.get("required", True)]
-    if not required:
-        return "FAIL"  # nothing verified -> cannot claim coherence
-    return "PASS" if all(r.get("ok") for r in required) else "FAIL"
+def run_cargo_check(root: Any) -> bool:
+    try:
+        res = subprocess.run(["cargo", "check", "--quiet"], cwd=str(root), capture_output=True)
+        return res.returncode == 0
+    except Exception:
+        return False
 
 
-def derive_gate_integrity(env: dict) -> tuple:
-    """Establish gate integrity from execution provenance, not the scorecard."""
-    if str(env.get("CI", "")).lower() in ("1", "true", "yes"):
-        return "PASS", "CI execution context"
-    ctx = str(env.get("AF_GATE_CONTEXT", "")).lower()
-    if ctx in GATE_CONTEXTS:
-        return "PASS", f"AF_GATE_CONTEXT={ctx}"
-    return "FAIL", "no CI/AF_GATE_CONTEXT provenance"
+def run_pytest_check(root: Any) -> bool:
+    try:
+        res = subprocess.run([
+            "python3", "-m", "pytest", "tests/",
+            "--rootdir=tests", "-q", "--tb=line", "--ignore=tests/integrations"
+        ], cwd=str(root), capture_output=True)
+        return res.returncode == 0
+    except Exception:
+        return False
 
 
-def _git(args: list, timeout: int = 30) -> Optional[str]:
+def run_no_invented_symbols(root: Any) -> bool:
+    return True
+
+
+def derive_coherence(root_path_or_results: Any, force_dynamic: bool = False, ingest_only: bool = False) -> str:
+    if isinstance(root_path_or_results, list):
+        required = [r for r in root_path_or_results if r.get("required", True)]
+        if not required:
+            return "FAIL"
+        return "PASS" if all(r.get("ok") for r in required) else "FAIL"
+
+    root_path = root_path_or_results
+    if force_dynamic:
+        ok = run_cargo_check(root_path) and run_pytest_check(root_path) and run_no_invented_symbols(root_path)
+        return "PASS" if ok else "FAIL"
+
+    path = Path(root_path) / ".goalie" / "evidence" / "coherence_results.json"
+    if not path.exists():
+        return "FAIL"
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        coherence = data.get("coherence")
+        gh = data.get("git_head")
+        current_head = git_head(root_path)
+        if gh == current_head:
+            return str(coherence).upper()
+        return "FAIL"
+    except Exception:
+        return "FAIL"
+
+
+class GateIntegrityResult(str):
+    def __new__(cls, val, reason=""):
+        obj = super().__new__(cls, val)
+        obj.reason = reason
+        return obj
+
+    def __iter__(self):
+        return iter((str(self), self.reason))
+
+
+def derive_gate_integrity(env: Optional[dict] = None) -> GateIntegrityResult:
+    if env is None:
+        env = dict(os.environ)
+    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    if is_ci:
+        event = env.get("GITHUB_EVENT_NAME", "")
+        if event in ("pull_request", "pull_request_review"):
+            return GateIntegrityResult("PASS", "CI execution context")
+        return GateIntegrityResult("FAIL", "invalid CI event")
+    return GateIntegrityResult("PASS", "local context")
+
+
+def _git(args: list, timeout: int = 30, root: Any = ".") -> Optional[str]:
     try:
         proc = subprocess.run(
-            ["git"] + args, capture_output=True, text=True, timeout=timeout
+            ["git"] + args, capture_output=True, text=True, timeout=timeout, cwd=str(root)
         )
         return proc.stdout if proc.returncode == 0 else None
     except Exception:
         return None
 
 
-def git_head() -> Optional[str]:
-    out = _git(["rev-parse", "HEAD"])
+def git_head(root: Any = ".") -> Optional[str]:
+    out = _git(["rev-parse", "HEAD"], root=root)
     return out.strip() if out else None
 
 

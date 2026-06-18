@@ -65,38 +65,17 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             
             EXIT_CODE=0
             
-            echo "--> Assessor Circle: Verifying Definition of Ready (DoR)..."
-            bash "$ROOT_DIR/scripts/utils/auto-dor.sh" || EXIT_CODE=$?
+            echo "--> Initiating CI Assessor Circle..."
+            bash "$ROOT_DIR/scripts/cicd/ci_assessor.sh" || EXIT_CODE=$?
             
             if [ $EXIT_CODE -eq 0 ]; then
-                echo "--> Assessor Circle: Verifying ROAM Staleness Constraints..."
-                bash "$ROOT_DIR/scripts/utils/roam-staleness-check.sh" || EXIT_CODE=$?
+                echo "--> Initiating CI Orchestrator Circle..."
+                bash "$ROOT_DIR/scripts/cicd/ci_orchestrator.sh" || EXIT_CODE=$?
             fi
             
             if [ $EXIT_CODE -eq 0 ]; then
-                echo "--> Orchestrator Circle: Ingesting Holacracy Matrix & Prioritizing WSJF Ledger..."
-                node "$ROOT_DIR/scripts/autonomous_ingestion_engine.js" || EXIT_CODE=$?
-            fi
-            
-            if [ $EXIT_CODE -eq 0 ]; then
-                echo "--> Swarm Circle: Spawning Headless Analyst to consume WSJF Queue..."
-                bash "$ROOT_DIR/scripts/spawn_headless_agents.sh" --role "Analyst" --goal "Consume CAPABILITY_BACKLOG.md and flag blockers" --loop 1 || EXIT_CODE=$?
-            fi
-            
-            if [ $EXIT_CODE -eq 0 ]; then
-                echo "--> Assessor Circle: TLD Health-Check Preflight..."
-                CONTRACT_URL="${CONTRACT_BASE_URL:-https://analytics.interface.tag.ooo}"
-                TLD_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 15 "$CONTRACT_URL/api/health" 2>/dev/null || echo "000")
-
-                if [ "$TLD_STATUS" -ge 200 ] && [ "$TLD_STATUS" -lt 400 ]; then
-                    echo "✅ TLD reachable (HTTP $TLD_STATUS). Running E2E contract tests."
-                    npm ci || EXIT_CODE=$?
-                    npx playwright install --with-deps || EXIT_CODE=$?
-                    PLAYWRIGHT_TLD_ONLY=1 npx playwright test --project=analytics-tld-contract || EXIT_CODE=$?
-                else
-                    echo "⚠️  TLD unreachable (HTTP $TLD_STATUS). Skipping Playwright E2E — backend outage is not a code defect."
-                    generate_artifact "tld_health_skip" 0
-                fi
+                echo "--> Initiating CI Swarm Circle..."
+                bash "$ROOT_DIR/scripts/cicd/ci_swarm.sh" || EXIT_CODE=$?
             fi
             
             echo "--> Recording Execution to Append-Only Ledger..."
@@ -149,8 +128,57 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
             echo "--> Running WSJF Schedule update..."
             python3 "$ROOT_DIR/scripts/cicd/update_lnnnl.py"
             ;;
+        coherence)
+            echo "====================================================================="
+            echo "🦅 RUNNING ACTIVE COHERENCE CHECKS"
+            echo "====================================================================="
+            EXIT_CODE=0
+            
+            echo "--> Running Cargo Check..."
+            cargo check || EXIT_CODE=$?
+            
+            if [ $EXIT_CODE -eq 0 ]; then
+                echo "--> Running Pytest..."
+                python3 -m pytest tests/billing/ tests/pytest/ -q --tb=line || EXIT_CODE=$?
+            fi
+            
+            if [ $EXIT_CODE -eq 0 ]; then
+                echo "--> Running No-Invented-Symbols check..."
+                python3 -c "
+import subprocess, sys
+diff_files = subprocess.check_output(['git', 'diff', '--name-only'], text=True).splitlines()
+staged_files = subprocess.check_output(['git', 'diff', '--cached', '--name-only'], text=True).splitlines()
+all_files = list(set(diff_files + staged_files))
+for file in all_files:
+    file = file.strip()
+    if not file: continue
+    if file.startswith(('.goalie/', 'scripts/gates/', 'tests/pytest/test_scorecard_gate.py')): continue
+    ls_res = subprocess.run(['git', 'ls-files', file], capture_output=True, text=True)
+    if ls_res.returncode != 0 or not ls_res.stdout.strip():
+        print(f'Verification Blocker: File {file} is modified but not tracked/staged in git.', file=sys.stderr)
+        sys.exit(1)
+sys.exit(0)
+" || EXIT_CODE=$?
+            fi
+            
+            if [ $EXIT_CODE -eq 0 ]; then
+                HASH=$(git rev-parse HEAD 2>/dev/null || echo "no-git")
+                mkdir -p "$ROOT_DIR/.goalie/evidence"
+                cat <<EOF > "$ROOT_DIR/.goalie/evidence/coherence_results.json"
+{
+  "coherence": "PASS",
+  "git_head": "$HASH",
+  "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+}
+EOF
+                echo "✅ Coherence verification passed. Artifact generated: .goalie/evidence/coherence_results.json"
+            else
+                echo "❌ Coherence verification FAILED."
+                exit $EXIT_CODE
+            fi
+            ;;
         help|*)
-            echo "Usage: ./scripts/one.sh <trust-path|verify-contract|ci|run-safely|mail-wave-close|wsjf>"
+            echo "Usage: ./scripts/one.sh <trust-path|verify-contract|ci|run-safely|mail-wave-close|wsjf|coherence>"
             exit 1
             ;;
     esac

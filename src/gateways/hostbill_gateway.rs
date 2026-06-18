@@ -81,18 +81,17 @@ pub fn emit_billable_hours_to_hostbill(project_id: &str, billable_hours: f64) ->
         return fallback_log_usage(project_id, billable_hours, "CIRCUIT_BREAKER_OPEN");
     }
 
-    // Convert to HostBill primitive schema
-    let payload = json!({
-        "api_id": api_id,
-        "api_key": api_key,
-        "call": "addMeteredUsage",
-        "account_id": project_id,
-        "variable_name": "EventOps_Technician_Hours",
-        "qty": billable_hours,
-        "timestamp": chrono::Utc::now().to_rfc3339() // Strict ISO8601 validation
-    });
+    // Convert to HostBill primitive schema (application/x-www-form-urlencoded)
+    let mut params = std::collections::HashMap::new();
+    params.insert("api_id", api_id.clone());
+    params.insert("api_key", api_key.clone());
+    params.insert("call", "addMeteredUsage".to_string());
+    params.insert("account_id", project_id.to_string());
+    params.insert("variable_name", "EventOps_Technician_Hours".to_string());
+    params.insert("qty", billable_hours.to_string());
+    params.insert("timestamp", chrono::Utc::now().to_rfc3339());
 
-    println!("✅ HostBill Gateway Emitting: {}", payload.to_string());
+    println!("✅ HostBill Gateway Emitting: {:?}", params);
     
     // Send using reqwest blocking client
     use reqwest::blocking::Client;
@@ -102,7 +101,7 @@ pub fn emit_billable_hours_to_hostbill(project_id: &str, billable_hours: f64) ->
         .map_err(|e| format!("Failed to create client: {}", e))?;
 
     let res = client.post(&api_url)
-        .json(&payload)
+        .form(&params)
         .send();
 
     match res {

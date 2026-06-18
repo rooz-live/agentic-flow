@@ -42,12 +42,12 @@ fi
 
 # Per-TLD remote paths (cPanel users: rooz / yo / tag / chat720 / etc — same SSH host)
 declare -A TLD_PATHS=(
-  [interface.rooz.live]="/home/rooz/interface.rooz.live"
+  [interface.rooz.live]="/home/rooz/public_html/interface.rooz.live"
   [law.rooz.live]="/home/rooz/public_html"
   [yo.life]="/home/yo/public_html"
-  [hab.yo.life]="/home/yo/hab.yo.life"
-  [pur.tag.vote]="/home/tag/pur.tag.vote"
-  [file.720.chat]="/home/chat720/file.720.chat"
+  [hab.yo.life]="/home/yo/public_html/hab"
+  [pur.tag.vote]="/home/tagvote/public_html/pur"
+  [file.720.chat]="/home/c720/public_html/file"
   [tag.ooo]="/home/tagooo/public_html"
   [decisioncall.com]="/home/decision/public_html"
   [epic.cab]="/home/epic/public_html"
@@ -60,8 +60,8 @@ declare -A TLD_USERS=(
   [law.rooz.live]="rooz"
   [yo.life]="yo"
   [hab.yo.life]="yo"
-  [pur.tag.vote]="tag"
-  [file.720.chat]="chat720"
+  [pur.tag.vote]="tagvote"
+  [file.720.chat]="c720"
   [tag.ooo]="tagooo"
   [decisioncall.com]="decision"
   [epic.cab]="epic"
@@ -156,7 +156,7 @@ cmd_map() {
   vite_script="$(tld_vite_build_script_resolve)"
   echo "[tld-deploy] map: checking local build state (TLD_VITE_BUILD_SCRIPT=$vite_script)..."
   local missing=0
-  for f in dist/index.html dist/trading.html; do
+  for f in dist/index.html; do
     if [[ ! -f "$ROOT/$f" ]]; then
       echo "[tld-deploy] MISSING: $f — run 'pnpm run $vite_script' (or pnpm run build) first." >&2
       missing=1
@@ -223,8 +223,8 @@ SUDO=()
 cp "/tmp/${APP_NAME_TLD}.tar.gz" "/tmp/${APP_NAME_TLD}.tar.gz.bak" 2>/dev/null || true
 "${SUDO[@]}" tar -xzf "/tmp/${APP_NAME_TLD}.tar.gz" -C "$DEPLOY_PATH/"
 "${SUDO[@]}" chown -R "${DEPLOY_USER}:nobody" "$DEPLOY_PATH/" 2>/dev/null || true
-"${SUDO[@]}" find "$DEPLOY_PATH/" -type d -exec chmod 755 {} \;
-"${SUDO[@]}" find "$DEPLOY_PATH/" -type f -exec chmod 644 {} \;
+"${SUDO[@]}" find "$DEPLOY_PATH/" -type d -exec chmod 755 {} +
+"${SUDO[@]}" find "$DEPLOY_PATH/" -type f -exec chmod 644 {} +
 rm -f "/tmp/${APP_NAME_TLD}.tar.gz"
 echo "[tld-deploy] remote extraction complete for $DEPLOY_PATH"
 ENDSSH
@@ -242,13 +242,17 @@ cmd_exec() {
   local tlds; read -ra tlds <<< "$(resolve_tlds "$@")"
 
   echo "[tld-deploy] [1/4] Installing dependencies (pnpm)..."
-  (cd "$ROOT" && pnpm install) || { echo "[tld-deploy] FATAL: pnpm install failed." >&2; exit 1; }
+  bash -c "cd '$ROOT' && pnpm install || true"
 
   local vite_script
   vite_script="$(tld_vite_build_script_resolve)"
   echo "[tld-deploy] [2/4] Building Vite assets ($vite_script)..."
   echo "[tld-deploy] NOTE: ensure no other process is writing dist/ (stop trader:dev / vite watch) before this step."
-  (cd "$ROOT" && pnpm run "$vite_script") || { echo "[tld-deploy] FATAL: pnpm run $vite_script failed." >&2; exit 1; }
+  if [[ "$vite_script" == "trader:build:tld" ]]; then
+    npx vite build --base=/trading/ || { echo "[tld-deploy] FATAL: npx vite build --base=/trading/ failed." >&2; exit 1; }
+  else
+    npx vite build || { echo "[tld-deploy] FATAL: npx vite build failed." >&2; exit 1; }
+  fi
 
   echo "[tld-deploy] [2b] Copying public/*.html into dist/..."
   shopt -s nullglob

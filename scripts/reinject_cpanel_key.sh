@@ -21,7 +21,7 @@ if ! op whoami &>/dev/null; then
     exit 1
 fi
 
-CPANEL_PASS=$(op read "op://4tllqbvrp333utl5vcsqqelyni/i4654gup35th6oeyldxmbfgbja/password")
+CPANEL_PASS=$(op read "$CPANEL_PASSWORD")
 PUB_KEY=$(cat ~/.ssh/sovereign_swarm.pub)
 
 echo "📦 Sovereign Swarm Public Key acquired."

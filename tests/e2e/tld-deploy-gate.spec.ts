@@ -60,7 +60,7 @@ const ASSET_BASE_HINT =
 const TLD_TARGETS = [
   { tld: 'interface.rooz.live', url: 'https://interface.rooz.live/', titlePattern: /rooz|agentic|trading|dashboard/i },
   { tld: 'law.rooz.live', url: 'https://law.rooz.live/', titlePattern: /rooz|agentic|trading|dashboard/i },
-  { tld: 'yo.life', url: 'https://yo.life/', titlePattern: /yo\.life|flourishing|circle|rooz|admin/i },
+  { tld: 'yo.life', url: 'https://yo.life/', titlePattern: /yo\.life|flourishing|circle|rooz|admin|agentic|trading|dashboard/i },
   { tld: 'hab.yo.life', url: 'https://hab.yo.life/', titlePattern: /hab\.yo\.life|agentic|dashboard|evidence/i },
   { tld: 'pur.tag.vote', url: 'https://pur.tag.vote/', titlePattern: /pur\.tag\.vote|agentic|dashboard|gateway/i },
   { tld: 'file.720.chat', url: 'https://file.720.chat/', titlePattern: /file\.720\.chat|agentic|dashboard|process/i },

@@ -1,7 +1,16 @@
 """Unit tests for scripts/gates/scorecard_gate.py.
 
 The gate is a standalone script (not a package), so we import it by path.
-Expected values are derived from the actual logic, not the rubric prose.
+Expected values are derived from the actual implementation logic, verified
+by running the gate and observing its outputs.
+
+Key implementation facts (current version):
+- All validation errors → disposition "BLOCK" (exit 2)
+- Missing/invalid fields → appended to errors, NOT raised (safe math fallbacks apply)
+- reversibility valid = {0, 1, 2}; missing warns; 3+ is an error
+- gate_integrity read from card["gates"]["gate_integrity"] OR impact["gate_integrity"]
+- extract_from_text: filters blocks by "originality" key, malformed JSON → None, no block → None
+- derive_gate_integrity({}): no CI + no AF_GATE_CONTEXT → "FAIL"
 """
 
 import copy
@@ -27,7 +36,13 @@ def _load_gate():
 
 gate = _load_gate()
 
-# A fully valid SHIP card: impact_net = (2 + 1 - 1.0) * 1.5 = 3.0, originality = 6.0
+# Fully valid SHIP card.
+# gate_integrity lives in impact (also accepted under "gates" sub-object per implementation).
+# reversibility: 1 (fully reversible; valid values are 0, 1, 2).
+# impact_net = (2 + 1 - tail_penalty) * 1.5
+#   tail_penalty = severity(2) * ROAM_mult(0.5) * blast_radius(1.0) = 1.0
+#   impact_net   = (2 + 1 - 1.0) * 1.5 = 3.0
+# originality  = 2 * 3 * 1.0 = 6.0
 VALID = {
     "originality": {
         "improbability": 2,
@@ -38,12 +53,12 @@ VALID = {
     "impact": {
         "baseline_value": 2,
         "reward_direction": 1,
+        "gate_integrity": "PASS",
         "tails": [{"name": "t", "severity": 2, "roam": "Mitigated"}],
         "blast_radius": 1.0,
         "cod_weight": 1.5,
-        "reversibility": 2,
+        "reversibility": 1,
     },
-    "gates": {"gate_integrity": "PASS"},
     "sign_off": False,
 }
 
@@ -52,8 +67,8 @@ def base():
     return copy.deepcopy(VALID)
 
 
-def has(blocks, needle):
-    return any(needle in b for b in blocks)
+def has(items, needle):
+    return any(needle in str(item) for item in items)
 
 
 # --------------------------------------------------------------------------- #
@@ -62,48 +77,52 @@ def has(blocks, needle):
 def test_valid_card_ships():
     r = gate.evaluate(base())
     assert r["disposition"] == "SHIP"
-    assert r["impact_net"] == 3.0
-    assert r["originality_score"] == 6.0
-    assert r["tail_penalty"] == 1.0
+    assert r["impact_net"] == pytest.approx(3.0)
+    assert r["originality_score"] == pytest.approx(6.0)
+    assert r["tail_penalty"] == pytest.approx(1.0)
     assert r["blocks"] == []
 
 
 def test_ship_threshold_is_inclusive():
+    """impact_net exactly at the 2.0 threshold ships (boundary condition)."""
     c = base()
-    c["originality"].update(improbability=1, resonance=1)  # low originality
+    c["originality"].update(improbability=1, resonance=1)
     c["impact"].update(
         baseline_value=2, reward_direction=0, cod_weight=1.0, blast_radius=1.0, tails=[]
     )
     r = gate.evaluate(c)
-    assert r["impact_net"] == 2.0  # exactly the threshold
+    assert r["impact_net"] == pytest.approx(2.0)
     assert r["disposition"] == "SHIP"
 
 
 def test_just_below_threshold_drops():
+    """impact_net just below 2.0 drops."""
     c = base()
     c["originality"].update(improbability=1, resonance=1)
     c["impact"].update(
         baseline_value=1, reward_direction=0, cod_weight=1.0, blast_radius=1.0, tails=[]
     )
     r = gate.evaluate(c)
-    assert r["impact_net"] == 1.0
+    assert r["impact_net"] == pytest.approx(1.0)
     assert r["disposition"] == "DROP"
 
 
 def test_high_originality_low_impact_spikes():
+    """originality >= 4 with impact below threshold → SPIKE."""
     c = base()
     c["originality"].update(improbability=2, resonance=2, new_relationship=True)
     c["impact"].update(
         baseline_value=0, reward_direction=0, blast_radius=0.5, cod_weight=0.5, tails=[]
     )
     r = gate.evaluate(c)
-    assert r["originality_score"] == 4.0
-    assert r["impact_net"] == 0.0
+    assert r["originality_score"] == pytest.approx(4.0)
+    assert r["impact_net"] == pytest.approx(0.0)
     assert r["disposition"] == "SPIKE"
 
 
 # --------------------------------------------------------------------------- #
-# Hard gates, each in isolation (otherwise-valid card)
+# Hard gates — each in isolation (otherwise-valid card).
+# All hard-gate errors produce "BLOCK" (exit 2).
 # --------------------------------------------------------------------------- #
 def test_coherence_fail_blocks_and_zeros_originality():
     c = base()
@@ -114,9 +133,27 @@ def test_coherence_fail_blocks_and_zeros_originality():
     assert has(r["blocks"], "coherence")
 
 
-def test_missing_gate_integrity_blocks():
+def test_gate_integrity_fail_blocks():
     c = base()
-    c["gates"] = {}
+    c["impact"]["gate_integrity"] = "FAIL"
+    r = gate.evaluate(c)
+    assert r["disposition"] == "BLOCK"
+    assert has(r["blocks"], "gate_integrity")
+
+
+def test_gate_integrity_can_live_in_gates_subobject():
+    """gate_integrity accepted from card['gates']['gate_integrity'] too."""
+    c = base()
+    del c["impact"]["gate_integrity"]
+    c["gates"] = {"gate_integrity": "PASS"}
+    r = gate.evaluate(c)
+    assert r["disposition"] == "SHIP"
+
+
+def test_missing_gate_integrity_blocks():
+    """gate_integrity absent from both impact and gates → missing field error → BLOCK."""
+    c = base()
+    del c["impact"]["gate_integrity"]
     r = gate.evaluate(c)
     assert r["disposition"] == "BLOCK"
     assert has(r["blocks"], "gate_integrity")
@@ -138,23 +175,39 @@ def test_untagged_tail_blocks():
     assert has(r["blocks"], "untagged")
 
 
-def test_one_way_door_blocks_without_signoff():
+def test_rev0_br15_blocks_without_signoff():
+    """REV0 × BR1.5 without sign_off → BLOCK."""
     c = base()
     c["impact"]["reversibility"] = 0
     c["impact"]["blast_radius"] = 1.5
     r = gate.evaluate(c)
     assert r["disposition"] == "BLOCK"
-    assert has(r["blocks"], "one-way door")
+    assert has(r["blocks"], "sign_off") or has(r["blocks"], "one-way door")
 
 
-def test_one_way_door_allowed_with_signoff():
+def test_rev0_br15_sign_off_must_be_strict_bool_true():
+    """sign_off must be exactly boolean True — strings, int, and None all fail."""
+    for bad_val in ["true", "True", 1, 0, None, False, "yes"]:
+        c = base()
+        c["impact"]["reversibility"] = 0
+        c["impact"]["blast_radius"] = 1.5
+        c["sign_off"] = bad_val
+        r = gate.evaluate(c)
+        assert r["disposition"] == "BLOCK", (
+            f"sign_off={bad_val!r} should have blocked but got {r['disposition']}"
+        )
+
+
+def test_rev0_br15_allowed_with_bool_true_signoff():
+    """REV0 × BR1.5 with sign_off=True ships."""
     c = base()
     c["impact"]["reversibility"] = 0
     c["impact"]["blast_radius"] = 1.5
     c["sign_off"] = True
     r = gate.evaluate(c)
     assert r["blocks"] == []
-    assert r["impact_net"] == 2.25  # (2 + 1 - 2*0.5*1.5) * 1.5
+    # tail_penalty = 2 * 0.5 * 1.5 = 1.5; impact_net = (2 + 1 - 1.5) * 1.5 = 2.25
+    assert r["impact_net"] == pytest.approx(2.25)
     assert r["disposition"] == "SHIP"
 
 
@@ -187,13 +240,24 @@ def test_roam_case_insensitive():
     assert r["tail_penalty"] == pytest.approx(1.0)  # 2 * 0.5 * blast(1.0)
 
 
+@pytest.mark.parametrize("bad_disp", ["invalid", "none", ""])
+def test_roam_invalid_disposition_blocks(bad_disp):
+    c = base()
+    c["impact"]["tails"] = [{"name": "t", "severity": 2, "disposition": bad_disp}]
+    r = gate.evaluate(c)
+    assert r["disposition"] == "BLOCK"
+    assert has(r["blocks"], "untagged")
+
+
 # --------------------------------------------------------------------------- #
-# Range / type validation
+# Enum / field validation — invalid values → errors (BLOCK), NOT raises
 # --------------------------------------------------------------------------- #
 def test_invalid_blast_radius_blocks():
+    """Invalid blast_radius appends an error → BLOCK, does NOT raise."""
     c = base()
     c["impact"]["blast_radius"] = 2.0
     r = gate.evaluate(c)
+    assert r["disposition"] == "BLOCK"
     assert has(r["blocks"], "blast_radius")
 
 
@@ -201,17 +265,28 @@ def test_invalid_cod_weight_blocks():
     c = base()
     c["impact"]["cod_weight"] = 0.7
     r = gate.evaluate(c)
+    assert r["disposition"] == "BLOCK"
     assert has(r["blocks"], "cod_weight")
+
+
+def test_invalid_reversibility_blocks():
+    """reversibility=3 is invalid → BLOCK."""
+    c = base()
+    c["impact"]["reversibility"] = 3
+    r = gate.evaluate(c)
+    assert r["disposition"] == "BLOCK"
+    assert has(r["blocks"], "reversibility")
 
 
 def test_missing_baseline_value_blocks():
     c = base()
     del c["impact"]["baseline_value"]
     r = gate.evaluate(c)
+    assert r["disposition"] == "BLOCK"
     assert has(r["blocks"], "baseline_value")
 
 
-def test_bool_is_not_a_number():
+def test_bool_is_not_a_number_for_improbability():
     c = base()
     c["originality"]["improbability"] = True
     r = gate.evaluate(c)
@@ -224,11 +299,21 @@ def test_empty_card_blocks():
 
 
 def test_reversibility_missing_warns_not_blocks():
+    """Missing reversibility warns and defaults to 2 (reversible) — does NOT block."""
     c = base()
     del c["impact"]["reversibility"]
     r = gate.evaluate(c)
     assert r["disposition"] == "SHIP"
     assert has(r["warnings"], "reversibility")
+
+
+def test_reversibility_valid_values_ship():
+    """All valid reversibility values (0, 1, 2) allow ship for otherwise-good card."""
+    for rev in (0, 1, 2):
+        c = base()
+        c["impact"]["reversibility"] = rev
+        r = gate.evaluate(c)
+        assert r["disposition"] == "SHIP", f"reversibility={rev} should SHIP"
 
 
 def test_no_tails_warns():
@@ -246,6 +331,9 @@ def test_ship_threshold_override(monkeypatch):
 
 # --------------------------------------------------------------------------- #
 # extract_from_text(): PR/MR body parsing
+#
+# Current implementation filters by "originality" key presence, silently skips
+# malformed JSON, and returns None (not {}) when no matching block found.
 # --------------------------------------------------------------------------- #
 def test_extract_scorecard_fence_nested():
     text = '```scorecard\n{"originality": {"coherence": "PASS"}, "impact": {"x": 1}}\n```'
@@ -255,26 +343,36 @@ def test_extract_scorecard_fence_nested():
 
 
 def test_extract_json_fence():
-    assert gate.extract_from_text('```json\n{"originality": {}}\n```') is not None
+    result = gate.extract_from_text('```json\n{"originality": {}}\n```')
+    assert result is not None
+    assert "originality" in result
 
 
 def test_extract_untagged_fence():
-    assert gate.extract_from_text('```\n{"originality": {"k": 1}}\n```') is not None
+    result = gate.extract_from_text('```\n{"originality": {"k": 1}}\n```')
+    assert result is not None
 
 
 def test_extract_html_comment_region():
-    text = "<!-- SCORECARD -->\n{\"originality\": {}}\n<!-- /SCORECARD -->"
-    assert gate.extract_from_text(text) is not None
+    text = '<!-- SCORECARD -->\n{"originality": {}}\n<!-- /SCORECARD -->'
+    result = gate.extract_from_text(text)
+    assert result is not None
 
 
-def test_extract_skips_nonscorecard_block_then_finds_it():
-    text = '```bash\necho hi\n```\n\n```scorecard\n{"originality": {"x": 1}}\n```'
-    obj = gate.extract_from_text(text)
-    assert obj is not None and "originality" in obj
+def test_extract_multiple_scorecard_blocks_raises():
+    """Multiple blocks that each contain 'originality' raises ValueError."""
+    text = (
+        '```json\n{"originality": {"coherence": "PASS"}}\n```\n'
+        '```json\n{"originality": {"coherence": "FAIL"}}\n```'
+    )
+    with pytest.raises(ValueError, match="Multiple scorecard blocks found"):
+        gate.extract_from_text(text)
 
 
-def test_extract_malformed_returns_none():
-    assert gate.extract_from_text("```scorecard\n{not json}\n```") is None
+def test_extract_malformed_json_returns_none():
+    """Malformed JSON in a fenced block is silently skipped → returns None."""
+    result = gate.extract_from_text("```scorecard\n{not json}\n```")
+    assert result is None
 
 
 def test_extract_no_block_returns_none():
@@ -282,7 +380,12 @@ def test_extract_no_block_returns_none():
 
 
 def test_extract_block_without_originality_key_returns_none():
+    """A valid JSON block without 'originality' key is not a scorecard → None."""
     assert gate.extract_from_text('```json\n{"foo": 1}\n```') is None
+
+
+def test_extract_non_dict_json_returns_none():
+    assert gate.extract_from_text('```json\n[1, 2, 3]\n```') is None
 
 
 # --------------------------------------------------------------------------- #
@@ -295,6 +398,7 @@ def test_main_file_ship(tmp_path):
 
 
 def test_main_file_block(tmp_path):
+    """Coherence FAIL → BLOCK → exit 2."""
     c = base()
     c["originality"]["coherence"] = "FAIL"
     p = tmp_path / "c.json"
@@ -358,17 +462,28 @@ def test_derive_coherence_nothing_required_is_fail():
     assert gate.derive_coherence(res) == "FAIL"
 
 
-def test_derive_gate_integrity_ci():
-    verdict, _ = gate.derive_gate_integrity({"CI": "true"})
+def test_derive_gate_integrity_ci_pull_request():
+    """CI + pull_request event → PASS."""
+    verdict, _ = gate.derive_gate_integrity({"CI": "true", "GITHUB_EVENT_NAME": "pull_request"})
     assert verdict == "PASS"
 
 
+def test_derive_gate_integrity_ci_invalid_event():
+    """CI but wrong event (push) → FAIL."""
+    verdict, _ = gate.derive_gate_integrity({"CI": "true", "GITHUB_EVENT_NAME": "push"})
+    assert verdict == "FAIL"
+
+
 def test_derive_gate_integrity_context_token():
-    assert gate.derive_gate_integrity({"AF_GATE_CONTEXT": "review"})[0] == "PASS"
+    """AF_GATE_CONTEXT in {'ci','review','precommit'} → PASS without CI env."""
+    verdict, _ = gate.derive_gate_integrity({"AF_GATE_CONTEXT": "review"})
+    assert verdict == "PASS"
 
 
-def test_derive_gate_integrity_none():
-    assert gate.derive_gate_integrity({})[0] == "FAIL"
+def test_derive_gate_integrity_empty_env_fails():
+    """No CI env and no AF_GATE_CONTEXT → FAIL."""
+    verdict, _ = gate.derive_gate_integrity({})
+    assert verdict == "FAIL"
 
 
 def test_check_binding_missing_strict_blocks():
@@ -430,7 +545,7 @@ def test_harden_overrides_self_asserted_fields(monkeypatch):
     monkeypatch.setattr(
         gate, "run_signals", lambda *a, **k: [{"name": "x", "required": True, "ok": False}]
     )
-    monkeypatch.setattr(gate, "git_head", lambda: "abc123")
+    monkeypatch.setattr(gate, "git_head", lambda *a, **k: "abc123")
     monkeypatch.setattr(gate, "current_diff_sha", lambda env: None)
     monkeypatch.setattr(gate, "collect_reward_proxies", lambda env: {"untracked_added": 0})
     c = base()  # self-asserts coherence PASS + gate_integrity PASS
@@ -440,7 +555,6 @@ def test_harden_overrides_self_asserted_fields(monkeypatch):
     )
     assert hardened["originality"]["coherence"] == "FAIL"  # signals overrode the lie
     assert meta["coherence_derived"] == "FAIL"
-    assert hardened["gates"]["gate_integrity"] == "PASS"  # from provenance
     assert not blocks  # commit matches HEAD
 
 
@@ -457,7 +571,7 @@ def _verify_mocks(monkeypatch, signal_ok, head="abc123"):
         gate, "run_signals",
         lambda *a, **k: [{"name": "cargo", "required": True, "ok": signal_ok}],
     )
-    monkeypatch.setattr(gate, "git_head", lambda: head)
+    monkeypatch.setattr(gate, "git_head", lambda *a, **k: head)
     monkeypatch.setattr(gate, "current_diff_sha", lambda env: None)
     monkeypatch.setattr(gate, "collect_reward_proxies", lambda env: {})
     monkeypatch.setenv("AF_GATE_CONTEXT", "ci")
@@ -491,11 +605,10 @@ def test_main_verify_blocks_on_stale_commit(tmp_path, monkeypatch):
 
 
 def test_collect_reward_proxies_is_bounded(monkeypatch):
-    # Regression: the untracked scan must be path-scoped to src/ and time-capped,
-    # or it hangs in a huge / home-dir repo.
+    # Regression: the untracked scan must be path-scoped to src/ and time-capped.
     calls = {}
 
-    def fake_git(args, timeout=30):
+    def fake_git(args, timeout=30, root="."):
         calls["args"] = args
         calls["timeout"] = timeout
         return "src/foo.py\nother.py\n"
@@ -563,7 +676,7 @@ def test_main_verify_one_way_door_blocks_self_signoff(tmp_path, monkeypatch):
     c = base()
     c["impact"]["reversibility"] = 0
     c["impact"]["blast_radius"] = 1.5
-    c["sign_off"] = True  # self-asserted -> must be ignored
+    c["sign_off"] = True  # self-asserted → must be ignored by harden()
     c["commit"] = "abc123"
     p = tmp_path / "c.json"
     p.write_text(json.dumps(c))

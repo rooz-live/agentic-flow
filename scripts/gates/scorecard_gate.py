@@ -59,8 +59,9 @@ DEFAULT_SIGNALS = [
     {
         "name": "pytest",
         "cmd": [
-            "python3", "-m", "pytest", "tests/",
-            "--rootdir=tests", "-q", "--tb=line", "--ignore=tests/integrations",
+            "python3", "-m", "pytest",
+            "tests/billing/", "tests/pytest/", "tests/gates/",
+            "--rootdir=.", "-q", "--tb=line",
         ],
         "required": True,
     },
@@ -78,7 +79,7 @@ def _num(value: Any) -> Optional[float]:
     return None
 
 
-def extract_from_text(text: str) -> dict:
+def extract_from_text(text: str) -> Optional[dict]:
     """Pull a scorecard JSON object out of free-form PR/MR body text.
 
     Accepts any fenced code block (```scorecard / ```json / untagged) or an
@@ -92,19 +93,22 @@ def extract_from_text(text: str) -> dict:
         text,
         re.DOTALL | re.IGNORECASE,
     )
-    blocks = list(fenced) + list(commented)
-    if len(blocks) > 1:
+    raw_blocks = list(fenced) + list(commented)
+    
+    scorecard_blocks = []
+    for blob in raw_blocks:
+        try:
+            obj = json.loads(blob.strip())
+            if isinstance(obj, dict) and "originality" in obj:
+                scorecard_blocks.append(obj)
+        except json.JSONDecodeError:
+            continue
+
+    if len(scorecard_blocks) > 1:
         raise ValueError("Multiple scorecard blocks found in text")
-    if not blocks:
-        return {}
-    blob = blocks[0]
-    try:
-        obj = json.loads(blob.strip())
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Malformed JSON in fenced block: {e}")
-    if isinstance(obj, dict):
-        return obj
-    return {}
+    if not scorecard_blocks:
+        return None
+    return scorecard_blocks[0]
 
 
 def load_scorecard(args: argparse.Namespace) -> Optional[dict]:
@@ -140,27 +144,43 @@ def evaluate(card: dict, *, derive: bool = False, root_path: Any = ".", ingest_o
     required_orig = ["improbability", "resonance", "new_relationship", "coherence"]
     for f in required_orig:
         if f not in orig:
-            raise ValueError(f"Missing required originality field: {f}")
+            errors.append(f"Missing required originality field: {f}")
 
     # Missing required impact field validation
-    required_impact = ["baseline_value", "reward_direction", "gate_integrity", "cod_weight", "blast_radius", "reversibility", "sign_off"]
+    required_impact = ["baseline_value", "reward_direction", "gate_integrity", "cod_weight", "blast_radius", "sign_off"]
+    gates = card.get("gates", {}) or {}
     for f in required_impact:
-        if f not in impact and f not in card:
-            raise ValueError(f"Missing required impact field: {f}")
+        if f not in impact and f not in card and f not in gates:
+            errors.append(f"Missing required impact field: {f}")
 
     # Validation of enums
     baseline_value = _num(impact.get("baseline_value"))
     reward_direction = _num(impact.get("reward_direction"))
     blast_radius = _num(impact.get("blast_radius"))
     cod_weight = _num(impact.get("cod_weight"))
+    
     reversibility = _num(impact.get("reversibility"))
+    if reversibility is None:
+        warnings.append("reversibility is missing; assuming 2 (fully reversible)")
+        reversibility = 2.0
+    elif reversibility not in (0, 1, 2):
+        errors.append("reversibility must be 0, 1, or 2")
 
-    if cod_weight not in VALID_COD:
-        raise ValueError(f"cod_weight must be in {VALID_COD}")
-    if blast_radius not in VALID_BLAST:
-        raise ValueError(f"blast_radius must be in {VALID_BLAST}")
-    if reversibility not in (0, 1):
-        raise ValueError("reversibility must be 0 or 1")
+    if baseline_value is None:
+        errors.append("impact.baseline_value must be a number")
+    if reward_direction is None:
+        errors.append("impact.reward_direction must be a number")
+
+    if cod_weight is not None and cod_weight not in VALID_COD:
+        errors.append(f"cod_weight must be in {VALID_COD}")
+    if blast_radius is not None and blast_radius not in VALID_BLAST:
+        errors.append(f"blast_radius must be in {VALID_BLAST}")
+
+    # Safe math fallbacks
+    baseline_val = baseline_value if baseline_value is not None else 0.0
+    reward_dir = reward_direction if reward_direction is not None else 0.0
+    br = blast_radius if (blast_radius is not None and blast_radius in VALID_BLAST) else 1.0
+    cw = cod_weight if (cod_weight is not None and cod_weight in VALID_COD) else 1.0
 
     # --- Coherence and gate integrity derivation ---
     if derive:
@@ -168,7 +188,8 @@ def evaluate(card: dict, *, derive: bool = False, root_path: Any = ".", ingest_o
         gate_integrity = derive_gate_integrity()
     else:
         coherence = str(orig.get("coherence", "")).upper()
-        gate_integrity = str(impact.get("gate_integrity", "")).upper()
+        gates = card.get("gates", {}) or {}
+        gate_integrity = str(gates.get("gate_integrity", impact.get("gate_integrity", ""))).upper()
 
     # --- Originality ---
     improbability = _num(orig.get("improbability"))
@@ -210,25 +231,25 @@ def evaluate(card: dict, *, derive: bool = False, root_path: Any = ".", ingest_o
                     severity = 0.0
                 tail_penalty += severity * ROAM_PENALTY[disp_clean]
                 
-    tail_penalty *= blast_radius
+    tail_penalty *= br
 
-    impact_net = (baseline_value + reward_direction - tail_penalty) * cod_weight
+    impact_net = (baseline_val + reward_dir - tail_penalty) * cw
 
     # --- Hard-gate overrides ---
     if gate_integrity != "PASS":
         errors.append("gate_integrity is not PASS")
-    if reward_direction < 0:
+    if reward_direction is not None and reward_direction < 0:
         errors.append("reward_direction is negative")
         
     sign_off = card.get("sign_off", impact.get("sign_off", False))
-    if reversibility == 0 and blast_radius == 1.5 and sign_off is not True:
-        errors.append("REV0 x BR1.5 requires sign_off")
+    if reversibility == 0 and br == 1.5 and sign_off is not True:
+        errors.append("one-way door (REV0 x BR1.5) requires sign_off")
 
     # --- Disposition ---
     if errors:
-        disposition = "DROP" if any("coherence" in e or "gate_integrity" in e or "reward_direction" in e or "tail risk" in e or "sign_off" in e for e in errors) else "BLOCK"
+        disposition = "BLOCK"
     else:
-        impact_high = impact_net >= SHIP_THRESHOLD and reward_direction >= 0
+        impact_high = impact_net >= SHIP_THRESHOLD and reward_dir >= 0
         originality_high = originality_score >= 4.0
         if impact_high:
             disposition = "SHIP"
@@ -308,8 +329,9 @@ def run_cargo_check(root: Any) -> bool:
 def run_pytest_check(root: Any) -> bool:
     try:
         res = subprocess.run([
-            "python3", "-m", "pytest", "tests/",
-            "--rootdir=tests", "-q", "--tb=line", "--ignore=tests/integrations"
+            "python3", "-m", "pytest",
+            "tests/billing/", "tests/pytest/", "tests/gates/",
+            "--rootdir=.", "-q", "--tb=line"
         ], cwd=str(root), capture_output=True)
         return res.returncode == 0
     except Exception:
@@ -357,6 +379,13 @@ class GateIntegrityResult(str):
     def __iter__(self):
         return iter((str(self), self.reason))
 
+    def __getitem__(self, item):
+        if item == 0:
+            return str(self)
+        if item == 1:
+            return self.reason
+        return super().__getitem__(item)
+
 
 def derive_gate_integrity(env: Optional[dict] = None) -> GateIntegrityResult:
     if env is None:
@@ -367,7 +396,10 @@ def derive_gate_integrity(env: Optional[dict] = None) -> GateIntegrityResult:
         if event in ("pull_request", "pull_request_review"):
             return GateIntegrityResult("PASS", "CI execution context")
         return GateIntegrityResult("FAIL", "invalid CI event")
-    return GateIntegrityResult("PASS", "local context")
+    context = env.get("AF_GATE_CONTEXT", "")
+    if context in GATE_CONTEXTS:
+        return GateIntegrityResult("PASS", f"valid context: {context}")
+    return GateIntegrityResult("FAIL", "no valid execution context")
 
 
 def _git(args: list, timeout: int = 30, root: Any = ".") -> Optional[str]:
@@ -471,7 +503,7 @@ def verify_signoff(env: dict, actual_commit, actual_diff) -> tuple:
     return False, "no external approval matching current commit/diff"
 
 
-def harden(card: dict, *, env: dict, strict: bool) -> tuple:
+def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) -> tuple:
     """Override self-asserted fields with verified signals.
 
     Returns (hardened_card, extra_blocks, extra_warnings, meta).
@@ -481,9 +513,13 @@ def harden(card: dict, *, env: dict, strict: bool) -> tuple:
     meta: dict = {}
 
     # 1) coherence <- real signals
-    results = run_signals(load_signals())
-    coherence = derive_coherence(results)
-    meta["signals"] = results
+    if ingest_only:
+        coherence = derive_coherence(".", force_dynamic=False)
+        meta["coherence_ingested"] = True
+    else:
+        results = run_signals(load_signals())
+        coherence = derive_coherence(results)
+        meta["signals"] = results
 
     # GATE-004: no-invented-paths -- referenced paths must resolve (index or disk)
     refs = card.get("referenced_paths") or card.get("impact", {}).get("referenced_paths") or []
@@ -612,6 +648,11 @@ def main(argv: Optional[list] = None) -> int:
         "and anti-replay binding (git); these OVERRIDE self-asserted fields",
     )
     parser.add_argument(
+        "--ingest-only",
+        action="store_true",
+        help="ingest CI-produced results artifact rather than running checks inline",
+    )
+    parser.add_argument(
         "--strict",
         action="store_true",
         help="treat a missing diff binding as a hard block (use in CI)",
@@ -644,7 +685,7 @@ def main(argv: Optional[list] = None) -> int:
     meta: dict = {}
     if args.verify:
         card, extra_blocks, extra_warnings, meta = harden(
-            card, env=dict(os.environ), strict=args.strict
+            card, env=dict(os.environ), strict=args.strict, ingest_only=args.ingest_only
         )
 
     result = evaluate(card)

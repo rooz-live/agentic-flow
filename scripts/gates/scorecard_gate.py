@@ -29,6 +29,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
@@ -482,25 +483,71 @@ def find_invented_paths(refs: list, root: str = ".") -> list:
     return [p for p in (refs or []) if p and not path_is_tracked(p, root)]
 
 
-def verify_signoff(env: dict, actual_commit, actual_diff) -> tuple:
+def verify_ssh_signature(signature_str: str, principal: str, message: str, allowed_signers_path: str) -> bool:
+    """Validate a signature of the message string using ssh-keygen -Y verify."""
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False) as sig_file:
+            sig_file.write(signature_str)
+            sig_file_path = sig_file.name
+        try:
+            # Run ssh-keygen verify on stdin input
+            proc = subprocess.run(
+                [
+                    "ssh-keygen",
+                    "-Y", "verify",
+                    "-f", allowed_signers_path,
+                    "-I", principal,
+                    "-n", "scorecard-gate",
+                    "-s", sig_file_path
+                ],
+                input=message.encode("utf-8"),
+                capture_output=True,
+                timeout=10
+            )
+            return proc.returncode == 0
+        finally:
+            os.remove(sig_file_path)
+    except Exception:
+        return False
+
+
+def verify_signoff(card: dict, env: dict, actual_commit, actual_diff) -> tuple:
     """External approval for THIS commit/diff. The card's boolean is never trusted.
 
-    Sources: AF_SIGNOFF env (== commit or diff), or a line in APPROVALS_FILE.
+    Option 1: Cryptographic Signatures (SSH)
     """
+    allowed_signers_path = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
+    
+    # Check if cryptographic signing is enabled/enforced via allowed_signers file existence
+    if os.path.exists(allowed_signers_path):
+        principal = card.get("sign_off_principal") or card.get("impact", {}).get("sign_off_principal")
+        signature = card.get("sign_off_signature") or card.get("impact", {}).get("sign_off_signature")
+        if not principal or not signature:
+            return False, "allowed_signers exists but no sign_off_principal or sign_off_signature provided"
+            
+        if actual_commit and verify_ssh_signature(signature, principal, actual_commit, allowed_signers_path):
+            return True, f"cryptographically verified sign-off for commit by {principal}"
+            
+        if actual_diff and verify_ssh_signature(signature, principal, actual_diff, allowed_signers_path):
+            return True, f"cryptographically verified sign-off for diff by {principal}"
+            
+        return False, f"cryptographic signature verification failed for principal {principal}"
+
+    # Fallback to legacy behavior if allowed_signers does not exist
     token = str(env.get("AF_SIGNOFF", "")).strip()
     if token and token in (actual_commit, actual_diff):
         kind = "commit" if token == actual_commit else "diff"
-        return True, f"AF_SIGNOFF matches {kind}"
+        return True, f"AF_SIGNOFF matches {kind} (legacy mode)"
     try:
         if os.path.exists(APPROVALS_FILE):
             with open(APPROVALS_FILE, "r", encoding="utf-8") as fh:
                 for line in fh:
                     line = line.strip()
                     if line and not line.startswith("#") and line in (actual_commit, actual_diff):
-                        return True, f"approvals file entry matches {line[:12]}"
+                        return True, f"approvals file entry matches {line[:12]} (legacy mode)"
     except OSError:
         pass
-    return False, "no external approval matching current commit/diff"
+    return False, "no external approval matching current commit/diff (legacy mode)"
 
 
 def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) -> tuple:
@@ -550,7 +597,7 @@ def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) ->
     extra_warnings += w
 
     # GATE-003: sign_off <- external approval (never the self-asserted boolean)
-    verified_signoff, so_reason = verify_signoff(env, actual_commit, actual_diff)
+    verified_signoff, so_reason = verify_signoff(card, env, actual_commit, actual_diff)
     card["sign_off"] = verified_signoff
     meta["sign_off_verified"] = verified_signoff
     meta["sign_off_reason"] = so_reason

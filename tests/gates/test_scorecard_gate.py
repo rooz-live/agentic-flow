@@ -648,17 +648,17 @@ def test_main_verify_blocks_invented_paths(tmp_path, monkeypatch):
 # GATE-003: unforgeable sign_off
 # --------------------------------------------------------------------------- #
 def test_verify_signoff_env_commit():
-    ok, _ = gate.verify_signoff({"AF_SIGNOFF": "abc123"}, "abc123", "diffsha")
+    ok, _ = gate.verify_signoff({}, {"AF_SIGNOFF": "abc123"}, "abc123", "diffsha")
     assert ok
 
 
 def test_verify_signoff_env_diff():
-    ok, _ = gate.verify_signoff({"AF_SIGNOFF": "diffsha"}, "abc123", "diffsha")
+    ok, _ = gate.verify_signoff({}, {"AF_SIGNOFF": "diffsha"}, "abc123", "diffsha")
     assert ok
 
 
 def test_verify_signoff_none():
-    ok, _ = gate.verify_signoff({}, "abc123", "diffsha")
+    ok, _ = gate.verify_signoff({}, {}, "abc123", "diffsha")
     assert not ok
 
 
@@ -666,8 +666,42 @@ def test_verify_signoff_approvals_file(tmp_path, monkeypatch):
     f = tmp_path / "approvals.txt"
     f.write_text("# approvals\nabc123\n")
     monkeypatch.setattr(gate, "APPROVALS_FILE", str(f))
-    ok, _ = gate.verify_signoff({}, "abc123", "diff")
+    ok, _ = gate.verify_signoff({}, {}, "abc123", "diff")
     assert ok
+
+
+def test_verify_signoff_cryptographic_good(tmp_path, monkeypatch):
+    allowed_signers = tmp_path / "allowed_signers"
+    allowed_signers.write_text("approver@rooz.live ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA\n")
+    
+    card = {
+        "sign_off_principal": "approver@rooz.live",
+        "sign_off_signature": "valid-sig"
+    }
+    
+    # Mock verify_ssh_signature to return True
+    monkeypatch.setattr(gate, "verify_ssh_signature", lambda sig, princ, msg, path: True)
+    
+    ok, reason = gate.verify_signoff(card, {"AF_ALLOWED_SIGNERS": str(allowed_signers)}, "abc123commit", None)
+    assert ok
+    assert "cryptographically verified" in reason
+
+
+def test_verify_signoff_cryptographic_bad(tmp_path, monkeypatch):
+    allowed_signers = tmp_path / "allowed_signers"
+    allowed_signers.write_text("approver@rooz.live ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA\n")
+    
+    card = {
+        "sign_off_principal": "approver@rooz.live",
+        "sign_off_signature": "invalid-sig"
+    }
+    
+    # Mock verify_ssh_signature to return False
+    monkeypatch.setattr(gate, "verify_ssh_signature", lambda sig, princ, msg, path: False)
+    
+    ok, reason = gate.verify_signoff(card, {"AF_ALLOWED_SIGNERS": str(allowed_signers)}, "abc123commit", None)
+    assert not ok
+    assert "verification failed" in reason
 
 
 def test_main_verify_one_way_door_blocks_self_signoff(tmp_path, monkeypatch):

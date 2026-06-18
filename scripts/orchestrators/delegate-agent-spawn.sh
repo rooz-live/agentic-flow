@@ -6,7 +6,20 @@
 
 set -euo pipefail
 
+npx() {
+    local proj_root
+    proj_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+    if [[ "$1" == "@claude-flow/cli@latest" ]]; then
+        local pkg="@claude-flow/cli"
+        shift
+        command npx --prefix "$proj_root/clean-ruflo-env" "$pkg" "$@"
+    else
+        command npx --prefix "$proj_root/clean-ruflo-env" "$@"
+    fi
+}
+
 # Source exit codes
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EXIT_CODES_PATH="${SCRIPT_DIR}/../validation-core.sh"
 

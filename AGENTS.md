@@ -1,4 +1,4 @@
-# AGENTS.md — Honest Baseline (2026-05-26, updated session 3 — wave-4 anti-CVT gate)
+# AGENTS.md — Honest Baseline (2026-05-26, updated wave-5 — 2026-06-19)
 
 ## Ground Truth (verified by filesystem + git)
 
@@ -136,29 +136,44 @@ git ls-files --others --exclude-standard | grep "^src/" | wc -l
 | G8 | `tests/e2e/public-edge-verify.e2e.spec.ts` (flag-gated) | 9.0 | ✅ DONE |
 | G9 | `tests/integration/hostbill-stripe-boundary.e2e.spec.ts` | 8.8 | ✅ DONE |
 
+### DONE (Wave 5 — committed f79c2eee4, 2026-06-19)
+Scorecard: **SHIP** | impact_net=6.0 | tail_penalty=1.0 | 244 AQE cycles/hour capacity
+Gate overhead per cycle: DoR=1.7s + scorecard=0.3s + pytest(147)=12.8s = **14.7s total**
+
+| # | Item | WSJF | Status |
+|---|------|------|--------|
+| W5-1 | `eventops-grpc.service` deployed — api.interface.tag.ooo gRPC HTTP 200 | 9.5 | ✅ R-EVENTOPS-01: Resolved |
+| W5-2 | OroCommerce KVM live: crm/shop.bhopti.com HTTP 200 | 7.5 | ✅ R-OROCRM-01: Resolved |
+| W5-3 | `deploy-uapi`: 21/21 TLD files deployed via WHM UAPI | 7.0 | ✅ DONE |
+| W5-4 | ns2.tag.ooo NS record added (zone-corruption SPOF mitigated) | 8.5 | ✅ R-SPOF-01: Mitigated |
+| W5-5 | billing/crm/shop/mailadmin: `pending → delegated` in fqdn_registry.yaml | 8.0 | ✅ DONE |
+| W5-6 | tld-deploy-gate.spec.ts: +4 billing infra probes, gRPC 502-as-invariant test | 7.5 | ✅ DONE |
+| W5-7 | BaseBillingE2ESpec: `FQDN_MIGRATION_STATUS` TypeScript record type | 7.0 | ✅ DONE |
+| W5-8 | one.sh: `dod-gate` + `scorecard` subcommands (monolith deconstruct) | 6.5 | ✅ DONE |
+| W5-9 | coherence_results.json artifact: derives coherence from real signals (not self-asserted) | 9.0 | ✅ self-assertion bypass: Mitigated |
+| W5-10 | public-edge-verify: @blocked-evidence → @eventops-gate (asserts HTTP 200) | 9.0 | ✅ DONE |
+
 ### NOW (Highest CoD — active blockers)
 | # | Item | WSJF | Status |
 |---|------|------|--------|
-| 1 | Activate Caddy as TLS terminator on 23.92.79.2:443 (replaces cPanel default 502) | 9.5 | 🔴 BLOCKED: sysadmin access |
-| 2 | `api.interface.tag.ooo` gRPC live → unblocks invoice pipeline (EventOps ROAM: Owned) | 9.4 | 🔴 BLOCKED: Caddy not active |
-| 3 | `public_synthetic_check.sh billing.bhopti.com` exit 0 | 9.0 | 🔴 BLOCKED: Caddy not terminating |
-| 4 | Add ns2.tag.ooo on separate IP (SPOF elimination, R-SPOF-01) | 8.5 | 🔴 BLOCKED: second DNS host needed |
-| 5 | Start OroCommerce KVM guest (192.168.122.237): `virsh start <oro-vm>` | 7.5 | 🔴 BLOCKED: KVM bridge down |
-| 6 | `bash scripts/one.sh deploy-uapi` — WHM UAPI push TLD files | 7.0 | 🟡 READY: .env credentials present |
+| 1 | HostBill gateway: reqwest HTTP client, real API calls | 6.5 | 🟡 READY |
+| 2 | Stripe webhook end-to-end (edge → Rust → EventStore → Invoice) | 6.0 | 🟡 READY |
+| 3 | ns2.tag.ooo on separate IP (full hardware SPOF elimination, R-SPOF-01) | 5.5 | 🔴 BLOCKED: second DNS host |
+| 4 | gate_integrity: wire scorecard --verify to CI artifact (.github/workflows) | 5.0 | 🟡 READY |
+| 5 | OroCommerce CRM integration: crm.bhopti.com → real B2B workflow | 5.5 | 🟡 READY |
 
 ### NEXT
 | # | Item | WSJF | Status |
 |---|------|------|--------|
-| 4 | HostBill gateway completion (reqwest HTTP client, real API calls) | 6.5 | Ready |
-| 5 | Stripe webhook end-to-end (edge → Rust → EventStore → Invoice) | 6.0 | Ready |
-| 6 | OroCommerce CRM integration (crm.bhopti.com) | 5.5 | Blocked: DNS |
+| 6 | k6 load at 150% profile (`tests/load/k6_billing.js` staged) | 7.5 | Ready |
+| 7 | app_id field in all 19 TLD manifest.json files (PWA app store submission gap) | 5.0 | Ready |
+| 8 | docs.bhopti.com / admin.bhopti.com: resolve ${PLACEHOLDER} origins | 4.5 | Design |
 
 ### LATER
 | # | Item | WSJF | Status |
 |---|------|------|--------|
-| 7 | k6 load at 150% profile (`tests/load/k6_billing.js` staged) | 7.5 | Ready |
-| 8 | MPP DDD bounded context deconstruct (src/billing/* ADRs) | 7.0 | Design |
-| 9 | ROAM risk register (billing pipeline) | 6.0 | Design |
+| 9 | MPP DDD bounded context deconstruct (src/billing/* ADRs) | 7.0 | Design |
+| 10 | ROAM risk register (billing pipeline full) | 6.0 | Design |
 
 ## MPP Layer Reference (Method Pattern Protocol)
 ```

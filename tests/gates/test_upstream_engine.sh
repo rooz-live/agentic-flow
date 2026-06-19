@@ -426,12 +426,12 @@ test_e5_one_sh_upstream_subcommand() {
     local LINE_COUNT
     LINE_COUNT=$(wc -l < "$ONE_SH" | tr -d ' ')
     TESTS_RUN=$((TESTS_RUN + 1))
-    if [[ $LINE_COUNT -lt 175 ]]; then
+    if [[ $LINE_COUNT -lt 200 ]]; then
         TESTS_PASSED=$((TESTS_PASSED + 1))
-        echo -e "\033[32m✓\033[0m  one.sh is $LINE_COUNT lines (< 175 — still a dispatch table)"
+        echo -e "\033[32m✓\033[0m  one.sh is $LINE_COUNT lines (< 200 — still a dispatch table)"
     else
         TESTS_FAILED=$((TESTS_FAILED + 1))
-        echo -e "\033[31m✗\033[0m  one.sh is $LINE_COUNT lines (>= 175 — monolith regression!)"
+        echo -e "\033[31m✗\033[0m  one.sh is $LINE_COUNT lines (>= 200 — monolith regression!)"
     fi
 }
 

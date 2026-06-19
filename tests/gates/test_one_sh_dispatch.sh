@@ -3,7 +3,7 @@
 #
 # Behaviours under test:
 #   D1  Unknown subcommand → exit 1 with "Unknown subcommand" message
-#   D2  'help' → exit 0 and lists all 8 subcommands in output
+#   D2  'help' → exit 0 and lists all subcommands in output
 #   D3  'coherence' → delegates to scripts/gates/coherence-gate.sh (not inline)
 #   D4  'deploy-uapi' → delegates to scripts/deploy/deploy-uapi.sh
 #   D5  'deploy-edge' → delegates to scripts/deploy/deploy-edge-cfg.sh
@@ -72,7 +72,7 @@ test_help_exits_zero_and_lists_subcommands() {
         echo -e "\033[31m✗\033[0m  exited $LAST_RC (expected 0)"
     fi
 
-    for subcmd in coherence trust-path verify-contract ci deploy-uapi deploy-edge run-safely wsjf; do
+    for subcmd in coherence trust-path verify-contract ci deploy-uapi deploy-edge run-safely wsjf edge-sync; do
         TESTS_RUN=$((TESTS_RUN + 1))
         if grep -q "$subcmd" "$TMPROOT/out.txt" 2>/dev/null; then
             TESTS_PASSED=$((TESTS_PASSED + 1))
@@ -285,7 +285,7 @@ test_run_safely_no_args_exits_nonzero() {
     fi
 }
 
-# ── D8: one.sh is < 150 lines (not a monolith) ───────────────────────────────
+# ── D8: one.sh is < 200 lines (not a monolith) ───────────────────────────────
 test_one_sh_line_count() {
     echo ""
     echo "D8: one.sh is < 200 lines (dispatch table, not a monolith)"
@@ -301,6 +301,39 @@ test_one_sh_line_count() {
     fi
 }
 
+# ── D9: 'edge-sync' delegates to edge_gateway_sync_engine.py ───────────────────
+test_edge_sync_delegates() {
+    echo ""
+    echo "D9: 'edge-sync' dispatches to scripts/cicd/edge_gateway_sync_engine.py"
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if grep -q "edge_gateway_sync_engine.py" "$ONE_SH"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        echo -e "\033[32m✓\033[0m  one.sh references edge_gateway_sync_engine.py"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        echo -e "\033[31m✗\033[0m  one.sh does NOT reference edge_gateway_sync_engine.py"
+    fi
+
+    # Must NOT contain inline DNS or curl logic under edge-sync case
+    TESTS_RUN=$((TESTS_RUN + 1))
+    INLINE_COUNT=$(python3 -c "
+import re
+code = open('$ONE_SH').read()
+m = re.search(r'edge-sync\)(.+?);;', code, re.DOTALL)
+block = m.group(1) if m else ''
+hits = sum(1 for kw in ['dig', 'curl', 'ssh', 'scp'] if kw in block)
+print(hits)
+" 2>/dev/null || echo "0")
+    if [[ "$INLINE_COUNT" -eq 0 ]]; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        echo -e "\033[32m✓\033[0m  no inline DNS/curl/SSH in edge-sync case (delegated cleanly)"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        echo -e "\033[31m✗\033[0m  found $INLINE_COUNT inline network references in edge-sync case"
+    fi
+}
+
 main() {
     test_unknown_subcommand_exits_nonzero
     test_help_exits_zero_and_lists_subcommands
@@ -311,6 +344,7 @@ main() {
     test_ci_short_circuits_on_assess_failure
     test_run_safely_no_args_exits_nonzero
     test_one_sh_line_count
+    test_edge_sync_delegates
     print_test_summary
 }
 

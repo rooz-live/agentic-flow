@@ -16,6 +16,7 @@
 #   wsjf             → scripts/cicd/update_lnnnl.py
 #   dod-gate         → scripts/dod-gate.sh [--pre-task|--post-task|--full]
 #   scorecard        → scripts/gates/scorecard_gate.py [--verify|--file PATH|--json]
+#   edge-sync        → scripts/cicd/edge_gateway_sync_engine.py [--dry-run|--force|--json]
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -132,6 +133,21 @@ case "$CMD" in
         exec python3 "$ROOT_DIR/scripts/cicd/upstream_upgrade_engine.py" "$@"
         ;;
 
+    edge-sync)
+        # Edge Gateway Synchronization Engine.
+        # Parses edge_gateway.cfg, resolves live DNS, compares against fqdn_registry.yaml,
+        # health-probes each FQDN's health_path, writes DLQ + ROAM signals on drift,
+        # and emits a DoD artefact edge_sync_{run_id}.json.
+        #
+        # Flags (passed through):
+        #   --dry-run       Fetch + resolve only; print plan; exit 0
+        #   --force         Check all FQDNs, ignoring cache
+        #   --json          Emit final summary JSON to stdout
+        #   --no-coherence  Skip coherence gate (CI use only)
+        shift
+        exec python3 "$ROOT_DIR/scripts/cicd/edge_gateway_sync_engine.py" "$@"
+        ;;
+
     help|--help|-h)
         cat <<'HELP'
 Usage: ./scripts/one.sh <subcommand> [args...]
@@ -148,6 +164,7 @@ Usage: ./scripts/one.sh <subcommand> [args...]
   dod-gate          DoR/DoD gate: --pre-task | --post-task | --full (default)
   scorecard         Originality/Impact gate: [--verify] [--file PATH] [--json]
   upstream          Upstream repo upgrade engine: [--dry-run] [--force] [--parallel] [--json]
+  edge-sync         Edge gateway DNS sync + health probe: [--dry-run] [--force] [--json]
 HELP
         exit 0
         ;;

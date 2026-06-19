@@ -174,6 +174,19 @@ Gate overhead per cycle: DoR=1.7s + scorecard=0.3s + pytest(147)=12.8s = **14.7s
 | U7 | `one.sh upstream` subcommand — delegates to engine; monolith guard updated (< 200 lines) | 7.5 | ✅ DONE |
 | U8 | ci circles (assess/orchestrate/swarm) verified wired in `scripts/ci/`, short-circuit on failure | 9.0 | ✅ DONE |
 
+### DONE (Wave 7 — edge sync + local upgrader hardening, 2026-06-19)
+| # | Item | WSJF | Status |
+|---|------|------|--------|
+| U9  | `edge_gateway_sync_engine.py` wired into `one.sh` as `edge-sync` subcommand | 8.5 | ✅ DONE |
+| U10 | `edge_runner.py` — per-FQDN timeout, retry, HTTP health probe, DLQ write, ROAM passthrough | 8.0 | ✅ DONE |
+| U11 | `edge_reporter.py` — `--json`, `last_edge_sync.json` symlink, ROAM signal file | 7.8 | ✅ DONE |
+| U12 | `edge_gateway_sync_engine.py` — coherence gate, DoD artefact, `--json` flag | 8.0 | ✅ DONE |
+| U13 | `tests/gates/test_edge_gateway_sync.sh` — 13 TDD tests (F1–F3, R1–R5, P1–P3, E1–E2), all green | 7.8 | ✅ DONE |
+| U14 | `local_upgrader.py` — configurable timeout, `--json`, DoD artefact, sandbox TTL | 7.5 | ✅ DONE |
+| U15 | `upstream_upgrade_engine.py` — pass `json_output` to local sweep | 7.2 | ✅ DONE |
+| U16 | `tests/gates/test_local_upgrader.sh` — 10 TDD tests (S1–S10), all green | 7.2 | ✅ DONE |
+| U17 | ROAM R-EDGE-01 + R-LOCAL-01 resolved | 7.0 | ✅ DONE |
+
 
 ### NEXT
 | # | Item | WSJF | Status |

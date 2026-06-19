@@ -217,7 +217,9 @@ def main() -> None:
             p.strip() for p in args.scan_paths.split(";") if p.strip()
         ]
         local_results, upgraded, failed = local_upgrader.run_local_sweep(
-            scan_paths, dry_run=args.dry_run
+            scan_paths,
+            dry_run=args.dry_run,
+            json_output=args.json_output,
         )
         results.extend(local_results)
         if failed > 0:

@@ -102,7 +102,7 @@ def scan_repositories(scan_paths: List[str]) -> List[Path]:
             deduped.append(resolved)
     return sorted(deduped)
 
-def run_cmd(command: List[str] | str, cwd: Path, dry_run: bool) -> Tuple[bool, str]:
+def run_cmd(command: List[str] | str, cwd: Path, dry_run: bool, timeout_s: int = 180) -> Tuple[bool, str]:
     """Execute a shell command or list of arguments in cwd, returns (success, output)."""
     if dry_run:
         cmd_str = command if isinstance(command, str) else " ".join(command)
@@ -116,7 +116,7 @@ def run_cmd(command: List[str] | str, cwd: Path, dry_run: bool) -> Tuple[bool, s
             shell=shell,
             capture_output=True,
             text=True,
-            timeout=180
+            timeout=timeout_s
         )
         success = (res.returncode == 0)
         output = res.stdout + "\n" + res.stderr
@@ -167,7 +167,13 @@ def save_upgrades_cache(cache: Dict[str, Any], cache_path: Path):
     except Exception:
         pass
 
-def run_local_sweep(scan_paths: List[str], dry_run: bool = False) -> Tuple[List[Dict[str, Any]], int, int]:
+def run_local_sweep(
+    scan_paths: List[str],
+    dry_run: bool = False,
+    json_output: bool = False,
+    max_sandbox_age_s: int = 120,
+    project_root: Path | None = None,
+) -> Tuple[List[Dict[str, Any]], int, int]:
     """Perform upgrade sweeps on all local repositories found in scan_paths using isolated sandboxes."""
     # Setup logging
     log_dir = Path("/tmp/agentic-flow") if sys.platform == "darwin" else Path("/var/log/agentic-flow")
@@ -185,9 +191,18 @@ def run_local_sweep(scan_paths: List[str], dry_run: bool = False) -> Tuple[List[
     log(f"🔍 Found {len(repos)} active git repositories to review.", log_file)
 
     # Initialize Cache
-    project_root = Path(__file__).parent.parent.parent.resolve()
+    project_root = project_root or Path(__file__).parent.parent.parent.resolve()
     cache_path = project_root / CACHE_FILE_REL
     cache = load_upgrades_cache(cache_path)
+
+    # Load upgrade configuration for timeout / resource caps
+    cfg_path = project_root / "config" / "cicd" / "upstream_registry.json"
+    cfg: Dict[str, Any] = {}
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8")).get("upgrades_configuration", {})
+    except Exception:
+        pass
+    run_timeout_s = int(cfg.get("default_run_timeout_s", 120))
 
     results = []
     upgraded_count = 0
@@ -204,7 +219,7 @@ def run_local_sweep(scan_paths: List[str], dry_run: bool = False) -> Tuple[List[
         # 2. Pull inside original repo first (to make sure HEAD is up to date before checking cache)
         log("  Pulling latest commits in original repo...", log_file)
         t_pull_start = time.time()
-        pull_success, pull_log = run_cmd(["git", "pull", "origin", default_branch, "--rebase"], repo, dry_run)
+        pull_success, pull_log = run_cmd(["git", "pull", "origin", default_branch, "--rebase"], repo, dry_run, timeout_s=run_timeout_s)
         if pull_success:
             log("  ✓ git pull: SUCCESS", log_file)
         else:
@@ -213,7 +228,7 @@ def run_local_sweep(scan_paths: List[str], dry_run: bool = False) -> Tuple[List[
         
         # Detect Git HEAD SHA after pull
         git_sha = ""
-        ok_sha, out_sha = run_cmd(["git", "rev-parse", "HEAD"], repo, False)
+        ok_sha, out_sha = run_cmd(["git", "rev-parse", "HEAD"], repo, False, timeout_s=30)
         if ok_sha:
             git_sha = out_sha.strip()
 
@@ -309,6 +324,27 @@ def run_local_sweep(scan_paths: List[str], dry_run: bool = False) -> Tuple[List[
 
             sandbox_setup_duration = round(time.time() - t_setup_start, 2)
             log(f"  ✓ Sandbox ready in {sandbox_setup_duration}s", log_file)
+
+            # Sandbox TTL / resource cap check
+            if sandbox_setup_duration > max_sandbox_age_s:
+                log(f"  ❌ Sandbox setup exceeded TTL ({sandbox_setup_duration}s > {max_sandbox_age_s}s). Skipping.", log_file)
+                failed_count += 1
+                shutil.rmtree(sandbox_dir, ignore_errors=True)
+                results.append({
+                    "repository_id": f"local:{repo.name}",
+                    "url": f"file://{repo.resolve()}",
+                    "branch": default_branch,
+                    "latest_commit_sha": git_sha,
+                    "integration_status": "FAIL",
+                    "duration_seconds": round(time.time() - start_time, 2),
+                    "skipped": False,
+                    "sandbox_setup_duration": sandbox_setup_duration,
+                    "git_pull_duration": git_pull_duration,
+                    "upgrade_duration": 0.0,
+                    "test_duration": 0.0,
+                    "log": f"Sandbox setup TTL exceeded: {sandbox_setup_duration}s > {max_sandbox_age_s}s"
+                })
+                continue
         except Exception as e:
             log(f"  ❌ Failed to populate sandbox: {e}", log_file)
             shutil.rmtree(sandbox_dir, ignore_errors=True)
@@ -346,18 +382,18 @@ def run_local_sweep(scan_paths: List[str], dry_run: bool = False) -> Tuple[List[
 
             if (sandbox_dir / "pnpm-lock.yaml").is_file():
                 log("  Detected pnpm project in sandbox...", log_file)
-                upgrade_success, upgrade_log = run_cmd(["pnpm", "update"], sandbox_dir, dry_run)
+                upgrade_success, upgrade_log = run_cmd(["pnpm", "update"], sandbox_dir, dry_run, timeout_s=run_timeout_s)
             elif (sandbox_dir / "package-lock.json").is_file() or (sandbox_dir / "yarn.lock").is_file():
                 log("  Detected npm/yarn project in sandbox...", log_file)
                 upgrade_success, upgrade_log = run_cmd(["npm", "update"], sandbox_dir, dry_run)
             else:
                 log("  Detected npm project in sandbox...", log_file)
-                upgrade_success, upgrade_log = run_cmd(["npm", "update"], sandbox_dir, dry_run)
+                upgrade_success, upgrade_log = run_cmd(["npm", "update"], sandbox_dir, dry_run, timeout_s=run_timeout_s)
 
             # Playwright
             if "playwright" in pkg_json_content:
                 log("  Playwright detected in sandbox. Updating browsers...", log_file)
-                pw_success, pw_log = run_cmd(["npx", "playwright", "install"], sandbox_dir, dry_run)
+                pw_success, pw_log = run_cmd(["npx", "playwright", "install"], sandbox_dir, dry_run, timeout_s=run_timeout_s)
                 upgrade_log += f"\n--- Playwright Install ---\n{pw_log}"
 
         # requirements.txt
@@ -370,18 +406,18 @@ def run_local_sweep(scan_paths: List[str], dry_run: bool = False) -> Tuple[List[
                 local_pip = str(sandbox_dir / "venv" / "bin" / "pip")
 
             if dry_run:
-                upgrade_success, upgrade_log = run_cmd(f"{local_pip} install --upgrade -r requirements.txt", sandbox_dir, True)
+                upgrade_success, upgrade_log = run_cmd(f"{local_pip} install --upgrade -r requirements.txt", sandbox_dir, True, timeout_s=run_timeout_s)
             else:
-                upgrade_success, upgrade_log = run_cmd([local_pip, "install", "--upgrade", "-r", "requirements.txt"], sandbox_dir, False)
+                upgrade_success, upgrade_log = run_cmd([local_pip, "install", "--upgrade", "-r", "requirements.txt"], sandbox_dir, False, timeout_s=run_timeout_s)
                 if not upgrade_success:
                     log("  Fallback to python3 -m pip install in sandbox...", log_file)
-                    upgrade_success, upgrade_log2 = run_cmd(["python3", "-m", "pip", "install", "--upgrade", "-r", "requirements.txt"], sandbox_dir, False)
+                    upgrade_success, upgrade_log2 = run_cmd(["python3", "-m", "pip", "install", "--upgrade", "-r", "requirements.txt"], sandbox_dir, False, timeout_s=run_timeout_s)
                     upgrade_log += f"\n--- Fallback Pip ---\n{upgrade_log2}"
 
         # Cargo.toml
         elif (sandbox_dir / "Cargo.toml").is_file():
             log("  Detected Cargo project in sandbox...", log_file)
-            upgrade_success, upgrade_log = run_cmd(["cargo", "update"], sandbox_dir, dry_run)
+            upgrade_success, upgrade_log = run_cmd(["cargo", "update"], sandbox_dir, dry_run, timeout_s=run_timeout_s)
 
         if upgrade_success:
             log("  ✓ dependency upgrade: SUCCESS", log_file)
@@ -419,17 +455,17 @@ def run_local_sweep(scan_paths: List[str], dry_run: bool = False) -> Tuple[List[
 
                 if test_cmd:
                     log(f"  Running npm tests ({' '.join(test_cmd)}) in sandbox...", log_file)
-                    test_success, test_log = run_cmd(test_cmd, sandbox_dir, False)
+                    test_success, test_log = run_cmd(test_cmd, sandbox_dir, False, timeout_s=run_timeout_s)
 
             elif (sandbox_dir / "Cargo.toml").is_file():
                 log("  Running cargo test in sandbox...", log_file)
-                test_success, test_log = run_cmd(["cargo", "test"], sandbox_dir, False)
+                test_success, test_log = run_cmd(["cargo", "test"], sandbox_dir, False, timeout_s=run_timeout_s)
 
             elif (sandbox_dir / "tests").is_dir() or (sandbox_dir / "test").is_dir():
                 pytest_check = subprocess.run(["which", "pytest"], capture_output=True)
                 if pytest_check.returncode == 0:
                     log("  Running pytest in sandbox...", log_file)
-                    test_success, test_log = run_cmd(["pytest"], sandbox_dir, False)
+                    test_success, test_log = run_cmd(["pytest"], sandbox_dir, False, timeout_s=run_timeout_s)
 
         if test_success:
             log("  ✓ verification tests: PASS", log_file)
@@ -492,5 +528,36 @@ def run_local_sweep(scan_paths: List[str], dry_run: bool = False) -> Tuple[List[
     log("============================================================", log_file)
     log(f"🏁 Sweep complete. Upgraded: {upgraded_count}, Failed: {failed_count}.", log_file)
     log(f"Logs persisted to: {log_file}", log_file)
+
+    # Write DoD artefact
+    run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    evidence_dir = project_root / ".goalie" / "evidence" / "upgrades"
+    evidence_dir.mkdir(parents=True, exist_ok=True)
+    overall_status = "PASS" if failed_count == 0 else "FAIL"
+    summary = {
+        "gate": "local-upgrade-sweep",
+        "run_id": run_id,
+        "timestamp": run_id,
+        "status": overall_status,
+        "upgraded_count": upgraded_count,
+        "failed_count": failed_count,
+        "results": results,
+    }
+    dod_path = evidence_dir / f"local_sweep_{run_id}.json"
+    try:
+        with open(dod_path, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2)
+            f.write("\n")
+        log(f"✅ DoD artefact: {dod_path}", log_file)
+        # Symlink latest
+        latest = evidence_dir / "last_local_sweep.json"
+        with open(latest, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2)
+            f.write("\n")
+    except Exception as e:
+        log(f"⚠️ Warning: Failed to write DoD artefact: {e}", log_file)
+
+    if json_output:
+        print(json.dumps(summary, indent=2))
 
     return results, upgraded_count, failed_count

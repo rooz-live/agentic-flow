@@ -13,6 +13,7 @@ from typing import Dict, List, Tuple, Any
 
 OFFLINE_SENTINEL = "offline_or_unresolved"
 
+
 def parse_edge_cfg(cfg_path: Path) -> List[str]:
     """Parse vhosts (FQDNs) from the Caddy-style configuration file."""
     if not cfg_path.exists():
@@ -40,21 +41,57 @@ def parse_edge_cfg(cfg_path: Path) -> List[str]:
     seen = set()
     return [f for f in fqdns if not (f in seen or seen.add(f))]
 
-def load_fqdn_registry(registry_path: Path) -> Dict[str, str]:
-    """Simple YAML parser to read fqdn and origin mapping from registry."""
+
+def load_fqdn_metadata(registry_path: Path) -> Dict[str, Dict[str, Any]]:
+    """Parse fqdn_registry.yaml into per-FQDN metadata dict.
+
+    Captures: origin, health_path, sync_timeout_s, roam_risk_id, notify_on_fail.
+    """
     if not registry_path.exists():
         return {}
 
-    with open(registry_path, "r", encoding="utf-8") as f:
-        content = f.read()
+    metadata: Dict[str, Dict[str, Any]] = {}
+    current: str | None = None
+    for line in registry_path.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if s.startswith('- fqdn:'):
+            current = s.split(':', 1)[1].strip().strip('"').strip("'").lower()
+            metadata[current] = {
+                "origin": None,
+                "health_path": "/",
+                "sync_timeout_s": 30,
+                "roam_risk_id": None,
+                "notify_on_fail": False,
+            }
+        elif current and ':' in s and not s.startswith('-'):
+            key, val = s.split(':', 1)
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key == 'origin':
+                metadata[current]["origin"] = val
+            elif key == 'health_path':
+                metadata[current]["health_path"] = val
+            elif key == 'sync_timeout_s':
+                try:
+                    metadata[current]["sync_timeout_s"] = int(val)
+                except ValueError:
+                    pass
+            elif key == 'roam_risk_id':
+                metadata[current]["roam_risk_id"] = val if val.lower() != 'null' else None
+            elif key == 'notify_on_fail':
+                metadata[current]["notify_on_fail"] = val.lower() in ('true', 'yes', '1')
+    return metadata
 
-    # Find all fqdn: and origin: pairs
-    entries = re.findall(r'fqdn:\s*([\w.\-]+).*?origin:\s*"?([^\s"]+)"?', content, re.DOTALL)
-    mapping = {}
-    for fqdn, origin in entries:
-        if not origin.startswith('${'):
-            mapping[fqdn.strip().lower()] = origin.strip()
-    return mapping
+
+def load_fqdn_registry(registry_path: Path) -> Dict[str, str]:
+    """Simple origin-only mapping for backward compatibility."""
+    metadata = load_fqdn_metadata(registry_path)
+    return {
+        fqdn: meta["origin"]
+        for fqdn, meta in metadata.items()
+        if meta.get("origin") and not meta["origin"].startswith('${')
+    }
+
 
 def get_live_resolution(fqdn: str) -> str:
     """Fetch live A record IP address for the FQDN using dig or socket lookup."""
@@ -79,6 +116,7 @@ def get_live_resolution(fqdn: str) -> str:
     except Exception:
         return OFFLINE_SENTINEL
 
+
 def load_edge_state_cache(cache_path: Path) -> Dict[str, str]:
     """Load the last known synchronized state cache."""
     if cache_path.exists():
@@ -90,6 +128,7 @@ def load_edge_state_cache(cache_path: Path) -> Dict[str, str]:
         except Exception:
             pass
     return {}
+
 
 def parse_whmapi_dumpzone(text: str) -> List[Dict[str, Any]]:
     """Parse raw whmapi1 dumpzone output into list of records."""
@@ -120,12 +159,14 @@ def parse_whmapi_dumpzone(text: str) -> List[Dict[str, Any]]:
         records.append(current)
     return records
 
+
 def get_base_domain(fqdn: str) -> str:
     """Extract base domain from FQDN (e.g. api.interface.tag.ooo -> tag.ooo)."""
     parts = fqdn.split(".")
     if len(parts) >= 2:
         return ".".join(parts[-2:])
     return fqdn
+
 
 def fetch_cpanel_zone_records(project_root: Path, base_domain: str) -> List[Dict[str, Any]]:
     """Fetch DNS zone records from authoritative cPanel server for a base domain."""
@@ -144,14 +185,21 @@ def fetch_cpanel_zone_records(project_root: Path, base_domain: str) -> List[Dict
         print(f"  ⚠️  Error fetching cPanel zone records for {base_domain}: {e}")
     return []
 
-def fetch_edge_status(project_root: Path) -> Tuple[List[str], Dict[str, str], Dict[str, str], Dict[str, str], List[str]]:
-    """Parse configuration files, resolve live DNS, and determine synchronization delta queue."""
+
+def fetch_edge_status(project_root: Path) -> Tuple[List[str], Dict[str, str], Dict[str, str], Dict[str, str], List[str], Dict[str, Dict[str, Any]]]:
+    """Parse configuration files, resolve live DNS, and determine synchronization delta queue.
+
+    Returns:
+        (fqdns, registry, live_resolutions, cache, to_sync, fqdn_metadata)
+    """
     cfg_path = project_root / "src" / "proxies" / "edge_gateway.cfg"
     registry_path = project_root / "config" / "fqdn_registry.yaml"
     cache_path = project_root / ".goalie" / "evidence" / "edge_gateway" / "last_known_state.json"
 
     fqdns = parse_edge_cfg(cfg_path)
-    registry = load_fqdn_registry(registry_path)
+    fqdn_metadata = load_fqdn_metadata(registry_path)
+    registry = {fqdn: meta["origin"] for fqdn, meta in fqdn_metadata.items()
+                if meta.get("origin") and not meta["origin"].startswith('${')}
     cache = load_edge_state_cache(cache_path)
     
     live_resolutions = {}
@@ -204,4 +252,4 @@ def fetch_edge_status(project_root: Path) -> Tuple[List[str], Dict[str, str], Di
         else:
             print(f"  🌐 {fqdn}: DNS matches registry and cache: {live_ip}. Skipped.")
 
-    return fqdns, registry, live_resolutions, cache, to_sync
+    return fqdns, registry, live_resolutions, cache, to_sync, fqdn_metadata

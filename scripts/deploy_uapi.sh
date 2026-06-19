@@ -4,6 +4,9 @@
 # Load environment variables
 set -a
 source "/Users/shahroozbhopti/Documents/code/.env"
+if [[ -f "/Users/shahroozbhopti/Documents/code/credentials/.env.cpanel" ]]; then
+    source "/Users/shahroozbhopti/Documents/code/credentials/.env.cpanel"
+fi
 set +a
 
 # Extract password from 1Password or use WHM API Token

@@ -26,6 +26,37 @@ dor_script() {
   fi
 }
 
+# ── Helper: verify a DoD artifact exists and has expected exit_code ───────────
+check_artifact() {
+  local label="$1"
+  local path="$2"
+  local required_field="${3:-}"      # optional: field name to check presence
+  local required_value="${4:-}"      # optional: expected value for that field
+
+  if [[ ! -f "$path" ]]; then
+    yellow "  WARN: $label artifact missing: $path"
+    return
+  fi
+
+  if [[ -n "$required_field" && -n "$required_value" ]]; then
+    ACTUAL=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('$path'))
+    print(d.get('$required_field', 'MISSING'))
+except Exception as e:
+    print('PARSE_ERROR')
+" 2>/dev/null || echo "PARSE_ERROR")
+    if [[ "$ACTUAL" == "$required_value" ]]; then
+      green "  ✓  $label ($required_field=$ACTUAL)"
+    else
+      yellow "  WARN: $label — $required_field=$ACTUAL (expected $required_value)"
+    fi
+  else
+    green "  ✓  $label artifact present"
+  fi
+}
+
 echo "=== DoD Gate ($MODE) ==="
 echo "Project: $PROJECT_ROOT"
 echo ""
@@ -115,9 +146,75 @@ if [[ "$MODE" == "--post-task" || "$MODE" == "--full" ]]; then
 fi
 
 if [[ "$MODE" == "--full" ]]; then
-  echo "--- DoD Checklist (PI / deploy — not required for every commit) ---"
+  echo "--- DoD Checklist: Slice Artifacts (PI / deploy) ---"
+
+  EVIDENCE="$PROJECT_ROOT/.goalie/evidence"
+
+  # ── Trust-path ────────────────────────────────────────────────────────────
+  check_artifact \
+    "trust-path" \
+    "$EVIDENCE/last_gate_one_pass.json" \
+    "exit_code" "0"
+
+  # ── Coherence gate ────────────────────────────────────────────────────────
+  check_artifact \
+    "coherence-gate" \
+    "$EVIDENCE/coherence_results.json" \
+    "coherence" "PASS"
+
+  # ── CI Assessor: distinguish pass from skip ───────────────────────────────
+  if [[ -f "$EVIDENCE/last_ci_assess_pass.json" ]]; then
+    check_artifact \
+      "ci-assess (TLD pass)" \
+      "$EVIDENCE/last_ci_assess_pass.json" \
+      "tld_status" "pass"
+  elif [[ -f "$EVIDENCE/last_ci_assess_tld_skip.json" ]]; then
+    SKIP_STATUS=$(python3 -c "
+import json
+d = json.load(open('$EVIDENCE/last_ci_assess_tld_skip.json'))
+print(d.get('tld_status', 'unknown'))
+" 2>/dev/null || echo "parse_error")
+    yellow "  WARN: ci-assess last run was TLD SKIP (tld_status=$SKIP_STATUS) — not a full pass"
+    yellow "        Fix: provision api.interface.tag.ooo A record → 23.92.79.2"
+  else
+    yellow "  WARN: ci-assess artifact not found — run: ./scripts/one.sh ci"
+  fi
+
+  # ── CI Orchestrator ───────────────────────────────────────────────────────
+  check_artifact \
+    "ci-orchestrate" \
+    "$EVIDENCE/last_ci_orchestrate.json" \
+    "exit_code" "0"
+
+  # ── Deploy UAPI (optional — only check if artifact present) ───────────────
+  if [[ -f "$EVIDENCE/last_deploy_uapi.json" ]]; then
+    check_artifact \
+      "deploy-uapi" \
+      "$EVIDENCE/last_deploy_uapi.json"
+  else
+    yellow "  SKIP: deploy-uapi artifact absent (not required for every commit)"
+  fi
+
+  # ── Deploy edge-cfg DNS integrity ─────────────────────────────────────────
+  if [[ -f "$EVIDENCE/last_edge_cfg_deploy.json" ]]; then
+    VIOLATIONS=$(python3 -c "
+import json
+d = json.load(open('$EVIDENCE/last_edge_cfg_deploy.json'))
+print(d.get('violations', '?'))
+" 2>/dev/null || echo "?")
+    if [[ "$VIOLATIONS" == "0" ]]; then
+      green "  ✓  deploy-edge-cfg (violations=0)"
+    else
+      yellow "  WARN: deploy-edge-cfg last run had $VIOLATIONS violation(s)"
+      yellow "        Run: ./scripts/one.sh deploy-edge --dry-run"
+    fi
+  else
+    yellow "  SKIP: deploy-edge-cfg artifact absent"
+    yellow "        Run: ./scripts/one.sh deploy-edge --dry-run  (advisory, no changes)"
+  fi
+
+  # ── Public edge ───────────────────────────────────────────────────────────
   echo "  [ ] public_synthetic_check.sh exit 0 on billing.bhopti.com"
-  echo "  [ ] trust-path artifact: .goalie/evidence/last_gate_one_pass.json"
   echo ""
 fi
 

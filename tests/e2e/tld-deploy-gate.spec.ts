@@ -50,6 +50,7 @@ function shouldSkipInterfaceRunnerTimeout(tld: string, message: string): boolean
 const STRICT_MANIFEST = process.env.TLD_GATE_STRICT_MANIFEST === '1';
 const STRICT_DNS = process.env.TLD_GATE_STRICT_DNS === '1';
 const FINGERPRINT = process.env.TLD_GATE_FINGERPRINT === '1';
+const BYPASS_TOKEN = process.env.TLD_GATE_BYPASS_TOKEN || '';
 /** Prefix before `assets/` in built HTML (e.g. `/trading/` for trader:build:tld, `/` for trader:build). */
 const ASSET_BASE_HINT =
   process.env.TLD_GATE_ASSET_BASE_HINT === undefined ||
@@ -58,6 +59,8 @@ const ASSET_BASE_HINT =
     : process.env.TLD_GATE_ASSET_BASE_HINT;
 
 const TLD_TARGETS = [
+  { tld: 'summerjobswap.com', url: 'https://summerjobswap.com/', titlePattern: /SUMMERJOBSWAP/i },
+  { tld: 'nextwavenetwork.com', url: 'https://nextwavenetwork.com/', titlePattern: /NEXTWAVENETWORK/i },
   { tld: 'interface.rooz.live', url: 'https://interface.rooz.live/', titlePattern: /rooz|agentic|trading|dashboard/i },
   { tld: 'law.rooz.live', url: 'https://law.rooz.live/', titlePattern: /rooz|agentic|trading|dashboard/i },
   { tld: 'yo.life', url: 'https://yo.life/', titlePattern: /yo\.life|flourishing|circle|rooz|admin|agentic|trading|dashboard/i },
@@ -90,10 +93,21 @@ for (const { tld, url, titlePattern, redirects } of TLD_TARGETS) {
   test.describe(`TLD smoke: ${tld}`, () => {
     test(`${url} returns 200 with non-empty body or valid redirect @tld-gate`, async ({ request }) => {
       try {
-        const res = await request.get(url, { timeout: tw.httpMs });
+        const res = await request.get(url, {
+          timeout: tw.httpMs,
+          headers: BYPASS_TOKEN ? { 'X-Gate-Bypass': BYPASS_TOKEN } : {},
+        });
         const body = await res.text();
         expect(res.status(), `${tld} should return HTTP 200 or 30x`).toBeLessThan(400);
         expect(body.length, `${tld} body should not be empty`).toBeGreaterThan(100);
+
+        // Hardened: Verify critical DOM structure for production grade
+        if (tld === 'summerjobswap.com' || tld === 'nextwavenetwork.com') {
+          expect(body, `${tld} should contain apple-itunes-app meta`).toContain('apple-itunes-app');
+          expect(body, `${tld} should contain #app-download-btn button`).toContain('id="app-download-btn"');
+          expect(body, `${tld} should contain #footer-ios-link`).toContain('id="footer-ios-link"');
+          expect(body, `${tld} should contain #footer-android-link`).toContain('id="footer-android-link"');
+        }
       } catch (error) {
         const err = error as any;
         const msg = String(err?.message ?? err);
@@ -118,8 +132,25 @@ for (const { tld, url, titlePattern, redirects } of TLD_TARGETS) {
 
     test(`${url} has matching <title> @tld-gate`, async ({ page }) => {
       try {
+        if (BYPASS_TOKEN) {
+          await page.setExtraHTTPHeaders({ 'X-Gate-Bypass': BYPASS_TOKEN });
+        }
         await page.goto(url, { timeout: tw.gotoMs, waitUntil: 'domcontentloaded' });
         await expect(page, `${tld} title should match ${titlePattern}`).toHaveTitle(titlePattern);
+
+        // Hardened: Verify page structure is fully rendered and prod-grade
+        if (tld === 'summerjobswap.com' || tld === 'nextwavenetwork.com') {
+          const btn = page.locator('#app-download-btn');
+          await expect(btn).toBeVisible();
+          await expect(btn).toHaveAttribute('href', '/download');
+
+          const iosLink = page.locator('#footer-ios-link');
+          const androidLink = page.locator('#footer-android-link');
+          await expect(iosLink).toBeVisible();
+          await expect(iosLink).toHaveAttribute('href', '/ios');
+          await expect(androidLink).toBeVisible();
+          await expect(androidLink).toHaveAttribute('href', '/android');
+        }
       } catch (error) {
         const err = error as any;
         const msg = String(err?.message ?? err);
@@ -143,7 +174,10 @@ for (const { tld, url, titlePattern, redirects } of TLD_TARGETS) {
       test(`${url} dynamically hosts fresh evidence-manifest.json @tld-gate`, async ({ request }) => {
         const manifestUrl = `${url}evidence-manifest.json`;
         try {
-          const res = await request.get(manifestUrl, { timeout: tw.manifestMs });
+          const res = await request.get(manifestUrl, {
+            timeout: tw.manifestMs,
+            headers: BYPASS_TOKEN ? { 'X-Gate-Bypass': BYPASS_TOKEN } : {},
+          });
           if (res.status() === 404) {
             if (STRICT_MANIFEST) {
               throw new Error(
@@ -167,7 +201,10 @@ for (const { tld, url, titlePattern, redirects } of TLD_TARGETS) {
           expect(manifest, `${tld} manifest`).toHaveProperty('deployTimestamp');
 
           if (FINGERPRINT) {
-            const rootRes = await request.get(url, { timeout: tw.httpMs });
+            const rootRes = await request.get(url, {
+              timeout: tw.httpMs,
+              headers: BYPASS_TOKEN ? { 'X-Gate-Bypass': BYPASS_TOKEN } : {},
+            });
             expect(rootRes.status(), `${tld} root for fingerprint`).toBeLessThan(400);
             const html = await rootRes.text();
             const hint = ASSET_BASE_HINT.replace(/\/$/, '') || '';

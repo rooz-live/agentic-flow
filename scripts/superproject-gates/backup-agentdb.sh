@@ -7,7 +7,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DB_PATH="$PROJECT_ROOT/agentdb.db"
 BACKUP_DIR="$PROJECT_ROOT/backups/agentdb"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
@@ -39,9 +39,22 @@ fi
 # Get database stats before backup
 log "Analyzing database..."
 DB_SIZE=$(du -h "$DB_PATH" | cut -f1)
-EPISODE_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM episodes;")
-COMPLETION_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM completion_episodes;")
-SKILL_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM skills;")
+
+EPISODE_COUNT=0
+if [[ $(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='episodes';") -eq 1 ]]; then
+    EPISODE_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM episodes;")
+fi
+
+COMPLETION_COUNT=0
+if [[ $(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='completion_episodes';") -eq 1 ]]; then
+    COMPLETION_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM completion_episodes;")
+fi
+
+SKILL_COUNT=0
+if [[ $(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='skills';") -eq 1 ]]; then
+    SKILL_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM skills;")
+fi
+
 TABLE_COUNT=$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sqlite_master WHERE type='table';")
 
 log "Database size: $DB_SIZE"
@@ -96,22 +109,22 @@ while IFS= read -r backup; do
     # Hourly: Keep if within last 24 hours and haven't kept too many
     if [[ $AGE -lt 86400 ]] && [[ $HOURLY_KEPT -lt $KEEP_HOURLY ]]; then
         KEEP=true
-        ((HOURLY_KEPT++))
+        ((HOURLY_KEPT+=1))
     # Daily: Keep if within last 7 days and haven't kept too many
     elif [[ $AGE -lt 604800 ]] && [[ $DAILY_KEPT -lt $KEEP_DAILY ]]; then
         KEEP=true
-        ((DAILY_KEPT++))
+        ((DAILY_KEPT+=1))
     # Weekly: Keep if within last 4 weeks and haven't kept too many
     elif [[ $AGE -lt 2419200 ]] && [[ $WEEKLY_KEPT -lt $KEEP_WEEKLY ]]; then
         KEEP=true
-        ((WEEKLY_KEPT++))
+        ((WEEKLY_KEPT+=1))
     fi
     
     if [[ "$KEEP" == "true" ]]; then
-        ((KEPT++))
+        ((KEPT+=1))
     else
         rm -f "$backup"
-        ((DELETED++))
+        ((DELETED+=1))
     fi
 done < <(find "$BACKUP_DIR" -name "agentdb_*.db" -type f | sort -r)
 

@@ -19,6 +19,8 @@ DOMAINS=(
   "shop.bhopti.com"
   "api.interface.tag.ooo"
   "git.tag.ooo"
+  "summerjobswap.com"
+  "nextwavenetwork.com"
 )
 
 # DNS server to test authoritative resolution

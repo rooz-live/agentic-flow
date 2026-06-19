@@ -6,7 +6,7 @@ echo "🛡️ Enforcing Root Domain Social Redirects (Anti-AI Slop Protocol)..."
 
 # 1. rooz.live -> Telegram
 echo "-> Routing rooz.live to Telegram..."
-uapi --user=rooz Mime add_redirect domain=rooz.live src=/ redirect=https://t.me/ShahroozBhopti type=permanent > /dev/null
+uapi --user=rooz Mime add_redirect domain=rooz.live src=/ redirect=https://t.me/thriveplace type=permanent > /dev/null
 
 # 2. tag.vote -> Discord
 echo "-> Routing tag.vote to Discord..."

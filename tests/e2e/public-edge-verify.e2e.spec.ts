@@ -111,6 +111,22 @@ test.describe('Public Edge — Live FQDN HTTPS + TLS (batch 1)', () => {
   });
 });
 
+test.describe('Public Edge — Live FQDN HTTPS + TLS (batch 2)', () => {
+
+  test.beforeEach(() => {
+    if (!LIVE || getTotalBatches() < 3) {
+      test.skip();
+    }
+  });
+
+  test('batch-2: all FQDNs respond <400 with server header', async ({ page }) => {
+    const batch = getDomainBatch(2);
+    for (const domain of batch) {
+      await edgeHelpers.assertEdgeFQDN(page, domain);
+    }
+  });
+});
+
 // ─── Stripe Webhook Boundary (live or local) ─────────────────────────────────
 
 test.describe('Public Edge — Stripe Webhook Security Boundary', () => {

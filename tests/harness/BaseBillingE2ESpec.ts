@@ -271,6 +271,8 @@ export const FQDN_REGISTRY = [
   'docs.bhopti.com',
   'admin.bhopti.com',
   'mailadmin.bhopti.com',
+  'summerjobswap.com',
+  'nextwavenetwork.com',
 ] as const;
 
 export type BillingFQDN = typeof FQDN_REGISTRY[number];

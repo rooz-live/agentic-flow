@@ -50,6 +50,9 @@ setup_crontab() {
 # NPM dependency updates - Monthly (1st of month, 3 AM)
 0 3 1 * * cd $ROOT_DIR && npm update && npm audit fix >> /var/log/agentic-flow/npm-upgrade.log 2>&1
 
+# Multi-repository upgrade sweep - Daily at 3 AM
+0 3 * * * cd $ROOT_DIR && bash scripts/cicd/upgrade-all-repos.sh >> /var/log/agentic-flow/all-repos-upgrade.log 2>&1
+
 # Test suite health check - Daily at 4 AM
 0 4 * * * cd $ROOT_DIR && npm test 2>&1 | grep "Test Suites:" >> /var/log/agentic-flow/test-health.log
 
@@ -162,10 +165,40 @@ EOF
 </plist>
 EOF
 
+    # Multi-repository Upgrade Sweep - Daily at 3 AM
+    cat > "$LAUNCHD_DIR/io.agentic-flow.all-repos-upgrade.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>io.agentic-flow.all-repos-upgrade</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>cd $ROOT_DIR && bash scripts/cicd/upgrade-all-repos.sh</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>3</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    <key>StandardOutPath</key>
+    <string>/tmp/agentic-flow-all-repos-upgrade.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/agentic-flow-all-repos-upgrade.err</string>
+</dict>
+</plist>
+EOF
+
     # Load launchd agents
     launchctl load "$LAUNCHD_DIR/io.agentic-flow.cache-update.plist" 2>/dev/null || true
     launchctl load "$LAUNCHD_DIR/io.agentic-flow.pattern-review.plist" 2>/dev/null || true
     launchctl load "$LAUNCHD_DIR/io.agentic-flow.claude-flow-upgrade.plist" 2>/dev/null || true
+    launchctl load "$LAUNCHD_DIR/io.agentic-flow.all-repos-upgrade.plist" 2>/dev/null || true
     
     log_success "LaunchAgents configured in $LAUNCHD_DIR"
     log_info "View with: launchctl list | grep agentic-flow"

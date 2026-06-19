@@ -70,6 +70,34 @@ test.describe('App Store Redirection - summerjobswap.com', () => {
     expect(response.status()).toBe(302);
     expect(response.headers()['location']).toBe('https://summerjobswap.com/');
   });
+
+  test('Apple App Store landing page is active (warning if 404)', async ({ request }) => {
+    const response = await request.get(expectedIosUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+      }
+    });
+    if (response.status() === 404) {
+      console.warn(`[ROAM ALERT] App Store URL ${expectedIosUrl} returned 404 (App Not Available). Verify App Store Connect publishing state.`);
+    } else if (response.status() === 429) {
+      console.warn(`[ROAM ALERT] App Store URL ${expectedIosUrl} returned 429 (Rate Limited). Apple is rate-limiting verification.`);
+    } else {
+      expect(response.status()).toBe(200);
+    }
+  });
+
+  test('Google Play Store landing page is active (warning if 404)', async ({ request }) => {
+    const response = await request.get(expectedAndroidUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+      }
+    });
+    if (response.status() === 404) {
+      console.warn(`[ROAM ALERT] Google Play Store URL ${expectedAndroidUrl} returned 404. Verify Play Store Connect publishing state.`);
+    } else {
+      expect(response.status()).toBe(200);
+    }
+  });
 });
 
 test.describe('App Store Redirection - nextwavenetwork.com', () => {
@@ -141,5 +169,33 @@ test.describe('App Store Redirection - nextwavenetwork.com', () => {
     });
     expect(response.status()).toBe(302);
     expect(response.headers()['location']).toBe('https://nextwavenetwork.com/');
+  });
+
+  test('Apple App Store landing page is active (warning if 404)', async ({ request }) => {
+    const response = await request.get(expectedIosUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+      }
+    });
+    if (response.status() === 404) {
+      console.warn(`[ROAM ALERT] App Store URL ${expectedIosUrl} returned 404 (App Not Available). Verify App Store Connect publishing state.`);
+    } else if (response.status() === 429) {
+      console.warn(`[ROAM ALERT] App Store URL ${expectedIosUrl} returned 429 (Rate Limited). Apple is rate-limiting verification.`);
+    } else {
+      expect(response.status()).toBe(200);
+    }
+  });
+
+  test('Google Play Store landing page is active (warning if 404)', async ({ request }) => {
+    const response = await request.get(expectedAndroidUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+      }
+    });
+    if (response.status() === 404) {
+      console.warn(`[ROAM ALERT] Google Play Store URL ${expectedAndroidUrl} returned 404. Verify Play Store Connect publishing state.`);
+    } else {
+      expect(response.status()).toBe(200);
+    }
   });
 });

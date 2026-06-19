@@ -1,104 +1,164 @@
 #!/usr/bin/env python3
 """Upstream Repository Upgrade Validation Engine.
 
-Queries remote repository heads, executes corresponding local test suites,
-and produces compliance validation logs.
+Coordinator script that imports and executes the fetcher, runner, and reporter
+slices. Supports --dry-run and --force modes.
 """
 
-import os
 import sys
-import json
-import subprocess
+import argparse
 import datetime
+from pathlib import Path
 
-def get_remote_head(url, branch):
-    """Fetch the latest commit hash for a remote repository branch using git ls-remote."""
-    try:
-        cmd = ["git", "ls-remote", url, f"refs/heads/{branch}"]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=15, check=True)
-        output = result.stdout.strip()
-        if output:
-            parts = output.split()
-            return parts[0] # Return the SHA
-    except Exception as e:
-        # Fallback for rate-limits or offline states (ensures anti-fragility)
-        print(f"⚠️ Warning: Could not fetch remote for {url} ({e})")
-    return "offline_or_cached_sha"
+# Add script directory to sys.path to allow clean sibling imports
+SCRIPT_DIR = Path(__file__).parent.resolve()
+sys.path.insert(0, str(SCRIPT_DIR))
 
-def run_integration_check(command, project_root):
-    """Execute a local integration test suite and return success status and output."""
-    try:
-        print(f"--> Executing test command: {command}")
-        result = subprocess.run(command, shell=True, cwd=project_root, capture_output=True, text=True, timeout=120)
-        success = (result.returncode == 0)
-        return success, result.stdout + "\n" + result.stderr
-    except Exception as e:
-        return False, str(e)
+try:
+    import upstream_fetcher
+    import upstream_runner
+    import upstream_reporter
+    import local_upgrader
+except ImportError as e:
+    print(f"❌ Core import failed: {e}", file=sys.stderr)
+    sys.exit(3)
+
 
 def main():
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    config_path = os.path.join(project_root, "config", "cicd", "upstream_registry.json")
-    
-    if not os.path.exists(config_path):
-        print(f"❌ Configuration not found: {config_path}")
-        sys.exit(1)
-        
-    with open(config_path, "r") as f:
-        config = json.load(f)
-        
-    repos = config.get("repositories", [])
-    reports = []
+    parser = argparse.ArgumentParser(
+        description="Upstream/Local Repository Upgrade Validation Engine"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="dry-run mode (no test execution, no cache write)",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="force run all integration tests, ignoring cache",
+    )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="run local repository sweep",
+    )
+    parser.add_argument(
+        "--scan-paths",
+        type=str,
+        default="/Users/shahroozbhopti/code;/Users/shahroozbhopti/Documents",
+        help="semicolon-separated paths to scan for local repositories",
+    )
+    parser.add_argument(
+        "--skip-upstream",
+        action="store_true",
+        help="skip upstream checks",
+    )
+    parser.add_argument(
+        "--skip-local",
+        action="store_true",
+        help="skip local repository sweeps",
+    )
+    args = parser.parse_args()
+
+    project_root = SCRIPT_DIR.parent.parent.resolve()
+
+    # Use timezone-aware UTC representation to prevent deprecation warnings
+    timestamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
+
+    print("=====================================================================")
+    print(f"🦅 UPSTREAM/LOCAL VALIDATION ENGINE | {timestamp}")
+    if args.dry_run:
+        print(
+            "🚫 DRY-RUN MODE: No mutations/tests will be executed and "
+            "cache will not be written."
+        )
+    print("=====================================================================")
+
+    results = []
     all_passed = True
-    
-    timestamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    print(f"🔍 Starting Upstream Upgrade Validation Cycle at {timestamp}")
-    
-    for repo in repos:
-        if not repo.get("active", False):
-            continue
-            
-        repo_id = repo["id"]
-        url = repo["url"]
-        branch = repo["branch"]
-        test_cmd = repo["integration_test"]
-        
-        print(f"\nProcessing upstream target: {repo_id} ({url})")
-        remote_sha = get_remote_head(url, branch)
-        print(f"Latest remote commit SHA: {remote_sha}")
-        
-        # Test-First: Execute validation tests to verify compatibility
-        passed, output_log = run_integration_check(test_cmd, project_root)
-        print(f"Result: {'PASS' if passed else 'FAIL'}")
-        
-        reports.append({
-            "repository_id": repo_id,
-            "url": url,
-            "branch": branch,
-            "latest_commit_sha": remote_sha,
-            "integration_status": "PASS" if passed else "FAIL",
-            "timestamp": timestamp
-        })
-        
-        if not passed:
+
+    # Load cache
+    cache_path = (
+        project_root
+        / ".goalie"
+        / "evidence"
+        / "upgrades"
+        / "last_known_heads.json"
+    )
+    cache = upstream_fetcher.load_cache(cache_path)
+
+    # 1. Local sweep
+    run_local = args.local and not args.skip_local
+    if run_local:
+        print("\n🛠️ Running local repository sweep...")
+        scan_paths = [
+            p.strip() for p in args.scan_paths.split(";") if p.strip()
+        ]
+        local_results, upgraded, failed = local_upgrader.run_local_sweep(
+            scan_paths, dry_run=args.dry_run
+        )
+        results.extend(local_results)
+        if failed > 0:
             all_passed = False
-            
-    # Write evidence log
-    evidence_dir = os.path.join(project_root, ".goalie", "evidence", "upgrades")
-    os.makedirs(evidence_dir, exist_ok=True)
-    report_file = os.path.join(evidence_dir, f"upgrades_report_{timestamp}.json")
-    
-    final_output = {
-        "status": "PASS" if all_passed else "FAIL",
-        "timestamp": timestamp,
-        "results": reports
-    }
-    
-    with open(report_file, "w") as f:
-        json.dump(final_output, f, indent=2)
-        f.write("\n")
-        
-    print(f"\n🎉 Validation cycle complete. Report written to: {report_file}")
+
+    # 2. Upstream sweep
+    run_upstream = not args.skip_upstream
+    if run_upstream:
+        print("\n☁️ Running upstream repository checks...")
+        repos, cache, remote_heads, to_validate = (
+            upstream_fetcher.fetch_active_targets(project_root)
+        )
+
+        if repos:
+            if args.force:
+                print(
+                    "⚠️  --force passed: forcing validation check for "
+                    "all active repositories."
+                )
+                to_validate = [r for r in repos if r.get("active", False)]
+
+            if args.dry_run:
+                print("\n🚫 Dry-run: skipped runner phase.")
+                print(
+                    f"  Targets that would be validated: "
+                    f"{[r['id'] for r in to_validate]}"
+                )
+                # Create dummy PASS/FAIL results for reporting in dry-run
+                for r in repos:
+                    if r.get("active", False):
+                        results.append({
+                            "repository_id": r["id"],
+                            "url": r["url"],
+                            "branch": r["branch"],
+                            "latest_commit_sha": "dry-run-sha",
+                            "integration_status": "PASS",
+                            "duration_seconds": 0.0,
+                            "skipped": r not in to_validate,
+                        })
+            else:
+                upstream_results = upstream_runner.run_validations(
+                    repos, to_validate, remote_heads, project_root
+                )
+                results.extend(upstream_results)
+                for res in upstream_results:
+                    if res["integration_status"] != "PASS":
+                        all_passed = False
+        else:
+            print("❌ No upstream targets found or configured.")
+            if not run_local:
+                sys.exit(1)
+
+    # 3. Report
+    if results:
+        reporter_passed = upstream_reporter.save_report_and_cache(
+            results, cache, project_root, timestamp
+        )
+        if not reporter_passed:
+            all_passed = False
+
     sys.exit(0 if all_passed else 1)
+
 
 if __name__ == "__main__":
     main()

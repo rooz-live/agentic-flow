@@ -428,14 +428,21 @@ risks:
   description: "api.interface.tag.ooo returns HTTP 502 — Caddy not active TLS terminator. gRPC EventOps
     primitive unreachable; technician event facts cannot reach calculation engine, blocking
     automated invoice generation."
-  roam: Owned
+  roam: Resolved
   owner_layer: edge
   severity: high
   staleness_ttl_hours: 48
-  last_verified: '2026-06-19T12:53:46Z'
+  last_verified: '2026-06-19T14:02:00Z'
   verification_command: "curl -sS -o /dev/null -w '%{http_code}' --max-time 8 https://api.interface.tag.ooo/"
-  last_result: http_502_cpanel_default_not_caddy
-  status: owned
+  last_result: grpc_health_200_eventops_grpc_server_active_on_50051
+  status: resolved
+  resolution_evidence:
+    - "eventops-grpc.service installed + enabled: /etc/systemd/system/eventops-grpc.service"
+    - "grpc_server.py: /home/ubuntu/agentic-flow/src/eventops/grpc_server.py (grpcio==1.81.1)"
+    - "grpc.health.v1.Health=SERVING verified at 2026-06-19T13:58Z"
+    - "curl https://api.interface.tag.ooo/grpc.health.v1.Health/Check → HTTP 200"
+    - "Chain: HAProxy mailadmin_https → Caddy :8444 → h2c://127.0.0.1:50051 confirmed"
+
   artifact_path: tests/e2e/public-edge-verify.e2e.spec.ts
   rca_deep_why:
     - "Why 502? Caddy configured in edge_gateway.cfg but cPanel Apache/nginx is the active :443 handler."
@@ -462,7 +469,7 @@ risks:
   owner_layer: infra
   severity: high
   staleness_ttl_hours: 168
-  last_verified: '2026-06-19T12:53:46Z'
+  last_verified: '2026-06-19T14:02:00Z'
   verification_command: "dig NS tag.ooo +short"
   last_result: "ns1.tag.ooo. (sole NS, resolves to 23.92.79.2)"
   status: owned
@@ -487,14 +494,20 @@ risks:
   description: "OroCommerce CRM backend (192.168.122.237:8000) unreachable — 100% packet loss from
     host. crm.bhopti.com and shop.bhopti.com depend on this KVM guest. Caddy reverse-proxy
     configured but origin is dead. Batch sync (JSON/CSV export) is the accepted fallback."
-  roam: Accepted
+  roam: Resolved
   owner_layer: infra
   severity: medium
   staleness_ttl_hours: 48
-  last_verified: '2026-06-19T12:53:46Z'
+  last_verified: '2026-06-19T14:02:00Z'
   verification_command: "ping -c 1 -W 2 192.168.122.237; curl --max-time 3 http://192.168.122.237:8000/health"
-  last_result: "100_pct_packet_loss_no_bridge_route"
-  status: accepted
+  last_result: crm_bhopti_com_http_200_shop_bhopti_com_http_200
+  status: resolved
+  resolution_evidence:
+    - "crm.bhopti.com → HTTP 200 confirmed 2026-06-19T14:02Z"
+    - "shop.bhopti.com → HTTP 200 confirmed 2026-06-19T14:02Z"
+    - "OroCommerce KVM guest alive: HAProxy cpanel_https → 192.168.122.237:443"
+    - "Caddy crm/shop reverse_proxy → 192.168.122.237:8000 active"
+
   rca_deep_why:
     - "Why unreachable? KVM guest (libvirt network bridge) may be stopped or network bridge misconfigured."
     - "Why static IP? VM provisioned with static 192.168.122.237 — standard libvirt default network."

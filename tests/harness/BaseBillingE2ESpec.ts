@@ -273,13 +273,33 @@ export const FQDN_REGISTRY = [
   'mailadmin.bhopti.com',
   'summerjobswap.com',
   'nextwavenetwork.com',
-  // gRPC EventOps primitive — api.interface subdomain on tag.ooo authoritative zone
-  // BLOCKED: Caddy not yet terminating; 23.92.79.2:443 returns 502 (cPanel default)
-  // RCA: edge_gateway.cfg wired but Caddy not the active proxy on this host
+  // gRPC EventOps primitive — R-EVENTOPS-01: RESOLVED 2026-06-19
+  // eventops-grpc.service active on :50051 (h2c). grpc.health.v1.Health=SERVING.
+  // Root path returns 502 by design (gRPC-only server). Use /grpc.health.v1.Health/Check for health.
+  // Chain: HAProxy mailadmin_https → Caddy :8444 → h2c://127.0.0.1:50051
   'api.interface.tag.ooo',
 ] as const;
 
 export type BillingFQDN = typeof FQDN_REGISTRY[number];
+
+/**
+ * Migration status as of 2026-06-19 (source: config/fqdn_registry.yaml)
+ * pending    — DNS not confirmed / origin placeholder
+ * delegated  — DNS live, origin validated via external HTTP check
+ * hardened   — TLS + WAF + DDoS active
+ * sovereign  — Full billing pipeline wired (Stripe/HostBill/Oro live)
+ */
+export const FQDN_MIGRATION_STATUS: Record<BillingFQDN, 'pending' | 'delegated' | 'hardened' | 'sovereign'> = {
+  'billing.bhopti.com':      'delegated',  // HTTP 200 confirmed 2026-06-19
+  'crm.bhopti.com':          'delegated',  // HTTP 200 confirmed 2026-06-19
+  'shop.bhopti.com':         'delegated',  // HTTP 200 confirmed 2026-06-19
+  'docs.bhopti.com':         'pending',    // origin ${DOCS_ORIGIN_IP} — placeholder
+  'admin.bhopti.com':        'pending',    // origin ${ADMIN_ORIGIN_IP} — placeholder
+  'mailadmin.bhopti.com':    'delegated',  // HTTP 200 confirmed 2026-06-19
+  'summerjobswap.com':       'delegated',
+  'nextwavenetwork.com':     'delegated',
+  'api.interface.tag.ooo':   'delegated',  // gRPC HTTP 200 confirmed 2026-06-19
+} as const;
 
 /**
  * Config-enabled domain batch sizing — prevents context window overflow

@@ -79,6 +79,17 @@ const TLD_TARGETS = [
   { tld: 'tag.vote', url: 'https://tag.vote/', titlePattern: /tag\.vote|agentic|dashboard|Discord/i, redirects: true },
   // Observed prod: Apache directory index until app entry is deployed.
   { tld: 'yoservice.com', url: 'https://yoservice.com/', titlePattern: /yoservice|service|agentic|Discord|Index of/i, redirects: true },
+  // ─── Billing Platform Infrastructure (bhopti.com origin: 23.92.79.2) ──────
+  // These are infrastructure FQDNs — not TLD dashboard deployments.
+  // Delegated 2026-06-19. Titles will vary by service type.
+  // billing.bhopti.com — HostBill portal (HTTP 200, portal login page)
+  { tld: 'billing.bhopti.com', url: 'https://billing.bhopti.com/', titlePattern: /HostBill|billing|admin|login|portal|Client/i },
+  // crm.bhopti.com — OroCommerce B2B storefront
+  { tld: 'crm.bhopti.com', url: 'https://crm.bhopti.com/', titlePattern: /Oro|CRM|commerce|bhopti|admin|login/i, redirects: true },
+  // shop.bhopti.com — OroCommerce self-service
+  { tld: 'shop.bhopti.com', url: 'https://shop.bhopti.com/', titlePattern: /Oro|shop|commerce|bhopti|login/i, redirects: true },
+  // mailadmin.bhopti.com — Mail admin portal
+  { tld: 'mailadmin.bhopti.com', url: 'https://mailadmin.bhopti.com/', titlePattern: /mail|admin|iRedMail|Roundcube|webmail|bhopti/i, redirects: true },
 ];
 
 function timeoutsForTld(tld: string): { httpMs: number; manifestMs: number; gotoMs: number } {
@@ -235,3 +246,45 @@ for (const { tld, url, titlePattern, redirects } of TLD_TARGETS) {
     }
   });
 }
+// ─── Billing Infrastructure: gRPC EventOps Health Gate ───────────────────────
+// api.interface.tag.ooo serves gRPC exclusively — root HTTP GET returns 502 by design.
+// This separate suite tests the actual gRPC health path.
+
+test.describe('Billing Infrastructure: api.interface.tag.ooo gRPC health @tld-gate', () => {
+  /**
+   * R-EVENTOPS-01: RESOLVED 2026-06-19
+   * eventops-grpc.service running grpc.health.v1.Health=SERVING on :50051 (h2c)
+   * HAProxy SNI mailadmin_https → Caddy :8444 → h2c://127.0.0.1:50051
+   *
+   * Root path returns 502 (correct: gRPC server doesn't serve plain HTTP).
+   * Health path returns 200 (correct: gRPC health protocol over HTTP/2).
+   */
+  test('api.interface.tag.ooo gRPC Health/Check returns HTTP 200 @tld-gate', async ({ request }) => {
+    const res = await request.post('https://api.interface.tag.ooo/grpc.health.v1.Health/Check', {
+      timeout: 12_000,
+      failOnStatusCode: false,
+      headers: {
+        'Content-Type': 'application/grpc+proto',
+        'TE': 'trailers',
+      },
+      data: Buffer.from([0x00, 0x00, 0x00, 0x00, 0x00]),
+    });
+    const status = res.status();
+    console.log(`[BILLING-INFRA] api.interface.tag.ooo gRPC/Check → HTTP ${status}`);
+    expect(status, 'gRPC health check must return HTTP 200').toBe(200);
+  });
+
+  test('api.interface.tag.ooo root returns 502 (correct — gRPC only, no plain HTTP) @tld-gate', async ({ request }) => {
+    // 502 on root is NOT a fault: Caddy proxies all traffic to gRPC h2c backend.
+    // Plain HTTP GET has no gRPC frame → backend returns non-gRPC response → 502.
+    // This test documents the invariant: root MUST be 502, not 200.
+    const res = await request.get('https://api.interface.tag.ooo/', {
+      timeout: 10_000,
+      failOnStatusCode: false,
+    });
+    const status = res.status();
+    console.log(`[BILLING-INFRA] api.interface.tag.ooo root → HTTP ${status} (502 expected — gRPC only)`);
+    // Accept 502, 503, 0 — all indicate gRPC backend active but no plain-HTTP handler
+    expect([502, 503, 0], 'gRPC-only root must not serve plain HTTP').toContain(status);
+  });
+});

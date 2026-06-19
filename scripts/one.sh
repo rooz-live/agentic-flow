@@ -14,6 +14,8 @@
 #   run-safely       → (inline: git stash checkpoint + rollback on failure)
 #   mail-wave-close  → scripts/mail/mail-wave-close.sh
 #   wsjf             → scripts/cicd/update_lnnnl.py
+#   dod-gate         → scripts/dod-gate.sh [--pre-task|--post-task|--full]
+#   scorecard        → scripts/gates/scorecard_gate.py [--verify|--file PATH|--json]
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -95,6 +97,25 @@ case "$CMD" in
         exec python3 "$ROOT_DIR/scripts/cicd/update_lnnnl.py"
         ;;
 
+    dod-gate)
+        # DoR/DoD gate — pre-task perception, post-task proof, or full circuit.
+        # DoR: AGENT_SLICE=publication bash tooling/scripts/agent_session_dor.sh must exit 0 first.
+        # DoD: --post-task verifies committed tests, tracked capability, public edge proof.
+        # Full: --full runs both gates + DoD checklist.
+        shift
+        MODE="${1:---full}"
+        exec bash "$ROOT_DIR/scripts/dod-gate.sh" "$MODE"
+        ;;
+
+    scorecard)
+        # Run the Originality/Impact scorecard gate.
+        # --verify mode derives coherence from .goalie/evidence/coherence_results.json
+        # (produced by real cargo check + pytest + no-invented-symbols).
+        # Gate_integrity requires CI or AF_GATE_CONTEXT=review/ci/precommit.
+        shift
+        exec python3 "$ROOT_DIR/scripts/gates/scorecard_gate.py" "$@"
+        ;;
+
     help|--help|-h)
         cat <<'HELP'
 Usage: ./scripts/one.sh <subcommand> [args...]
@@ -108,6 +129,8 @@ Usage: ./scripts/one.sh <subcommand> [args...]
   run-safely        Run a command with git stash checkpoint + rollback on failure
   mail-wave-close   Close a mail wave (delegates to scripts/mail/)
   wsjf              Update WSJF schedule ledger
+  dod-gate          DoR/DoD gate: --pre-task | --post-task | --full (default)
+  scorecard         Originality/Impact gate: [--verify] [--file PATH] [--json]
 HELP
         exit 0
         ;;

@@ -4,6 +4,9 @@
 # Subsystems covered: agentic-flow, ruflo, media, infrastructure, etc.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 DRY_RUN=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -119,15 +122,49 @@ for repo in "${UNIQUE_REPOS[@]}"; do
         fi
       fi
     fi
+
+    # downstream playwright browser upgrades
+    if grep -q "playwright" package.json; then
+      log "  Playwright detected. Updating browsers..."
+      if [[ "$DRY_RUN" == "true" ]]; then
+        log "  [DRY-RUN] npx playwright install"
+      else
+        if npx playwright install >/dev/null 2>&1; then
+          green "  ✓ playwright install: SUCCESS" | tee -a "$LOG_FILE"
+        else
+          yellow "  ⚠️ playwright install: WARNING/FAIL" | tee -a "$LOG_FILE"
+        fi
+      fi
+    fi
+
   elif [[ -f "requirements.txt" ]]; then
     log "  Detected python requirements.txt..."
+    local_pip="pip"
+    if [[ -d ".venv" && -f ".venv/bin/pip" ]]; then
+      local_pip=".venv/bin/pip"
+    elif [[ -d "venv" && -f "venv/bin/pip" ]]; then
+      local_pip="venv/bin/pip"
+    fi
+
     if [[ "$DRY_RUN" == "true" ]]; then
-      log "  [DRY-RUN] pip install --upgrade -r requirements.txt"
+      log "  [DRY-RUN] $local_pip install --upgrade -r requirements.txt"
     else
-      if pip install --upgrade -r requirements.txt >/dev/null 2>&1 || python3 -m pip install --upgrade -r requirements.txt >/dev/null 2>&1; then
+      if $local_pip install --upgrade -r requirements.txt >/dev/null 2>&1 || python3 -m pip install --upgrade -r requirements.txt >/dev/null 2>&1; then
         green "  ✓ python deps: SUCCESS" | tee -a "$LOG_FILE"
       else
         yellow "  ⚠️ python deps: WARNING/FAIL" | tee -a "$LOG_FILE"
+      fi
+    fi
+
+  elif [[ -f "Cargo.toml" ]]; then
+    log "  Detected Cargo project..."
+    if [[ "$DRY_RUN" == "true" ]]; then
+      log "  [DRY-RUN] cargo update"
+    else
+      if cargo update >/dev/null 2>&1; then
+        green "  ✓ cargo update: SUCCESS" | tee -a "$LOG_FILE"
+      else
+        yellow "  ⚠️ cargo update: WARNING/FAIL" | tee -a "$LOG_FILE"
       fi
     fi
   fi
@@ -167,6 +204,22 @@ for repo in "${UNIQUE_REPOS[@]}"; do
 
   REPOS_UPGRADED=$((REPOS_UPGRADED + 1))
 done
+
+log "============================================================"
+
+# 5. Run Upstream Repository Upgrade Validation Engine
+if [[ -f "$ROOT_DIR/scripts/cicd/upstream_upgrade_engine.py" ]]; then
+  log "🔍 Running Upstream Registry Upgrade Validation Engine..."
+  if [[ "$DRY_RUN" == "true" ]]; then
+    log "  [DRY-RUN] python3 scripts/cicd/upstream_upgrade_engine.py"
+  else
+    if python3 "$ROOT_DIR/scripts/cicd/upstream_upgrade_engine.py" >> "$LOG_FILE" 2>&1; then
+      green "  ✓ Upstream Registry validation: PASS" | tee -a "$LOG_FILE"
+    else
+      red "  ⚠️ Upstream Registry validation: FAIL" | tee -a "$LOG_FILE"
+    fi
+  fi
+fi
 
 log "============================================================"
 log "🏁 Sweep complete. Upgraded: $REPOS_UPGRADED, Failed: $REPOS_FAILED."

@@ -273,6 +273,10 @@ export const FQDN_REGISTRY = [
   'mailadmin.bhopti.com',
   'summerjobswap.com',
   'nextwavenetwork.com',
+  // gRPC EventOps primitive — api.interface subdomain on tag.ooo authoritative zone
+  // BLOCKED: Caddy not yet terminating; 23.92.79.2:443 returns 502 (cPanel default)
+  // RCA: edge_gateway.cfg wired but Caddy not the active proxy on this host
+  'api.interface.tag.ooo',
 ] as const;
 
 export type BillingFQDN = typeof FQDN_REGISTRY[number];

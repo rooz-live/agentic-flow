@@ -423,3 +423,90 @@ risks:
   blockers:
   - Google Play Console release approval
   dependencies: []
+
+- id: R-EVENTOPS-01
+  description: "api.interface.tag.ooo returns HTTP 502 — Caddy not active TLS terminator. gRPC EventOps
+    primitive unreachable; technician event facts cannot reach calculation engine, blocking
+    automated invoice generation."
+  roam: Owned
+  owner_layer: edge
+  severity: high
+  staleness_ttl_hours: 48
+  last_verified: '2026-06-19T12:53:46Z'
+  verification_command: "curl -sS -o /dev/null -w '%{http_code}' --max-time 8 https://api.interface.tag.ooo/"
+  last_result: http_502_cpanel_default_not_caddy
+  status: owned
+  artifact_path: tests/e2e/public-edge-verify.e2e.spec.ts
+  rca_deep_why:
+    - "Why 502? Caddy configured in edge_gateway.cfg but cPanel Apache/nginx is the active :443 handler."
+    - "Why not Caddy? No systemd unit or cPanel proxy-pass routes :443 to Caddy on this host."
+    - "Why not wired? Caddy was provisioned locally but not promoted as the public terminator before cPanel DNS was live."
+    - "Why acceptable? Live billing pipeline requires WHM UAPI (deploy-uapi.sh) to push edge config — not yet executed."
+    - "Why not blocked earlier? fqdn_registry.yaml had placeholder origin, masking the routing gap."
+  resolution_path:
+    - "Step 1: Run bash scripts/one.sh deploy-uapi to push TLD files via WHM UAPI."
+    - "Step 2: Configure cPanel EasyApache/WHM to proxy :443 → Caddy, or install Caddy as mod_proxy target."
+    - "Step 3: Validate gRPC health: curl -H 'Content-Type: application/grpc+proto' https://api.interface.tag.ooo/grpc.health.v1.Health/Check"
+    - "Step 4: Change public-edge-verify @blocked-evidence test to expect HTTP 200 to close tail."
+  blockers:
+  - Caddy not promoted as :443 terminator on 23.92.79.2
+  - WHM UAPI deploy not yet executed for api.interface.tag.ooo
+  dependencies:
+  - R-SPOF-01
+
+- id: R-SPOF-01
+  description: "Single authoritative nameserver (ns1.tag.ooo) on same IP as application server (23.92.79.2).
+    Any disruption to 23.92.79.2 simultaneously kills DNS resolution and HTTP service for ALL
+    tag.ooo subdomains — api.interface.tag.ooo, tag.ooo, etc."
+  roam: Owned
+  owner_layer: infra
+  severity: high
+  staleness_ttl_hours: 168
+  last_verified: '2026-06-19T12:53:46Z'
+  verification_command: "dig NS tag.ooo +short"
+  last_result: "ns1.tag.ooo. (sole NS, resolves to 23.92.79.2)"
+  status: owned
+  rca_deep_why:
+    - "Why single NS? tag.ooo zone file was provisioned manually via cPanel WHM with only ns1."
+    - "Why same IP? Self-hosted NS on the application server — common for minimal VPS setups."
+    - "Why no ns2? Was never provisioned; no secondary DNS was configured during zone creation."
+    - "Why high severity? NS failure = complete zone dark (ENOTFOUND) for all subdomains."
+    - "Why not redundant? Manual administration without service discovery led to config drift."
+  resolution_path:
+    - "Step 1: Add ns2.tag.ooo A record pointing to a DIFFERENT IP (not 23.92.79.2)."
+    - "Step 2: Update tag.ooo zone SOA to list both ns1.tag.ooo and ns2.tag.ooo."
+    - "Step 3: Configure secondary DNS service (e.g. Cloudflare secondary, another VPS, or Route53)."
+    - "Step 4: Verify: dig NS tag.ooo +short should return 2+ nameservers."
+  artifact_path: config/fqdn_registry.yaml
+  blockers:
+  - Requires second DNS host (different IP)
+  - WHM zone editor access
+  dependencies: []
+
+- id: R-OROCRM-01
+  description: "OroCommerce CRM backend (192.168.122.237:8000) unreachable — 100% packet loss from
+    host. crm.bhopti.com and shop.bhopti.com depend on this KVM guest. Caddy reverse-proxy
+    configured but origin is dead. Batch sync (JSON/CSV export) is the accepted fallback."
+  roam: Accepted
+  owner_layer: infra
+  severity: medium
+  staleness_ttl_hours: 48
+  last_verified: '2026-06-19T12:53:46Z'
+  verification_command: "ping -c 1 -W 2 192.168.122.237; curl --max-time 3 http://192.168.122.237:8000/health"
+  last_result: "100_pct_packet_loss_no_bridge_route"
+  status: accepted
+  rca_deep_why:
+    - "Why unreachable? KVM guest (libvirt network bridge) may be stopped or network bridge misconfigured."
+    - "Why static IP? VM provisioned with static 192.168.122.237 — standard libvirt default network."
+    - "Why no health probe? provision_orocrm_edge.sh uses manual VM provisioning without automated health checks."
+    - "Why acceptable? Direct live CRM connection failure accepted during edge transitions."
+    - "Fallback: Batch synchronization via JSON/CSV export acts as fallback channel."
+  resolution_path:
+    - "Step 1: virsh net-start default && virsh start <orocrm-vm-name>"
+    - "Step 2: Verify: ping -c 3 192.168.122.237"
+    - "Step 3: Verify: curl http://192.168.122.237:8000/health"
+    - "Step 4: Confirm crm.bhopti.com responds via Caddy reverse-proxy."
+  artifact_path: scripts/provision_oro_backend.sh
+  blockers:
+  - KVM/libvirt bridge not running (or VM not started)
+  dependencies: []

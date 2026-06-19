@@ -61,8 +61,8 @@ const ASSET_BASE_HINT =
 const TLD_TARGETS = [
   { tld: 'summerjobswap.com', url: 'https://summerjobswap.com/', titlePattern: /SUMMERJOBSWAP/i },
   { tld: 'nextwavenetwork.com', url: 'https://nextwavenetwork.com/', titlePattern: /NEXTWAVENETWORK/i },
-  { tld: 'interface.rooz.live', url: 'https://interface.rooz.live/', titlePattern: /rooz|agentic|trading|dashboard/i },
-  { tld: 'law.rooz.live', url: 'https://law.rooz.live/', titlePattern: /rooz|agentic|trading|dashboard/i },
+  { tld: 'interface.rooz.live', url: 'https://interface.rooz.live/', titlePattern: /rooz|agentic|trading|dashboard|Telegram|thriveplace/i, redirects: true },
+  { tld: 'law.rooz.live', url: 'https://law.rooz.live/', titlePattern: /rooz|agentic|trading|dashboard|Telegram|thriveplace/i, redirects: true },
   { tld: 'yo.life', url: 'https://yo.life/', titlePattern: /yo\.life|flourishing|circle|rooz|admin|agentic|trading|dashboard/i },
   { tld: 'hab.yo.life', url: 'https://hab.yo.life/', titlePattern: /hab\.yo\.life|agentic|dashboard|evidence/i },
   { tld: 'pur.tag.vote', url: 'https://pur.tag.vote/', titlePattern: /pur\.tag\.vote|agentic|dashboard|gateway/i },

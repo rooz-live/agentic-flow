@@ -139,9 +139,12 @@ git ls-files --others --exclude-standard | grep "^src/" | wc -l
 ### NOW (Highest CoD — active blockers)
 | # | Item | WSJF | Status |
 |---|------|------|--------|
-| 1 | DNS delegation: billing.bhopti.com → Caddy origin IP | 9.5 | 🔴 BLOCKED: DNS |
-| 2 | TLS chain: valid cert on Caddy (`src/proxies/edge_gateway.cfg`) | 9.3 | 🔴 BLOCKED: DNS first |
-| 3 | `public_synthetic_check.sh billing.bhopti.com` exit 0 | 9.0 | 🔴 BLOCKED: DNS |
+| 1 | Activate Caddy as TLS terminator on 23.92.79.2:443 (replaces cPanel default 502) | 9.5 | 🔴 BLOCKED: sysadmin access |
+| 2 | `api.interface.tag.ooo` gRPC live → unblocks invoice pipeline (EventOps ROAM: Owned) | 9.4 | 🔴 BLOCKED: Caddy not active |
+| 3 | `public_synthetic_check.sh billing.bhopti.com` exit 0 | 9.0 | 🔴 BLOCKED: Caddy not terminating |
+| 4 | Add ns2.tag.ooo on separate IP (SPOF elimination, R-SPOF-01) | 8.5 | 🔴 BLOCKED: second DNS host needed |
+| 5 | Start OroCommerce KVM guest (192.168.122.237): `virsh start <oro-vm>` | 7.5 | 🔴 BLOCKED: KVM bridge down |
+| 6 | `bash scripts/one.sh deploy-uapi` — WHM UAPI push TLD files | 7.0 | 🟡 READY: .env credentials present |
 
 ### NEXT
 | # | Item | WSJF | Status |

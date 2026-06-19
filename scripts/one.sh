@@ -116,6 +116,22 @@ case "$CMD" in
         exec python3 "$ROOT_DIR/scripts/gates/scorecard_gate.py" "$@"
         ;;
 
+    upstream)
+        # Upstream Repository Upgrade Validation Engine.
+        # Fetches remote SHAs (parallel by default), diffs against cache,
+        # runs per-repo integration tests with retry and DoR checking,
+        # writes DLQ/ROAM signals on failure, and emits a DoD artefact.
+        #
+        # Flags (passed through):
+        #   --dry-run       Fetch only; print plan; exit 0
+        #   --force         Validate all repos, ignoring SHA cache
+        #   --parallel      Run integration tests concurrently
+        #   --json          Emit summary JSON to stdout
+        #   --no-coherence  Skip coherence gate (CI use only)
+        shift
+        exec python3 "$ROOT_DIR/scripts/cicd/upstream_upgrade_engine.py" "$@"
+        ;;
+
     help|--help|-h)
         cat <<'HELP'
 Usage: ./scripts/one.sh <subcommand> [args...]
@@ -131,6 +147,7 @@ Usage: ./scripts/one.sh <subcommand> [args...]
   wsjf              Update WSJF schedule ledger
   dod-gate          DoR/DoD gate: --pre-task | --post-task | --full (default)
   scorecard         Originality/Impact gate: [--verify] [--file PATH] [--json]
+  upstream          Upstream repo upgrade engine: [--dry-run] [--force] [--parallel] [--json]
 HELP
         exit 0
         ;;

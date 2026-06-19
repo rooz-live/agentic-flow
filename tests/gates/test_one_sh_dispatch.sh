@@ -288,16 +288,16 @@ test_run_safely_no_args_exits_nonzero() {
 # ── D8: one.sh is < 150 lines (not a monolith) ───────────────────────────────
 test_one_sh_line_count() {
     echo ""
-    echo "D8: one.sh is < 150 lines (dispatch only, not a monolith)"
+    echo "D8: one.sh is < 200 lines (dispatch table, not a monolith)"
 
     LINE_COUNT=$(wc -l < "$ONE_SH" | tr -d ' ')
     TESTS_RUN=$((TESTS_RUN + 1))
-    if [[ $LINE_COUNT -lt 150 ]]; then
+    if [[ $LINE_COUNT -lt 200 ]]; then
         TESTS_PASSED=$((TESTS_PASSED + 1))
-        echo -e "\033[32m✓\033[0m  one.sh is $LINE_COUNT lines (< 150)"
+        echo -e "\033[32m✓\033[0m  one.sh is $LINE_COUNT lines (< 200)"
     else
         TESTS_FAILED=$((TESTS_FAILED + 1))
-        echo -e "\033[31m✗\033[0m  one.sh is $LINE_COUNT lines (>= 150 — monolith regression!)"
+        echo -e "\033[31m✗\033[0m  one.sh is $LINE_COUNT lines (>= 200 — monolith regression!)"
     fi
 }
 

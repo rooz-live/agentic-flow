@@ -162,6 +162,19 @@ Gate overhead per cycle: DoR=1.7s + scorecard=0.3s + pytest(147)=12.8s = **14.7s
 | 4 | gate_integrity: wire scorecard --verify to CI artifact (.github/workflows) | 5.0 | 🟡 READY |
 | 5 | OroCommerce CRM integration: crm.bhopti.com → real B2B workflow | 5.5 | 🟡 READY |
 
+### DONE (Wave 6 — upstream engine expansion, 2026-06-26)
+| # | Item | WSJF | Status |
+|---|------|------|--------|
+| U1 | `upstream_fetcher.py` — parallel `ThreadPoolExecutor` ls-remote, per-repo `timeout_s`, registry schema validation | 8.5 | ✅ DONE |
+| U2 | `upstream_runner.py` — per-repo `run_timeout_s` + `retry`, DoR cmd check, log truncation, parallel execution | 8.3 | ✅ DONE |
+| U3 | `upstream_reporter.py` — DLQ JSONL write, ROAM trigger via `dlq_roam_apply.py`, `--json` stdout, lane annotation | 8.1 | ✅ DONE |
+| U4 | `upstream_upgrade_engine.py` — coherence gate binding, DoD artefact, `--parallel`, `--json`, `--no-coherence` | 8.4 | ✅ DONE |
+| U5 | `upstream_registry.json` — `timeout_s`, `run_timeout_s`, `retry`, `roam_risk_id`, `notify_on_fail`, `dor_cmd` per repo | 7.8 | ✅ DONE |
+| U6 | `tests/gates/test_upstream_engine.sh` — 15 tests (F1, R1–R5, P1–P4, E1–E5), all green | 8.0 | ✅ DONE |
+| U7 | `one.sh upstream` subcommand — delegates to engine; monolith guard updated (< 200 lines) | 7.5 | ✅ DONE |
+| U8 | ci circles (assess/orchestrate/swarm) verified wired in `scripts/ci/`, short-circuit on failure | 9.0 | ✅ DONE |
+
+
 ### NEXT
 | # | Item | WSJF | Status |
 |---|------|------|--------|

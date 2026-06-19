@@ -2,35 +2,8 @@
 """Upstream Repository Upgrade Validation Engine.
 
 Coordinator that imports and sequences the fetcher, runner, and reporter
-slices.  New capabilities vs. the previous stub:
-
-  CLI flags
-  ---------
-  --dry-run      Fetch only; print what would run; exit 0.
-  --force        Force-validate all active repos even if cached/up-to-date.
-  --parallel     Run integration tests in parallel (ThreadPoolExecutor).
-  --json         Emit final summary JSON to stdout (in addition to evidence file).
-  --no-coherence Skip the coherence gate binding check.
-
-  DoR check (coherence gate)
-  --------------------------
-  Before running validations, reads .goalie/evidence/coherence_results.json
-  and verifies:
-    1. coherence == "PASS"
-    2. git_head in file == current HEAD
-  Stale or absent artifact => exits 2 unless --no-coherence is passed.
-
-  DoD artefact
-  ------------
-  Always writes .goalie/evidence/upstream_engine_{run_id}.json at exit,
-  regardless of pass/fail.  Contains gate name, run_id, git HEAD, overall
-  status, and a per-repo summary.
-
-  ROAM / DLQ passthrough
-  ----------------------
-  Delegated to upstream_reporter.save_report_and_cache.
+slices. Supports both remote upstream targets and local workspace sweeps.
 """
-from __future__ import annotations
 
 import argparse
 import datetime
@@ -40,6 +13,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+# Add script directory to sys.path to allow clean sibling imports
 SCRIPT_DIR = Path(__file__).parent.resolve()
 sys.path.insert(0, str(SCRIPT_DIR))
 
@@ -47,8 +21,9 @@ try:
     import upstream_fetcher
     import upstream_runner
     import upstream_reporter
+    import local_upgrader
 except ImportError as exc:
-    print(f"\u274c Core import failed: {exc}", file=sys.stderr)
+    print(f"❌ Core import failed: {exc}", file=sys.stderr)
     sys.exit(3)
 
 
@@ -57,6 +32,7 @@ except ImportError as exc:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _current_head(project_root: Path) -> str:
+    """Return current git HEAD SHA."""
     try:
         return subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
@@ -64,18 +40,18 @@ def _current_head(project_root: Path) -> str:
             text=True,
             timeout=10,
         ).strip()
-    except Exception:
+    except Exception:  # noqa: BLE001
         return "unknown"
 
 
-def check_coherence(project_root: Path) -> tuple:
-    """Return (ok: bool, reason: str).  ok=True iff coherence=PASS and bound to HEAD."""
+def check_coherence(project_root: Path) -> tuple[bool, str]:
+    """Return (ok, reason).  ok=True means coherence is PASS and bound to HEAD."""
     path = project_root / ".goalie" / "evidence" / "coherence_results.json"
     if not path.exists():
         return False, "coherence_results.json absent — run cargo check + pytest first"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         return False, f"coherence_results.json unreadable: {exc}"
 
     coherence = str(data.get("coherence", "")).upper()
@@ -85,10 +61,9 @@ def check_coherence(project_root: Path) -> tuple:
     if coherence != "PASS":
         return False, f"coherence={coherence} (expected PASS)"
     if recorded_head != current:
-        return (
-            False,
-            f"coherence artifact bound to {recorded_head[:12]} "
-            f"but HEAD is {current[:12]} — re-run `cargo check && pytest` to refresh",
+        return False, (
+            f"coherence artefact bound to {recorded_head[:12]} but HEAD is "
+            f"{current[:12]} — re-run `cargo check && pytest` to refresh"
         )
     return True, f"coherence=PASS at HEAD {current[:12]}"
 
@@ -106,6 +81,7 @@ def _write_dod_artifact(
     coherence_ok: bool,
     coherence_reason: str,
 ) -> None:
+    """Write gate verification evidence JSON to .goalie/evidence."""
     evidence_dir = project_root / ".goalie" / "evidence"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     path = evidence_dir / f"upstream_engine_{run_id}.json"
@@ -128,35 +104,70 @@ def _write_dod_artifact(
         ],
     }
     path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
-    # Update latest symlink
+    # Symlink latest
     symlink = evidence_dir / "last_upstream_engine.json"
-    try:
-        symlink.unlink(missing_ok=True)
-        symlink.symlink_to(path.name)
-    except Exception:
-        pass
-    print(f"\u2705 DoD artefact: {path}")
+    symlink.unlink(missing_ok=True)
+    symlink.symlink_to(path.name)
+    print(f"✅ DoD artefact: {path}")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Main
+# Main Coordinator
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Upstream Repository Upgrade Validation Engine",
+        description="Upstream/Local Repository Upgrade Validation Engine",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Fetch only; print plan; do not execute tests")
-    parser.add_argument("--force", action="store_true",
-                        help="Force validate all active repos, ignoring SHA cache")
-    parser.add_argument("--parallel", action="store_true",
-                        help="Run integration tests in parallel across repos")
-    parser.add_argument("--json", dest="json_output", action="store_true",
-                        help="Print final summary JSON to stdout")
-    parser.add_argument("--no-coherence", dest="skip_coherence", action="store_true",
-                        help="Skip coherence gate (CI / --dry-run bypass only)")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Fetch only; print plan; do not execute tests",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force validate all active repos, ignoring SHA cache",
+    )
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        help="Run integration tests in parallel across repos",
+    )
+    parser.add_argument(
+        "--json",
+        dest="json_output",
+        action="store_true",
+        help="Print final summary JSON to stdout",
+    )
+    parser.add_argument(
+        "--no-coherence",
+        dest="skip_coherence",
+        action="store_true",
+        help="Skip coherence gate (CI / --dry-run bypass only)",
+    )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help="run local repository sweep",
+    )
+    parser.add_argument(
+        "--scan-paths",
+        type=str,
+        default="/Users/shahroozbhopti/code;/Users/shahroozbhopti/Documents",
+        help="semicolon-separated paths to scan for local repositories",
+    )
+    parser.add_argument(
+        "--skip-upstream",
+        action="store_true",
+        help="skip upstream checks",
+    )
+    parser.add_argument(
+        "--skip-local",
+        action="store_true",
+        help="skip local repository sweeps",
+    )
     args = parser.parse_args()
 
     project_root = SCRIPT_DIR.parent.parent.resolve()
@@ -164,11 +175,11 @@ def main() -> None:
     run_id = timestamp
 
     print("=" * 65)
-    print(f"\U0001f985 UPSTREAM VALIDATION ENGINE  |  {timestamp}")
+    print(f"🦅 UPSTREAM/LOCAL VALIDATION ENGINE  |  {timestamp}")
     if args.dry_run:
-        print("\U0001f6ab DRY-RUN: No tests will execute; cache will not be written.")
+        print("🚫 DRY-RUN: No tests will execute; cache will not be written.")
     if args.parallel:
-        print("\u26a1 PARALLEL: Integration tests run concurrently.")
+        print("⚡ PARALLEL: Integration tests run concurrently.")
     print("=" * 65)
 
     # ── Coherence gate ────────────────────────────────────────────────────────
@@ -177,69 +188,128 @@ def main() -> None:
     if not args.skip_coherence:
         coherence_ok, coherence_reason = check_coherence(project_root)
         if coherence_ok:
-            print(f"\u2705 Coherence gate: {coherence_reason}")
+            print(f"✅ Coherence gate: {coherence_reason}")
         else:
-            print(f"\u274c Coherence gate FAIL: {coherence_reason}")
+            print(f"❌ Coherence gate FAIL: {coherence_reason}")
             print("   Run: cargo check && python3 -m pytest tests/billing/ tests/pytest/ -q")
             print("   Then re-run.  Pass --no-coherence to skip (CI / dry-run only).")
             _write_dod_artifact(project_root, run_id, timestamp, "BLOCK",
                                 [], coherence_ok, coherence_reason)
             sys.exit(2)
 
-    # ── Phase 1: Fetch ────────────────────────────────────────────────────────
-    repos, cache, remote_heads, to_validate = upstream_fetcher.fetch_active_targets(
-        project_root, parallel=True
+    # Load cache
+    cache_path = (
+        project_root
+        / ".goalie"
+        / "evidence"
+        / "upgrades"
+        / "last_known_heads.json"
     )
+    cache = upstream_fetcher.load_cache(cache_path)
+    results = []
+    all_passed = True
 
-    if not repos:
-        print("\u274c No targets configured. Exiting.")
-        sys.exit(1)
+    # 1. Local sweep
+    run_local = args.local and not args.skip_local
+    if run_local:
+        print("\n🛠️ Running local repository sweep...")
+        scan_paths = [
+            p.strip() for p in args.scan_paths.split(";") if p.strip()
+        ]
+        local_results, upgraded, failed = local_upgrader.run_local_sweep(
+            scan_paths, dry_run=args.dry_run
+        )
+        results.extend(local_results)
+        if failed > 0:
+            all_passed = False
 
-    if args.force:
-        print("\u26a0\ufe0f  --force: queuing all active repos for validation.")
-        to_validate = [r for r in repos if r.get("active", False)]
+    # 2. Upstream sweep
+    run_upstream = not args.skip_upstream
+    repos = []
+    if run_upstream:
+        print("\n☁️ Running upstream repository checks...")
+        repos, cache, remote_heads, to_validate = (
+            upstream_fetcher.fetch_active_targets(project_root, parallel=True)
+        )
 
-    if args.dry_run:
-        print(f"\n\U0001f6ab Dry-run: would validate {[r['id'] for r in to_validate]}")
-        skipped = [r["id"] for r in repos if r.get("active") and r["id"] not in {x["id"] for x in to_validate}]
-        print(f"   Would skip (cached): {skipped}")
-        sys.exit(0)
+        if repos:
+            if args.force:
+                print("⚠️  --force: queuing all active repos for validation.")
+                to_validate = [r for r in repos if r.get("active", False)]
 
-    # ── Phase 2: Run ──────────────────────────────────────────────────────────
-    cfg: dict = {}
-    try:
-        cfg_path = project_root / "config" / "cicd" / "upstream_registry.json"
-        cfg = json.loads(cfg_path.read_text(encoding="utf-8")).get("upgrades_configuration", {})
-    except Exception:
-        pass
+            if args.dry_run:
+                print(f"\n🚫 Dry-run: would validate {[r['id'] for r in to_validate]}")
+                skipped = [
+                    r["id"]
+                    for r in repos
+                    if r.get("active") and r["id"] not in {x["id"] for x in to_validate}
+                ]
+                print(f"   Would skip (cached): {skipped}")
+                # Populate dummy dry-run results for reporting
+                for r in repos:
+                    if r.get("active", False):
+                        results.append({
+                            "repository_id": r["id"],
+                            "url": r["url"],
+                            "branch": r["branch"],
+                            "latest_commit_sha": "dry-run-sha",
+                            "integration_status": "PASS",
+                            "duration_seconds": 0.0,
+                            "skipped": r not in to_validate,
+                        })
+            else:
+                cfg: dict = {}
+                try:
+                    cfg_path = project_root / "config" / "cicd" / "upstream_registry.json"
+                    cfg = json.loads(cfg_path.read_text(encoding="utf-8")).get(
+                        "upgrades_configuration", {}
+                    )
+                except Exception:
+                    pass
 
-    results = upstream_runner.run_validations(
-        repos,
-        to_validate,
-        remote_heads,
-        project_root,
-        parallel=args.parallel,
-        default_run_timeout_s=int(cfg.get("default_run_timeout_s", 120)),
-        default_retry=int(cfg.get("default_retry", 1)),
-        log_truncate_bytes=int(cfg.get("log_truncate_bytes", 8192)),
-    )
+                upstream_results = upstream_runner.run_validations(
+                    repos,
+                    to_validate,
+                    remote_heads,
+                    project_root,
+                    parallel=args.parallel,
+                    default_run_timeout_s=int(cfg.get("default_run_timeout_s", 120)),
+                    default_retry=int(cfg.get("default_retry", 1)),
+                    log_truncate_bytes=int(cfg.get("log_truncate_bytes", 8192)),
+                )
+                results.extend(upstream_results)
+                for res in upstream_results:
+                    if res["integration_status"] != "PASS":
+                        all_passed = False
+        else:
+            print("❌ No upstream targets found or configured.")
+            if not run_local:
+                sys.exit(1)
 
-    # ── Phase 3: Report + cache + DLQ/ROAM ───────────────────────────────────
-    all_passed = upstream_reporter.save_report_and_cache(
-        results,
-        cache,
-        project_root,
-        timestamp,
-        run_id=run_id,
-        registry_repos=repos,
-        json_output=args.json_output,
-    )
+    # 3. Report
+    if results:
+        reporter_passed = upstream_reporter.save_report_and_cache(
+            results,
+            cache,
+            project_root,
+            timestamp,
+            run_id=run_id,
+            registry_repos=repos,
+            json_output=args.json_output,
+        )
+        if not reporter_passed:
+            all_passed = False
 
-    # ── DoD artefact ─────────────────────────────────────────────────────────
+    # 4. DoD artefact
     overall_status = "PASS" if all_passed else "FAIL"
     _write_dod_artifact(
-        project_root, run_id, timestamp, overall_status,
-        results, coherence_ok, coherence_reason,
+        project_root,
+        run_id,
+        timestamp,
+        overall_status,
+        results,
+        coherence_ok,
+        coherence_reason,
     )
 
     sys.exit(0 if all_passed else 1)

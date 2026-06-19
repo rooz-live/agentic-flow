@@ -14,18 +14,18 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import local_upgrader
 import upstream_upgrade_engine
+import edge_fetcher
+import edge_runner
+import edge_reporter
+import edge_gateway_sync_engine
 
+
+# ==============================================================================
+# Local Upgrader Unit Tests
+# ==============================================================================
 
 def test_scan_repositories(tmp_path):
     """Test local repository scanning up to depth 3 with path exclusion."""
-    # Structure:
-    # tmp_path/repo1/.git -> depth 2 (tmp_path is 1, repo1 is 2, .git is 3)
-    # tmp_path/sub/repo2/.git -> depth 3
-    # tmp_path/sub/sub/repo3/.git -> depth 4 (should be skipped, too deep)
-    # tmp_path/node_modules/repo_nod/.git -> should be excluded by name
-    # tmp_path/clean-ruflo-env/repo_cl/.git -> should be excluded by name
-    # tmp_path/pre-cleanup-backup-123/repo_bk/.git -> should be excluded by name
-
     repo1 = tmp_path / "repo1"
     (repo1 / ".git").mkdir(parents=True, exist_ok=True)
 
@@ -45,8 +45,6 @@ def test_scan_repositories(tmp_path):
     (repo_bk / ".git").mkdir(parents=True, exist_ok=True)
 
     found = local_upgrader.scan_repositories([str(tmp_path)])
-    
-    # Resolved paths
     found_resolved = [p.resolve() for p in found]
 
     assert repo1.resolve() in found_resolved
@@ -60,7 +58,6 @@ def test_scan_repositories(tmp_path):
 @patch("subprocess.run")
 def test_get_default_branch_origin_head(mock_run):
     """Test default branch detection when origin/HEAD is defined."""
-    # Mock git rev-parse --abbrev-ref origin/HEAD -> origin/main
     mock_res = MagicMock()
     mock_res.returncode = 0
     mock_res.stdout = "origin/main\n"
@@ -73,10 +70,6 @@ def test_get_default_branch_origin_head(mock_run):
 @patch("subprocess.run")
 def test_get_default_branch_local_fallback(mock_run):
     """Test default branch fallback checks when origin/HEAD is missing."""
-    # First call: git rev-parse --abbrev-ref origin/HEAD -> fails
-    # Second call: git show-ref --verify --quiet refs/heads/main -> fails (returns 1)
-    # Third call: git show-ref --verify --quiet refs/heads/master -> succeeds (returns 0)
-    
     mock_res_fail = MagicMock()
     mock_res_fail.returncode = 1
     mock_res_fail.stdout = ""
@@ -120,15 +113,11 @@ def test_run_local_sweep_success(mock_run_cmd, mock_get_branch, mock_scan, tmp_p
     """Test run_local_sweep with success path on python project."""
     repo_path = tmp_path / "my_py_repo"
     repo_path.mkdir()
-    # Create requirements.txt to trigger pip upgrade
     (repo_path / "requirements.txt").touch()
 
     mock_scan.return_value = [repo_path]
     mock_get_branch.return_value = "main"
     
-    # 1. git rev-parse HEAD -> sha
-    # 2. git pull
-    # 3. pip install
     mock_run_cmd.side_effect = [
         (True, "abc123sha\n"),  # git rev-parse HEAD
         (True, "Already up to date.\n"),  # git pull
@@ -151,18 +140,12 @@ def test_run_local_sweep_fail(mock_run_cmd, mock_get_branch, mock_scan, tmp_path
     """Test run_local_sweep when a command fails (e.g. tests fail)."""
     repo_path = tmp_path / "my_node_repo"
     repo_path.mkdir()
-    # package.json with test script
     with open(repo_path / "package.json", "w") as f:
         json.dump({"scripts": {"test": "jest"}}, f)
 
     mock_scan.return_value = [repo_path]
     mock_get_branch.return_value = "main"
 
-    # Mock runs:
-    # 1. git rev-parse HEAD
-    # 2. git pull -> success
-    # 3. npm update -> success
-    # 4. npm test -> fail
     mock_run_cmd.side_effect = [
         (True, "sha123\n"),  # rev-parse
         (True, "git pull output\n"),  # git pull
@@ -195,10 +178,148 @@ def test_engine_coordinator_local_only(mock_exit, mock_sweep, mock_load_cache):
         "skipped": False
     }], 1, 0)
 
-    test_args = ["upstream_upgrade_engine.py", "--local", "--skip-upstream"]
+    test_args = ["upstream_upgrade_engine.py", "--local", "--skip-upstream", "--no-coherence"]
     with patch("sys.argv", test_args):
         upstream_upgrade_engine.main()
 
     assert mock_sweep.called
+    assert mock_exit.called
+    mock_exit.assert_called_with(0)
+
+
+# ==============================================================================
+# Edge Gateway Deconstruction Unit Tests
+# ==============================================================================
+
+def test_parse_edge_cfg(tmp_path):
+    """Test parsing Caddy-style configuration files for virtualhosts."""
+    cfg_file = tmp_path / "edge_gateway.cfg"
+    cfg_content = """
+# Header comment
+{
+    email test@bhopti.com
+}
+
+billing.bhopti.com {
+    reverse_proxy 127.0.0.1:30083
+}
+
+# Duplicate / Multiple
+crm.bhopti.com, shop.bhopti.com {
+    reverse_proxy 127.0.0.1:8000
+}
+"""
+    cfg_file.write_text(cfg_content)
+    fqdns = edge_fetcher.parse_edge_cfg(cfg_file)
+    assert fqdns == ["billing.bhopti.com", "crm.bhopti.com", "shop.bhopti.com"]
+
+
+def test_load_fqdn_registry(tmp_path):
+    """Test loading fqdn_registry.yaml map."""
+    reg_file = tmp_path / "fqdn_registry.yaml"
+    reg_content = """
+domains:
+  - fqdn: billing.bhopti.com
+    origin: "23.92.79.2"
+  - fqdn: crm.bhopti.com
+    origin: "${ENV_IP}"
+"""
+    reg_file.write_text(reg_content)
+    registry = edge_fetcher.load_fqdn_registry(reg_file)
+    # Checks that non-placeholder values are mapped correctly
+    assert registry.get("billing.bhopti.com") == "23.92.79.2"
+    assert "crm.bhopti.com" not in registry  # skipped placeholder
+
+
+@patch("edge_fetcher.get_live_resolution")
+@patch("edge_fetcher.load_edge_state_cache")
+def test_fetch_edge_status(mock_cache, mock_dns, tmp_path):
+    """Test fetch_edge_status delta detection."""
+    mock_cache.return_value = {
+        "billing.bhopti.com": "23.92.79.2",
+        "crm.bhopti.com": "23.92.79.2"
+    }
+    # billing.bhopti.com matches cache & registry -> skipped
+    # crm.bhopti.com IP mismatched -> queued
+    mock_dns.side_effect = lambda f: "23.92.79.2" if f == "billing.bhopti.com" else "127.0.0.1"
+
+    # Setup directories
+    proxies_dir = tmp_path / "src" / "proxies"
+    proxies_dir.mkdir(parents=True)
+    (proxies_dir / "edge_gateway.cfg").write_text("billing.bhopti.com {\n}\ncrm.bhopti.com {\n}\n")
+    
+    config_dir = tmp_path / "config"
+    config_dir.mkdir(parents=True)
+    (config_dir / "fqdn_registry.yaml").write_text("domains:\n  - fqdn: billing.bhopti.com\n    origin: \"23.92.79.2\"\n  - fqdn: crm.bhopti.com\n    origin: \"23.92.79.2\"\n")
+
+    fqdns, registry, live_resolutions, cache, to_sync, fqdn_metadata = edge_fetcher.fetch_edge_status(tmp_path)
+    assert "billing.bhopti.com" in fqdns
+    assert "crm.bhopti.com" in fqdns
+    assert to_sync == ["crm.bhopti.com"]
+
+
+def test_run_edge_sync_success():
+    """Test run_edge_sync under valid matching state."""
+    fqdns = ["billing.bhopti.com"]
+    to_sync = ["billing.bhopti.com"]
+    registry = {"billing.bhopti.com": "23.92.79.2"}
+    live_resolutions = {"billing.bhopti.com": "23.92.79.2"}
+
+    results = edge_runner.run_edge_sync(fqdns, to_sync, registry, live_resolutions, Path("/dummy"))
+    assert len(results) == 1
+    assert results[0]["status"] == "PASS"
+    assert results[0]["fqdn"] == "billing.bhopti.com"
+    assert results[0]["skipped"] is False
+
+
+def test_run_edge_sync_mismatch():
+    """Test run_edge_sync under drift/mismatch state."""
+    fqdns = ["billing.bhopti.com"]
+    to_sync = ["billing.bhopti.com"]
+    registry = {"billing.bhopti.com": "23.92.79.2"}
+    live_resolutions = {"billing.bhopti.com": "127.0.0.1"}
+
+    results = edge_runner.run_edge_sync(fqdns, to_sync, registry, live_resolutions, Path("/dummy"))
+    assert len(results) == 1
+    assert results[0]["status"] == "FAIL"
+    assert "MISMATCH" in results[0]["log"] or "expected" in results[0]["log"]
+
+
+def test_save_edge_report_and_cache(tmp_path):
+    """Test report file generation and cache write."""
+    results = [
+        {
+            "fqdn": "billing.bhopti.com",
+            "status": "PASS",
+            "resolved_ip": "23.92.79.2",
+            "expected_ip": "23.92.79.2",
+            "duration_seconds": 0.5,
+            "skipped": False
+        }
+    ]
+    cache = {}
+    passed, _ = edge_reporter.save_edge_report_and_cache(results, cache, tmp_path, "20260619T100000Z")
+    assert passed is True
+    
+    cache_file = tmp_path / ".goalie" / "evidence" / "edge_gateway" / "last_known_state.json"
+    assert cache_file.is_file()
+    with open(cache_file, "r") as f:
+        data = json.load(f)
+        assert data.get("billing.bhopti.com") == "23.92.79.2"
+
+
+@patch("edge_fetcher.fetch_edge_status")
+@patch("edge_reporter.save_edge_report_and_cache")
+@patch("sys.exit")
+def test_edge_engine_coordinator(mock_exit, mock_report, mock_fetch):
+    """Test that edge gateway sync engine coordinates fetch, run, and report."""
+    mock_fetch.return_value = (["billing.bhopti.com"], {"billing.bhopti.com": "23.92.79.2"}, {"billing.bhopti.com": "23.92.79.2"}, {}, [], {"billing.bhopti.com": {"origin": "23.92.79.2"}})
+    mock_report.return_value = (True, {"status": "PASS"})
+
+    test_args = ["edge_gateway_sync_engine.py", "--dry-run"]
+    with patch("sys.argv", test_args):
+        edge_gateway_sync_engine.main()
+
+    assert mock_fetch.called
     assert mock_exit.called
     mock_exit.assert_called_with(0)

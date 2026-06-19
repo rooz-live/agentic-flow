@@ -364,9 +364,26 @@ def derive_coherence(root_path_or_results: Any, force_dynamic: bool = False, ing
         coherence = data.get("coherence")
         gh = data.get("git_head")
         current_head = git_head(root_path)
-        if gh == current_head:
-            return str(coherence).upper()
-        return "FAIL"
+        if gh != current_head:
+            return "FAIL"
+            
+        env = dict(os.environ)
+        is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+        allowed_signers = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
+        
+        sig = data.get("signature")
+        principal = data.get("principal")
+        
+        if os.path.exists(allowed_signers):
+            if is_ci or sig or principal:
+                if not sig or not principal:
+                    return "FAIL"
+                if not verify_ssh_signature(sig, principal, gh, allowed_signers):
+                    return "FAIL"
+        elif sig or principal:
+            return "FAIL"
+
+        return str(coherence).upper()
     except Exception:
         return "FAIL"
 
@@ -392,11 +409,24 @@ def derive_gate_integrity(env: Optional[dict] = None) -> GateIntegrityResult:
     if env is None:
         env = dict(os.environ)
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    allowed_signers = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
     if is_ci:
         event = env.get("GITHUB_EVENT_NAME", "")
-        if event in ("pull_request", "pull_request_review"):
-            return GateIntegrityResult("PASS", "CI execution context")
-        return GateIntegrityResult("FAIL", "invalid CI event")
+        if event not in ("pull_request", "pull_request_review"):
+            return GateIntegrityResult("FAIL", "invalid CI event")
+            
+        if os.path.exists(allowed_signers):
+            prov_sig = env.get("AF_CI_PROVENANCE_SIGNATURE")
+            prov_principal = env.get("AF_CI_PROVENANCE_PRINCIPAL")
+            if not prov_sig or not prov_principal:
+                return GateIntegrityResult("FAIL", "CI context requires cryptographic provenance signature")
+            actual_commit = git_head()
+            if not actual_commit or not verify_ssh_signature(prov_sig, prov_principal, actual_commit, allowed_signers):
+                return GateIntegrityResult("FAIL", "CI provenance signature verification failed")
+            return GateIntegrityResult("PASS", f"CI execution context verified via signature from {prov_principal}")
+            
+        return GateIntegrityResult("PASS", "CI execution context")
+        
     context = env.get("AF_GATE_CONTEXT", "")
     if context in GATE_CONTEXTS:
         return GateIntegrityResult("PASS", f"valid context: {context}")
@@ -517,9 +547,13 @@ def verify_signoff(card: dict, env: dict, actual_commit, actual_diff) -> tuple:
     Option 1: Cryptographic Signatures (SSH)
     """
     allowed_signers_path = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
+    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    is_enforcing = is_ci or str(env.get("AF_STRICT_SIGN_OFF", "0")) == "1"
     
-    # Check if cryptographic signing is enabled/enforced via allowed_signers file existence
-    if os.path.exists(allowed_signers_path):
+    # Check if cryptographic signing is enabled/enforced
+    if os.path.exists(allowed_signers_path) or is_enforcing:
+        if not os.path.exists(allowed_signers_path):
+            return False, "allowed_signers file is missing in enforcing/CI mode"
         principal = card.get("sign_off_principal") or card.get("impact", {}).get("sign_off_principal")
         signature = card.get("sign_off_signature") or card.get("impact", {}).get("sign_off_signature")
         if not principal or not signature:
@@ -533,7 +567,7 @@ def verify_signoff(card: dict, env: dict, actual_commit, actual_diff) -> tuple:
             
         return False, f"cryptographic signature verification failed for principal {principal}"
 
-    # Fallback to legacy behavior if allowed_signers does not exist
+    # Fallback to legacy behavior if allowed_signers does not exist AND not in enforcing mode
     token = str(env.get("AF_SIGNOFF", "")).strip()
     if token and token in (actual_commit, actual_diff):
         kind = "commit" if token == actual_commit else "diff"
@@ -610,7 +644,8 @@ def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) ->
     proxies = collect_reward_proxies(env)
     rd_proxy, rnotes = derive_reward_direction(proxies)
     meta["reward_direction_proxy"] = rd_proxy
-    enforce_rd = str(env.get("AF_RD_ENFORCE", "0")) == "1"
+    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    enforce_rd = str(env.get("AF_RD_ENFORCE", "1" if is_ci else "0")) == "1"
     meta["reward_direction_enforced"] = enforce_rd
     asserted = card.get("impact", {}).get("reward_direction")
     if enforce_rd and rd_proxy < 0:

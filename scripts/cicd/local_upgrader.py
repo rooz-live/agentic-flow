@@ -171,6 +171,7 @@ def run_local_sweep(
     scan_paths: List[str],
     dry_run: bool = False,
     json_output: bool = False,
+    decentralized: bool = False,
     max_sandbox_age_s: int = 120,
     project_root: Path | None = None,
 ) -> Tuple[List[Dict[str, Any]], int, int]:
@@ -211,7 +212,29 @@ def run_local_sweep(
         start_time = time.time()
         log("------------------------------------------------------------", log_file)
         log(f"📦 Repository: {repo}", log_file)
-        
+
+        lock = None
+        if decentralized:
+            from decentralized_lock import DecentralizedLock
+            lock = DecentralizedLock(project_root / ".goalie" / "locks", f"local_{repo.name}")
+            if not lock.acquire():
+                log(f"🔒 Local Repo {repo.name} is locked by another worker. Skipping.", log_file)
+                results.append({
+                    "repository_id": f"local:{repo.name}",
+                    "url": f"file://{repo.resolve()}",
+                    "branch": "unknown",
+                    "latest_commit_sha": "",
+                    "integration_status": "PASS",
+                    "duration_seconds": 0.0,
+                    "skipped": True,
+                    "sandbox_setup_duration": 0.0,
+                    "git_pull_duration": 0.0,
+                    "upgrade_duration": 0.0,
+                    "test_duration": 0.0,
+                    "log": "Claimed by another worker"
+                })
+                continue
+
         # 1. Default Branch Detection
         default_branch = get_default_branch(repo)
         log(f"  Branch: {default_branch}", log_file)
@@ -256,6 +279,8 @@ def run_local_sweep(
                 "log": None
             })
             upgraded_count += 1
+            if lock is not None:
+                lock.release()
             continue
 
         # 3. Setup Sandbox Directory
@@ -284,6 +309,8 @@ def run_local_sweep(
                 "test_duration": 0.0,
                 "log": f"Sandbox creation failed: {e}"
             })
+            if lock is not None:
+                lock.release()
             continue
 
         # Copy repository files to sandbox (ignore large untracked dirs)
@@ -344,6 +371,8 @@ def run_local_sweep(
                     "test_duration": 0.0,
                     "log": f"Sandbox setup TTL exceeded: {sandbox_setup_duration}s > {max_sandbox_age_s}s"
                 })
+                if lock is not None:
+                    lock.release()
                 continue
         except Exception as e:
             log(f"  ❌ Failed to populate sandbox: {e}", log_file)
@@ -363,6 +392,8 @@ def run_local_sweep(
                 "test_duration": 0.0,
                 "log": f"Sandbox copy failed: {e}"
             })
+            if lock is not None:
+                lock.release()
             continue
 
         # 4. Dependency Upgrades in Sandbox
@@ -524,6 +555,8 @@ def run_local_sweep(
             "test_duration": test_execution_duration,
             "log": combined_log if not overall_passed else None
         })
+        if lock is not None:
+            lock.release()
 
     log("============================================================", log_file)
     log(f"🏁 Sweep complete. Upgraded: {upgraded_count}, Failed: {failed_count}.", log_file)

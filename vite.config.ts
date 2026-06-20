@@ -176,6 +176,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: 'index.html',
+        trading: 'trading.html'
       },
     },
   },

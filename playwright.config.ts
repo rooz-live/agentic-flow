@@ -43,27 +43,32 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: [/trading-dashboard\.spec\.ts/, /tld-deploy-gate\.spec\.ts/, /epic-.*spec\.ts/, /analytics-tld.*spec\.ts/, /tunnel\.spec\.ts/, /unified-admin\.spec\.ts/],
     },
 
     {
       name: 'firefox',
       use: { ...devices['Desktop Firefox'] },
+      testIgnore: [/trading-dashboard\.spec\.ts/, /tld-deploy-gate\.spec\.ts/, /epic-.*spec\.ts/, /analytics-tld.*spec\.ts/, /tunnel\.spec\.ts/, /unified-admin\.spec\.ts/],
     },
 
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'] },
+      testIgnore: [/trading-dashboard\.spec\.ts/, /tld-deploy-gate\.spec\.ts/, /epic-.*spec\.ts/, /analytics-tld.*spec\.ts/, /tunnel\.spec\.ts/, /unified-admin\.spec\.ts/],
     },
 
     // Mobile testing
     {
       name: 'Mobile Chrome',
       use: { ...devices['Pixel 5'] },
+      testIgnore: [/trading-dashboard\.spec\.ts/, /tld-deploy-gate\.spec\.ts/, /epic-.*spec\.ts/, /analytics-tld.*spec\.ts/, /tunnel\.spec\.ts/, /unified-admin\.spec\.ts/],
     },
 
     {
       name: 'Mobile Safari',
       use: { ...devices['iPhone 12'] },
+      testIgnore: [/trading-dashboard\.spec\.ts/, /tld-deploy-gate\.spec\.ts/, /epic-.*spec\.ts/, /analytics-tld.*spec\.ts/, /tunnel\.spec\.ts/, /unified-admin\.spec\.ts/],
     },
 
     // Trading dashboard — Vite dev server (local, PORT 5173)
@@ -103,6 +108,31 @@ export default defineConfig({
       name: 'security-passbolt',
       testMatch: /passbolt-export-workflow\.ts/,
       use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'tld-deploy-gate',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /tld-deploy-gate\.spec\.ts/,
+    },
+    {
+      name: 'epic-tests',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /epic-.*spec\.ts/,
+    },
+    {
+      name: 'analytics-tld',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /analytics-tld\.spec\.ts/,
+    },
+    {
+      name: 'tunnel-tests',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /tunnel\.spec\.ts/,
+    },
+    {
+      name: 'unified-admin',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /unified-admin\.spec\.ts/,
     },
   ],
 

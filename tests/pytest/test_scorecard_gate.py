@@ -273,6 +273,13 @@ def test_extract_multiple_blocks():
 def test_derive_gate_integrity_ci(monkeypatch):
     monkeypatch.setenv("CI", "true")
     monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    
+    # In CI, allowed_signers is required, and signature must be verified
+    monkeypatch.setattr("os.path.exists", lambda p: True)
+    monkeypatch.setenv("AF_CI_PROVENANCE_SIGNATURE", "mock_sig")
+    monkeypatch.setenv("AF_CI_PROVENANCE_PRINCIPAL", "mock_signer")
+    monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda: "mock_sha")
+    monkeypatch.setattr("scripts.gates.scorecard_gate.verify_ssh_signature", lambda s, p, m, a: True)
     assert str(derive_gate_integrity()) == "PASS"
 
     monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request_review")
@@ -282,12 +289,29 @@ def test_derive_gate_integrity_ci(monkeypatch):
     assert str(derive_gate_integrity()) == "FAIL"
 
 
+
 def test_derive_gate_integrity_local(monkeypatch):
-    """No CI env + no AF_GATE_CONTEXT → FAIL (not PASS)."""
+    """No CI env + no AF_GATE_CONTEXT → OWNED (local fallback)."""
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     monkeypatch.delenv("AF_GATE_CONTEXT", raising=False)
-    assert str(derive_gate_integrity()) == "FAIL"
+    assert str(derive_gate_integrity()) == "OWNED"
+
+
+def test_gate_integrity_owned_locally_vs_ci(monkeypatch):
+    # 1. Locally (CI=false), gate_integrity="OWNED" should NOT block
+    monkeypatch.setenv("CI", "false")
+    sc = make_valid_scorecard()
+    sc["impact"]["gate_integrity"] = "OWNED"
+    res = evaluate(sc)
+    assert "gate_integrity is not PASS" not in res["errors"]
+    assert res["decision"] == "SHIP"
+
+    # 2. In CI (CI=true), gate_integrity="OWNED" MUST block
+    monkeypatch.setenv("CI", "true")
+    res = evaluate(sc)
+    assert any("gate_integrity" in e for e in res["errors"])
+    assert res["decision"] == "BLOCK"
 
 
 def test_derive_gate_integrity_af_context(monkeypatch):
@@ -493,3 +517,99 @@ def test_reward_direction_enforcement_default_in_ci(monkeypatch):
     hardened, blocks, warnings, meta = harden(sc_copy, env=env, strict=False)
     assert hardened["impact"]["reward_direction"] == 1.0
     assert any("reward_direction asserted" in w for w in warnings)
+
+
+def test_coherence_forgery_in_ci_without_allowed_signers(tmp_path, monkeypatch):
+    evidence_dir = tmp_path / ".goalie" / "evidence"
+    evidence_dir.mkdir(parents=True)
+    artifact_file = evidence_dir / "coherence_results.json"
+    
+    monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda r: "mock_sha")
+    monkeypatch.setenv("CI", "true")
+    
+    # allowed_signers is missing
+    allowed_signers_path = tmp_path / "allowed_signers_missing"
+    monkeypatch.setenv("AF_ALLOWED_SIGNERS", str(allowed_signers_path))
+    
+    artifact_file.write_text(json.dumps({
+        "coherence": "PASS",
+        "git_head": "mock_sha"
+    }))
+    assert derive_coherence(tmp_path) == "FAIL"
+
+
+def test_ci_integrity_without_allowed_signers(monkeypatch):
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    
+    # Mock allowed_signers to NOT exist
+    monkeypatch.setattr("os.path.exists", lambda p: False)
+    
+    gi, reason = derive_gate_integrity()
+    assert gi == "FAIL"
+    assert "allowed_signers" in reason
+
+
+def test_one_way_door_strict_sign_off(monkeypatch):
+    from scripts.gates.scorecard_gate import verify_signoff
+    
+    sc = make_valid_scorecard()
+    sc["impact"]["reversibility"] = 0
+    sc["impact"]["blast_radius"] = 1.5
+    
+    # 1. Non-CI/local mode with legacy token should fail for one-way door
+    env = {"AF_SIGNOFF": "mock_commit"}
+    monkeypatch.setattr("os.path.exists", lambda p: False)
+    ok, reason = verify_signoff(sc, env, "mock_commit", "mock_diff")
+    assert not ok
+    assert "allowed_signers" in reason  # forced strict sign_off mode
+    
+    # 2. Cryptographic signature with allowed_signers exists -> should pass
+    monkeypatch.setattr("os.path.exists", lambda p: True)
+    sc["sign_off_principal"] = "owner"
+    sc["sign_off_signature"] = "valid_signature"
+    monkeypatch.setattr("scripts.gates.scorecard_gate.verify_ssh_signature", lambda s, p, m, a: True)
+    
+    ok, reason = verify_signoff(sc, env, "mock_commit", "mock_diff")
+    assert ok
+    assert "verified" in reason
+
+
+def test_run_no_invented_symbols_check(tmp_path, monkeypatch):
+    from scripts.gates.scorecard_gate import run_no_invented_symbols
+    
+    # Mock _git output for diff
+    # File 1: py file with valid local import
+    # File 2: py file with invalid local import
+    py_valid = "from src.billing.entity_identity import Entity\nimport os\n"
+    py_invalid = "from src.billing.invented_module import Fake\n"
+    
+    (tmp_path / "src" / "billing").mkdir(parents=True)
+    (tmp_path / "src" / "billing" / "entity_identity.py").touch()
+    
+    file_valid = tmp_path / "valid.py"
+    file_valid.write_text(py_valid)
+    
+    file_invalid = tmp_path / "invalid.py"
+    file_invalid.write_text(py_invalid)
+    
+    # Mock ls-files and diff
+    def mock_git(args, root=None):
+        if "diff" in args[0] or "diff" in args:
+            # We determine which file is being checked by checking parent call or mock context
+            # Let's check which files exist in directory to choose
+            if "invalid.py" in str(args):
+                return "invalid.py"
+            return "valid.py"
+        return "src/billing/entity_identity.py\n"
+        
+    monkeypatch.setattr("scripts.gates.scorecard_gate._git", mock_git)
+    
+    # Run check on valid file
+    monkeypatch.setattr("scripts.gates.scorecard_gate._git", lambda args, root=None: "valid.py" if "diff" in args or "diff" in args[0] else "src/billing/entity_identity.py")
+    assert run_no_invented_symbols(tmp_path) is True
+    
+    # Run check on invalid file
+    monkeypatch.setattr("scripts.gates.scorecard_gate._git", lambda args, root=None: "invalid.py" if "diff" in args or "diff" in args[0] else "src/billing/entity_identity.py")
+    assert run_no_invented_symbols(tmp_path) is False
+

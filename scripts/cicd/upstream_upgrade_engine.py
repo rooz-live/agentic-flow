@@ -168,9 +168,39 @@ def main() -> None:
         action="store_true",
         help="skip local repository sweeps",
     )
+    parser.add_argument(
+        "--decentralized",
+        action="store_true",
+        help="Run in decentralized mode using coordinate lock files",
+    )
+    parser.add_argument(
+        "--htr-verify",
+        action="store_true",
+        help="Verify the persistent Hypothesis Tree structure",
+    )
     args = parser.parse_args()
 
     project_root = SCRIPT_DIR.parent.parent.resolve()
+
+    if args.htr_verify:
+        tree_path = project_root / ".goalie" / "evidence" / "htr_tree.json"
+        print(f"🌲 Verifying Hypothesis Tree: {tree_path}")
+        if not tree_path.exists():
+            print("❌ Hypothesis Tree file does not exist.")
+            sys.exit(1)
+        try:
+            tree = json.loads(tree_path.read_text(encoding="utf-8"))
+            nodes = tree.get("nodes", [])
+            for node in nodes:
+                required = ["id", "parent_id", "hypothesis", "status", "metrics"]
+                for field in required:
+                    if field not in node:
+                        raise ValueError(f"Missing required field '{field}' in node {node.get('id', 'unknown')}")
+            print(f"✅ Hypothesis Tree is valid. Found {len(nodes)} nodes.")
+            sys.exit(0)
+        except Exception as exc:
+            print(f"❌ Hypothesis Tree verification failed: {exc}")
+            sys.exit(1)
     timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_id = timestamp
 
@@ -220,6 +250,7 @@ def main() -> None:
             scan_paths,
             dry_run=args.dry_run,
             json_output=args.json_output,
+            decentralized=args.decentralized,
         )
         results.extend(local_results)
         if failed > 0:
@@ -275,6 +306,7 @@ def main() -> None:
                     remote_heads,
                     project_root,
                     parallel=args.parallel,
+                    decentralized=args.decentralized,
                     default_run_timeout_s=int(cfg.get("default_run_timeout_s", 120)),
                     default_retry=int(cfg.get("default_retry", 1)),
                     log_truncate_bytes=int(cfg.get("log_truncate_bytes", 8192)),

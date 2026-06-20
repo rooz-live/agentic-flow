@@ -34,7 +34,7 @@ test.describe('Basic Browser Functionality', () => {
       route.continue();
     });
     
-    await page.goto('data:text/html,<html><body>Test</body></html>');
+    await page.goto('/');
     
     // Verify network interception worked
     expect(requestCount).toBeGreaterThan(0);

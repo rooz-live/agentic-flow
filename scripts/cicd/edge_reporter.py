@@ -135,13 +135,16 @@ def save_edge_report_and_cache(
     except Exception as e:
         print(f"⚠️ Warning: Failed to write edge cache: {e}")
 
+    violations_count = sum(1 for res in results if res.get("status") == "FAIL")
+
     # Write detailed report
     report_file = evidence_dir / f"edge_report_{timestamp}.json"
     final_output = {
-        "gate": "edge-gateway-sync",
+        "gate": "deploy-edge-cfg",
         "status": "PASS" if all_passed else "FAIL",
         "timestamp": timestamp,
         "run_id": run_id,
+        "violations": violations_count,
         "total_duration_seconds": round(total_duration, 2),
         "skipped_count": skipped_count,
         "results": results

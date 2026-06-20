@@ -462,10 +462,21 @@ def test_derive_coherence_nothing_required_is_fail():
     assert gate.derive_coherence(res) == "FAIL"
 
 
-def test_derive_gate_integrity_ci_pull_request():
-    """CI + pull_request event → PASS."""
-    verdict, _ = gate.derive_gate_integrity({"CI": "true", "GITHUB_EVENT_NAME": "pull_request"})
+def test_derive_gate_integrity_ci_pull_request(monkeypatch):
+    """CI + pull_request event + cryptographic verification → PASS."""
+    import os
+    monkeypatch.setattr(os.path, "exists", lambda p: True)
+    monkeypatch.setattr(gate, "git_head", lambda: "mock_commit")
+    monkeypatch.setattr(gate, "verify_ssh_signature", lambda s, p, m, a: True)
+    verdict, _ = gate.derive_gate_integrity({
+        "CI": "true",
+        "GITHUB_EVENT_NAME": "pull_request",
+        "AF_CI_PROVENANCE_SIGNATURE": "mock_sig",
+        "AF_CI_PROVENANCE_PRINCIPAL": "mock_signer"
+    })
     assert verdict == "PASS"
+
+
 
 
 def test_derive_gate_integrity_ci_invalid_event():
@@ -481,9 +492,9 @@ def test_derive_gate_integrity_context_token():
 
 
 def test_derive_gate_integrity_empty_env_fails():
-    """No CI env and no AF_GATE_CONTEXT → FAIL."""
+    """No CI env and no AF_GATE_CONTEXT → OWNED (local fallback)."""
     verdict, _ = gate.derive_gate_integrity({})
-    assert verdict == "FAIL"
+    assert verdict == "OWNED"
 
 
 def test_check_binding_missing_strict_blocks():
@@ -624,11 +635,15 @@ def test_collect_reward_proxies_is_bounded(monkeypatch):
 # GATE-004: no-invented-paths
 # --------------------------------------------------------------------------- #
 def test_find_invented_paths(monkeypatch):
-    monkeypatch.setattr(gate, "_git", lambda *a, **k: None)  # nothing "tracked"
+    def mock_git(args, root="."):
+        if "scripts/gates/scorecard_gate.py" in args:
+            return "scripts/gates/scorecard_gate.py"
+        return None
+    monkeypatch.setattr(gate, "_git", mock_git)
     invented = gate.find_invented_paths(
         ["scripts/gates/scorecard_gate.py", "scripts/nope_xyz_123.py"]
     )
-    assert invented == ["scripts/nope_xyz_123.py"]  # real file resolves via disk
+    assert invented == ["scripts/nope_xyz_123.py"]  # resolves via git mock
 
 
 def test_main_verify_blocks_invented_paths(tmp_path, monkeypatch):
@@ -726,7 +741,20 @@ def test_main_verify_one_way_door_allows_external_signoff(tmp_path, monkeypatch)
     c["commit"] = "abc123"
     p = tmp_path / "c.json"
     p.write_text(json.dumps(c))
-    assert gate.main(["--file", str(p), "--verify"]) == 0  # impact_net 2.25 -> SHIP
+    
+    # 1. Legacy sign-off must be rejected for one-way door -> BLOCK (2)
+    assert gate.main(["--file", str(p), "--verify"]) == 2
+    
+    # 2. Cryptographic signature with allowed_signers exists -> SHIP (0)
+    import os
+    monkeypatch.setattr(os.path, "exists", lambda path: True)
+    monkeypatch.setattr(gate, "verify_ssh_signature", lambda s, p, m, a: True)
+    c["sign_off_principal"] = "owner"
+    c["sign_off_signature"] = "valid_sig"
+    p.write_text(json.dumps(c))
+    assert gate.main(["--file", str(p), "--verify"]) == 0
+
+
 
 
 # --------------------------------------------------------------------------- #

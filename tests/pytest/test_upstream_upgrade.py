@@ -323,3 +323,106 @@ def test_edge_engine_coordinator(mock_exit, mock_report, mock_fetch):
     assert mock_fetch.called
     assert mock_exit.called
     mock_exit.assert_called_with(0)
+
+
+def test_decentralized_lock(tmp_path):
+    """Test DecentralizedLock acquire and release behaviors."""
+    from decentralized_lock import DecentralizedLock
+    lock1 = DecentralizedLock(tmp_path, "res1")
+    lock2 = DecentralizedLock(tmp_path, "res1")
+    
+    assert lock1.acquire() is True
+    # Try to acquire lock while held by lock1 - should fail
+    assert lock2.acquire() is False
+    
+    # Release and try again - should succeed
+    lock1.release()
+    assert lock2.acquire() is True
+    lock2.release()
+
+
+@patch("local_upgrader.scan_repositories")
+@patch("local_upgrader.get_default_branch")
+def test_run_local_sweep_decentralized_locked(mock_get_branch, mock_scan, tmp_path):
+    """Test that when run in decentralized mode, locked repositories are skipped with PASS."""
+    from decentralized_lock import DecentralizedLock
+    repo_path = tmp_path / "locked_repo"
+    repo_path.mkdir()
+    
+    # Hold the lock
+    lock = DecentralizedLock(tmp_path / ".goalie" / "locks", "local_locked_repo")
+    assert lock.acquire() is True
+    
+    mock_scan.return_value = [repo_path]
+    mock_get_branch.return_value = "main"
+    
+    # Run sweep with decentralized=True
+    results, upgraded, failed = local_upgrader.run_local_sweep(
+        [str(tmp_path)],
+        decentralized=True,
+        project_root=tmp_path
+    )
+    
+    assert len(results) == 1
+    assert results[0]["integration_status"] == "PASS"
+    assert results[0]["skipped"] is True
+    assert results[0]["log"] == "Claimed by another worker"
+    
+    lock.release()
+
+
+def test_run_validations_decentralized_locked(tmp_path):
+    """Test that run_validations skips locked repositories under decentralized mode."""
+    from decentralized_lock import DecentralizedLock
+    import upstream_runner
+    
+    # Hold the lock
+    lock = DecentralizedLock(tmp_path / ".goalie" / "locks", "repo_a")
+    assert lock.acquire() is True
+    
+    repos = [{"id": "repo_a", "url": "https://github.com/a/a", "branch": "main", "active": True, "integration_test": "pytest"}]
+    to_validate = [{"id": "repo_a"}]
+    remote_heads = {"repo_a": "sha1"}
+    
+    results = upstream_runner.run_validations(
+        repos,
+        to_validate,
+        remote_heads,
+        tmp_path,
+        decentralized=True
+    )
+    
+    assert len(results) == 1
+    assert results[0]["integration_status"] == "PASS"
+    assert results[0]["skipped"] is True
+    assert results[0]["dor_status"] == "locked"
+    
+    lock.release()
+
+
+@patch("sys.exit")
+def test_engine_htr_verify(mock_exit, tmp_path):
+    """Test that htr-verify runs and exits 0 on valid structure."""
+    # Write a valid tree
+    tree_dir = tmp_path / ".goalie" / "evidence"
+    tree_dir.mkdir(parents=True)
+    tree_file = tree_dir / "htr_tree.json"
+    tree_file.write_text(json.dumps({
+        "tree_id": "test",
+        "nodes": [{
+            "id": "H-001",
+            "parent_id": None,
+            "hypothesis": "test",
+            "status": "PASS",
+            "metrics": {}
+        }]
+    }))
+    
+    test_args = ["upstream_upgrade_engine.py", "--htr-verify"]
+    with patch("sys.argv", test_args), patch("upstream_upgrade_engine.SCRIPT_DIR", tmp_path / "scripts" / "cicd"):
+        # Create dummy path structure to satisfy script dir
+        (tmp_path / "scripts" / "cicd").mkdir(parents=True, exist_ok=True)
+        upstream_upgrade_engine.main()
+        
+    assert mock_exit.called
+    mock_exit.assert_called_with(0)

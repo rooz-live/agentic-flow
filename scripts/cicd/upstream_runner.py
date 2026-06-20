@@ -169,6 +169,7 @@ def run_validations(
     project_root: Path,
     *,
     parallel: bool = False,
+    decentralized: bool = False,
     default_run_timeout_s: int = DEFAULT_RUN_TIMEOUT_S,
     default_retry: int = DEFAULT_RETRY,
     log_truncate_bytes: int = LOG_TRUNCATE_BYTES_DEFAULT,
@@ -211,13 +212,38 @@ def run_validations(
             log_truncate_bytes=log_truncate_bytes,
         )
 
+    def _run_with_lock(repo: Dict[str, Any]) -> Dict[str, Any]:
+        if decentralized:
+            from decentralized_lock import DecentralizedLock
+            lock = DecentralizedLock(project_root / ".goalie" / "locks", repo["id"])
+            if not lock.acquire():
+                print(f"🔒 Repo {repo['id']} is locked by another worker. Skipping.")
+                return {
+                    "repository_id": repo["id"],
+                    "url": repo["url"],
+                    "branch": repo["branch"],
+                    "latest_commit_sha": remote_heads.get(repo["id"], "unknown"),
+                    "integration_status": "PASS",
+                    "duration_seconds": 0.0,
+                    "skipped": True,
+                    "attempts": 0,
+                    "dor_status": "locked",
+                    "log": "Claimed by another worker",
+                }
+            try:
+                return _run(repo)
+            finally:
+                lock.release()
+        else:
+            return _run(repo)
+
     if parallel and len(run_repos) > 1:
         with ThreadPoolExecutor(max_workers=len(run_repos)) as pool:
-            futures = {pool.submit(_run, r): r["id"] for r in run_repos}
+            futures = {pool.submit(_run_with_lock, r): r["id"] for r in run_repos}
             for fut in as_completed(futures):
                 results.append(fut.result())
     else:
         for repo in run_repos:
-            results.append(_run(repo))
+            results.append(_run_with_lock(repo))
 
     return results

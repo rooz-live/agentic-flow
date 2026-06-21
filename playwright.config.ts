@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 const runTldOnly = process.env.PLAYWRIGHT_TLD_ONLY === '1';
+const globalIgnore = ['**/unit/**', '**/archive/**', '**/harness/**', '**/performance/**', '**/regression/**'];
 
 /**
  * Playwright E2E Testing Configuration
@@ -10,7 +11,7 @@ const runTldOnly = process.env.PLAYWRIGHT_TLD_ONLY === '1';
 export default defineConfig({
   testDir: './tests',
   testMatch: ['e2e/**/*.spec.ts', '*.e2e.spec.ts'],
-  testIgnore: ['unit/**', 'archive/**', 'harness/**', 'performance/**', 'regression/**'],
+  testIgnore: globalIgnore,
   globalSetup: './tests/e2e/global-setup.ts',
   // tsconfig.test.json: CommonJS moduleResolution so Playwright's transform
   // resolves ../harness/BaseBillingE2ESpec imports across all verify specs.
@@ -43,32 +44,32 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: [/trading-dashboard\.spec\.ts/, /tld-deploy-gate\.spec\.ts/, /epic-.*spec\.ts/, /analytics-tld.*spec\.ts/, /tunnel\.spec\.ts/, /unified-admin\.spec\.ts/],
+      testIgnore: [...globalIgnore, /trading-dashboard\.spec\.ts/, /tld-deploy-gate\.spec\.ts/, /epic-.*spec\.ts/, /analytics-tld.*spec\.ts/, /tunnel\.spec\.ts/, /unified-admin\.spec\.ts/],
     },
 
     {
       name: 'firefox',
       use: { ...devices['Desktop Firefox'] },
-      testIgnore: [/trading-dashboard\.spec\.ts/, /tld-deploy-gate\.spec\.ts/, /epic-.*spec\.ts/, /analytics-tld.*spec\.ts/, /tunnel\.spec\.ts/, /unified-admin\.spec\.ts/],
+      testIgnore: [...globalIgnore, /trading-dashboard\.spec\.ts/, /tld-deploy-gate\.spec\.ts/, /epic-.*spec\.ts/, /analytics-tld.*spec\.ts/, /tunnel\.spec\.ts/, /unified-admin\.spec\.ts/],
     },
 
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'] },
-      testIgnore: [/trading-dashboard\.spec\.ts/, /tld-deploy-gate\.spec\.ts/, /epic-.*spec\.ts/, /analytics-tld.*spec\.ts/, /tunnel\.spec\.ts/, /unified-admin\.spec\.ts/],
+      testIgnore: [...globalIgnore, /trading-dashboard\.spec\.ts/, /tld-deploy-gate\.spec\.ts/, /epic-.*spec\.ts/, /analytics-tld.*spec\.ts/, /tunnel\.spec\.ts/, /unified-admin\.spec\.ts/],
     },
 
     // Mobile testing
     {
       name: 'Mobile Chrome',
       use: { ...devices['Pixel 5'] },
-      testIgnore: [/trading-dashboard\.spec\.ts/, /tld-deploy-gate\.spec\.ts/, /epic-.*spec\.ts/, /analytics-tld.*spec\.ts/, /tunnel\.spec\.ts/, /unified-admin\.spec\.ts/],
+      testIgnore: [...globalIgnore, /trading-dashboard\.spec\.ts/, /tld-deploy-gate\.spec\.ts/, /epic-.*spec\.ts/, /analytics-tld.*spec\.ts/, /tunnel\.spec\.ts/, /unified-admin\.spec\.ts/],
     },
 
     {
       name: 'Mobile Safari',
       use: { ...devices['iPhone 12'] },
-      testIgnore: [/trading-dashboard\.spec\.ts/, /tld-deploy-gate\.spec\.ts/, /epic-.*spec\.ts/, /analytics-tld.*spec\.ts/, /tunnel\.spec\.ts/, /unified-admin\.spec\.ts/],
+      testIgnore: [...globalIgnore, /trading-dashboard\.spec\.ts/, /tld-deploy-gate\.spec\.ts/, /epic-.*spec\.ts/, /analytics-tld.*spec\.ts/, /tunnel\.spec\.ts/, /unified-admin\.spec\.ts/],
     },
 
     // Trading dashboard — Vite dev server (local, PORT 5173)

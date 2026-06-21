@@ -57,7 +57,7 @@ cmd_roam() {
 
     # Try to grab 'last_updated' or fall back to file modification time
     local last_updated_str
-    last_updated_str=$(grep -E '^last_updated:' "$ROAM_FILE" | awk '{print $2}' | tr -d '"'\''')
+    last_updated_str=$(grep -E 'last_updated:' "$ROAM_FILE" | head -n 1 | awk '{print $2}' | tr -d '"' | tr -d "\047" || true)
 
     local file_epoch current_epoch age_sec
     current_epoch=$(date +%s)

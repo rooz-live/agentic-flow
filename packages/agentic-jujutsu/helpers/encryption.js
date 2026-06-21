@@ -8,7 +8,12 @@
  */
 
 const crypto = require('crypto');
-const qudag = require('@qudag/napi-core');
+let qudag;
+try {
+  qudag = require('@qudag/napi-core');
+} catch (e) {
+  qudag = require('./qudag-fallback');
+}
 
 /**
  * Encryption key manager for ReasoningBank

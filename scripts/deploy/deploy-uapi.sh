@@ -46,7 +46,7 @@ fi
 
 # Override with local cPanel credentials if present to prevent op keychain timeout
 LOCAL_CPANEL_ENV="$ROOT_DIR/credentials/.env.cpanel"
-if [[ -f "$LOCAL_CPANEL_ENV" ]]; then
+if [[ -f "$LOCAL_CPANEL_ENV" && -z "${DEPLOY_UAPI_TEST:-}" ]]; then
     echo "--> Sourcing local credentials from credentials/.env.cpanel..."
     set -a
     source "$LOCAL_CPANEL_ENV"

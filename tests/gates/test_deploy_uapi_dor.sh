@@ -31,6 +31,7 @@ test_missing_env_file_and_vars_fails() {
 
     set +e
     env -i \
+        DEPLOY_UAPI_TEST="1" \
         HOME="$TMPROOT" \
         PATH="/usr/bin:/bin:/usr/local/bin" \
         TERM=dumb \
@@ -65,6 +66,7 @@ test_op_token_without_op_cli_fails() {
 
     set +e
     env -i \
+        DEPLOY_UAPI_TEST="1" \
         HOME="$TMPROOT" \
         PATH="/usr/bin:/bin" \
         TERM=dumb \
@@ -91,6 +93,7 @@ test_missing_cpanel_host_fails() {
 
     set +e
     env -i \
+        DEPLOY_UAPI_TEST="1" \
         HOME="$TMPROOT" \
         PATH="/usr/bin:/bin:/usr/local/bin" \
         TERM=dumb \
@@ -117,6 +120,7 @@ test_invalid_json_mapping_fails() {
 
     set +e
     env -i \
+        DEPLOY_UAPI_TEST="1" \
         HOME="$TMPROOT" \
         PATH="/usr/bin:/bin:/usr/local/bin" \
         TERM=dumb \
@@ -147,6 +151,7 @@ test_jq_absent_fails() {
 
     set +e
     env -i \
+        DEPLOY_UAPI_TEST="1" \
         HOME="$TMPROOT" \
         PATH="$NOJQ_PATH" \
         TERM=dumb \
@@ -195,6 +200,7 @@ NPX
 
     set +e
     env -i \
+        DEPLOY_UAPI_TEST="1" \
         HOME="$TMPROOT" \
         PATH="$STUB_BIN:/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin" \
         TERM=dumb \
@@ -225,6 +231,7 @@ test_token_not_echoed_in_output() {
 
     set +e
     env -i \
+        DEPLOY_UAPI_TEST="1" \
         HOME="$TMPROOT" \
         PATH="/usr/bin:/bin:/usr/local/bin" \
         TERM=dumb \

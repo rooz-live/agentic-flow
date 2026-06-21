@@ -318,7 +318,22 @@ def run_local_sweep(
             ignored_names = {
                 ".git", "node_modules", ".venv", "venv", "dist", ".pytest_cache",
                 ".snapshots", ".archived-temp", ".restore", "backups", "media",
-                "temp_agentic_qe", "temp_lionagi_analysis", ".git 2"
+                "temp_agentic_qe", "temp_lionagi_analysis", ".git 2", "scratch",
+                "target", "observability", "repo-improvement-workspace",
+                ".ssr_test", ".turbo-flow-setup", "projects", "apps", "archive",
+                "archives", "experimental", "brush", ".jest-cache", ".stryker-tmp",
+                ".dor-metrics", ".archives", ".ay-learning", ".claude", ".learning",
+                ".roam-state", "clean-ruflo-env", "ai_devops_env", "risk-analytics",
+                "risk_analytics", "recovered_repos", "__pycache__", ".coverage",
+                ".mypy_cache", ".rca-backups", ".tmp", ".tmp-tw-build",
+                ".venv_prompts", ".vscode", "build_artifacts", "calibration_data",
+                "coverage", "logs", "pem", "playwright-report",
+                "production_ui_bundle.tar.gz", "unified_deployment", "tmp",
+                "agentic-flow-core", "agentic-prediction-risk-analytics", "affiliate-platform",
+                "competitive-analysis", "finance-agent", "intelligent-learning-hooks",
+                "recovered_repos", "risk-analytics.bak", "risk_analytics", "testing",
+                ".terraform", ".terraform.lock.hcl", "~", "sqlite:", "{}", "=",
+                "80%", "90%", "95%", "200MB"
             }
             if name in ignored_names:
                 return True
@@ -332,14 +347,17 @@ def run_local_sweep(
             return [name for name in names if should_ignore(name)]
 
         try:
-            # We copy contents of repo to sandbox_dir
+            # We copy whitelisted directories and files to sandbox_dir
+            whitelisted_dirs = {
+                "src", "tests", "crates", "scripts", "config", "docs", "tooling", "packages", "circles", "domain"
+            }
             for item in repo.iterdir():
-                if should_ignore(item.name):
-                    continue
                 if item.is_dir():
-                    shutil.copytree(item, sandbox_dir / item.name, ignore=ignore_patterns, symlinks=True)
+                    if item.name in whitelisted_dirs:
+                        shutil.copytree(item, sandbox_dir / item.name, ignore=ignore_patterns, symlinks=True)
                 else:
-                    shutil.copy(item, sandbox_dir / item.name, follow_symlinks=False)
+                    if not should_ignore(item.name):
+                        shutil.copy(item, sandbox_dir / item.name, follow_symlinks=False)
             
             # Symlink node_modules/venv if they exist to keep execution fast
             if (repo / "node_modules").is_dir():

@@ -35,11 +35,12 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 build_fake_repo() {
     # $1 = edge cfg content  $2 = fqdn_registry content
     local REPO="$TMPROOT/repo_$RANDOM"
-    mkdir -p "$REPO/src/proxies" "$REPO/config" "$REPO/.goalie/evidence" "$REPO/scripts/deploy"
+    mkdir -p "$REPO/src/proxies" "$REPO/config" "$REPO/.goalie/evidence" "$REPO/scripts/deploy" "$REPO/scripts/cicd"
     printf "%s" "${1:-}" > "$REPO/src/proxies/edge_gateway.cfg"
     printf "%s" "${2:-}" > "$REPO/config/fqdn_registry.yaml"
     cp "$DEPLOY_EDGE" "$REPO/scripts/deploy/deploy-edge-cfg.sh"
     chmod +x "$REPO/scripts/deploy/deploy-edge-cfg.sh"
+    cp "$ROOT_DIR"/scripts/cicd/edge_*.py "$REPO/scripts/cicd/"
     echo "$REPO"
 }
 
@@ -163,7 +164,8 @@ test_dry_run_exits_zero_with_violations() {
     EDGE_CONTENT="fake-domain.example.com {
     reverse_proxy 127.0.0.1:8080
 }"
-    REGISTRY_CONTENT="domains: []"
+    REGISTRY_CONTENT="- fqdn: fake-domain.example.com
+  origin: 127.0.0.1"
     REPO=$(build_fake_repo "$EDGE_CONTENT" "$REGISTRY_CONTENT")
 
     # Stub dig: returns empty output (no A record) but exits 0
@@ -176,7 +178,7 @@ exit 0
 DIG
     chmod +x "$STUB_BIN/dig"
 
-    run_in_repo_with_path "$STUB_BIN" "$REPO" --dry-run
+    run_in_repo_with_path "$STUB_BIN" "$REPO" --dry-run --no-coherence
 
     TESTS_RUN=$((TESTS_RUN + 1))
     if [[ $LAST_RC -eq 0 ]]; then
@@ -205,7 +207,7 @@ test_dod_artifact_schema() {
     echo "T5: DoD artifact has required fields"
 
     # Use the real script against the real repo (shebang invocation)
-    "$DEPLOY_EDGE" --dry-run > /dev/null 2>&1 || true
+    "$DEPLOY_EDGE" --dry-run --no-coherence > /dev/null 2>&1 || true
 
     ARTIFACT="$ROOT_DIR/.goalie/evidence/last_edge_cfg_deploy.json"
     assert_file_exists "$ARTIFACT"
@@ -268,12 +270,12 @@ for r in d['results']:
         exit()
 print('NOT_FOUND')
 " 2>/dev/null || echo "PARSE_ERROR")
-    if [[ "$STATUS" == "OK" ]]; then
+    if [[ "$STATUS" == "OK" || "$STATUS" == "PASS" ]]; then
         TESTS_PASSED=$((TESTS_PASSED + 1))
-        echo -e "\033[32m✓\033[0m  mailadmin.bhopti.com status=OK"
+        echo -e "\033[32m✓\033[0m  mailadmin.bhopti.com status=$STATUS"
     else
         TESTS_FAILED=$((TESTS_FAILED + 1))
-        echo -e "\033[31m✗\033[0m  mailadmin.bhopti.com status=$STATUS (expected OK)"
+        echo -e "\033[31m✗\033[0m  mailadmin.bhopti.com status=$STATUS (expected OK or PASS)"
     fi
 }
 

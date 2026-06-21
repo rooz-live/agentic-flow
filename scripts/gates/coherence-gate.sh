@@ -60,6 +60,10 @@ if [[ $EXIT_CODE -eq 0 ]]; then
     SHELL_FAIL=0
     for f in "$ROOT_DIR"/tests/gates/test_*.sh; do
         [[ -f "$f" ]] || continue
+        # Skip test_coherence_gate.sh to prevent infinite recursion loop
+        if [[ "$(basename "$f")" == "test_coherence_gate.sh" ]]; then
+            continue
+        fi
         if bash "$f" 2>&1 | grep -q "✓ All tests passed"; then
             SHELL_PASS=$((SHELL_PASS + 1))
         else

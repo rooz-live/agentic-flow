@@ -135,6 +135,16 @@ def save_edge_report_and_cache(
     except Exception as e:
         print(f"⚠️ Warning: Failed to write edge cache: {e}")
 
+    # Calculate hash of edge_gateway.cfg for backward compatibility
+    cfg_file = project_root / "src" / "proxies" / "edge_gateway.cfg"
+    cfg_hash = "unknown"
+    if cfg_file.exists():
+        try:
+            import hashlib
+            cfg_hash = hashlib.sha256(cfg_file.read_bytes()).hexdigest()
+        except Exception:
+            pass
+
     violations_count = sum(1 for res in results if res.get("status") == "FAIL")
 
     # Write detailed report
@@ -144,6 +154,7 @@ def save_edge_report_and_cache(
         "status": "PASS" if all_passed else "FAIL",
         "timestamp": timestamp,
         "run_id": run_id,
+        "hash": cfg_hash,
         "violations": violations_count,
         "total_duration_seconds": round(total_duration, 2),
         "skipped_count": skipped_count,

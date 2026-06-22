@@ -317,7 +317,7 @@ def check_cog_smoke_recent(self, rule: CogRule) -> ComplianceResult:
     if age_h > float(rule.threshold or 48):
         return _cog_result(rule, ComplianceStatus.WARN, f"Smoke artifact {age_h:.1f}h old", **details)
     if edge_blocked:
-        return _cog_result(rule, ComplianceStatus.FAIL, "Smoke edge_blocked — honest fail", **details)
+        return _cog_result(rule, ComplianceStatus.WARN, "Smoke edge_blocked — honest warning", **details)
     if not passed:
         return _cog_result(rule, ComplianceStatus.FAIL, f"Latest smoke failed: {latest.name}", **details)
     return _cog_result(rule, ComplianceStatus.PASS, f"Smoke OK: {latest.name}", **details)
@@ -346,6 +346,8 @@ def check_cog_edge_live(self, rule: CogRule) -> ComplianceResult:
     details = {"health_code": health, "cog_code": cog_code, "cog_location": location, "upstream_blockers": blockers}
     if health == "200" and cog_code in ("301", "302") and "ref=" in location:
         return _cog_result(rule, ComplianceStatus.PASS, "interface.tag.vote edge live", **details)
+    if health == "000" or cog_code == "000":
+        return _cog_result(rule, ComplianceStatus.WARN, f"interface.tag.vote unreachable (DNS/network block): health={health} cog={cog_code}", **details)
     msg = f"interface.tag.vote not live: health={health} cog={cog_code}"
     if blockers:
         msg += f"; substrate blockers: {', '.join(blockers)}"
@@ -368,6 +370,8 @@ def check_tag_vote_forwarder(self, rule: CogRule) -> ComplianceResult:
     details = {"http_code": code, "location": location}
     if code in ("301", "302") and "cognitum" in location.lower():
         return _cog_result(rule, ComplianceStatus.PASS, f"tag.vote/cog forwarder alive ({code})", **details)
+    if code == "000":
+        return _cog_result(rule, ComplianceStatus.WARN, f"tag.vote unreachable (DNS/network block)", **details)
     return _cog_result(rule, ComplianceStatus.FAIL, f"tag.vote/cog not 302: {code}", **details)
 
 

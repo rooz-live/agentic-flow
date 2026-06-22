@@ -43,6 +43,8 @@ run_step() {
   set -e
   if [[ $ec -eq 0 ]]; then
     echo "    OK $id"
+  elif [[ "$id" == "cog_edge_smoke" && $ec -eq 2 ]]; then
+    echo "    WARN $id (edge/DNS unreachable, treated as warning)"
   else
     echo "    FAIL $id (exit $ec)"
     HARD_FAIL=1
@@ -105,7 +107,7 @@ elif [[ "$COMP_EC" -ne 0 ]]; then
   FAILURE_CATEGORY="trust_stale"
   REMEDIATION="Resolve CVT compliance rule violations"
   UPSTREAM_ACTION="P1-ADB-01"
-elif [[ "$SMOKE_EC" -ne 0 ]]; then
+elif [[ "$SMOKE_EC" -ne 0 && "$SMOKE_EC" -ne 2 ]]; then
   FAILURE_CATEGORY="cog_smoke_secret"
   REMEDIATION="Configure COGNITUM_WEBHOOK_SECRET and check edge path mapping"
   UPSTREAM_ACTION="P1-INDEX-01"

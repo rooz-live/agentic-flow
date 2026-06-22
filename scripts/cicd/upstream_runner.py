@@ -8,8 +8,14 @@ Executes per-repo integration checks with:
   • Optional DoR command check before the integration test.
   • Log output truncated to log_truncate_bytes to keep evidence artefacts bounded.
   • Optional parallel execution across repos (--parallel flag from engine).
+  • Harness-type detection: classifies repos into one of seven categories
+    (cargo / pytest / npm / playwright / shell / python / unknown) based on
+    the integration_test command prefix OR manifest files present in a cloned
+    repo directory.  The detected type is included in every result dict so
+    that reporters and dashboards can group / filter by harness family.
 """
 
+import re
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -23,6 +29,56 @@ DEFAULT_RETRY = 1
 # Exit codes that indicate a transient/process failure worth retrying.
 # A deliberate non-zero test failure (e.g. pytest) should NOT be retried.
 _TRANSIENT_EXCEPTIONS = (subprocess.TimeoutExpired, OSError, MemoryError)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Harness-type detection
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Ordered list of (pattern, harness_type) matched against the integration_test
+# command string.  First match wins.
+_CMD_HARNESS_PATTERNS: List[Tuple[re.Pattern, str]] = [
+    (re.compile(r"\bcargo\b"),                              "cargo"),
+    (re.compile(r"\bpytest\b"),                             "pytest"),
+    (re.compile(r"\bnpx playwright\b"),                     "playwright"),
+    (re.compile(r"\bnpm\s+(test|run\s+test)\b"),            "npm"),
+    (re.compile(r"\byarn\s+(test|run\s+test)\b"),           "npm"),
+    (re.compile(r"\bpnpm\s+(test|run\s+test)\b"),           "npm"),
+    (re.compile(r"\bpython3?\b.*\.(py)\b"),                 "python"),
+    (re.compile(r"\bpython3?\s+-[mc]\b"),                   "python"),
+    (re.compile(r"\b(bash|sh)\s+"),                         "shell"),
+]
+
+# Manifest files that indicate which harness is appropriate when no command
+# match is found (fallback: inspect repo directory on disk).
+_MANIFEST_HARNESS: List[Tuple[str, str]] = [
+    ("Cargo.toml",      "cargo"),
+    ("package.json",    "npm"),
+    ("requirements.txt","pytest"),
+    ("setup.py",        "pytest"),
+    ("pyproject.toml",  "pytest"),
+]
+
+
+def detect_harness(integration_test: str, repo_dir: Optional[Path] = None) -> str:
+    """Return the harness family for a given integration_test command.
+
+    Priority order:
+      1. Command-string pattern match (fast, no I/O).
+      2. Manifest-file inspection of repo_dir (slower, only when provided).
+      3. "unknown" if nothing matches.
+    """
+    cmd = (integration_test or "").strip()
+
+    for pattern, harness in _CMD_HARNESS_PATTERNS:
+        if pattern.search(cmd):
+            return harness
+
+    if repo_dir is not None and repo_dir.is_dir():
+        for filename, harness in _MANIFEST_HARNESS:
+            if (repo_dir / filename).exists():
+                return harness
+
+    return "unknown"
 
 
 def _run_cmd(
@@ -84,7 +140,13 @@ def run_one_repo(
     test_cmd: str = repo["integration_test"]
     dor_cmd: Optional[str] = repo.get("dor_cmd")
 
-    print(f"\n▶  {repo_id}  ({url}@{branch})")
+    # Detect harness type from command; optionally from local clone dir.
+    repo_dir: Optional[Path] = None
+    if repo.get("local_path"):
+        repo_dir = Path(repo["local_path"])
+    harness = detect_harness(test_cmd, repo_dir)
+
+    print(f"\n▶  {repo_id}  ({url}@{branch})  [harness={harness}]")
 
     # ── DoR check ─────────────────────────────────────────────────────────────
     dor_status = "skipped"
@@ -133,7 +195,8 @@ def run_one_repo(
     return _result(repo_id, url, branch, remote_sha,
                    passed=passed, duration=duration,
                    log=log if not passed else None,
-                   dor_status=dor_status, attempts=attempts)
+                   dor_status=dor_status, attempts=attempts,
+                   harness=harness)
 
 
 def _result(
@@ -147,6 +210,7 @@ def _result(
     log: Optional[str],
     dor_status: str,
     attempts: int,
+    harness: str = "unknown",
 ) -> Dict[str, Any]:
     return {
         "repository_id": repo_id,
@@ -158,6 +222,7 @@ def _result(
         "skipped": False,
         "attempts": attempts,
         "dor_status": dor_status,
+        "harness_type": harness,
         "log": log,
     }
 
@@ -194,6 +259,7 @@ def run_validations(
             "skipped": True,
             "attempts": 0,
             "dor_status": "skipped",
+            "harness_type": detect_harness(repo.get("integration_test", "")),
             "log": None,
         })
 

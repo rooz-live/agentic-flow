@@ -187,6 +187,18 @@ Gate overhead per cycle: DoR=1.7s + scorecard=0.3s + pytest(147)=12.8s = **14.7s
 | U16 | `tests/gates/test_local_upgrader.sh` — 10 TDD tests (S1–S10), all green | 7.2 | ✅ DONE |
 | U17 | ROAM R-EDGE-01 + R-LOCAL-01 resolved | 7.0 | ✅ DONE |
 
+### DONE (Wave 8 — harness-type detection + registry expansion, 2026-06-22)
+Scorecard: **SHIP** | 292/292 pytest pass | 20/20 upstream engine TDD pass | harness families: cargo/pytest/npm/playwright/shell/python/unknown
+New relationship: `harness_type` field in every runner result — enables grouping, dashboards, and DoR routing by language ecosystem.
+
+| # | Item | WSJF | Status |
+|---|------|------|--------|
+| W8-1 | `upstream_runner.py` — `detect_harness()` classifies 7 families from cmd regex + manifest fallback | 8.5 | ✅ DONE |
+| W8-2 | `harness_type` in every `run_one_repo()` + `_result()` + skip-list result dict | 8.3 | ✅ DONE |
+| W8-3 | `upstream_registry.json` expanded: 5→13 repos (gemma-pytorch, gemma4-benchmarks, needle-in-a-haystack, opencompass, needle-tools, google-deepmind-gemma, adk-python, cactus-needle) | 7.8 | ✅ DONE |
+| W8-4 | `harness_hint` field added to all 13 registry entries (self-documents expected harness) | 7.5 | ✅ DONE |
+| W8-5 | `tests/gates/test_upstream_engine.sh` expanded: 15→20 tests (R6–R12 harness, G1–G3 registry) | 8.0 | ✅ DONE |
+| W8-6 | Scorecard gate already hardened (sign_off strict bool, pytest.approx) — 38/38 pass confirmed | 7.0 | ✅ CONFIRMED |
 
 ### NEXT
 | # | Item | WSJF | Status |

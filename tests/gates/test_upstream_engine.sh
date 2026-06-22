@@ -13,6 +13,18 @@
 #   R3  DoR cmd failure → integration_status=FAIL, dor_status=fail, test cmd NOT run
 #   R4  Retry: transient timeout → attempts increments, final status FAIL after exhaustion
 #   R5  Log truncation: output > log_truncate_bytes → log contains truncation marker
+#   R6  detect_harness: cargo check → harness_type=cargo
+#   R7  detect_harness: pytest command → harness_type=pytest
+#   R8  detect_harness: npx playwright → harness_type=playwright
+#   R9  detect_harness: npm test → harness_type=npm
+#   R10 detect_harness: bash script → harness_type=shell
+#   R11 detect_harness: unknown command → harness_type=unknown
+#   R12 harness_type present in run_one_repo result dict
+#
+#  Registry expansion (upstream_registry.json)
+#   G1  Registry has ≥ 10 repos (Wave-8 expansion)
+#   G2  All new repos have valid required fields
+#   G3  harness_hint field present on all repos
 #
 #  Reporter (upstream_reporter.py)
 #   P1  FAIL result with notify_on_fail → DLQ JSONL entry written
@@ -435,6 +447,171 @@ test_e5_one_sh_upstream_subcommand() {
     fi
 }
 
+# ── R6–R12: Harness-type detection ────────────────────────────────────────────
+test_harness_detection() {
+    echo ""
+    echo "R6–R12: detect_harness() classification"
+
+    local py_script
+    py_script=$(cat << 'PY'
+import sys
+sys.path.insert(0, 'scripts/cicd')
+from upstream_runner import detect_harness
+
+cases = [
+    ("cargo check",                      "cargo"),
+    ("cargo test --workspace",           "cargo"),
+    ("python3 -m pytest tests/ -q",      "pytest"),
+    ("pytest tests/billing/ -q",         "pytest"),
+    ("npx playwright test --list",       "playwright"),
+    ("npx playwright test tests/e2e/*",  "playwright"),
+    ("npm test -- --run",                "npm"),
+    ("yarn test",                        "npm"),
+    ("pnpm test",                        "npm"),
+    ("bash scripts/ci/ci-assess.sh",     "shell"),
+    ("sh run.sh",                        "shell"),
+    ("python3 -c 'import sys'",          "python"),
+    ("python3 script.py",                "python"),
+    ("some-unknown-tool",                "unknown"),
+]
+
+failed = 0
+for cmd, expected in cases:
+    got = detect_harness(cmd)
+    status = "OK" if got == expected else f"FAIL(got={got})"
+    print(f"{status}: '{cmd[:40]}' -> {expected}")
+    if got != expected:
+        failed += 1
+sys.exit(failed)
+PY
+)
+
+    local out rc
+    out=$(python3 - <<< "$py_script" 2>&1) || rc=$?
+    rc=${rc:-0}
+
+    # Count individual case results
+    local ok_count fail_count
+    ok_count=$(echo "$out" | grep -c "^OK:" || true)
+    fail_count=$(echo "$out" | grep -c "^FAIL" || true)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if [[ $fail_count -eq 0 && $ok_count -gt 0 ]]; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        echo -e "\033[32m✓\033[0m  detect_harness: $ok_count/14 cases classified correctly"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        echo -e "\033[31m✗\033[0m  detect_harness: $fail_count failures"
+        echo "$out" | grep "^FAIL" | while read -r line; do
+            echo "    $line"
+        done
+    fi
+
+    # R12: harness_type present in run_one_repo result
+    echo ""
+    echo "R12: harness_type field present in run_one_repo() result"
+    local r12_out
+    r12_out=$(python3 - << 'PY' 2>&1
+import sys
+sys.path.insert(0, 'scripts/cicd')
+from upstream_runner import run_one_repo
+from pathlib import Path
+repo = {
+    "id": "test-repo",
+    "url": "https://example.com/repo.git",
+    "branch": "main",
+    "integration_test": "python3 -c 'import sys; sys.exit(0)'",
+}
+result = run_one_repo(repo, "abc123", Path("."), run_timeout_s=15, retry=1)
+if "harness_type" in result:
+    print(f"harness_type={result['harness_type']}")
+else:
+    print("MISSING_harness_type")
+PY
+)
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$r12_out" | grep -q "harness_type="; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        local ht
+        ht=$(echo "$r12_out" | grep "harness_type=" | head -1)
+        echo -e "\033[32m✓\033[0m  harness_type present in result ($ht)"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        echo -e "\033[31m✗\033[0m  harness_type missing from run_one_repo result"
+    fi
+}
+
+# ── G1–G3: Registry expansion ─────────────────────────────────────────────────
+test_registry_expansion() {
+    echo ""
+    echo "G1–G3: upstream_registry.json Wave-8 expansion"
+
+    local REGISTRY="$ROOT_DIR/config/cicd/upstream_registry.json"
+
+    # G1: at least 10 repos
+    local repo_count
+    repo_count=$(python3 -c "import json; d=json.load(open('$REGISTRY')); print(len(d['repositories']))" 2>&1)
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if [[ "$repo_count" =~ ^[0-9]+$ ]] && [[ $repo_count -ge 10 ]]; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        echo -e "\033[32m✓\033[0m  Registry has $repo_count repos (≥ 10 required)"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        echo -e "\033[31m✗\033[0m  Registry has $repo_count repos (< 10 — expansion incomplete)"
+    fi
+
+    # G2: all repos have required fields + active bool
+    local g2_out
+    g2_out=$(python3 - << PY 2>&1
+import json, sys
+d = json.load(open('$REGISTRY'))
+required = {"id", "url", "branch", "integration_test", "active"}
+errors = []
+for r in d["repositories"]:
+    missing = required - set(r.keys())
+    if missing:
+        errors.append(f"{r.get('id','?')} missing: {missing}")
+    if not isinstance(r.get("active"), bool):
+        errors.append(f"{r.get('id','?')} active not bool")
+if errors:
+    for e in errors: print(f"ERROR: {e}")
+    sys.exit(1)
+print(f"OK: {len(d['repositories'])} repos validated")
+PY
+)
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$g2_out" | grep -q "^OK:"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        echo -e "\033[32m✓\033[0m  All repos have required fields + bool active"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        echo -e "\033[31m✗\033[0m  Registry field validation failed:"
+        echo "$g2_out" | grep "^ERROR:" | while read -r line; do echo "    $line"; done
+    fi
+
+    # G3: harness_hint present on all repos
+    local g3_out
+    g3_out=$(python3 - << PY 2>&1
+import json, sys
+d = json.load(open('$REGISTRY'))
+missing_hint = [r["id"] for r in d["repositories"] if "harness_hint" not in r]
+if missing_hint:
+    print(f"MISSING_harness_hint: {missing_hint}")
+    sys.exit(1)
+print(f"OK: harness_hint present on all {len(d['repositories'])} repos")
+PY
+)
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$g3_out" | grep -q "^OK:"; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        echo -e "\033[32m✓\033[0m  harness_hint field present on all repos"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        echo -e "\033[31m✗\033[0m  harness_hint missing on some repos"
+        echo "$g3_out"
+    fi
+}
+
 # ── Run all tests ─────────────────────────────────────────────────────────────
 main() {
     test_f1_registry_validation_missing_field
@@ -442,6 +619,8 @@ main() {
     test_r2_runner_fail
     test_r3_dor_failure_skips_test
     test_r5_log_truncation
+    test_harness_detection
+    test_registry_expansion
     test_p1_dlq_written_on_fail
     test_p2_sha_cache_updated_on_pass
     test_e1_dry_run_exits_zero

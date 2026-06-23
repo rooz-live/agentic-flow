@@ -211,7 +211,7 @@ New relationship: `harness_type` field in every runner result — enables groupi
 | # | Item | WSJF | Status |
 |---|------|------|--------|
 | 9 | MPP DDD bounded context deconstruct (src/billing/* ADRs) | 7.0 | Design |
-| 10 | ROAM risk register (billing pipeline full) | 6.0 | Design |
+| 10 | ROAM risk register (billing pipeline full) | 6.0 | ✅ DONE |
 
 ## MPP Layer Reference (Method Pattern Protocol)
 ```

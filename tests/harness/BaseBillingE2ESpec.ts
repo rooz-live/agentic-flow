@@ -293,8 +293,8 @@ export const FQDN_MIGRATION_STATUS: Record<BillingFQDN, 'pending' | 'delegated' 
   'billing.bhopti.com':      'delegated',  // HTTP 200 confirmed 2026-06-19
   'crm.bhopti.com':          'delegated',  // HTTP 200 confirmed 2026-06-19
   'shop.bhopti.com':         'delegated',  // HTTP 200 confirmed 2026-06-19
-  'docs.bhopti.com':         'pending',    // origin ${DOCS_ORIGIN_IP} — placeholder
-  'admin.bhopti.com':        'pending',    // origin ${ADMIN_ORIGIN_IP} — placeholder
+  'docs.bhopti.com':         'delegated',  // origin 23.92.79.2
+  'admin.bhopti.com':        'delegated',  // origin 23.92.79.2
   'mailadmin.bhopti.com':    'delegated',  // HTTP 200 confirmed 2026-06-19
   'summerjobswap.com':       'delegated',
   'nextwavenetwork.com':     'delegated',

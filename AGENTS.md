@@ -160,7 +160,7 @@ Gate overhead per cycle: DoR=1.7s + scorecard=0.3s + pytest(147)=12.8s = **14.7s
 | 2 | Stripe webhook end-to-end (edge → Rust → EventStore → Invoice) | 6.0 | ✅ DONE |
 | 3 | ns2.tag.ooo on separate IP (full hardware SPOF elimination, R-SPOF-01) | 5.5 | 🔴 BLOCKED: second DNS host |
 | 4 | gate_integrity: wire scorecard --verify to CI artifact (.github/workflows) | 5.0 | ✅ DONE |
-| 5 | OroCommerce CRM integration: crm.bhopti.com → real B2B workflow | 5.5 | 🟡 READY |
+| 5 | OroCommerce CRM integration: crm.bhopti.com → real B2B workflow | 5.5 | ✅ DONE |
 
 ### DONE (Wave 6 — upstream engine expansion, 2026-06-26)
 | # | Item | WSJF | Status |
@@ -205,7 +205,7 @@ New relationship: `harness_type` field in every runner result — enables groupi
 |---|------|------|--------|
 | 6 | k6 load at 150% profile (`tests/load/k6_billing.js` staged) | 7.5 | ✅ DONE |
 | 7 | app_id field in all 19 TLD manifest.json files (PWA app store submission gap) | 5.0 | ✅ DONE |
-| 8 | docs.bhopti.com / admin.bhopti.com: resolve ${PLACEHOLDER} origins | 4.5 | Design |
+| 8 | docs.bhopti.com / admin.bhopti.com: resolve ${PLACEHOLDER} origins | 4.5 | ✅ DONE |
 
 ### LATER
 | # | Item | WSJF | Status |

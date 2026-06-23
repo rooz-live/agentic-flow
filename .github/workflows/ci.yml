@@ -29,17 +29,23 @@ jobs:
           # Derive coherence from real signals (cargo check + pytest + git ls-files)
           # This closes the trust gap - no self-asserted coherence/gate_integrity allowed
           if [ -f .goalie/scorecards/current.json ]; then
-            python3 scripts/gates/scorecard_gate.py --file .goalie/scorecards/current.json --verify --json
+            python3 scripts/gates/scorecard_gate.py --file .goalie/scorecards/current.json --verify --json --emit-evidence
           elif [ -f .goalie/scorecards/required.json ]; then
-            python3 scripts/gates/scorecard_gate.py --file .goalie/scorecards/required.json --verify --json
+            python3 scripts/gates/scorecard_gate.py --file .goalie/scorecards/required.json --verify --json --emit-evidence
           else
             echo "⚠️  No scorecard found. Running in --precommit mode (soft skip if missing)..."
-            python3 scripts/gates/scorecard_gate.py --precommit --verify --json || true
+            python3 scripts/gates/scorecard_gate.py --precommit --verify --json --emit-evidence || true
           fi
         env:
           CI: true
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           AF_REQUIRE_SCORECARD: "1"
+
+      - name: Upload Scorecard Evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: scorecard-evidence
+          path: .goalie/evidence/
 
   shell-gate-tests:
     name: Shell Gate Tests (tests/gates/*.sh)
@@ -85,6 +91,12 @@ jobs:
     needs: [scorecard-gate, shell-gate-tests]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download Scorecard Evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: scorecard-evidence
+          path: .goalie/evidence/
 
       - name: "Orchestrator Circle: Execute Canonical One.sh Execution Ledger"
         run: |

@@ -359,13 +359,59 @@ def run_local_sweep(
                     if not should_ignore(item.name):
                         shutil.copy(item, sandbox_dir / item.name, follow_symlinks=False)
             
-            # Symlink node_modules/venv if they exist to keep execution fast
-            if (repo / "node_modules").is_dir():
-                os.symlink(repo / "node_modules", sandbox_dir / "node_modules")
-            if (repo / ".venv").is_dir():
-                os.symlink(repo / ".venv", sandbox_dir / ".venv")
-            elif (repo / "venv").is_dir():
-                os.symlink(repo / "venv", sandbox_dir / "venv")
+            # Enforce true sandbox isolation by installing dependencies inside sandbox instead of symlinking
+            # We determine package manager and create clean environments
+            
+            # Prepare Node dependencies
+            if (sandbox_dir / "package.json").is_file():
+                if (sandbox_dir / "pnpm-lock.yaml").is_file():
+                    log("  Installing npm dependencies via pnpm...", log_file)
+                    run_cmd(["pnpm", "install", "--frozen-lockfile"], sandbox_dir, dry_run, timeout_s=run_timeout_s)
+                elif (sandbox_dir / "package-lock.json").is_file():
+                    log("  Installing npm dependencies via npm...", log_file)
+                    run_cmd(["npm", "ci"], sandbox_dir, dry_run, timeout_s=run_timeout_s)
+                else:
+                    log("  Installing npm dependencies via npm install...", log_file)
+                    run_cmd(["npm", "install"], sandbox_dir, dry_run, timeout_s=run_timeout_s)
+
+            # Prepare Python dependencies
+            if (sandbox_dir / "requirements.txt").is_file() or (sandbox_dir / "pyproject.toml").is_file():
+                # Check for uv
+                has_uv = False
+                try:
+                    res_uv = subprocess.run(["which", "uv"], capture_output=True, text=True)
+                    has_uv = (res_uv.returncode == 0)
+                except Exception:
+                    pass
+                
+                if has_uv:
+                    log("  Creating virtual environment via uv...", log_file)
+                    run_cmd(["uv", "venv", ".venv"], sandbox_dir, dry_run)
+                    if (sandbox_dir / "requirements.txt").is_file():
+                        log("  Installing requirements via uv...", log_file)
+                        run_cmd(["uv", "pip", "install", "-r", "requirements.txt"], sandbox_dir, dry_run, timeout_s=run_timeout_s)
+                else:
+                    log("  Creating virtual environment via python3 venv...", log_file)
+                    run_cmd(["python3", "-m", "venv", ".venv"], sandbox_dir, dry_run)
+                    local_pip = str(sandbox_dir / ".venv" / "bin" / "pip")
+                    if (sandbox_dir / "requirements.txt").is_file():
+                        log("  Installing requirements via pip...", log_file)
+                        run_cmd([local_pip, "install", "-r", "requirements.txt"], sandbox_dir, dry_run, timeout_s=run_timeout_s)
+            
+            # Prepare Poetry dependencies if applicable
+            if (sandbox_dir / "pyproject.toml").is_file() and not (sandbox_dir / "requirements.txt").is_file():
+                has_poetry = False
+                try:
+                    content_toml = (sandbox_dir / "pyproject.toml").read_text(encoding="utf-8")
+                    if "[tool.poetry]" in content_toml:
+                        res_poetry = subprocess.run(["which", "poetry"], capture_output=True, text=True)
+                        has_poetry = (res_poetry.returncode == 0)
+                except Exception:
+                    pass
+                
+                if has_poetry:
+                    log("  Installing dependencies via poetry...", log_file)
+                    run_cmd(["poetry", "install"], sandbox_dir, dry_run, timeout_s=run_timeout_s)
 
             sandbox_setup_duration = round(time.time() - t_setup_start, 2)
             log(f"  ✓ Sandbox ready in {sandbox_setup_duration}s", log_file)
@@ -448,20 +494,33 @@ def run_local_sweep(
         # requirements.txt
         elif (sandbox_dir / "requirements.txt").is_file():
             log("  Detected python requirements.txt in sandbox...", log_file)
-            local_pip = "pip"
-            if (sandbox_dir / ".venv" / "bin" / "pip").is_file():
-                local_pip = str(sandbox_dir / ".venv" / "bin" / "pip")
-            elif (sandbox_dir / "venv" / "bin" / "pip").is_file():
-                local_pip = str(sandbox_dir / "venv" / "bin" / "pip")
+            has_uv = False
+            try:
+                res_uv = subprocess.run(["which", "uv"], capture_output=True, text=True)
+                has_uv = (res_uv.returncode == 0)
+            except Exception:
+                pass
 
-            if dry_run:
-                upgrade_success, upgrade_log = run_cmd(f"{local_pip} install --upgrade -r requirements.txt", sandbox_dir, True, timeout_s=run_timeout_s)
+            if has_uv:
+                if dry_run:
+                    upgrade_success, upgrade_log = run_cmd("uv pip install --upgrade -r requirements.txt", sandbox_dir, True, timeout_s=run_timeout_s)
+                else:
+                    upgrade_success, upgrade_log = run_cmd(["uv", "pip", "install", "--upgrade", "-r", "requirements.txt"], sandbox_dir, False, timeout_s=run_timeout_s)
             else:
-                upgrade_success, upgrade_log = run_cmd([local_pip, "install", "--upgrade", "-r", "requirements.txt"], sandbox_dir, False, timeout_s=run_timeout_s)
-                if not upgrade_success:
-                    log("  Fallback to python3 -m pip install in sandbox...", log_file)
-                    upgrade_success, upgrade_log2 = run_cmd(["python3", "-m", "pip", "install", "--upgrade", "-r", "requirements.txt"], sandbox_dir, False, timeout_s=run_timeout_s)
-                    upgrade_log += f"\n--- Fallback Pip ---\n{upgrade_log2}"
+                local_pip = "pip"
+                if (sandbox_dir / ".venv" / "bin" / "pip").is_file():
+                    local_pip = str(sandbox_dir / ".venv" / "bin" / "pip")
+                elif (sandbox_dir / "venv" / "bin" / "pip").is_file():
+                    local_pip = str(sandbox_dir / "venv" / "bin" / "pip")
+
+                if dry_run:
+                    upgrade_success, upgrade_log = run_cmd(f"{local_pip} install --upgrade -r requirements.txt", sandbox_dir, True, timeout_s=run_timeout_s)
+                else:
+                    upgrade_success, upgrade_log = run_cmd([local_pip, "install", "--upgrade", "-r", "requirements.txt"], sandbox_dir, False, timeout_s=run_timeout_s)
+                    if not upgrade_success:
+                        log("  Fallback to python3 -m pip install in sandbox...", log_file)
+                        upgrade_success, upgrade_log2 = run_cmd(["python3", "-m", "pip", "install", "--upgrade", "-r", "requirements.txt"], sandbox_dir, False, timeout_s=run_timeout_s)
+                        upgrade_log += f"\n--- Fallback Pip ---\n{upgrade_log2}"
 
         # Cargo.toml
         elif (sandbox_dir / "Cargo.toml").is_file():
@@ -511,10 +570,25 @@ def run_local_sweep(
                 test_success, test_log = run_cmd(["cargo", "test"], sandbox_dir, False, timeout_s=run_timeout_s)
 
             elif (sandbox_dir / "tests").is_dir() or (sandbox_dir / "test").is_dir():
-                pytest_check = subprocess.run(["which", "pytest"], capture_output=True)
-                if pytest_check.returncode == 0:
-                    log("  Running pytest in sandbox...", log_file)
-                    test_success, test_log = run_cmd(["pytest"], sandbox_dir, False, timeout_s=run_timeout_s)
+                local_pytest = sandbox_dir / ".venv" / "bin" / "pytest"
+                has_uv = False
+                try:
+                    res_uv = subprocess.run(["which", "uv"], capture_output=True, text=True)
+                    has_uv = (res_uv.returncode == 0)
+                except Exception:
+                    pass
+
+                if local_pytest.is_file():
+                    log("  Running local venv pytest in sandbox...", log_file)
+                    test_success, test_log = run_cmd([str(local_pytest)], sandbox_dir, False, timeout_s=run_timeout_s)
+                elif has_uv and (sandbox_dir / "pyproject.toml").is_file():
+                    log("  Running uv run pytest in sandbox...", log_file)
+                    test_success, test_log = run_cmd(["uv", "run", "pytest"], sandbox_dir, False, timeout_s=run_timeout_s)
+                else:
+                    pytest_check = subprocess.run(["which", "pytest"], capture_output=True)
+                    if pytest_check.returncode == 0:
+                        log("  Running global pytest in sandbox...", log_file)
+                        test_success, test_log = run_cmd(["pytest"], sandbox_dir, False, timeout_s=run_timeout_s)
 
         if test_success:
             log("  ✓ verification tests: PASS", log_file)
@@ -585,6 +659,8 @@ def run_local_sweep(
     evidence_dir = project_root / ".goalie" / "evidence" / "upgrades"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     overall_status = "PASS" if failed_count == 0 else "FAIL"
+    total_duration = sum(res.get("duration_seconds", 0.0) for res in results)
+    throughput = 3600.0 / max(1.0, total_duration)
     summary = {
         "gate": "local-upgrade-sweep",
         "run_id": run_id,
@@ -592,6 +668,7 @@ def run_local_sweep(
         "status": overall_status,
         "upgraded_count": upgraded_count,
         "failed_count": failed_count,
+        "throughput_deliveries_per_hour": round(throughput, 2),
         "results": results,
     }
     dod_path = evidence_dir / f"local_sweep_{run_id}.json"

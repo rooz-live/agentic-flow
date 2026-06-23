@@ -150,9 +150,32 @@ def run_edge_sync(
     retry: int = 1,
 ) -> List[Dict[str, Any]]:
     """Execute gateway validations and sync routines for drifted FQDNs."""
+    import hashlib
+    # 1. Load edge state cache and compute edge_gateway.cfg hash drift at the beginning
+    cache_path = project_root / ".goalie" / "evidence" / "edge_gateway" / "last_known_state.json"
+    cache = {}
+    if cache_path.exists():
+        try:
+            with open(cache_path, "r", encoding="utf-8") as f:
+                cache = json.load(f)
+        except Exception:
+            pass
+
+    cfg_path = project_root / "src" / "proxies" / "edge_gateway.cfg"
+    current_hash = "unknown"
+    if cfg_path.exists():
+        try:
+            current_hash = hashlib.sha256(cfg_path.read_bytes()).hexdigest()
+        except Exception:
+            pass
+
+    cached_hash = cache.get("_cfg_hash")
+    config_changed = (current_hash != "unknown" and current_hash != cached_hash)
+
     results = []
     to_sync_set = set(to_sync)
     meta = fqdn_metadata or {}
+    any_sync_succeeded = False
 
     for fqdn in fqdns:
         start_time = time.time()
@@ -182,8 +205,6 @@ def run_edge_sync(
         
         sync_success = True
         log_output = ""
-        health_ok = True
-        health_detail = ""
         
         base_domain = fqdn.split(".")[-2] + "." + fqdn.split(".")[-1] if len(fqdn.split(".")) >= 2 else fqdn
 
@@ -223,29 +244,10 @@ def run_edge_sync(
                 sync_success = False
                 log_output += f"\n[Health Probe] {health_detail}"
 
-        # Simulate or execute router reload if DNS is fully valid and we want to apply to Caddy/HAProxy
-        if sync_success and fqdn == "mailadmin.bhopti.com":
-            # Attempt to SCP/SSH reload Caddy on StarlingX (ref: deploy-edge-mailadmin.sh)
-            print("  --> Reloading Caddy configuration on StarlingX for mailadmin...")
-            # We run a check if SSH alias 'stx' exists
-            ssh_check = subprocess.run(["ssh", "-o", "ConnectTimeout=2", "stx", "echo 'stx_connected'"], capture_output=True, text=True)
-            if ssh_check.returncode == 0:
-                cfg_file = project_root / "src" / "proxies" / "edge_gateway.cfg"
-                scp_cmd = ["scp", str(cfg_file), "stx:/tmp/edge_gateway.cfg"]
-                ok, log_scp = run_ssh_sync_command(scp_cmd)
-                if ok:
-                    reload_cmd = ["ssh", "stx", "sudo cp /tmp/edge_gateway.cfg /etc/caddy/Caddyfile && sudo systemctl reload caddy"]
-                    ok_reload, log_reload = run_ssh_sync_command(reload_cmd)
-                    log_output += f"\n[Caddy Reload] {log_reload}"
-                    if not ok_reload:
-                        sync_success = False
-                else:
-                    sync_success = False
-                    log_output += f"\n[SCP Failed] {log_scp}"
-            else:
-                log_output += "\nAdvisory: 'stx' target SSH alias offline. Configuration not pushed to live VM."
+        if sync_success:
+            any_sync_succeeded = True
 
-        # DLQ + ROAM on failure
+        # DLQ + ROAM on failure (inside loop, handles pre-reload failures)
         if not sync_success and notify_on_fail:
             reason = log_output[:500]
             _write_dlq(project_root, fqdn, reason, roam_risk_id)
@@ -265,5 +267,40 @@ def run_edge_sync(
             "roam_risk_id": roam_risk_id,
             "log": log_output if not sync_success else None
         })
+
+    # 2. Run Caddy configuration reload on StarlingX ONCE at the end of the validation run
+    #    if the config changed or if any domain synchronization succeeded.
+    reload_failed = False
+    reload_error = None
+    if config_changed or any_sync_succeeded:
+        print("  --> Reloading Caddy configuration on StarlingX...")
+        # Check if SSH alias 'stx' exists
+        ssh_check = subprocess.run(["ssh", "-o", "ConnectTimeout=2", "stx", "echo 'stx_connected'"], capture_output=True, text=True)
+        if ssh_check.returncode == 0:
+            cfg_file = project_root / "src" / "proxies" / "edge_gateway.cfg"
+            scp_cmd = ["scp", str(cfg_file), "stx:/tmp/edge_gateway.cfg"]
+            ok, log_scp = run_ssh_sync_command(scp_cmd)
+            if ok:
+                reload_cmd = ["ssh", "stx", "sudo cp /tmp/edge_gateway.cfg /etc/caddy/Caddyfile && sudo systemctl reload caddy"]
+                ok_reload, log_reload = run_ssh_sync_command(reload_cmd)
+                if not ok_reload:
+                    reload_failed = True
+                    reload_error = f"[Caddy Reload Failed] {log_reload}"
+                else:
+                    print("  ✓ Caddy configuration reloaded successfully on StarlingX.")
+            else:
+                reload_failed = True
+                reload_error = f"[SCP Failed] {log_scp}"
+        else:
+            reload_error = "Advisory: 'stx' target SSH alias offline. Configuration not pushed to live VM."
+
+    # 3. Flag errors in domains' results if reload fails
+    if reload_error:
+        for res in results:
+            if not res.get("skipped", False):
+                if reload_failed:
+                    res["status"] = "FAIL"
+                res_log = res.get("log") or ""
+                res["log"] = (res_log + "\n" + reload_error).strip()
 
     return results

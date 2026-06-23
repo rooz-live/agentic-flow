@@ -1,0 +1,1 @@
+self.addEventListener('install', (e) => { e.waitUntil(self.skipWaiting()); });\nself.addEventListener('activate', (e) => { e.waitUntil(self.clients.claim()); });\nself.addEventListener('fetch', (e) => {});

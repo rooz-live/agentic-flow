@@ -190,12 +190,14 @@ def save_report_and_cache(
 
     # ── Write timestamped evidence artefact ──────────────────────────────────
     report_file = evidence_dir / f"upgrades_report_{timestamp}.json"
+    throughput = 3600.0 / max(1.0, total_duration)
     summary = {
         "status": "PASS" if all_passed else "FAIL",
         "timestamp": timestamp,
         "run_id": run_id,
         "total_duration_seconds": round(total_duration, 2),
         "skipped_count": skipped_count,
+        "throughput_deliveries_per_hour": round(throughput, 2),
         "results": enriched_results,
     }
     try:

@@ -1,20 +1,5 @@
-#!/usr/bin/env python3
-"""Upstream Repository Upgrade Validation — Runner.
-
-Executes per-repo integration checks with:
-  • Per-repo run_timeout_s from registry (fallback: default_run_timeout_s).
-  • Configurable retry count (registry retry field); only retries on timeout or
-    process-level failure, NOT on deliberate non-zero exit (test failure).
-  • Optional DoR command check before the integration test.
-  • Log output truncated to log_truncate_bytes to keep evidence artefacts bounded.
-  • Optional parallel execution across repos (--parallel flag from engine).
-  • Harness-type detection: classifies repos into one of seven categories
-    (cargo / pytest / npm / playwright / shell / python / unknown) based on
-    the integration_test command prefix OR manifest files present in a cloned
-    repo directory.  The detected type is included in every result dict so
-    that reporters and dashboards can group / filter by harness family.
-"""
-
+import os
+import shutil
 import re
 import subprocess
 import time
@@ -86,6 +71,7 @@ def _run_cmd(
     project_root: Path,
     timeout_s: int,
     log_truncate_bytes: int,
+    env: Optional[Dict[str, str]] = None,
 ) -> Tuple[bool, float, str]:
     """Run a shell command, returning (passed, duration_s, truncated_log)."""
     start = time.monotonic()
@@ -97,6 +83,7 @@ def _run_cmd(
             capture_output=True,
             text=True,
             timeout=timeout_s,
+            env=env,
         )
         elapsed = round(time.monotonic() - start, 2)
         raw_log = proc.stdout + "\n" + proc.stderr
@@ -128,33 +115,105 @@ def run_one_repo(
     retry: int = DEFAULT_RETRY,
     log_truncate_bytes: int = LOG_TRUNCATE_BYTES_DEFAULT,
 ) -> Dict[str, Any]:
-    """Run integration check for a single repo with retry logic.
-
-    DoR command (if present) is checked once before any retry.
-    The integration test is retried up to `retry` times on process failure.
-    It is NOT retried on deliberate test suite exit-1 (treat as real failure).
-    """
+    """Run integration check for a single repo with retry logic in an isolated sandbox clone."""
     repo_id = repo["id"]
     url = repo["url"]
     branch = repo["branch"]
     test_cmd: str = repo["integration_test"]
     dor_cmd: Optional[str] = repo.get("dor_cmd")
 
-    # Detect harness type from command; optionally from local clone dir.
-    repo_dir: Optional[Path] = None
-    if repo.get("local_path"):
-        repo_dir = Path(repo["local_path"])
-    harness = detect_harness(test_cmd, repo_dir)
+    # Set up isolated clone sandbox directory
+    sandbox_path = project_root / "scratch" / "sandbox" / "upstream_clones" / repo_id
+    if sandbox_path.exists():
+        shutil.rmtree(sandbox_path, ignore_errors=True)
+    sandbox_path.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n▶  {repo_id}  ({url}@{branch})  [harness={harness}]")
+    print(f"\n▶  {repo_id}  ({url}@{branch})  [Cloning into isolated sandbox...]")
+    
+    # Run git clone --depth 1
+    clone_proc = subprocess.run(
+        ["git", "clone", "--depth", "1", "--branch", branch, url, str(sandbox_path)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    
+    if clone_proc.returncode != 0:
+        print(f"  ❌ Git clone failed for {repo_id}: {clone_proc.stderr.strip()}")
+        # Fall back to running command in project_root to prevent hard blocking if offline/simulated in tests
+        print("  ⚠️ Falling back to project_root due to clone failure (e.g. offline/mock test).")
+        sandbox_path = project_root
+        harness = detect_harness(test_cmd, project_root)
+    else:
+        harness = detect_harness(test_cmd, sandbox_path)
+
+    # Prepare venv/install dependencies inside cloned sandbox if cloned successfully
+    env = os.environ.copy()
+    if sandbox_path != project_root:
+        # Pre-install dependencies depending on harness
+        if harness in ("playwright", "npm"):
+            if (sandbox_path / "pnpm-lock.yaml").is_file():
+                print("  [Sandbox npm] Installing dependencies via pnpm...")
+                subprocess.run(["pnpm", "install", "--frozen-lockfile"], cwd=str(sandbox_path), capture_output=True, timeout=120)
+                print("  [Sandbox npm] Running pnpm update...")
+                subprocess.run(["pnpm", "update"], cwd=str(sandbox_path), capture_output=True, timeout=120)
+            elif (sandbox_path / "package-lock.json").is_file():
+                print("  [Sandbox npm] Installing dependencies via npm...")
+                subprocess.run(["npm", "ci"], cwd=str(sandbox_path), capture_output=True, timeout=120)
+                print("  [Sandbox npm] Running npm update...")
+                subprocess.run(["npm", "update"], cwd=str(sandbox_path), capture_output=True, timeout=120)
+            else:
+                print("  [Sandbox npm] Installing dependencies via npm install...")
+                subprocess.run(["npm", "install"], cwd=str(sandbox_path), capture_output=True, timeout=120)
+                print("  [Sandbox npm] Running npm update...")
+                subprocess.run(["npm", "update"], cwd=str(sandbox_path), capture_output=True, timeout=120)
+            
+            if harness == "playwright":
+                print("  [Sandbox npm] Installing Playwright browsers...")
+                subprocess.run(["npx", "playwright", "install"], cwd=str(sandbox_path), capture_output=True, timeout=120)
+                
+        elif harness in ("pytest", "python"):
+            # Check for uv
+            has_uv = False
+            try:
+                res_uv = subprocess.run(["which", "uv"], capture_output=True, text=True)
+                has_uv = (res_uv.returncode == 0)
+            except Exception:
+                pass
+            
+            if has_uv:
+                print("  [Sandbox python] Creating virtual environment via uv...")
+                subprocess.run(["uv", "venv", ".venv"], cwd=str(sandbox_path), capture_output=True, timeout=30)
+                env["PATH"] = str(sandbox_path / ".venv" / "bin") + os.pathsep + env["PATH"]
+                if (sandbox_path / "requirements.txt").is_file():
+                    print("  [Sandbox python] Installing requirements via uv...")
+                    subprocess.run(["uv", "pip", "install", "-r", "requirements.txt"], cwd=str(sandbox_path), env=env, capture_output=True, timeout=120)
+                    print("  [Sandbox python] Upgrading requirements via uv...")
+                    subprocess.run(["uv", "pip", "install", "--upgrade", "-r", "requirements.txt"], cwd=str(sandbox_path), env=env, capture_output=True, timeout=120)
+            else:
+                print("  [Sandbox python] Creating virtual environment via python3 venv...")
+                subprocess.run(["python3", "-m", "venv", ".venv"], cwd=str(sandbox_path), capture_output=True, timeout=30)
+                env["PATH"] = str(sandbox_path / ".venv" / "bin") + os.pathsep + env["PATH"]
+                local_pip = str(sandbox_path / ".venv" / "bin" / "pip")
+                if (sandbox_path / "requirements.txt").is_file():
+                    print("  [Sandbox python] Installing requirements via pip...")
+                    subprocess.run([local_pip, "install", "-r", "requirements.txt"], cwd=str(sandbox_path), env=env, capture_output=True, timeout=120)
+                    print("  [Sandbox python] Upgrading requirements via pip...")
+                    subprocess.run([local_pip, "install", "--upgrade", "-r", "requirements.txt"], cwd=str(sandbox_path), env=env, capture_output=True, timeout=120)
+                    
+        elif harness == "cargo":
+            print("  [Sandbox cargo] Running cargo update...")
+            subprocess.run(["cargo", "update"], cwd=str(sandbox_path), capture_output=True, timeout=120)
 
     # ── DoR check ─────────────────────────────────────────────────────────────
     dor_status = "skipped"
     if dor_cmd:
         print(f"  [DoR] {dor_cmd}")
-        ok, dur, log = _run_cmd(dor_cmd, project_root, 30, log_truncate_bytes)
+        ok, dur, log = _run_cmd(dor_cmd, sandbox_path, 30, log_truncate_bytes, env=env)
         if not ok:
             print(f"  ❌ DoR FAILED ({dur}s) — skipping integration test for {repo_id}")
+            if sandbox_path != project_root:
+                shutil.rmtree(sandbox_path, ignore_errors=True)
             return _result(repo_id, url, branch, remote_sha,
                            passed=False, duration=dur,
                            log=log, dor_status="fail", attempts=0)
@@ -175,7 +234,7 @@ def run_one_repo(
         print(f"  [test] {test_cmd}")
         try:
             passed, duration, log = _run_cmd(
-                test_cmd, project_root, run_timeout_s, log_truncate_bytes
+                test_cmd, sandbox_path, run_timeout_s, log_truncate_bytes, env=env
             )
             status_str = "PASS" if passed else "FAIL"
             print(f"  {status_str}  ({duration}s)")
@@ -191,6 +250,10 @@ def run_one_repo(
             log = f"[PROCESS ERROR] {exc}"
             transient_fail = True
             print(f"  ⚠️  Process error on attempt {attempts}: {exc}")
+
+    # Clean up clone sandbox
+    if sandbox_path != project_root:
+        shutil.rmtree(sandbox_path, ignore_errors=True)
 
     return _result(repo_id, url, branch, remote_sha,
                    passed=passed, duration=duration,

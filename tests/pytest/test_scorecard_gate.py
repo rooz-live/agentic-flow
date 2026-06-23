@@ -621,3 +621,121 @@ def test_run_no_invented_symbols_check(tmp_path, monkeypatch):
     monkeypatch.setattr("scripts.gates.scorecard_gate._git", lambda args, root=None: "invalid.py" if "diff" in args or "diff" in args[0] else "src/billing/entity_identity.py")
     assert run_no_invented_symbols(tmp_path) is False
 
+
+def test_load_signals_override_untrusted_list_in_verify_mode(monkeypatch, tmp_path):
+    from scripts.gates.scorecard_gate import load_signals, DEFAULT_SIGNALS
+    monkeypatch.setenv("CI", "true")
+    
+    signals_file = tmp_path / "verify_signals.json"
+    signals_file.write_text(json.dumps([{"name": "fake", "cmd": "true"}]))
+    monkeypatch.setattr("scripts.gates.scorecard_gate.VERIFY_SIGNALS_FILE", str(signals_file))
+    
+    # In CI verification mode, custom untrusted list must fallback to DEFAULT_SIGNALS
+    assert load_signals() == DEFAULT_SIGNALS
+
+
+def test_load_signals_override_trusted_signature(monkeypatch, tmp_path):
+    from scripts.gates.scorecard_gate import load_signals
+    # Set verify_mode via AF_VERIFY_MODE
+    monkeypatch.setenv("AF_VERIFY_MODE", "1")
+    
+    signals_file = tmp_path / "verify_signals.json"
+    custom_signals = [{"name": "custom-cmd", "cmd": "echo 1"}]
+    signals_file.write_text(json.dumps({
+        "signals": custom_signals,
+        "signature": "valid_signature",
+        "principal": "owner"
+    }))
+    
+    monkeypatch.setattr("scripts.gates.scorecard_gate.VERIFY_SIGNALS_FILE", str(signals_file))
+    
+    # Mock allowed_signers to exist and verify successfully
+    allowed_signers_path = tmp_path / "allowed_signers"
+    allowed_signers_path.touch()
+    monkeypatch.setenv("AF_ALLOWED_SIGNERS", str(allowed_signers_path))
+    
+    monkeypatch.setattr("scripts.gates.scorecard_gate.verify_ssh_signature", lambda sig, pr, msg, path: True)
+    
+    assert load_signals() == custom_signals
+
+
+def test_load_signals_override_invalid_signature(monkeypatch, tmp_path):
+    from scripts.gates.scorecard_gate import load_signals, DEFAULT_SIGNALS
+    monkeypatch.setenv("AF_VERIFY_MODE", "1")
+    
+    signals_file = tmp_path / "verify_signals.json"
+    custom_signals = [{"name": "custom-cmd", "cmd": "echo 1"}]
+    signals_file.write_text(json.dumps({
+        "signals": custom_signals,
+        "signature": "invalid_signature",
+        "principal": "owner"
+    }))
+    
+    monkeypatch.setattr("scripts.gates.scorecard_gate.VERIFY_SIGNALS_FILE", str(signals_file))
+    
+    allowed_signers_path = tmp_path / "allowed_signers"
+    allowed_signers_path.touch()
+    monkeypatch.setenv("AF_ALLOWED_SIGNERS", str(allowed_signers_path))
+    
+    # Mock verify_ssh_signature to fail
+    monkeypatch.setattr("scripts.gates.scorecard_gate.verify_ssh_signature", lambda sig, pr, msg, path: False)
+    
+    assert load_signals() == DEFAULT_SIGNALS
+
+
+def test_harden_missing_allowed_signers_ci_blocks(monkeypatch, tmp_path):
+    from scripts.gates.scorecard_gate import harden
+    
+    monkeypatch.setenv("CI", "true")
+    # Point allowed_signers to a non-existent path
+    monkeypatch.setenv("AF_ALLOWED_SIGNERS", str(tmp_path / "missing_signers"))
+    
+    # Mock other functions called inside harden to prevent extraneous blocks
+    monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda: "mock_sha")
+    monkeypatch.setattr("scripts.gates.scorecard_gate.current_diff_sha", lambda env: "mock_diff")
+    monkeypatch.setattr("scripts.gates.scorecard_gate.verify_signoff", lambda c, e, ac, ad: (True, "mock"))
+    monkeypatch.setattr("scripts.gates.scorecard_gate.check_binding", lambda c, ac, ad, s: ([], []))
+    
+    sc = make_valid_scorecard()
+    card, extra_blocks, extra_warnings, meta = harden(sc, env={"CI": "true"}, strict=False, ingest_only=True)
+    
+    assert any("CI context requires allowed_signers configuration" in err for err in extra_blocks)
+
+
+def test_run_no_invented_symbols_multiline_imports(tmp_path, monkeypatch):
+    from scripts.gates.scorecard_gate import run_no_invented_symbols
+    
+    # Create files with multiline/split/parenthesized python imports
+    py_content = (
+        "from src.billing.entity_identity \\\n"
+        "    import Entity\n"
+        "from src.billing.jobs import (\n"
+        "    JobManifest,\n"
+        "    Task\n"
+        ")\n"
+        "import os, sys\n"
+    )
+    
+    (tmp_path / "src" / "billing").mkdir(parents=True)
+    (tmp_path / "src" / "billing" / "entity_identity.py").touch()
+    (tmp_path / "src" / "billing" / "jobs.py").touch()
+    
+    file_path = tmp_path / "multiline_test.py"
+    file_path.write_text(py_content)
+    
+    monkeypatch.setattr("scripts.gates.scorecard_gate._git", lambda args, root=None: "multiline_test.py" if "diff" in args or "diff" in args[0] else "src/billing/entity_identity.py\nsrc/billing/jobs.py")
+    
+    # All imported packages exist/are tracked -> should return True
+    assert run_no_invented_symbols(tmp_path) is True
+    
+    # Change import to an invented module and verify it fails
+    py_content_bad = (
+        "from src.billing.entity_identity \\\n"
+        "    import Entity\n"
+        "from src.billing.fake_module import (\n"
+        "    FakeSymbol\n"
+        ")\n"
+    )
+    file_path.write_text(py_content_bad)
+    assert run_no_invented_symbols(tmp_path) is False
+

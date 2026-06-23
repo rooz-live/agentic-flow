@@ -252,4 +252,20 @@ def fetch_edge_status(project_root: Path) -> Tuple[List[str], Dict[str, str], Di
         else:
             print(f"  🌐 {fqdn}: DNS matches registry and cache: {live_ip}. Skipped.")
 
+    # Config Hash Check for edge_gateway.cfg (runs once after parsing all FQDNs)
+    import hashlib
+    current_hash = "unknown"
+    if cfg_path.exists():
+        try:
+            current_hash = hashlib.sha256(cfg_path.read_bytes()).hexdigest()
+        except Exception:
+            pass
+    
+    cached_hash = cache.get("_cfg_hash")
+    if current_hash != "unknown" and current_hash != cached_hash:
+        print(f"  🌐 Configuration drift detected in edge_gateway.cfg (hash changed). Queuing all domains for reload.")
+        for fqdn in fqdns:
+            if fqdn not in to_sync:
+                to_sync.append(fqdn)
+
     return fqdns, registry, live_resolutions, cache, to_sync, fqdn_metadata

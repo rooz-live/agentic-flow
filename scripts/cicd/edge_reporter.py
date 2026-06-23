@@ -125,6 +125,19 @@ def save_edge_report_and_cache(
                         "timestamp": timestamp,
                     })
 
+    # Calculate hash of edge_gateway.cfg for caching and reporting
+    cfg_file = project_root / "src" / "proxies" / "edge_gateway.cfg"
+    cfg_hash = "unknown"
+    if cfg_file.exists():
+        try:
+            import hashlib
+            cfg_hash = hashlib.sha256(cfg_file.read_bytes()).hexdigest()
+        except Exception:
+            pass
+
+    if all_passed and cfg_hash != "unknown":
+        new_cache["_cfg_hash"] = cfg_hash
+
     # Save cache file
     cache_file = evidence_dir / "last_known_state.json"
     try:
@@ -135,17 +148,8 @@ def save_edge_report_and_cache(
     except Exception as e:
         print(f"⚠️ Warning: Failed to write edge cache: {e}")
 
-    # Calculate hash of edge_gateway.cfg for backward compatibility
-    cfg_file = project_root / "src" / "proxies" / "edge_gateway.cfg"
-    cfg_hash = "unknown"
-    if cfg_file.exists():
-        try:
-            import hashlib
-            cfg_hash = hashlib.sha256(cfg_file.read_bytes()).hexdigest()
-        except Exception:
-            pass
-
     violations_count = sum(1 for res in results if res.get("status") == "FAIL")
+    throughput = 3600.0 / max(1.0, total_duration)
 
     # Write detailed report
     report_file = evidence_dir / f"edge_report_{timestamp}.json"
@@ -157,6 +161,7 @@ def save_edge_report_and_cache(
         "hash": cfg_hash,
         "violations": violations_count,
         "total_duration_seconds": round(total_duration, 2),
+        "throughput_deliveries_per_hour": round(throughput, 2),
         "skipped_count": skipped_count,
         "results": results
     }
@@ -197,6 +202,7 @@ def save_edge_report_and_cache(
     print("📈 Edge Gateway Sync Summary:")
     print(f"  Overall Status: {'PASS' if all_passed else 'FAIL'}")
     print(f"  Total Duration: {round(total_duration, 2)}s")
+    print(f"  Throughput (deliveries/hr): {round(throughput, 2)}")
     print(f"  Skipped (Cached): {skipped_count}")
     print(f"  Domains Status:")
     for res in results:

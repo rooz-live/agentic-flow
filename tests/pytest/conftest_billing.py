@@ -16,8 +16,11 @@ Usage in billing tests:
 from __future__ import annotations
 
 import json
+import os
+import fcntl
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 
@@ -26,8 +29,27 @@ from src.billing.invoice_engine import (
     InvoiceEngine,
     InvoiceLineItem,
     LineItemType,
+    LineItemType,
     Money,
 )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def decentralized_parallel_lock():
+    lock_dir = Path(".goalie/locks")
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    lock_file = lock_dir / "billing_integration.lock"
+    
+    with open(lock_file, "w") as f:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            yield
+        except BlockingIOError:
+            print("Waiting for billing integration lock...")
+            fcntl.flock(f, fcntl.LOCK_EX)
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
 
 
 # ─── Domain Engine Fixtures ──────────────────────────────────────────────────

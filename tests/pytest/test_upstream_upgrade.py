@@ -147,8 +147,9 @@ def test_run_local_sweep_fail(mock_run_cmd, mock_get_branch, mock_scan, tmp_path
     mock_get_branch.return_value = "main"
 
     mock_run_cmd.side_effect = [
-        (True, "sha123\n"),  # rev-parse
         (True, "git pull output\n"),  # git pull
+        (True, "sha123\n"),  # rev-parse
+        (True, "npm install output\n"),  # npm install
         (True, "npm update output\n"),  # npm update
         (False, "AssertionError: 1 != 2\n"),  # npm test (failed)
     ]
@@ -235,9 +236,13 @@ domains:
 @patch("edge_fetcher.load_edge_state_cache")
 def test_fetch_edge_status(mock_cache, mock_dns, tmp_path):
     """Test fetch_edge_status delta detection."""
+    import hashlib
+    cfg_content = "billing.bhopti.com {\n}\ncrm.bhopti.com {\n}\n"
+    cfg_hash = hashlib.sha256(cfg_content.encode("utf-8")).hexdigest()
     mock_cache.return_value = {
         "billing.bhopti.com": "23.92.79.2",
-        "crm.bhopti.com": "23.92.79.2"
+        "crm.bhopti.com": "23.92.79.2",
+        "_cfg_hash": cfg_hash
     }
     # billing.bhopti.com matches cache & registry -> skipped
     # crm.bhopti.com IP mismatched -> queued
@@ -258,8 +263,10 @@ def test_fetch_edge_status(mock_cache, mock_dns, tmp_path):
     assert to_sync == ["crm.bhopti.com"]
 
 
-def test_run_edge_sync_success():
+@patch("subprocess.run")
+def test_run_edge_sync_success(mock_sub_run):
     """Test run_edge_sync under valid matching state."""
+    mock_sub_run.return_value = MagicMock(returncode=1)
     fqdns = ["billing.bhopti.com"]
     to_sync = ["billing.bhopti.com"]
     registry = {"billing.bhopti.com": "23.92.79.2"}

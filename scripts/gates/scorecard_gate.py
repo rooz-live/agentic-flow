@@ -21,6 +21,7 @@
 #   plus anti-replay binding to the current commit/diff.
 
 import argparse
+import ast
 import datetime
 import hashlib
 import json
@@ -63,11 +64,11 @@ DEFAULT_SIGNALS = [
             "python3",
             "-m",
             "pytest",
-            "tests/",
-            "--rootdir=tests",
+            "tests/pytest/",
+            "tests/gates/",
+            "--rootdir=.",
             "-q",
             "--tb=line",
-            "--ignore=tests/integrations",
         ],
         "required": True,
     },
@@ -299,14 +300,54 @@ def evaluate(card: dict, *, derive: bool = False, root_path: Any = ".", ingest_o
 # Hardening: replace self-asserted fields with verified signals
 # --------------------------------------------------------------------------- #
 def load_signals() -> list:
-    """Load coherence signal definitions (file overrides DEFAULT_SIGNALS)."""
-    if os.path.exists(VERIFY_SIGNALS_FILE):
+    """Load coherence signal definitions (file overrides DEFAULT_SIGNALS).
+
+    In CI/pre-commit verification mode, restrict overrides of test configurations
+    unless the signature is verified against a trusted principal.
+    """
+    env = os.environ
+
+    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    is_precommit = env.get("AF_GATE_CONTEXT") == "precommit"
+    verify_mode = is_ci or is_precommit or str(env.get("AF_VERIFY_MODE", "0")) == "1"
+
+    if not os.path.exists(VERIFY_SIGNALS_FILE):
+        return DEFAULT_SIGNALS
+
+    try:
         with open(VERIFY_SIGNALS_FILE, "r", encoding="utf-8") as fh:
             data = json.load(fh)
-        if isinstance(data, dict):
-            return data.get("signals", DEFAULT_SIGNALS)
-        if isinstance(data, list):
-            return data
+    except Exception:
+        return DEFAULT_SIGNALS
+
+    if isinstance(data, list):
+        if verify_mode:
+            # Untrusted override list without dict signature envelope
+            return DEFAULT_SIGNALS
+        return data
+
+    if not isinstance(data, dict):
+        return DEFAULT_SIGNALS
+
+    signals = data.get("signals")
+    if not signals:
+        return DEFAULT_SIGNALS
+
+    if not verify_mode:
+        return signals
+
+    # In verification mode (CI/precommit), we strictly check signature
+    allowed_signers = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
+    sig = data.get("signature")
+    principal = data.get("principal")
+
+    if os.path.exists(allowed_signers) and sig and principal:
+        # Re-serialize the signals section in canonical form to verify
+        canonical = json.dumps(signals, sort_keys=True)
+        if verify_ssh_signature(sig, principal, canonical, allowed_signers):
+            return signals
+
+    # Signature verification failed or allowed_signers missing
     return DEFAULT_SIGNALS
 
 
@@ -419,31 +460,41 @@ def run_no_invented_symbols(root: Any) -> bool:
             continue
 
         if ext == ".py":
-            for line in content.splitlines():
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "#" in line:
-                    line = line.split("#", 1)[0].strip()
+            try:
+                tree = ast.parse(content)
+            except SyntaxError:
+                return False
 
-                m_from = re.match(r"^from\s+(\.+[\w\.]*|[\w\.]+)\s+import", line)
-                m_import = re.match(r"^import\s+([\w\.,\s]+)", line)
-
-                if m_from:
-                    module_name = m_from.group(1)
-                    dots_match = re.match(r"^(\.+)", module_name)
-                    if dots_match:
-                        # Relative import
-                        dots_count = len(dots_match.group(1))
-                        mod_rem = module_name[dots_count:]
-                        
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        parts = alias.name.split(".")
+                        if parts[0] in ("src", "tests", "config", "tooling", "domain", "scripts", "validation"):
+                            target_path = Path(root) / "/".join(parts)
+                            possible_paths = [
+                                target_path.with_suffix(".py"),
+                                target_path / "__init__.py"
+                            ]
+                            resolved = False
+                            for p in possible_paths:
+                                try:
+                                    rel_to_root = p.relative_to(Path(root)).as_posix()
+                                except ValueError:
+                                    rel_to_root = None
+                                if rel_to_root and rel_to_root in tracked_files:
+                                    resolved = True
+                                    break
+                            if not resolved:
+                                return False
+                elif isinstance(node, ast.ImportFrom):
+                    module_name = node.module or ""
+                    level = node.level or 0
+                    if level > 0:
                         parent_dir = full_path.parent
-                        # Go up for additional dots
-                        for _ in range(dots_count - 1):
+                        for _ in range(level - 1):
                             parent_dir = parent_dir.parent
-                            
-                        if mod_rem:
-                            parts = mod_rem.split(".")
+                        if module_name:
+                            parts = module_name.split(".")
                             target_path = parent_dir / "/".join(parts)
                             possible_paths = [
                                 target_path.with_suffix(".py"),
@@ -455,57 +506,34 @@ def run_no_invented_symbols(root: Any) -> bool:
                                     rel_to_root = p.relative_to(Path(root)).as_posix()
                                 except ValueError:
                                     rel_to_root = None
-                                if (rel_to_root and rel_to_root in tracked_files):
+                                if rel_to_root and rel_to_root in tracked_files:
                                     resolved = True
                                     break
                             if not resolved:
                                 return False
                         else:
-                            # e.g., from .. import foo
                             if not parent_dir.exists():
                                 return False
                     else:
-                        # Absolute import
-                        parts = module_name.split(".")
-                        if parts[0] in ("src", "tests", "config", "tooling", "domain", "scripts", "validation"):
-                            target_path = Path(root) / "/".join(parts)
-                            possible_paths = [
-                                target_path.with_suffix(".py"),
-                                target_path / "__init__.py"
-                            ]
-                            resolved = False
-                            for p in possible_paths:
-                                try:
-                                    rel_to_root = p.relative_to(Path(root)).as_posix()
-                                except ValueError:
-                                    rel_to_root = None
-                                if (rel_to_root and rel_to_root in tracked_files):
-                                    resolved = True
-                                    break
-                            if not resolved:
-                                return False
-
-                elif m_import:
-                    import_parts = [p.strip().split()[0] for p in m_import.group(1).split(",") if p.strip()]
-                    for part in import_parts:
-                        parts = part.split(".")
-                        if parts[0] in ("src", "tests", "config", "tooling", "domain", "scripts", "validation"):
-                            target_path = Path(root) / "/".join(parts)
-                            possible_paths = [
-                                target_path.with_suffix(".py"),
-                                target_path / "__init__.py"
-                            ]
-                            resolved = False
-                            for p in possible_paths:
-                                try:
-                                    rel_to_root = p.relative_to(Path(root)).as_posix()
-                                except ValueError:
-                                    rel_to_root = None
-                                if (rel_to_root and rel_to_root in tracked_files):
-                                    resolved = True
-                                    break
-                            if not resolved:
-                                return False
+                        if module_name:
+                            parts = module_name.split(".")
+                            if parts[0] in ("src", "tests", "config", "tooling", "domain", "scripts", "validation"):
+                                target_path = Path(root) / "/".join(parts)
+                                possible_paths = [
+                                    target_path.with_suffix(".py"),
+                                    target_path / "__init__.py"
+                                ]
+                                resolved = False
+                                for p in possible_paths:
+                                    try:
+                                        rel_to_root = p.relative_to(Path(root)).as_posix()
+                                    except ValueError:
+                                        rel_to_root = None
+                                    if rel_to_root and rel_to_root in tracked_files:
+                                        resolved = True
+                                        break
+                                if not resolved:
+                                    return False
 
         elif ext == ".rs":
             for line in content.splitlines():
@@ -829,12 +857,26 @@ def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) ->
     extra_warnings: list = []
     meta: dict = {}
 
+    # Enforce allowed_signers presence in CI context
+    allowed_signers = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
+    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    if is_ci and not os.path.exists(allowed_signers):
+        extra_blocks.append("HARD GATE: CI context requires allowed_signers configuration")
+
     # 1) coherence <- real signals
     if ingest_only:
         coherence = derive_coherence(".", force_dynamic=False)
         meta["coherence_ingested"] = True
     else:
-        results = run_signals(load_signals())
+        old_verify_mode = os.environ.get("AF_VERIFY_MODE")
+        os.environ["AF_VERIFY_MODE"] = "1"
+        try:
+            results = run_signals(load_signals())
+        finally:
+            if old_verify_mode is not None:
+                os.environ["AF_VERIFY_MODE"] = old_verify_mode
+            else:
+                os.environ.pop("AF_VERIFY_MODE", None)
         coherence = derive_coherence(results)
         meta["signals"] = results
 

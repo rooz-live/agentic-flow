@@ -433,6 +433,14 @@ def test_derive_coherence_crypto_verification(tmp_path, monkeypatch):
     monkeypatch.setattr("scripts.gates.scorecard_gate.verify_ssh_signature", lambda s, p, m, a: False)
     assert derive_coherence(tmp_path) == "FAIL"
 
+    # 5. allowed_signers exists, running locally (CI is false), signature missing -> FAIL (loophole fixed)
+    monkeypatch.delenv("CI", raising=False)
+    artifact_file.write_text(json.dumps({
+        "coherence": "PASS",
+        "git_head": "mock_sha"
+    }))
+    assert derive_coherence(tmp_path) == "FAIL"
+
 
 def test_verify_signoff_legacy_disabled_in_ci(monkeypatch):
     from scripts.gates.scorecard_gate import verify_signoff

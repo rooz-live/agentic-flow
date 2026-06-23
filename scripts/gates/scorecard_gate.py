@@ -606,11 +606,10 @@ def derive_coherence(root_path_or_results: Any, force_dynamic: bool = False, ing
         principal = data.get("principal")
         
         if os.path.exists(allowed_signers):
-            if is_ci or sig or principal:
-                if not sig or not principal:
-                    return "FAIL"
-                if not verify_ssh_signature(sig, principal, gh, allowed_signers):
-                    return "FAIL"
+            if not sig or not principal:
+                return "FAIL"
+            if not verify_ssh_signature(sig, principal, gh, allowed_signers):
+                return "FAIL"
         else:
             if is_ci or sig or principal:
                 return "FAIL"

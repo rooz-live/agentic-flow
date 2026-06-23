@@ -15,7 +15,7 @@
 | **R3**: Stripe Webhook Replay / Secret Leak | MITIGATED | SecOps | Rust-based HMAC-SHA256 signature verification edge gate |
 | **R4**: HostBill Synchronization Silent Drops | ACCEPTED | Billing Core | Batch reconciliations rather than real-time retries |
 | **R5**: UUID Collision in Entity Identity | MITIGATED | Data | Time-sequential UUIDv7 enforcing temporal uniqueness |
-| **R6**: OroCommerce CRM Synchronization Lag | OWNED | B2B Integration | Playwright Live Edge verification and B2B workflow polling |
+| **R6**: OroCommerce CRM Synchronization Lag | MITIGATED | B2B Integration | Playwright Live Edge verification and B2B workflow BDD testing |
 | **R7**: Project Context Budget Overruns | MITIGATED | Ledger Ops | Real-time threshold locks on Cost & Budget Ledger |
 | **R8**: Cross-Boundary Schema Drift | MITIGATED | Architecture | `docs/api/billing.proto` enforcement and strict pipeline typing |
 
@@ -46,10 +46,10 @@
 **Scenario**: Massive concurrent job creations trigger UUID collisions.
 **Mitigation**: Adoption of UUIDv7 instead of UUIDv4 guarantees sequential sortability and collision resistance by temporal epoch.
 
-### R6: OroCommerce CRM Synchronization Lag (OWNED)
+### R6: OroCommerce CRM Synchronization Lag (MITIGATED)
 **Scenario**: Real B2B workflows on `crm.bhopti.com` fail due to state lag between OroCRM and the Billing ledger.
 **Owner**: B2B Integration.
-**Plan**: Maintain live Playwright B2B boundary integration tests that check JWT endpoints and fail the build if lag breaks UX.
+**Mitigation**: Maintained live Playwright and Pytest-BDD boundary integration tests that check health and JWT endpoints and fail the build if lag breaks UX.
 
 ### R7: Project Context Budget Overruns (MITIGATED)
 **Scenario**: Techs continue working after budget cap exceeded.

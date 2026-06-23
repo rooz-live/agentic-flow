@@ -148,6 +148,17 @@ case "$CMD" in
         exec python3 "$ROOT_DIR/scripts/cicd/edge_gateway_sync_engine.py" "$@"
         ;;
 
+    harness)
+        # Dispatch to the upgraded agent harness
+        shift
+        if [[ $# -eq 0 ]]; then
+            echo "Usage: ./scripts/one.sh harness <doctor|evolve|evolve:dry|init>"
+            exit 1
+        fi
+        # Execute the corresponding npm script from within the apps/agent-harness directory
+        exec npm --prefix "$ROOT_DIR/apps/agent-harness" run "$@"
+        ;;
+
     help|--help|-h)
         cat <<'HELP'
 Usage: ./scripts/one.sh <subcommand> [args...]
@@ -165,6 +176,7 @@ Usage: ./scripts/one.sh <subcommand> [args...]
   scorecard         Originality/Impact gate: [--verify] [--file PATH] [--json]
   upstream          Upstream repo upgrade engine: [--dry-run] [--force] [--parallel] [--json]
   edge-sync         Edge gateway DNS sync + health probe: [--dry-run] [--force] [--json]
+  harness           Dispatch to the upgraded AI Agent Harness: <doctor|evolve|evolve:dry|init>
 HELP
         exit 0
         ;;

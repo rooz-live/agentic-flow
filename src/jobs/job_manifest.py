@@ -113,6 +113,20 @@ class IssueRecord:
 
 
 @dataclass
+class RateSnapshot:
+    """Time-locked rate snapshot to prevent calculation drift"""
+    rate_id: str
+    base_rate: Decimal
+    currency: str = "USD"
+    locked_at: datetime = field(default_factory=datetime.now)
+    dimensions_hash: str = ""
+    
+    def is_valid(self) -> bool:
+        return bool(self.rate_id and self.base_rate >= 0)
+
+
+
+@dataclass
 class JobManifest:
     """Job manifest record"""
     manifest_id: str
@@ -134,6 +148,7 @@ class JobManifest:
     onsite: bool = True
     
     sign_off: SignOffRecord = field(default_factory=SignOffRecord)
+    rate_snapshot: Optional[RateSnapshot] = None
     
     status: JobStatus = JobStatus.SCHEDULED
     

@@ -1,11 +1,11 @@
 # DDD/TDD/ADR Coherence Validation Report
-**Generated:** 2026-06-21 20:05:34
+**Generated:** 2026-06-23 10:34:55
 **Project:** `/Users/shahroozbhopti/Documents/code`
-**Files Scanned:** 392
+**Files Scanned:** 391
 **Automation Level:** Level 3 (With Review)
 
 ## ✅ Overall: PASS
-`███████████████████████████░░░` **92.7%** (775/836 checks)
+`███████████████████████████░░░` **92.7%** (773/834 checks)
 
 ## Layer Health
 
@@ -14,7 +14,7 @@
 | **PRD** | 🟡 76% | 11 | 5 | 11 PRD document(s) found |
 | **ADR** | 🟢 86% | 29 | 3 | 29 ADR document(s) found |
 | **DDD** | 🟢 95% | 37 | 0 | 37 domain file(s) found |
-| **TDD** | 🟢 94% | 315 | 23 | 315 test file(s) found |
+| **TDD** | 🟢 94% | 314 | 23 | 314 test file(s) found |
 
 ## Cross-Layer Coherence
 
@@ -26,7 +26,7 @@
 - ✅ **COH-010** (ddd→prd): 31/32 domain modules have DoR/DoD docstrings (97%)
 - ❌ **COH-006** (ddd→ddd): 14/41 Python packages have __init__.py (34%)
 - ✅ **COH-009** (ddd→ddd): 40/41 Rust domain structs derive Serialize (98%)
-- ✅ **COH-007** (tdd→tdd): 110/114 test files follow naming convention (96%)
+- ✅ **COH-007** (tdd→tdd): 111/115 test files follow naming convention (97%)
 - ✅ **COH-008** (prd→prd): 10/11 PRD documents have measurable success metrics (91%) [2 stray PRD-like file(s) outside docs/prd/]
 - ✅ **COH-011** (ddd→tdd): Found 3 MCP component(s) and 3 test harness(es)
 - ✅ **COH-012** (ddd→tdd): Found 19 vector source file(s) and 5 vector test harness(es)
@@ -434,14 +434,10 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.8 assertions/test (11 assertions, 4 tests) `tests/e2e/analytics-tld.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: app-store-redirection.spec.ts `tests/e2e/app-store-redirection.spec.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.9 assertions/test (58 assertions, 20 tests) `tests/e2e/app-store-redirection.spec.ts`
-- ✅ [INFO] Test file follows naming convention: Correct: basic.spec.ts `tests/e2e/basic.spec.ts`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.7 assertions/test (5 assertions, 3 tests) `tests/e2e/basic.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: billing-verify.e2e.spec.ts `tests/e2e/billing-verify.e2e.spec.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 4.0 assertions/test (4 assertions, 1 tests) `tests/e2e/billing-verify.e2e.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: dashboard.spec.ts `tests/e2e/dashboard.spec.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (13 assertions, 6 tests) `tests/e2e/dashboard.spec.ts`
-- ✅ [INFO] Test file follows naming convention: Correct: epic-16-swarm-telemetry.spec.ts `tests/e2e/epic-16-swarm-telemetry.spec.ts`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.0 assertions/test (5 assertions, 1 tests) `tests/e2e/epic-16-swarm-telemetry.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: epic-17-quant-alpha.spec.ts `tests/e2e/epic-17-quant-alpha.spec.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (3 assertions, 1 tests) `tests/e2e/epic-17-quant-alpha.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: epic-18-hypertrophy.spec.ts `tests/e2e/epic-18-hypertrophy.spec.ts`
@@ -514,6 +510,8 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.2 assertions/test (5 assertions, 4 tests) `tests/gates/test_meta_gate.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_scorecard_gate.py `tests/gates/test_scorecard_gate.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.5 assertions/test (115 assertions, 77 tests) `tests/gates/test_scorecard_gate.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_scorecard_gate_comprehensive.py `tests/gates/test_scorecard_gate_comprehensive.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.5 assertions/test (42 assertions, 17 tests) `tests/gates/test_scorecard_gate_comprehensive.py`
 - ✅ [INFO] Test file follows naming convention: Correct: decision_audit_logger.test.ts `tests/governance/decision_audit_logger.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (67 assertions, 19 tests) `tests/governance/decision_audit_logger.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: governance_system.test.ts `tests/governance/governance_system.test.ts`
@@ -871,9 +869,9 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (28 assertions, 13 tests) `tests/verification/verification-pipeline.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: vscode-extension-mocks.test.ts `tests/vscode-extension/vscode-extension-mocks.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.5 assertions/test (109 assertions, 31 tests) `tests/vscode-extension/vscode-extension-mocks.test.ts`
-- ✅ [CRITICAL] Unit tests present: 3145 test functions found
+- ✅ [CRITICAL] Unit tests present: 3158 test functions found
 - ✅ [WARNING] Integration tests present: 124 integration test file(s)
-- ✅ [INFO] Total assertion count reasonable: 9607 total assertions across 315 files
+- ✅ [INFO] Total assertion count reasonable: 9639 total assertions across 314 files
 
 ## Recommendations
 
@@ -892,10 +890,10 @@
 
 | Phase | Coherence Action |
 |:------|:-----------------|
-| **Observe** | Scanned 392 files across 4 layers |
+| **Observe** | Scanned 391 files across 4 layers |
 | **Orient** | Health: PRD=76%, ADR=86%, DDD=95%, TDD=94% |
 | **Decide** | Verdict: PASS at 93% |
 | **Act** | 10 recommendations to implement |
 
 ---
-*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-06-21 20:05:34*
+*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-06-23 10:34:55*

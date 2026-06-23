@@ -76,7 +76,7 @@ const TLD_TARGETS = [
   { tld: 'epic.cab', url: 'https://epic.cab/', titlePattern: /epic\.cab|Premium Urban Mobility|Telegram|Mobility/i },
   { tld: 'telegram.epic.cab', url: 'https://telegram.epic.cab/', titlePattern: /Telegram|EPIC|Join/i, redirects: true },
   { tld: 'eudmusic.com', url: 'https://eudmusic.com/', titlePattern: /eudmusic|agentic|dashboard|Discord/i, redirects: true },
-  { tld: 'tag.vote', url: 'https://tag.vote/', titlePattern: /tag\.vote|agentic|dashboard|Discord/i, redirects: true },
+  { tld: 'tag.vote', url: 'https://tag.vote/', titlePattern: /tag\.vote|agentic|dashboard|Discord|Cognitum/i, redirects: true },
   // Observed prod: Apache directory index until app entry is deployed.
   { tld: 'yoservice.com', url: 'https://yoservice.com/', titlePattern: /yoservice|service|agentic|Discord|Index of/i, redirects: true },
   // ─── Billing Platform Infrastructure (bhopti.com origin: 23.92.79.2) ──────

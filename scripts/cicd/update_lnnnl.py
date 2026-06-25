@@ -3,10 +3,11 @@ import os
 import sys
 import yaml
 import re
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
 # Insert project root to path to import calculator
-PROJECT_ROOT = "/Users/shahroozbhopti/Documents/code"
+PROJECT_ROOT = str(Path(__file__).parent.parent.parent.resolve())
 sys.path.insert(0, PROJECT_ROOT)
 
 from src.wsjf.calculator import WsjfCalculator, WsjfItem
@@ -36,11 +37,61 @@ def parse_deadline(deadline_str):
                     continue
     return None
 
+def _load_loop_prompts(path: str) -> dict:
+    """Load loop_prompts.yaml and return P1/NNEAR shippable items."""
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = yaml.safe_load(f) or {}
+    except Exception:
+        return {}
+    return data
+
+
+def _extract_shippable_items(data: dict) -> dict:
+    """Return {now: [...], near: [...], next: [...]} from loop_prompts items.
+
+    Items whose id starts with 'P1-' are shippable work. Items whose id starts
+    with 'NNEAR-' are near-term shippable work. Other items (e.g. CVT-*) are
+    treated as blocker backlog and ignored for the shippable lane.
+    """
+    shippable: dict = {"now": [], "near": [], "next": []}
+    now_items = data.get('wsjf_now_items', []) or []
+    near_items = data.get('wsjf_near_items', []) or []
+
+    for item in now_items:
+        item_id = item.get('id', '')
+        if item_id.startswith('P1-'):
+            shippable["now"].append(item)
+        elif item_id.startswith('NNEAR-'):
+            shippable["near"].append(item)
+
+    for item in near_items:
+        item_id = item.get('id', '')
+        if item_id.startswith('P1-'):
+            shippable["near"].append(item)
+        elif item_id.startswith('NNEAR-'):
+            shippable["next"].append(item)
+
+    return shippable
+
+
+def _format_item(item: dict) -> str:
+    prompt = (item.get('prompt') or '').replace('"', '').replace('\n', ' ').strip()
+    if len(prompt) > 100:
+        prompt = prompt[:97] + "..."
+    return f"[{item.get('id')}] {prompt}"
+
+
 def main():
     roam_cog_path = os.path.join(PROJECT_ROOT, ".goalie/ROAM_TRACKER_COG.yaml")
     roam_path = os.path.join(PROJECT_ROOT, ".goalie/ROAM_TRACKER.yaml")
     lnnnl_path = os.path.join(PROJECT_ROOT, ".goalie/LNNNL.yaml")
     roam_root_path = os.path.join(PROJECT_ROOT, "ROAM_TRACKER.yaml")
+    loop_prompts_path = os.path.join(PROJECT_ROOT, "config/cicd/loop_prompts.yaml")
+
+    resolved = sync_roam_env_deps(Path(PROJECT_ROOT))
+    if resolved:
+        print(f"Auto-resolved env deps: {', '.join(resolved)}")
 
     now_utc = datetime.now(timezone.utc)
     today_str = now_utc.strftime('%Y-%m-%d')
@@ -236,8 +287,15 @@ def main():
     # Perform WSJF calculation
     priorities = calc.get_priorities()
     sorted_items = priorities['priorities']
+    active_by_id = {str(a['id']): a for a in active_items}
+    for p in sorted_items:
+        iid = str(p['item'].get('id'))
+        if iid in active_by_id:
+            p['item']['type'] = active_by_id[iid]['type']
 
-    # Update LNNNL schedule
+    shippable_lane, blockers_lane = build_lane_schedules(sorted_items, load_shippable_queue(PROJECT_ROOT))
+
+    # Update LNNNL schedule (legacy + dual-lane)
     schedule_labels = ['now', 'near', 'next', 'later', 'likely']
     schedule = {}
     for i, label in enumerate(schedule_labels):
@@ -252,8 +310,20 @@ def main():
         else:
             schedule[label] = "No pending task."
 
+    # Build multi-lane schedule: shippable work from loop_prompts + ROAM backlog
+    loop_prompts_data = _load_loop_prompts(loop_prompts_path)
+    shippable_items = _extract_shippable_items(loop_prompts_data)
+    lanes = {
+        "shippable": {
+            label: _format_item(items[0]) if items else "No pending shippable task."
+            for label, items in shippable_items.items()
+        },
+        "blockers": schedule,
+    }
+
     lnnnl_data = {
-        "version": "1.0",
+        "version": "1.1",
+        "lanes": lanes,
         "schedule": schedule,
         "last_updated": now_iso
     }
@@ -265,6 +335,23 @@ def main():
     print("\nUpdated LNNNL Schedule (WSJF Prioritized):")
     for k, v in schedule.items():
         print(f"  {k.upper()}: {v}")
+    print("\nUpdated LNNNL Lanes:")
+    for lane_name, lane_schedule in lanes.items():
+        print(f"  [{lane_name}]")
+        for k, v in lane_schedule.items():
+            print(f"    {k.upper()}: {v}")
+
+    reconcile_wsjf_dependency_links(tracker_data)
+
+    # Optional timestamp refresh (AF_ROAM_REFRESH_TIMESTAMPS=1 only)
+    if os.environ.get('AF_ROAM_REFRESH_TIMESTAMPS', '0') != '1':
+        if tracker_data:
+            with open(roam_path, 'w', encoding='utf-8') as f:
+                yaml.dump(tracker_data, f, default_flow_style=False, sort_keys=False)
+            with open(roam_root_path, 'w', encoding='utf-8') as f:
+                yaml.dump(tracker_data, f, default_flow_style=False, sort_keys=False)
+        print('Skipped ROAM discovered refresh (set AF_ROAM_REFRESH_TIMESTAMPS=1 to enable)')
+        return
 
     # Now refresh timestamps to clear the staleness gate
     # Update COG tracker

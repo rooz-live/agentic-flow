@@ -104,6 +104,35 @@ def _load_lane_map(project_root: Path) -> Dict[str, str]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Error taxonomy + throughput helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _classify_failure(log: Optional[str], status: str) -> str:
+    """Classify a non-PASS result into a failure category."""
+    if status == "PASS":
+        return "none"
+    text = (log or "").lower()
+    if "timeout" in text or "[timeout" in text:
+        return "timeout"
+    if "git clone failed" in text or "clone failed" in text:
+        return "clone_failed"
+    if "not found" in text or "404" in text or "enotfound" in text:
+        return "not_found"
+    if "[exception" in text or "traceback" in text:
+        return "exception"
+    if "permission denied" in text or "eacces" in text:
+        return "permission_denied"
+    return "command_failed"
+
+
+def _eta_seconds(queue_depth: int, throughput_per_hour: float) -> float:
+    """Estimate seconds to clear queue at current throughput."""
+    if throughput_per_hour <= 0:
+        return float("inf")
+    return round(queue_depth / throughput_per_hour * 3600.0, 2)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main reporter
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -146,6 +175,8 @@ def save_report_and_cache(
     all_passed = True
     total_duration = 0.0
     skipped_count = 0
+    active_count = 0
+    active_passed = 0
     new_cache = dict(cache)
 
     # ── Per-result processing ────────────────────────────────────────────────
@@ -159,7 +190,11 @@ def save_report_and_cache(
 
         if is_skipped:
             skipped_count += 1
-        
+        else:
+            active_count += 1
+            if status == "PASS":
+                active_passed += 1
+
         meta = repo_meta.get(repo_id, {})
         roam_risk_id = meta.get("roam_risk_id")
         notify = meta.get("notify_on_fail", False)
@@ -167,7 +202,8 @@ def save_report_and_cache(
         # Annotate with lane from UPSTREAM_ACTIONS
         lane = lane_map.get(repo_id, meta.get("lane", None))
 
-        enriched = {**res, "lane": lane}
+        failure_category = _classify_failure(res.get("log"), status)
+        enriched = {**res, "lane": lane, "failure_category": failure_category}
         enriched_results.append(enriched)
 
         if status == "PASS":
@@ -191,13 +227,21 @@ def save_report_and_cache(
     # ── Write timestamped evidence artefact ──────────────────────────────────
     report_file = evidence_dir / f"upgrades_report_{timestamp}.json"
     throughput = 3600.0 / max(1.0, total_duration)
+    success_rate = round(active_passed / max(1, active_count), 4)
+    queue_depth = active_count - active_passed
+    eta_seconds = _eta_seconds(queue_depth, throughput)
     summary = {
         "status": "PASS" if all_passed else "FAIL",
         "timestamp": timestamp,
         "run_id": run_id,
         "total_duration_seconds": round(total_duration, 2),
         "skipped_count": skipped_count,
+        "active_count": active_count,
+        "active_passed": active_passed,
+        "success_rate": success_rate,
+        "queue_depth": queue_depth,
         "throughput_deliveries_per_hour": round(throughput, 2),
+        "eta_seconds": eta_seconds,
         "results": enriched_results,
     }
     try:
@@ -212,13 +256,17 @@ def save_report_and_cache(
     print(f"   Overall:  {'PASS' if all_passed else 'FAIL'}")
     print(f"   Duration: {round(total_duration, 2)}s")
     print(f"   Skipped (cached): {skipped_count}")
+    print(f"   Active: {active_passed}/{active_count}  (success_rate={success_rate:.2%})")
+    print(f"   Queue depth: {queue_depth}  ETA: {eta_seconds}s")
+    print(f"   Throughput: {round(throughput, 2)} deliveries/hour")
     for res in enriched_results:
         flag = " (skipped)" if res.get("skipped") else ""
         lane_tag = f"  [{res['lane']}]" if res.get("lane") else ""
         attempts = res.get("attempts", 0)
         attempt_tag = f"  attempts={attempts}" if attempts > 1 else ""
+        cat_tag = f"  cat={res['failure_category']}" if res.get("failure_category") and res["failure_category"] != "none" else ""
         print(f"   - {res['repository_id']}: {res['integration_status']}"
-              f"{flag}{lane_tag}{attempt_tag}")
+              f"{flag}{lane_tag}{attempt_tag}{cat_tag}")
     print("=" * 60)
 
     if json_output:

@@ -14,10 +14,51 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import local_upgrader
 import upstream_upgrade_engine
+import upstream_runner
+import upstream_reporter
 import edge_fetcher
 import edge_runner
 import edge_reporter
 import edge_gateway_sync_engine
+
+
+# ==============================================================================
+# Upstream Runner / Harness Detection
+# ==============================================================================
+
+def test_detect_harness_uses_hint_when_valid():
+    """Registry hint is authoritative over command-string inference."""
+    assert local_upgrader  # keep import used for side-effect
+    assert upstream_runner.detect_harness("cargo check", hint="playwright") == "playwright"
+
+
+def test_detect_harness_falls_back_to_command_when_hint_invalid():
+    assert upstream_runner.detect_harness("cargo check", hint="not_a_harness") == "cargo"
+
+
+def test_detect_harness_falls_back_to_manifest(tmp_path):
+    (tmp_path / "Cargo.toml").write_text("")
+    assert upstream_runner.detect_harness("unknown command", repo_dir=tmp_path) == "cargo"
+
+
+# ==============================================================================
+# Upstream Reporter / Error Taxonomy + Throughput
+# ==============================================================================
+
+def test_classify_failure_maps_common_signals():
+    assert upstream_reporter._classify_failure("", "PASS") == "none"
+    assert upstream_reporter._classify_failure("[TIMEOUT after 30s]", "FAIL") == "timeout"
+    assert upstream_reporter._classify_failure("git clone failed: 404", "FAIL") == "clone_failed"
+    assert upstream_reporter._classify_failure("404 page not found", "FAIL") == "not_found"
+    assert upstream_reporter._classify_failure("Traceback (most recent call last)", "FAIL") == "exception"
+    assert upstream_reporter._classify_failure("permission denied", "FAIL") == "permission_denied"
+    assert upstream_reporter._classify_failure("assert 0 == 1", "FAIL") == "command_failed"
+
+
+def test_eta_seconds_sanity():
+    assert upstream_reporter._eta_seconds(2, 3600.0) == 2.0
+    assert upstream_reporter._eta_seconds(0, 3600.0) == 0.0
+    assert upstream_reporter._eta_seconds(1, 0.0) == float("inf")
 
 
 # ==============================================================================

@@ -44,14 +44,25 @@ _MANIFEST_HARNESS: List[Tuple[str, str]] = [
 ]
 
 
-def detect_harness(integration_test: str, repo_dir: Optional[Path] = None) -> str:
+_VALID_HARNESS_TYPES = {"cargo", "pytest", "playwright", "npm", "python", "shell", "unknown"}
+
+
+def detect_harness(
+    integration_test: str,
+    repo_dir: Optional[Path] = None,
+    hint: Optional[str] = None,
+) -> str:
     """Return the harness family for a given integration_test command.
 
     Priority order:
-      1. Command-string pattern match (fast, no I/O).
-      2. Manifest-file inspection of repo_dir (slower, only when provided).
-      3. "unknown" if nothing matches.
+      1. Registry hint (authoritative if provided and valid).
+      2. Command-string pattern match (fast, no I/O).
+      3. Manifest-file inspection of repo_dir (slower, only when provided).
+      4. "unknown" if nothing matches.
     """
+    if hint and hint in _VALID_HARNESS_TYPES:
+        return hint
+
     cmd = (integration_test or "").strip()
 
     for pattern, harness in _CMD_HARNESS_PATTERNS:
@@ -121,6 +132,7 @@ def run_one_repo(
     branch = repo["branch"]
     test_cmd: str = repo["integration_test"]
     dor_cmd: Optional[str] = repo.get("dor_cmd")
+    harness_hint: Optional[str] = repo.get("harness_type") or repo.get("harness_hint")
 
     # Set up isolated clone sandbox directory
     sandbox_path = project_root / "scratch" / "sandbox" / "upstream_clones" / repo_id
@@ -143,9 +155,9 @@ def run_one_repo(
         # Fall back to running command in project_root to prevent hard blocking if offline/simulated in tests
         print("  ⚠️ Falling back to project_root due to clone failure (e.g. offline/mock test).")
         sandbox_path = project_root
-        harness = detect_harness(test_cmd, project_root)
+        harness = detect_harness(test_cmd, project_root, hint=harness_hint)
     else:
-        harness = detect_harness(test_cmd, sandbox_path)
+        harness = detect_harness(test_cmd, sandbox_path, hint=harness_hint)
 
     # Prepare venv/install dependencies inside cloned sandbox if cloned successfully
     env = os.environ.copy()
@@ -322,7 +334,10 @@ def run_validations(
             "skipped": True,
             "attempts": 0,
             "dor_status": "skipped",
-            "harness_type": detect_harness(repo.get("integration_test", "")),
+            "harness_type": detect_harness(
+                repo.get("integration_test", ""),
+                hint=repo.get("harness_type") or repo.get("harness_hint"),
+            ),
             "log": None,
         })
 

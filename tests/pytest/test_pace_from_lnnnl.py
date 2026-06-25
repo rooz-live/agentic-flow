@@ -56,3 +56,20 @@ def test_main_from_lnnnl_prints_weight(capsys, tmp_path, monkeypatch):
         main()
     captured = capsys.readouterr()
     assert captured.out.strip() == "1.5"
+
+
+def test_pace_from_lnnnl_prefers_lanes_shippable(capsys, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    lnnnl = tmp_path / ".goalie" / "LNNNL.yaml"
+    lnnnl.parent.mkdir(parents=True)
+    lnnnl.write_text(
+        "version: '1.1'\nlanes:\n  shippable:\n    now: '[P1-BILLING-001] invoice engine'\n    near: '[DEP-009] missing key'\n    next: '[P1-EDGE-042] caddy probe'\n  blockers:\n    now: '[R04] webhook secret'\n",
+        encoding="utf-8",
+    )
+    with monkeypatch.context() as m:
+        import sys
+
+        m.setattr(sys, "argv", ["pace_from_lnnnl.py", "--from-lnnnl"])
+        main()
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "1.5"

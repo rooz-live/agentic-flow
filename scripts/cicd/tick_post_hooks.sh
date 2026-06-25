@@ -77,4 +77,9 @@ if [[ -x "$ROOT/scripts/cicd/pi_plan_sync.sh" ]]; then
   SKIP_WSJF=1 bash "$ROOT/scripts/cicd/pi_plan_sync.sh" || true
 fi
 
+if [[ "${HIRE_SYNC_EARNINGS:-0}" == "1" && -x "$ROOT/scripts/hire/sync_earnings_to_hire.py" ]]; then
+  echo "=== tick_post: earnings → hire.agentics.org sync ==="
+  python3 "$ROOT/scripts/hire/sync_earnings_to_hire.py" || echo "WARN: hire earnings sync failed"
+fi
+
 exit 0

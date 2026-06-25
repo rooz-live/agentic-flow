@@ -27,6 +27,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Shared JSON-RPC envelope for hire.agentics.org MCP
+import importlib.util
+
+_MCP_JSONRPC_PATH = Path(__file__).resolve().parent / "mcp_jsonrpc.py"
+if not _MCP_JSONRPC_PATH.exists():
+    raise RuntimeError(f"Required module {_MCP_JSONRPC_PATH} not found")
+_mcp_jsonrpc_spec = importlib.util.spec_from_file_location("mcp_jsonrpc", _MCP_JSONRPC_PATH)
+assert _mcp_jsonrpc_spec is not None and _mcp_jsonrpc_spec.loader is not None
+mcp_jsonrpc = importlib.util.module_from_spec(_mcp_jsonrpc_spec)
+_mcp_jsonrpc_spec.loader.exec_module(mcp_jsonrpc)
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -147,8 +158,9 @@ def sync_profile(email: str, payload: dict[str, Any]) -> dict[str, Any]:
     token = _resolve_token()
     receipt_id = str(uuid.uuid4())
 
-    body = {"email": email, **payload}
-    encoded = json.dumps(body).encode("utf-8")
+    method = payload.pop("method", "profile/sync")
+    envelope = mcp_jsonrpc.request(method, {"email": email, **payload}, request_id=receipt_id)
+    encoded = json.dumps(envelope).encode("utf-8")
 
     req = urllib.request.Request(
         MCP_ENDPOINT,
@@ -251,7 +263,8 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if args.dry_run:
-        envelope = {"email": args.email, **payload}
+        method = payload.pop("method", "profile/sync")
+        envelope = mcp_jsonrpc.request(method, {"email": args.email, **payload}, request_id=str(uuid.uuid4()))
         print("=== DRY RUN — request that would be sent ===")
         print(f"POST {MCP_ENDPOINT}")
         print("Headers: Content-Type: application/json, Authorization: Bearer <token>, X-Receipt-ID: <uuid4>")
@@ -269,6 +282,8 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps(response, indent=2))
     status = response.get("status_code")
     if status and str(status) not in {"200", "201", "202"}:
+        return 1
+    if mcp_jsonrpc.error_message(response):
         return 1
     return 0
 

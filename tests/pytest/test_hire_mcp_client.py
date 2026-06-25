@@ -114,6 +114,34 @@ def _fake_urlopen_http_error(code: int = 401, body: bytes = b'{"error": "unautho
 # Token resolution tests
 # ---------------------------------------------------------------------------
 
+class TestJsonRpcEnvelope:
+    def test_request_has_jsonrpc_fields(self, client):
+        envelope = client.mcp_jsonrpc.request("profile/sync", {"email": "a@b.com"}, request_id="rid-1")
+        assert envelope["jsonrpc"] == "2.0"
+        assert envelope["method"] == "profile/sync"
+        assert envelope["params"]["email"] == "a@b.com"
+        assert envelope["id"] == "rid-1"
+
+    def test_error_message_extracts_rpc_error(self, client):
+        response = {"jsonrpc": "2.0", "error": {"code": -32600, "message": "Invalid Request"}}
+        assert client.mcp_jsonrpc.error_message(response) == "Invalid Request"
+
+    def test_is_valid_response_false_on_error(self, client):
+        response = {"jsonrpc": "2.0", "error": {"code": -32600, "message": "Invalid Request"}}
+        assert not client.mcp_jsonrpc.is_valid_response(response)
+
+    def test_sync_profile_sends_json_rpc_envelope(self, client, tmp_receipt_log, env_token, monkeypatch):
+        captured = []
+        monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen(200, {"id": "sync-1"}))
+
+        result = client.sync_profile(
+            email="s@rooz.live",
+            payload={"title": "Engineer", "skills": ["Python"]},
+        )
+
+        assert result["id"] == "sync-1"
+
+
 class TestTokenResolution:
     def test_env_var_takes_priority(self, client, monkeypatch):
         monkeypatch.setenv("HIRE_MCP_TOKEN", "env-token-xyz")

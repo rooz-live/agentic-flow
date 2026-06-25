@@ -1,0 +1,57 @@
+# Fastfile for SummerJobSwap
+# Lanes are fail-closed until credentials are provided via env vars.
+
+default_platform(:android)
+
+platform :android do
+  desc "Build release AAB (fail-closed if keystore is missing)"
+  lane :release do
+    store_file = ENV["SUMMERJOBSWAP_RELEASE_STORE_FILE"] || "release.keystore"
+    unless File.exist?(File.join("..", "android", "app", store_file))
+      UI.user_error!("Keystore missing: android/app/#{store_file}. Provide SUMMERJOBSWAP_RELEASE_STORE_FILE or generate a keystore.")
+    end
+
+    gradle(
+      task: "bundle",
+      build_type: "Release",
+      project_dir: "android/"
+    )
+  end
+
+  desc "Build debug APK for CI smoke test"
+  lane :debug_apk do
+    gradle(
+      task: "assemble",
+      build_type: "Debug",
+      project_dir: "android/"
+    )
+  end
+end
+
+platform :ios do
+  desc "Build iOS release archive (fail-closed if team is missing)"
+  lane :release do
+    team_id = ENV["SUMMERJOBSWAP_IOS_TEAM_ID"]
+    UI.user_error!("SUMMERJOBSWAP_IOS_TEAM_ID not set") if team_id.nil? || team_id.empty?
+
+    bundle_id = ENV["SUMMERJOBSWAP_IOS_BUNDLE_ID"] || "com.sovereign.summerjobswap"
+
+    build_app(
+      scheme: "App",
+      project: "ios/App/App.xcodeproj",
+      output_directory: "build/ios",
+      export_method: "app-store-connect",
+      xcargs: "DEVELOPMENT_TEAM='#{team_id}' PRODUCT_BUNDLE_IDENTIFIER='#{bundle_id}'"
+    )
+  end
+
+  desc "Build iOS debug app for simulator"
+  lane :debug_sim do
+    build_app(
+      scheme: "App",
+      project: "ios/App/App.xcodeproj",
+      destination: "platform=iOS Simulator,name=iPhone 16",
+      output_directory: "build/ios_sim"
+    )
+  end
+end

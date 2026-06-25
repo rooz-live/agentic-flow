@@ -2,10 +2,18 @@ import os
 import shutil
 import re
 import subprocess
+import sys
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+# Shared CICD receipt envelope (monolith deconstruct foundation)
+LIB_DIR = Path(__file__).resolve().parent / "lib"
+if str(LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(LIB_DIR))
+import receipt
 
 LOG_TRUNCATE_BYTES_DEFAULT = 8192
 DEFAULT_RUN_TIMEOUT_S = 120
@@ -272,6 +280,48 @@ def run_one_repo(
                    log=log if not passed else None,
                    dor_status=dor_status, attempts=attempts,
                    harness=harness)
+
+
+def to_receipt(result: Dict[str, Any], project_root: Path) -> Dict[str, Any]:
+    """Convert a single upstream_runner result dict into a validated CICD receipt v1."""
+    repo_id = result["repository_id"]
+    status = result.get("integration_status", "FAIL")
+    passed = status == "PASS"
+    skipped = result.get("skipped", False)
+    return receipt.make(
+        context="upstream",
+        status="PASS" if (passed or skipped) else "FAIL",
+        command=f"upstream_runner:{repo_id}",
+        exit_code=0 if (passed or skipped) else 1,
+        duration_seconds=result.get("duration_seconds", 0.0),
+        signals=[
+            {
+                "name": "integration_test",
+                "ok": passed,
+                "required": not skipped,
+                "details": {
+                    "harness_type": result.get("harness_type", "unknown"),
+                    "dor_status": result.get("dor_status", "skipped"),
+                    "attempts": result.get("attempts", 0),
+                },
+            },
+            {
+                "name": "cached",
+                "ok": skipped,
+                "required": False,
+                "details": {"skipped": skipped},
+            },
+        ],
+        errors=[] if (passed or skipped) else [result.get("log", "") or f"{repo_id} failed"],
+        warnings=["cached/skipped"] if skipped else [],
+        meta={
+            "repository_id": repo_id,
+            "url": result.get("url", ""),
+            "branch": result.get("branch", ""),
+            "latest_commit_sha": result.get("latest_commit_sha", ""),
+            "project_root": str(project_root),
+        },
+    )
 
 
 def _result(

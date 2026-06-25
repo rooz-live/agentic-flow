@@ -41,6 +41,33 @@ def test_detect_harness_falls_back_to_manifest(tmp_path):
     assert upstream_runner.detect_harness("unknown command", repo_dir=tmp_path) == "cargo"
 
 
+def test_to_receipt_validates_upstream_result(tmp_path):
+    """upstream_runner.to_receipt must produce a validated cicd.receipt.v1."""
+    result = {
+        "repository_id": "repo-b",
+        "url": "https://github.com/b/b",
+        "branch": "main",
+        "latest_commit_sha": "sha456",
+        "integration_status": "FAIL",
+        "duration_seconds": 2.5,
+        "skipped": False,
+        "attempts": 1,
+        "dor_status": "pass",
+        "harness_type": "pytest",
+        "log": "assertion failed",
+    }
+    import lib.receipt as receipt_mod
+    rec = upstream_runner.to_receipt(result, tmp_path)
+    assert rec["schema"] == "cicd.receipt.v1"
+    assert rec["context"] == "upstream"
+    assert rec["status"] == "FAIL"
+    assert rec["run"]["exit_code"] == 1
+    assert rec["signals"][0]["name"] == "integration_test"
+    assert rec["signals"][0]["ok"] is False
+    assert rec["signals"][0]["details"]["harness_type"] == "pytest"
+    assert receipt_mod.validate(rec) == []
+
+
 # ==============================================================================
 # Upstream Reporter / Error Taxonomy + Throughput
 # ==============================================================================

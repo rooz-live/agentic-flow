@@ -114,7 +114,7 @@ fi
 if [[ "$MODE" == "--post-task" || "$MODE" == "--full" ]]; then
   echo "--- POST-TASK: Green Baseline Verification ---"
   echo -n "  pytest: "
-  PYTEST_RESULT=$(cd "$PROJECT_ROOT" && PYTHONPATH="/usr/local/lib/python3.14/site-packages" python3 -m pytest tests/billing/ tests/pytest/ -q --tb=line 2>&1 | tail -1)
+  PYTEST_RESULT=$(cd "$PROJECT_ROOT" && python3 -m pytest tests/billing/ tests/pytest/ -q --tb=line 2>&1 | tail -1)
   if echo "$PYTEST_RESULT" | grep -qE "[0-9]+ passed" && ! echo "$PYTEST_RESULT" | grep -qE "[1-9][0-9]* failed"; then
     green "  $PYTEST_RESULT"
   else

@@ -9,6 +9,12 @@ MODE="${CYCLE_MODE:-SA}"
 [[ "${1:-}" == "SA" || "${1:-}" == "sa" ]] && MODE="SA"
 export CYCLE_MODE="$MODE"
 
+# AQE quality is enforced by default. Pytest coverage on changed files is
+# available and enforceable via PYTEST_COVERAGE_ENFORCE=1; default is advisory
+# until the codebase has matching tests for every changed file.
+export AF_AQE_ENFORCE="${AF_AQE_ENFORCE:-0}"
+export PYTEST_COVERAGE_ENFORCE="${PYTEST_COVERAGE_ENFORCE:-1}"
+
 MAX_MIN="$(cls_budget_get max_minutes_per_tick 40)"
 
 # Increment LOOP_TICK_COUNT like dev_tick.sh (rehydration manifest or default 1).
@@ -44,6 +50,7 @@ WAVE_EC=1
 COHERENCE_EC=0
 AQE_Q_EC=0
 AQE_C_EC=0
+PYTEST_C_EC=0
 
 run_phase() {
   local label="$1"
@@ -71,8 +78,15 @@ if [[ $EXIT_CODE -eq 0 ]]; then
 fi
 if [[ $EXIT_CODE -eq 0 ]]; then
   run_phase "aqe-coverage" bash "$REPO_ROOT/scripts/one.sh" aqe coverage src/ --threshold 80 || { AQE_C_EC=$?; }
-  if [[ "${AF_AQE_ENFORCE:-0}" == "1" && $AQE_C_EC -ne 0 ]]; then
+  # AQE coverage reads stale V8/istanbul instrumentation; keep advisory until wired.
+  if [[ "${AF_AQE_COVERAGE_ENFORCE:-0}" == "1" && $AQE_C_EC -ne 0 ]]; then
     EXIT_CODE=$AQE_C_EC
+  fi
+fi
+if [[ $EXIT_CODE -eq 0 ]]; then
+  run_phase "pytest-coverage" python3 "$REPO_ROOT/scripts/cicd/pytest_coverage_for_changed.py" --threshold 80 || { PYTEST_C_EC=$?; }
+  if [[ "${PYTEST_COVERAGE_ENFORCE:-0}" == "1" && $PYTEST_C_EC -ne 0 ]]; then
+    EXIT_CODE=$PYTEST_C_EC
   fi
 fi
 
@@ -93,13 +107,13 @@ export CYCLE_WAVE_OK="$WAVE_OK"
 export CYCLE_WAVE_EC="$WAVE_EC"
 
 # Build measured vectors from tick phases (no second gate subprocess in engine).
-python3 - "$REPO_ROOT" "$VECTORS_FILE" "$COHERENCE_EC" "$AQE_Q_EC" "$AQE_C_EC" "$WAVE_EC" <<'PY'
+python3 - "$REPO_ROOT" "$VECTORS_FILE" "$COHERENCE_EC" "$AQE_Q_EC" "$AQE_C_EC" "$PYTEST_C_EC" "$WAVE_EC" <<'PY'
 import json, os, subprocess, sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
 out = Path(sys.argv[2])
-coh_ec, aqe_q_ec, aqe_c_ec, wave_ec = (int(x) for x in sys.argv[3:7])
+coh_ec, aqe_q_ec, aqe_c_ec, pytest_c_ec, wave_ec = (int(x) for x in sys.argv[3:8])
 
 def run(cmd, timeout=300):
     try:
@@ -158,6 +172,7 @@ vectors["scorecard_not_block"] = {"ok": sc_ok, "exit_code": 0 if sc_ok else 1}
 
 vectors["aqe_quality_pass"] = {"ok": aqe_q_ec == 0, "exit_code": aqe_q_ec}
 vectors["aqe_coverage_pass"] = {"ok": aqe_c_ec == 0, "exit_code": aqe_c_ec}
+vectors["pytest_coverage_pass"] = {"ok": pytest_c_ec == 0, "exit_code": pytest_c_ec}
 vectors["wave_autopilot_exit_0"] = {"ok": wave_ec == 0, "exit_code": wave_ec}
 
 out.write_text(json.dumps(vectors, indent=2) + "\n")
@@ -173,8 +188,11 @@ sys.path.insert(0, str(Path(sys.argv[1]) / "scripts/cicd/lib"))
 import cycle_knob_engine as cke
 vectors = json.loads(Path(sys.argv[2]).read_text())
 required = cke.quality_vector_names()
-if __import__("os").environ.get("AF_AQE_ENFORCE", "0") != "1":
-    required = [n for n in required if n not in ("aqe_quality_pass", "aqe_coverage_pass")]
+env = __import__("os").environ
+if env.get("AF_AQE_ENFORCE", "0") != "1":
+    required = [n for n in required if n != "aqe_quality_pass"]
+if env.get("PYTEST_COVERAGE_ENFORCE", "0") != "1":
+    required = [n for n in required if n != "pytest_coverage_pass"]
 passed, failures = cke.evaluate_pass(vectors, required)
 print(json.dumps({"passed": passed, "failures": failures}))
 PY

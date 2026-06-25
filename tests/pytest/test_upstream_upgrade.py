@@ -121,7 +121,9 @@ def test_run_local_sweep_success(mock_run_cmd, mock_get_branch, mock_scan, tmp_p
     mock_run_cmd.side_effect = [
         (True, "abc123sha\n"),  # git rev-parse HEAD
         (True, "Already up to date.\n"),  # git pull
-        (True, "Successfully installed...\n"),  # pip install
+        (True, "venv created\n"),  # uv venv .venv
+        (True, "Successfully installed...\n"),  # uv pip install -r requirements.txt
+        (True, "Successfully upgraded...\n"),  # uv pip install --upgrade -r requirements.txt
     ]
 
     results, upgraded, failed = local_upgrader.run_local_sweep([str(tmp_path)], dry_run=False)

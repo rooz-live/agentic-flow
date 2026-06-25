@@ -97,6 +97,21 @@ case "$CMD" in
         exec bash "$ROOT_DIR/scripts/mail/mail-wave-close.sh" "${@:2}"
         ;;
 
+    loop)
+        shift
+        exec bash "$ROOT_DIR/scripts/cicd/loop_timer_engine.sh" "$@"
+        ;;
+
+    cycle)
+        shift
+        exec bash "$ROOT_DIR/scripts/cicd/cycle_tick.sh" "$@"
+        ;;
+
+    goal)
+        shift
+        exec python3 "$ROOT_DIR/scripts/metrics/max_roi_cycles.py" --json
+        ;;
+
     wsjf)
         echo "--> WSJF Schedule update..."
         exec python3 "$ROOT_DIR/scripts/cicd/update_lnnnl.py"
@@ -152,6 +167,18 @@ case "$CMD" in
         exec python3 "$ROOT_DIR/scripts/cicd/edge_gateway_sync_engine.py" "$@"
         ;;
 
+    fetch-run-report)
+        # Fetch-Run-Report CLI over the CICD receipt store.
+        # Scans .goalie/evidence for cicd.receipt.v1 artefacts and emits a summary or JSON.
+        #
+        # Examples:
+        #   one.sh fetch-run-report --summary
+        #   one.sh fetch-run-report --json --context upstream --status FAIL
+        #   one.sh fetch-run-report --context edge --since 2026-06-25T00:00:00
+        shift
+        exec python3 "$ROOT_DIR/scripts/cicd/fetch_run_report.py" "$@"
+        ;;
+
     aqe)
         # Agentic QE v3.11.1 dispatch — full utilization for testing cycles.
         # Darwin self-learning / cheap-first / best-of-k / cross-model / adversarial-verify
@@ -200,11 +227,15 @@ Usage: ./scripts/one.sh <subcommand> [args...]
   deploy-edge       Validate DNS integrity for edge_gateway.cfg hosts
   run-safely        Run a command with git stash checkpoint + rollback on failure
   mail-wave-close   Close a mail wave (delegates to scripts/mail/)
+  loop              Loop timer engine (/loop): LOOP_ONCE=1 LOOP_LIGHT=1 ...
+  cycle             FA/SA cycle tick + knob adjust: cycle FA | cycle SA
+  goal              Max-ROI cycles/hour snapshot (metrics)
   wsjf              Update WSJF schedule ledger
   dod-gate          DoR/DoD gate: --pre-task | --post-task | --full (default)
   scorecard         Originality/Impact gate: [--verify] [--file PATH] [--json]
   upstream          Upstream repo upgrade engine: [--dry-run] [--force] [--parallel] [--json]
   edge-sync         Edge gateway DNS sync + health probe: [--dry-run] [--force] [--json]
+  fetch-run-report  Query the CICD receipt store: [--summary] [--json] [--context C] [--status S]
   aqe               Agentic QE v3.11.1: status, test, coverage, quality, workflow, ...
   ruflo             Ruflo v3.14.1: workflow, task, swarm, session, memory, hooks, ...
   harness           Dispatch to the upgraded AI Agent Harness: <doctor|evolve|evolve:dry|init>

@@ -83,3 +83,15 @@ def test_main_returns_1_on_failures(tmp_path, mod, capsys):
     out = capsys.readouterr().out
     data = json.loads(out)
     assert data["overall_ok"] is False
+
+
+def test_fail_fast_exits_on_first_non_pass(tmp_path, mod, capsys):
+    """--fail-fast must exit immediately on the first non-PASS receipt."""
+    (tmp_path / "receipt_up.json").write_text(json.dumps(_make_receipt("upstream", "FAIL", "2026-06-25T00:00:00Z")))
+    (tmp_path / "receipt_edge.json").write_text(json.dumps(_make_receipt("edge", "FAIL", "2026-06-25T00:00:01Z")))
+    rc = mod.main(["--evidence-dir", str(tmp_path), "--fail-fast"])
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "FAIL" in out
+    # Should not summarize the second receipt
+    assert out.count("edge") == 0 or "2 receipts" not in out

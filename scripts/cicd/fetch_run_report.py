@@ -107,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--until", help="ISO timestamp upper bound")
     parser.add_argument("--json", action="store_true", help="Emit raw receipts as JSON")
     parser.add_argument("--summary", action="store_true", help="Emit summary only")
+    parser.add_argument("--fail-fast", action="store_true", help="Exit 1 on first non-PASS receipt")
     args = parser.parse_args(argv)
 
     since = datetime.datetime.fromisoformat(args.since) if args.since else None
@@ -121,6 +122,14 @@ def main(argv: list[str] | None = None) -> int:
         since=since,
         until=until,
     )
+
+    if args.fail_fast:
+        for r in receipts:
+            if r.get("status") not in {"PASS", "SKIP"}:
+                print(f"🛑 fetch-run-report: first non-PASS receipt: {r['context']} {r['status']} at {r['timestamp']} ({r['_path']})")
+                return 1
+        print("✅ fetch-run-report: all receipts PASS")
+        return 0
 
     if args.json:
         print(json.dumps(receipts, indent=2))

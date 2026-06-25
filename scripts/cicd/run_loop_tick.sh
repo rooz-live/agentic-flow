@@ -9,6 +9,7 @@ cls_require_trust_green || exit 1
 cls_warn_session_tick_budget
 ITEM="${LOOP_ITEM:-P1-INDEX-01}"
 echo "Loop tick: $ITEM (LOOP_TICK_COUNT=${LOOP_TICK_COUNT:-0}, WAVE_RETRY_MAX=$WAVE_RETRY_MAX)"
+bash "$REPO_ROOT/scripts/cicd/tick_prep_hooks.sh"
 bash scripts/cicd/session_rehydration_reader.sh --emit 2>/dev/null || true
 TICK_EXIT=0
 set +e
@@ -45,4 +46,17 @@ set -e
 export TICK_EXIT
 bash scripts/cicd/write_tick_rehydration_manifest.sh
 echo "AGENT_LOOP_TICK_CLS {\"item\":\"$ITEM\",\"tick_count\":${LOOP_TICK_COUNT:-0},\"tick_exit\":$TICK_EXIT}"
+
+# Pace-gated AQE/upstream + inbox timescape (CoD-weighted; non-blocking unless AF_CORRELATE_ENFORCE=1)
+if [[ -x "$REPO_ROOT/scripts/cicd/tick_post_hooks.sh" ]]; then
+  set +e
+  bash "$REPO_ROOT/scripts/cicd/tick_post_hooks.sh"
+  POST_EXIT=$?
+  set -e
+  if [[ $POST_EXIT -ne 0 ]]; then
+    echo "tick_post_hooks exited $POST_EXIT; propagating to TICK_EXIT"
+    TICK_EXIT=$POST_EXIT
+  fi
+fi
+
 exit "$TICK_EXIT"

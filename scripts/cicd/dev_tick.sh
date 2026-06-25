@@ -93,9 +93,7 @@ python3 "$REPO_ROOT/scripts/cicd/wsjf_closure_scorecard.py" --root "$REPO_ROOT" 
 export TICK_EXIT
 bash "$REPO_ROOT/scripts/cicd/write_tick_rehydration_manifest.sh" >/dev/null
 
-CEREMONY_AT="$(cls_budget_get program.max_ticks_before_ceremony 12)"
-if [[ "$((LOOP_TICK_COUNT % CEREMONY_AT))" -eq 0 ]] && [[ -x "$REPO_ROOT/scripts/cicd/update_lnnnl.py" ]]; then
-  python3 "$REPO_ROOT/scripts/cicd/update_lnnnl.py" || true
-fi
-
+# run_loop_tick.sh invokes tick_post_hooks.sh which owns the single WSJF refresh before upstream.
+# pi_plan_sync.sh (called from tick_post_hooks.sh) refreshes ROAM trackers on ceremony ticks.
+# Do not run additional WSJF updates here.
 exit "$TICK_EXIT"

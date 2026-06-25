@@ -112,6 +112,28 @@ case "$CMD" in
         exec python3 "$ROOT_DIR/scripts/metrics/max_roi_cycles.py" --json
         ;;
 
+    ceremony)
+        # Bounded standup/review/retro/wsjf/pi_sync between max-ROI cycles.
+        # CEREMONY_MODE=light|full|heavy  CEREMONY_PI_SYNC=1 for live pi_plan_sync.sh
+        shift
+        ONLY=""
+        COMMIT=""
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --commit-unit) COMMIT="--commit-unit"; shift ;;
+                standup) ONLY="--only standup"; shift ;;
+                review) ONLY="--only review"; shift ;;
+                retro|retro_replenish) ONLY="--only retro_replenish"; shift ;;
+                wsjf|wsjf_refine) ONLY="--only wsjf_refine"; shift ;;
+                roam|roam_risks) ONLY="--only roam_risks"; shift ;;
+                pi|pi_prep) ONLY="--only pi_prep"; shift ;;
+                pi-sync|pi_sync) ONLY="--only pi_sync"; shift ;;
+                *) break ;;
+            esac
+        done
+        exec python3 "$ROOT_DIR/scripts/cicd/lib/ceremony_engine.py" ${ONLY} ${COMMIT} --json
+        ;;
+
     wsjf)
         echo "--> WSJF Schedule update..."
         exec python3 "$ROOT_DIR/scripts/cicd/update_lnnnl.py"
@@ -149,7 +171,7 @@ case "$CMD" in
         #   --json          Emit summary JSON to stdout
         #   --no-coherence  Skip coherence gate (CI use only)
         shift
-        exec python3 "$ROOT_DIR/scripts/cicd/upstream_upgrade_engine.py" "$@"
+        exec python3 "$ROOT_DIR/scripts/cicd/upstream_upgrade_engine.py" --print-receipt "$@"
         ;;
 
     edge-sync)
@@ -164,7 +186,7 @@ case "$CMD" in
         #   --json          Emit final summary JSON to stdout
         #   --no-coherence  Skip coherence gate (CI use only)
         shift
-        exec python3 "$ROOT_DIR/scripts/cicd/edge_gateway_sync_engine.py" "$@"
+        exec python3 "$ROOT_DIR/scripts/cicd/edge_gateway_sync_engine.py" --print-receipt "$@"
         ;;
 
     fetch-run-report)
@@ -230,6 +252,7 @@ Usage: ./scripts/one.sh <subcommand> [args...]
   loop              Loop timer engine (/loop): LOOP_ONCE=1 LOOP_LIGHT=1 ...
   cycle             FA/SA cycle tick + knob adjust: cycle FA | cycle SA
   goal              Max-ROI cycles/hour snapshot (metrics)
+  ceremony          Bounded ceremony unit: ceremony [standup|retro|pi-sync|wsjf] [--commit-unit]
   wsjf              Update WSJF schedule ledger
   dod-gate          DoR/DoD gate: --pre-task | --post-task | --full (default)
   scorecard         Originality/Impact gate: [--verify] [--file PATH] [--json]

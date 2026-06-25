@@ -178,6 +178,11 @@ def main() -> None:
         action="store_true",
         help="Verify the persistent Hypothesis Tree structure",
     )
+    parser.add_argument(
+        "--print-receipt",
+        action="store_true",
+        help="Print the canonical CICD receipt path on completion",
+    )
     args = parser.parse_args()
 
     project_root = SCRIPT_DIR.parent.parent.resolve()
@@ -345,6 +350,10 @@ def main() -> None:
         coherence_ok,
         coherence_reason,
     )
+
+    if args.print_receipt:
+        receipt_path = project_root / ".goalie" / "evidence" / "last_upstream_receipt.json"
+        print(f"🧾 CICD receipt: {receipt_path}")
 
     sys.exit(0 if all_passed else 1)
 

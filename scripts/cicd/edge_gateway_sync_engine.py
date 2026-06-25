@@ -109,6 +109,7 @@ def main():
     parser.add_argument("--force", action="store_true", help="force check all domains, ignoring cache")
     parser.add_argument("--json", dest="json_output", action="store_true", help="emit summary JSON to stdout")
     parser.add_argument("--no-coherence", dest="skip_coherence", action="store_true", help="skip coherence gate (CI / dry-run only)")
+    parser.add_argument("--print-receipt", action="store_true", help="print the canonical CICD receipt path on completion")
     args = parser.parse_args()
 
     project_root = SCRIPT_DIR.parent.parent.resolve()
@@ -188,6 +189,10 @@ def main():
 
     if args.json_output:
         print(json.dumps(summary, indent=2))
+
+    if args.print_receipt:
+        receipt_path = project_root / ".goalie" / "evidence" / "last_edge_receipt.json"
+        print(f"🧾 CICD receipt: {receipt_path}")
 
     sys.exit(0 if all_passed else 1)
 

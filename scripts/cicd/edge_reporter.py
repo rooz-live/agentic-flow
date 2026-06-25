@@ -7,8 +7,15 @@ writes DLQ/ROAM signals on failure, and can emit a machine-readable summary.
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# Shared CICD receipt envelope (monolith deconstruct foundation)
+LIB_DIR = Path(__file__).resolve().parent / "lib"
+if str(LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(LIB_DIR))
+import receipt
 
 
 def _dlq_path(project_root: Path) -> Path:
@@ -183,6 +190,43 @@ def save_edge_report_and_cache(
         with open(last_sync_link, "w", encoding="utf-8") as f:
             json.dump(final_output, f, indent=2)
             f.write("\n")
+
+        # Standard CICD receipt v1 (monolith deconstruct)
+        signals = []
+        for res in results:
+            status = res.get("status", "FAIL")
+            signals.append({
+                "name": f"edge:{res['fqdn']}",
+                "ok": status == "PASS" or res.get("skipped", False),
+                "required": not res.get("skipped", False),
+                "details": {
+                    "status": status,
+                    "resolved_ip": res.get("resolved_ip", ""),
+                    "skipped": res.get("skipped", False),
+                },
+            })
+        receipt_data = receipt.make(
+            context="edge",
+            status="PASS" if all_passed else "FAIL",
+            command=f"edge_gateway_sync_engine run_id={run_id}",
+            exit_code=0 if all_passed else 1,
+            duration_seconds=round(total_duration, 2),
+            signals=signals,
+            errors=[f"{r['fqdn']}: {r.get('status')}" for r in results if r.get("status") != "PASS" and not r.get("skipped", False)],
+            warnings=[f"{r['fqdn']}: skipped" for r in results if r.get("skipped", False)],
+            meta={
+                "run_id": run_id,
+                "hash": cfg_hash,
+                "violations": violations_count,
+                "throughput_deliveries_per_hour": round(throughput, 2),
+                "skipped_count": skipped_count,
+            },
+        )
+        receipt_file = evidence_dir / f"edge_receipt_{timestamp}.json"
+        with open(receipt_file, "w", encoding="utf-8") as f:
+            json.dump(receipt_data, f, indent=2)
+            f.write("\n")
+        print(f"🧾 CICD receipt: {receipt_file}")
     except Exception as e:
         print(f"❌ Error: Failed to write edge report: {e}")
 

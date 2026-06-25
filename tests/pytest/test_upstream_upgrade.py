@@ -438,6 +438,32 @@ def test_save_edge_report_and_cache(tmp_path):
         assert data.get("billing.bhopti.com") == "23.92.79.2"
 
 
+def test_save_edge_report_writes_cicd_receipt(tmp_path):
+    """save_edge_report_and_cache must also emit a validated cicd.receipt.v1 artefact."""
+    results = [
+        {
+            "fqdn": "billing.bhopti.com",
+            "status": "PASS",
+            "resolved_ip": "23.92.79.2",
+            "expected_ip": "23.92.79.2",
+            "duration_seconds": 0.5,
+            "skipped": False
+        }
+    ]
+    cache = {}
+    passed, _ = edge_reporter.save_edge_report_and_cache(results, cache, tmp_path, "20260619T100000Z")
+    assert passed is True
+    receipt_file = tmp_path / ".goalie" / "evidence" / "edge_gateway" / "edge_receipt_20260619T100000Z.json"
+    assert receipt_file.is_file()
+    data = json.loads(receipt_file.read_text(encoding="utf-8"))
+    assert data["schema"] == "cicd.receipt.v1"
+    assert data["context"] == "edge"
+    assert data["status"] == "PASS"
+    assert data["run"]["exit_code"] == 0
+    assert data["signals"][0]["name"] == "edge:billing.bhopti.com"
+    assert data["signals"][0]["ok"] is True
+
+
 @patch("edge_fetcher.fetch_edge_status")
 @patch("edge_reporter.save_edge_report_and_cache")
 @patch("sys.exit")

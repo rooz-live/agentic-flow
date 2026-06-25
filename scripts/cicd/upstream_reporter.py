@@ -283,6 +283,10 @@ def save_report_and_cache(
                 "lane": res.get("lane"),
             },
         })
+    # DoR/DoD acceptability metrics
+    dor_results = [r.get("dor_status", "skipped") for r in enriched_results]
+    dor_passed = all(d in {"pass", "skipped"} for d in dor_results)
+    dod_passed = all_passed
     receipt_data = receipt.make(
         context="upstream",
         status="PASS" if all_passed else "FAIL",
@@ -299,6 +303,8 @@ def save_report_and_cache(
             "queue_depth": queue_depth,
             "throughput_deliveries_per_hour": round(throughput, 2),
             "eta_seconds": eta_seconds,
+            "dor_passed": dor_passed,
+            "dod_passed": dod_passed,
         },
     )
     receipt_file = evidence_dir / f"receipt_{timestamp}.json"

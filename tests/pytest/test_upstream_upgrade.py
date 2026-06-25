@@ -123,6 +123,7 @@ def test_save_report_and_cache_writes_cicd_receipt(tmp_path):
             "duration_seconds": 1.0,
             "skipped": False,
             "log": "ok",
+            "dor_status": "pass",
         }
     ]
     cache = {}
@@ -139,6 +140,8 @@ def test_save_report_and_cache_writes_cicd_receipt(tmp_path):
     assert data["run"]["exit_code"] == 0
     assert data["signals"][0]["name"] == "repo:repo-a"
     assert data["signals"][0]["ok"] is True
+    assert data["meta"]["dor_passed"] is True
+    assert data["meta"]["dod_passed"] is True
 
 
 # ==============================================================================

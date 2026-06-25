@@ -13,10 +13,60 @@ import hashlib
 import shutil
 import tempfile
 import subprocess
+import uuid
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
 
+# Shared CICD receipt envelope (monolith deconstruct foundation)
+LIB_DIR = Path(__file__).resolve().parent / "lib"
+if str(LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(LIB_DIR))
+import receipt
+
 CACHE_FILE_REL = Path(".goalie") / "evidence" / "upgrades" / "local_upgrades_cache.json"
+
+
+def to_receipt(result: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert a single local_upgrader result dict into a validated CICD receipt v1."""
+    repo_id = result["repository_id"]
+    status = result.get("integration_status", "FAIL")
+    passed = status == "PASS"
+    skipped = result.get("skipped", False)
+    return receipt.make(
+        context="local",
+        status="PASS" if (passed or skipped) else "FAIL",
+        command=f"local_upgrader:{repo_id}",
+        exit_code=0 if (passed or skipped) else 1,
+        duration_seconds=result.get("duration_seconds", 0.0),
+        signals=[
+            {
+                "name": "local_upgrade",
+                "ok": passed,
+                "required": not skipped,
+                "details": {
+                    "sandbox_setup_duration": result.get("sandbox_setup_duration", 0.0),
+                    "git_pull_duration": result.get("git_pull_duration", 0.0),
+                    "upgrade_duration": result.get("upgrade_duration", 0.0),
+                    "test_duration": result.get("test_duration", 0.0),
+                },
+            },
+            {
+                "name": "cached",
+                "ok": skipped,
+                "required": False,
+                "details": {"skipped": skipped},
+            },
+        ],
+        errors=[] if (passed or skipped) else [result.get("log", "") or f"{repo_id} failed"],
+        warnings=["cached/skipped"] if skipped else [],
+        meta={
+            "repository_id": repo_id,
+            "url": result.get("url", ""),
+            "branch": result.get("branch", ""),
+            "latest_commit_sha": result.get("latest_commit_sha", ""),
+        },
+    )
+
 
 def log(msg: str, log_file: Path = None):
     """Log a message to stdout and optionally append to a file."""
@@ -682,6 +732,41 @@ def run_local_sweep(
         with open(latest, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2)
             f.write("\n")
+
+        # Standard CICD receipt v1 (monolith deconstruct)
+        signals = []
+        for res in results:
+            status = res.get("integration_status", "FAIL")
+            signals.append({
+                "name": f"local:{res['repository_id']}",
+                "ok": status == "PASS" or res.get("skipped", False),
+                "required": not res.get("skipped", False),
+                "details": {
+                    "status": status,
+                    "skipped": res.get("skipped", False),
+                },
+            })
+        receipt_data = receipt.make(
+            context="local",
+            status="PASS" if failed_count == 0 else "FAIL",
+            command=f"local_upgrader run_id={run_id}",
+            exit_code=0 if failed_count == 0 else 1,
+            duration_seconds=round(total_duration, 2),
+            signals=signals,
+            errors=[r.get("log", "") or f"{r['repository_id']}: {r.get('integration_status')}" for r in results if r.get("integration_status") != "PASS" and not r.get("skipped", False)],
+            warnings=[f"{r['repository_id']}: skipped" for r in results if r.get("skipped", False)],
+            meta={
+                "run_id": run_id,
+                "upgraded_count": upgraded_count,
+                "failed_count": failed_count,
+                "throughput_deliveries_per_hour": round(throughput, 2),
+            },
+        )
+        receipt_path = evidence_dir / f"local_receipt_{run_id}.json"
+        with open(receipt_path, "w", encoding="utf-8") as f:
+            json.dump(receipt_data, f, indent=2)
+            f.write("\n")
+        log(f"🧾 CICD receipt: {receipt_path}", log_file)
     except Exception as e:
         log(f"⚠️ Warning: Failed to write DoD artefact: {e}", log_file)
 

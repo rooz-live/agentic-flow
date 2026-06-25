@@ -68,6 +68,31 @@ def test_to_receipt_validates_upstream_result(tmp_path):
     assert receipt_mod.validate(rec) == []
 
 
+def test_local_to_receipt_validates_result(tmp_path):
+    """local_upgrader.to_receipt must produce a validated cicd.receipt.v1."""
+    result = {
+        "repository_id": "local:my_repo",
+        "url": "file:///tmp/my_repo",
+        "branch": "main",
+        "latest_commit_sha": "abc",
+        "integration_status": "PASS",
+        "duration_seconds": 5.0,
+        "skipped": False,
+        "sandbox_setup_duration": 1.0,
+        "git_pull_duration": 2.0,
+        "upgrade_duration": 1.5,
+        "test_duration": 0.5,
+    }
+    import lib.receipt as receipt_mod
+    rec = local_upgrader.to_receipt(result)
+    assert rec["schema"] == "cicd.receipt.v1"
+    assert rec["context"] == "local"
+    assert rec["status"] == "PASS"
+    assert rec["run"]["exit_code"] == 0
+    assert rec["signals"][0]["details"]["test_duration"] == 0.5
+    assert receipt_mod.validate(rec) == []
+
+
 # ==============================================================================
 # Upstream Reporter / Error Taxonomy + Throughput
 # ==============================================================================

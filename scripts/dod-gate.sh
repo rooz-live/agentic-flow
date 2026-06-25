@@ -213,6 +213,24 @@ print(d.get('violations', '?'))
     yellow "        Run: ./scripts/one.sh deploy-edge --dry-run  (advisory, no changes)"
   fi
 
+  # ── CICD receipt gate ─────────────────────────────────────────────────────
+  if [[ -f "$EVIDENCE/last_edge_receipt.json" ]]; then
+    RECEIPT_OK=$(python3 -c "
+import json
+with open('$EVIDENCE/last_edge_receipt.json') as f:
+    d = json.load(f)
+print(d.get('status', 'UNKNOWN'))
+" 2>/dev/null || echo "UNKNOWN")
+    if [[ "$RECEIPT_OK" == "PASS" ]]; then
+      green "  ✓  CICD receipt (edge status=PASS)"
+    else
+      yellow "  WARN: CICD receipt edge status=$RECEIPT_OK"
+    fi
+  else
+    yellow "  SKIP: CICD receipt artefact absent"
+    yellow "        Run: ./scripts/one.sh edge-sync --dry-run"
+  fi
+
   # ── Public edge ───────────────────────────────────────────────────────────
   echo "  [ ] public_synthetic_check.sh exit 0 on billing.bhopti.com"
   echo ""

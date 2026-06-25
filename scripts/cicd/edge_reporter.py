@@ -227,6 +227,12 @@ def save_edge_report_and_cache(
             json.dump(receipt_data, f, indent=2)
             f.write("\n")
         print(f"🧾 CICD receipt: {receipt_file}")
+
+        # Symlink as last_edge_receipt.json (canonical DoD receipt artefact)
+        last_receipt_link = project_root / ".goalie" / "evidence" / "last_edge_receipt.json"
+        with open(last_receipt_link, "w", encoding="utf-8") as f:
+            json.dump(receipt_data, f, indent=2)
+            f.write("\n")
     except Exception as e:
         print(f"❌ Error: Failed to write edge report: {e}")
 

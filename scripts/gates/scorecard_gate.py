@@ -147,6 +147,26 @@ def load_scorecard(args: argparse.Namespace) -> Optional[dict]:
     return json.loads(data)
 
 
+
+def _coerce_new_relationship(val: Any) -> tuple:
+    """Strict bool gate with optional meaningful phrase (not loose substring match)."""
+    if val is True:
+        return True, None
+    if val is False or val is None:
+        return False, None
+    if isinstance(val, str):
+        s = val.strip()
+        if not s:
+            return False, None
+        lower = s.lower()
+        if lower in ("true", "false", "yes", "no", "1", "0"):
+            return False, "new_relationship string must be a meaningful phrase, not a boolean literal"
+        if lower.startswith("new "):
+            return True, None
+        return False, "new_relationship must be boolean true or a phrase beginning with 'new '"
+    return False, "new_relationship must be boolean true"
+
+
 def evaluate(card: dict, *, derive: bool = False, root_path: Any = ".", ingest_only: bool = False) -> dict:
     """Pure evaluation. Returns disposition, scores, and the reasons behind them."""
     errors: list[str] = []
@@ -211,7 +231,9 @@ def evaluate(card: dict, *, derive: bool = False, root_path: Any = ".", ingest_o
     resonance = _num(orig.get("resonance"))
     
     new_rel_val = orig.get("new_relationship", False)
-    new_relationship = (new_rel_val is True) or (isinstance(new_rel_val, str) and "new" in new_rel_val.lower())
+    new_relationship, nr_warn = _coerce_new_relationship(new_rel_val)
+    if nr_warn:
+        warnings.append(nr_warn)
 
     if improbability is None or resonance is None:
         errors.append("originality.improbability/resonance must be numbers 0-3")
@@ -399,6 +421,39 @@ def run_pytest_check(root: Any) -> bool:
         return False
 
 
+
+
+def _resolve_python_module(root: Any, module_name: str, tracked_files: set) -> bool:
+    """Return True if a top-level repo module path resolves to tracked files."""
+    if not module_name:
+        return True
+    parts = module_name.split(".")
+    if parts[0] not in ("src", "tests", "config", "tooling", "domain", "scripts", "validation"):
+        return True
+    target_path = Path(root) / "/".join(parts)
+    for p in (target_path.with_suffix(".py"), target_path / "__init__.py"):
+        try:
+            rel_to_root = p.relative_to(Path(root)).as_posix()
+        except ValueError:
+            rel_to_root = None
+        if rel_to_root and rel_to_root in tracked_files:
+            return True
+    return False
+
+
+def _dynamic_import_call_ok(node: ast.Call, root: Any, tracked_files: set) -> bool:
+    """Reject dynamic imports of invented in-repo modules (importlib / __import__)."""
+    func = node.func
+    if isinstance(func, ast.Attribute) and func.attr == "import_module":
+        base = func.value
+        if isinstance(base, ast.Name) and base.id == "importlib":
+            if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                return _resolve_python_module(root, node.args[0].value, tracked_files)
+    if isinstance(func, ast.Name) and func.id == "__import__":
+        if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+            return _resolve_python_module(root, node.args[0].value, tracked_files)
+    return True
+
 def run_no_invented_symbols(root: Any) -> bool:
     # 1. Get the list of modified/added/untracked files
     env = dict(os.environ)
@@ -534,6 +589,9 @@ def run_no_invented_symbols(root: Any) -> bool:
                                         break
                                 if not resolved:
                                     return False
+                elif isinstance(node, ast.Call):
+                    if not _dynamic_import_call_ok(node, root, tracked_files):
+                        return False
 
         elif ext == ".rs":
             for line in content.splitlines():
@@ -602,6 +660,56 @@ def run_no_invented_symbols(root: Any) -> bool:
 
 
 
+
+
+def stamp_local_coherence_signature(artifact_path: str, root: str = ".") -> bool:
+    """Sign coherence_results.json with workspace key when present (pre-commit / local runs)."""
+    key_path = Path(root) / ".goalie" / "scorecards" / "workspace_signer"
+    allowed = os.environ.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
+    allowed_path = Path(root) / allowed if not os.path.isabs(allowed) else Path(allowed)
+    principal = os.environ.get("AF_LOCAL_SIGN_PRINCIPAL", "workspace@local")
+    if not key_path.exists() or not allowed_path.exists():
+        return False
+    try:
+        with open(artifact_path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return False
+    gh = data.get("git_head")
+    if not gh:
+        return False
+    sig_path = tempfile.NamedTemporaryFile(delete=False, suffix=".sig").name
+    try:
+        proc = subprocess.run(
+            [
+                "ssh-keygen", "-Y", "sign",
+                "-f", str(key_path),
+                "-n", "scorecard-gate",
+                "-s", sig_path,
+            ],
+            input=gh.encode("utf-8"),
+            capture_output=True,
+            timeout=10,
+        )
+        if proc.returncode != 0:
+            return False
+        with open(sig_path, "r", encoding="utf-8") as sf:
+            sig_content = sf.read()
+        if not verify_ssh_signature(sig_content, principal, gh, str(allowed_path)):
+            return False
+        data["signature"] = sig_content
+        data["principal"] = principal
+        with open(artifact_path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2)
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            os.remove(sig_path)
+        except OSError:
+            pass
+
 def derive_coherence(root_path_or_results: Any, force_dynamic: bool = False, ingest_only: bool = False) -> str:
     if isinstance(root_path_or_results, list):
         required = [r for r in root_path_or_results if r.get("required", True)]
@@ -628,18 +736,19 @@ def derive_coherence(root_path_or_results: Any, force_dynamic: bool = False, ing
             
         env = dict(os.environ)
         is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+        is_precommit = env.get("AF_GATE_CONTEXT") == "precommit"
         allowed_signers = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
-        
+        enforce_signature = is_ci or is_precommit or os.path.exists(allowed_signers)
+
         sig = data.get("signature")
         principal = data.get("principal")
-        
-        if os.path.exists(allowed_signers):
+
+        if enforce_signature:
+            if not os.path.exists(allowed_signers):
+                return "FAIL"
             if not sig or not principal:
                 return "FAIL"
             if not verify_ssh_signature(sig, principal, gh, allowed_signers):
-                return "FAIL"
-        else:
-            if is_ci or sig or principal:
                 return "FAIL"
 
         return str(coherence).upper()
@@ -739,24 +848,32 @@ def check_binding(card: dict, actual_commit, actual_diff_sha, strict: bool) -> t
 def collect_reward_proxies(env: dict) -> dict:
     """Cheap, objective proxies for reward direction (Anti-CVT: untracked sprawl)."""
     proxies: dict = {}
-    # Scope to src/ and cap time: in a huge / home-dir repo an unscoped
-    # `git ls-files --others` can enumerate the entire tree and hang.
     out = _git(["ls-files", "--others", "--exclude-standard", "--", "src"], timeout=10)
     if out is not None:
         proxies["untracked_added"] = sum(
             1 for line in out.splitlines() if line.startswith("src/")
         )
+    
+    # Check if ROAM_TRACKER.yaml is modified or staged
+    roam_status = _git(["status", "--porcelain", ".goalie/ROAM_TRACKER.yaml"])
+    proxies["roam_updated"] = bool(roam_status and roam_status.strip())
     return proxies
 
 
 def derive_reward_direction(proxies: dict) -> tuple:
-    """Signed proxy for reward direction. Negative signals dominate."""
+    """Signed proxy for reward direction. Negative signals dominate unless explicitly ROAM-ed."""
     notes: list = []
     rd = 1
     untracked = proxies.get("untracked_added", 0)
+    roam_updated = proxies.get("roam_updated", False)
+    
     if untracked > 0:
-        rd = -1
-        notes.append(f"{untracked} new untracked src/ file(s) (Anti-CVT)")
+        if roam_updated:
+            rd = 1.5  # Inverted penalty! Bonus for proper ROAM-ing of tails.
+            notes.append(f"{untracked} new untracked src/ file(s), but ROAM_TRACKER updated (Penalty Inverted)")
+        else:
+            rd = -1
+            notes.append(f"{untracked} new untracked src/ file(s) (Anti-CVT, un-ROAMed)")
     return rd, notes
 
 
@@ -848,6 +965,26 @@ def verify_signoff(card: dict, env: dict, actual_commit, actual_diff) -> tuple:
     return False, "no external approval matching current commit/diff (legacy mode)"
 
 
+
+
+def check_allowed_signers_tamper(env: dict, root: str = ".") -> tuple:
+    """Block PR modifications to allowed_signers unless keys match base branch."""
+    blocks: list = []
+    warns: list = []
+    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    if not is_ci:
+        return blocks, warns
+    path = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
+    base = env.get("AF_DIFF_BASE")
+    if not base:
+        return blocks, warns
+    diff_names = _git(["diff", f"{base}...HEAD", "--name-only", "--", path], root=root)
+    if diff_names and diff_names.strip():
+        blocks.append(
+            "HARD GATE: allowed_signers modified in PR — use base-branch keys only"
+        )
+    return blocks, warns
+
 def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) -> tuple:
     """Override self-asserted fields with verified signals.
 
@@ -862,9 +999,13 @@ def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) ->
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
     if is_ci and not os.path.exists(allowed_signers):
         extra_blocks.append("HARD GATE: CI context requires allowed_signers configuration")
+    tamper_blocks, tamper_warns = check_allowed_signers_tamper(env)
+    extra_blocks += tamper_blocks
+    extra_warnings += tamper_warns
 
     # 1) coherence <- real signals
-    if ingest_only:
+    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    if ingest_only and not is_ci:
         coherence = derive_coherence(".", force_dynamic=False)
         meta["coherence_ingested"] = True
     else:
@@ -872,13 +1013,13 @@ def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) ->
         os.environ["AF_VERIFY_MODE"] = "1"
         try:
             results = run_signals(load_signals())
+            coherence = derive_coherence(results)
+            meta["signals"] = results
         finally:
             if old_verify_mode is not None:
                 os.environ["AF_VERIFY_MODE"] = old_verify_mode
             else:
                 os.environ.pop("AF_VERIFY_MODE", None)
-        coherence = derive_coherence(results)
-        meta["signals"] = results
 
     # GATE-004: no-invented-paths -- referenced paths must resolve (index or disk)
     refs = card.get("referenced_paths") or card.get("impact", {}).get("referenced_paths") or []
@@ -908,6 +1049,10 @@ def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) ->
     actual_diff = current_diff_sha(env)
     meta["commit"] = actual_commit
     meta["diff_sha256"] = actual_diff
+    if actual_commit and not card.get("commit"):
+        card["commit"] = actual_commit
+    if actual_diff and not card.get("diff_sha256"):
+        card["diff_sha256"] = actual_diff
     b, w = check_binding(card, actual_commit, actual_diff, strict)
     extra_blocks += b
     extra_warnings += w
@@ -1029,6 +1174,9 @@ def main(argv: Optional[list] = None) -> int:
     args = parser.parse_args(argv)
 
     env = dict(os.environ)
+    if args.precommit:
+        env["AF_GATE_CONTEXT"] = "precommit"
+        os.environ["AF_GATE_CONTEXT"] = "precommit"
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
     is_precommit = env.get("AF_GATE_CONTEXT") == "precommit" or args.precommit
     verify_mode = args.verify or is_ci or is_precommit

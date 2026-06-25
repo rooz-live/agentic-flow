@@ -1,2 +1,68 @@
-#!/bin/bash
-echo "[AF-MOCK] prod-cycle executed successfully"
+#!/usr/bin/env bash
+# scripts/af — Agent-Flow environment + AQE helper
+# Thin wrapper that switches MCP configs per environment and delegates to AQE.
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+GOALIE_DIR="${ROOT_DIR}/.goalie"
+CL_DIR="${ROOT_DIR}/.claude"
+
+mkdir -p "${GOALIE_DIR}"
+
+log_audit() {
+  local line="$1"
+  printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$line" >> "${GOALIE_DIR}/af_audit.jsonl"
+}
+
+usage() {
+  cat <<'HELP'
+Usage: ./scripts/af <command> [args...]
+
+Commands:
+  env set <local|dev|stg|prod>   Copy .claude/mcp-config-<env>.json to .claude/mcp.json
+  aqe init --best-effort        Initialize AQE memory/db (best-effort)
+  aqe status                    Show AQE status
+  aqe <cmd> [args...]           Run any AQE v3.11.1 command via npx
+HELP
+  exit 1
+}
+
+CMD="${1:-}"
+shift || true
+
+case "$CMD" in
+  env)
+    SUB="${1:-}"
+    [[ "$SUB" == "set" ]] || usage
+    ENV="${2:-}"
+    [[ "$ENV" =~ ^(local|dev|stg|prod)$ ]] || { echo "Unknown env: $ENV"; exit 1; }
+    SRC="${CL_DIR}/mcp-config-${ENV}.json"
+    DST="${CL_DIR}/mcp.json"
+    [[ -f "$SRC" ]] || { echo "Missing $SRC"; exit 1; }
+    cp "$SRC" "$DST"
+    echo "AF_ENV=${ENV}" > "${GOALIE_DIR}/af_env"
+    log_audit "env.set env=${ENV}"
+    echo "AF_ENV set to ${ENV}; updated ${DST}"
+    ;;
+
+  aqe)
+    if [[ "${1:-}" == "init" ]]; then
+      shift
+      npx --yes agentic-qe@3.11.1 init --non-interactive "$@" || true
+      log_audit "aqe.init"
+    elif [[ "${1:-}" == "status" ]]; then
+      npx --yes agentic-qe@3.11.1 status
+      log_audit "aqe.status"
+    else
+      exec npx --yes agentic-qe@3.11.1 "$@"
+    fi
+    ;;
+
+  help|--help|-h)
+    usage
+    ;;
+
+  *)
+    usage
+    ;;
+esac

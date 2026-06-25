@@ -86,6 +86,28 @@ pub fn process_payment_intent(payload: &str) -> Result<(), String> {
     Ok(())
 }
 
+
+pub fn process_domain_subscription_payment(payload: &str) -> Result<(), String> {
+    let json: Value = serde_json::from_str(payload).map_err(|e| format!("Invalid JSON: {}", e))?;
+    let event_type = json["type"].as_str().unwrap_or("unknown");
+    
+    if event_type == "invoice.payment_succeeded" || event_type == "checkout.session.completed" {
+        let event_log = serde_json::json!({
+            "event_id": uuid::Uuid::now_v7().to_string(),
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "payload": json,
+            "status": "domain_payment_processed"
+        });
+        
+        let path = std::path::Path::new(".goalie/event_store_domain_payments.jsonl");
+        if let Some(parent) = path.parent() { let _ = std::fs::create_dir_all(parent); }
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path).map_err(|e| e.to_string())?;
+        writeln!(file, "{}", event_log.to_string()).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

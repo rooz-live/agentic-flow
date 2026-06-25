@@ -459,6 +459,46 @@ fn chunk_domain_payloads(payload: &str, batch_size: usize) -> PyResult<String> {
 /// A Python module implemented in Rust. The name of this function must match
 /// the `lib.name` setting in the `Cargo.toml`, else Python will not be able to
 /// import the module.
+
+#[pyfunction]
+fn verify_cpanel_stx_domain_billing(api_url: &str, api_id: &str, api_key: &str, domain: &str) -> PyResult<String> {
+    std::env::set_var("HOSTBILL_API_URL", api_url);
+    std::env::set_var("HOSTBILL_API_ID", api_id);
+    std::env::set_var("HOSTBILL_API_KEY", api_key);
+
+    match hostbill_gateway::verify_domain_subscription_status(domain) {
+        Ok(res) => Ok(res),
+        Err(e) => Err(PyValueError::new_err(format!("ERR_HOSTBILL_API: {}", e))),
+    }
+}
+
+#[pyfunction]
+fn process_stripe_domain_payment(payload: &str) -> PyResult<bool> {
+    stripe_gateway::process_domain_subscription_payment(payload)
+        .map_err(|e| PyValueError::new_err(format!("ERR_PAYMENT_PROCESS: {}", e)))?;
+    Ok(true)
+}
+
+#[pyfunction]
+fn batch_verify_cpanel_stx_domains(api_url: &str, api_id: &str, api_key: &str, domains_json: &str) -> PyResult<String> {
+    std::env::set_var("HOSTBILL_API_URL", api_url);
+    std::env::set_var("HOSTBILL_API_ID", api_id);
+    std::env::set_var("HOSTBILL_API_KEY", api_key);
+
+    let domains: Vec<String> = serde_json::from_str(domains_json)
+        .map_err(|e| PyValueError::new_err(format!("ERR_INVALID_CONTRACT_FORMAT: Expected a JSON array of strings. {}", e)))?;
+
+    let mut results = Vec::new();
+    for domain in domains {
+        match hostbill_gateway::verify_domain_subscription_status(&domain) {
+            Ok(status) => results.push(serde_json::json!({"domain": domain, "status": status})),
+            Err(_) => results.push(serde_json::json!({"domain": domain, "status": "error"})),
+        }
+    }
+
+    Ok(serde_json::to_string(&results).unwrap())
+}
+
 #[pymodule]
 fn eventops_pyo3(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(validate_eventops_schema, m)?)?;
@@ -477,5 +517,8 @@ fn eventops_pyo3(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(validate_ceremony_logger, m)?)?;
     m.add_function(wrap_pyfunction!(chunk_domain_payloads, m)?)?;
     m.add_function(wrap_pyfunction!(validate_affiliate_event, m)?)?;
+    m.add_function(wrap_pyfunction!(verify_cpanel_stx_domain_billing, m)?)?;
+    m.add_function(wrap_pyfunction!(process_stripe_domain_payment, m)?)?;
+    m.add_function(wrap_pyfunction!(batch_verify_cpanel_stx_domains, m)?)?;
     Ok(())
 }

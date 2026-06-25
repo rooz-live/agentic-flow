@@ -31,7 +31,7 @@ def make_valid_scorecard():
         "originality": {
             "improbability": 2.0,
             "resonance": 2.0,
-            "new_relationship": "New abstraction boundary",
+            "new_relationship": True,
             "coherence": "PASS"
         },
         "impact": {
@@ -206,12 +206,12 @@ def test_spike_vs_drop_routing():
     assert res["originality_score"] == pytest.approx(4.0)
     assert res["decision"] == "SPIKE"
 
-    sc["originality"]["new_relationship"] = "transformation, not original"
+    sc["originality"]["new_relationship"] = False
     res = evaluate(sc)
     assert res["originality_score"] == pytest.approx(0.0)
     assert res["decision"] == "DROP"
 
-    sc["originality"]["new_relationship"] = "New boundary"
+    sc["originality"]["new_relationship"] = True
     sc["originality"]["improbability"] = 0.0
     res = evaluate(sc)
     assert res["originality_score"] == pytest.approx(0.0)
@@ -324,6 +324,13 @@ def test_derive_gate_integrity_af_context(monkeypatch):
 
 
 def test_derive_coherence_artifact_ingestion(tmp_path, monkeypatch):
+    # Clean up any signature-enforcing context leaked by previous tests
+    monkeypatch.delenv("AF_GATE_CONTEXT", raising=False)
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    # Point allowed_signers to a non-existent path so signature enforcement is not triggered
+    monkeypatch.setenv("AF_ALLOWED_SIGNERS", str(tmp_path / "nonexistent_allowed_signers"))
+
     # Setup mock coherence_results.json file
     evidence_dir = tmp_path / ".goalie" / "evidence"
     evidence_dir.mkdir(parents=True)
@@ -332,7 +339,7 @@ def test_derive_coherence_artifact_ingestion(tmp_path, monkeypatch):
     # We mock git_head inside scripts.gates.scorecard_gate module
     monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda r: "mocked_sha12345")
 
-    # Matching head → PASS
+    # Matching head, no signature enforcement → PASS
     artifact_file.write_text(json.dumps({
         "coherence": "PASS",
         "git_head": "mocked_sha12345"
@@ -398,7 +405,8 @@ def test_derive_coherence_crypto_verification(tmp_path, monkeypatch):
     # Mock git_head
     monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda r: "mock_sha")
 
-    # 1. No allowed_signers, signature present -> FAIL (unverifiable signature)
+    # 1. No allowed_signers, signature present, but in precommit context -> FAIL (unverifiable signature)
+    monkeypatch.setenv("AF_GATE_CONTEXT", "precommit")
     artifact_file.write_text(json.dumps({
         "coherence": "PASS",
         "git_head": "mock_sha",
@@ -406,6 +414,7 @@ def test_derive_coherence_crypto_verification(tmp_path, monkeypatch):
         "principal": "some_principal"
     }))
     assert derive_coherence(tmp_path) == "FAIL"
+    monkeypatch.delenv("AF_GATE_CONTEXT", raising=False)
 
     # 2. allowed_signers exists but signature missing in CI -> FAIL
     monkeypatch.setenv("CI", "true")
@@ -683,6 +692,70 @@ def test_load_signals_override_invalid_signature(monkeypatch, tmp_path):
     assert load_signals() == DEFAULT_SIGNALS
 
 
+
+
+
+def test_new_relationship_rejects_renewal_substring_bypass():
+    sc = make_valid_scorecard()
+    sc["originality"]["new_relationship"] = "renewal"
+    res = evaluate(sc)
+    assert res["originality_score"] == pytest.approx(0.0)
+    assert any("boolean true" in w for w in res["warnings"])
+    # String values are rejected ( originality_score = 0 ), but impact_net is still high enough to SHIP
+    assert res["decision"] == "SHIP"
+
+
+def test_harden_blocks_allowed_signers_pr_tamper(monkeypatch, tmp_path):
+    from scripts.gates.scorecard_gate import harden
+
+    allowed = tmp_path / "allowed_signers"
+    allowed.write_text('principal namespaces="scorecard-gate" ssh-ed25519 AAA test\n')
+    env = {
+        "CI": "true",
+        "AF_ALLOWED_SIGNERS": str(allowed),
+        "AF_DIFF_BASE": "origin/main",
+    }
+
+    monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda *a, **k: "mock_sha")
+    monkeypatch.setattr("scripts.gates.scorecard_gate.current_diff_sha", lambda env: "mock_diff")
+    monkeypatch.setattr("scripts.gates.scorecard_gate.verify_signoff", lambda *a, **k: (True, "mock"))
+    monkeypatch.setattr("scripts.gates.scorecard_gate.check_binding", lambda *a, **k: ([], []))
+    monkeypatch.setattr("scripts.gates.scorecard_gate.run_signals", lambda sigs: [])
+    monkeypatch.setattr("scripts.gates.scorecard_gate.derive_coherence", lambda r: "PASS")
+
+    def fake_git(args, timeout=30, root="."):
+        if "--" in args and str(allowed) in " ".join(args):
+            return str(allowed)
+        return None
+
+    monkeypatch.setattr("scripts.gates.scorecard_gate._git", fake_git)
+
+    sc = make_valid_scorecard()
+    card, extra_blocks, extra_warnings, meta = harden(
+        sc, env=env, strict=False, ingest_only=True
+    )
+    assert any("allowed_signers modified in PR" in err for err in extra_blocks)
+
+
+def test_run_no_invented_symbols_blocks_importlib_dynamic_import(tmp_path, monkeypatch):
+    from scripts.gates.scorecard_gate import run_no_invented_symbols
+
+    (tmp_path / "src" / "billing").mkdir(parents=True)
+    (tmp_path / "src" / "billing" / "real.py").touch()
+    bad = tmp_path / "dynamic_import.py"
+    bad.write_text("import importlib\nimportlib.import_module('src.billing.fake')\n")
+
+    def fake_git(args, timeout=30, root=None):
+        if args[:2] == ["ls-files", "--others"]:
+            return "dynamic_import.py"
+        if args == ["ls-files"]:
+            return "src/billing/real.py"
+        return "dynamic_import.py"
+
+    monkeypatch.setattr("scripts.gates.scorecard_gate._git", fake_git)
+    assert run_no_invented_symbols(tmp_path) is False
+
+
 def test_harden_missing_allowed_signers_ci_blocks(monkeypatch, tmp_path):
     from scripts.gates.scorecard_gate import harden
     
@@ -695,9 +768,13 @@ def test_harden_missing_allowed_signers_ci_blocks(monkeypatch, tmp_path):
     monkeypatch.setattr("scripts.gates.scorecard_gate.current_diff_sha", lambda env: "mock_diff")
     monkeypatch.setattr("scripts.gates.scorecard_gate.verify_signoff", lambda c, e, ac, ad: (True, "mock"))
     monkeypatch.setattr("scripts.gates.scorecard_gate.check_binding", lambda c, ac, ad, s: ([], []))
+    monkeypatch.setattr("scripts.gates.scorecard_gate.run_signals", lambda sigs: [])
+    monkeypatch.setattr("scripts.gates.scorecard_gate.derive_coherence", lambda r: "PASS")
     
     sc = make_valid_scorecard()
-    card, extra_blocks, extra_warnings, meta = harden(sc, env={"CI": "true"}, strict=False, ingest_only=True)
+    missing = tmp_path / "missing_signers"
+    env = {"CI": "true", "AF_ALLOWED_SIGNERS": str(missing)}
+    card, extra_blocks, extra_warnings, meta = harden(sc, env=env, strict=False, ingest_only=True)
     
     assert any("CI context requires allowed_signers configuration" in err for err in extra_blocks)
 

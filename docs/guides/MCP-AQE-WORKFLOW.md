@@ -50,17 +50,19 @@ jq -c '.mcpServers["agentic-qe"].args' .claude/mcp.json
 Verified-good output (example):
 
 ```text
-mcpServers.count=5
-mcpServers.keys=agentic-qe,claude-flow,context7,filesystem,sequential-thinking
-agentic-qe.args=["--yes", "aqe-mcp@2.5.10"]
+mcpServers.count=6
+mcpServers.keys=agentic-qe,claude-flow,context7,filesystem,ruflo,sequential-thinking
+agentic-qe.args=["--yes", "agentic-qe@3.11.1", "mcp"]
 agentic-qe.env.AQE_ENV=local
 agentic-qe.env.AQE_LEARNING_ENABLED=true
+ruflo.args=["--yes", "ruflo@3.14.1", "mcp", "start"]
 ```
 
 Required invariants:
 
-- `agentic-qe.args` is pinned to **`aqe-mcp@2.5.10`**
-- non-AQE servers remain present after `af env set` (this confirms env switching does not wipe other MCP servers)
+- `agentic-qe.args` is pinned to **`agentic-qe@3.11.1 mcp`**
+- `ruflo.args` is pinned to **`ruflo@3.14.1 mcp start`**
+- non-AQE/Ruflo servers remain present after `af env set` (this confirms env switching does not wipe other MCP servers)
 
 ### Step 3 — Initialize AQE per repo (best-effort)
 
@@ -98,6 +100,18 @@ Note:
 
 - If you see a message like `Run "aqe init" to initialize the fleet and enable learning`, that typically means **the memory DB exists**, but the AQE CLI believes the **fleet is not initialized/running**. If you want a running fleet, you may need to start it via the AQE CLI (e.g. `npx aqe start --daemon`) depending on your installation.
 
+### Step 5 — Ruflo orchestration (optional)
+
+Ruflo is pinned to v3.14.1 and available both as an MCP server and via `one.sh`:
+
+```bash
+./scripts/one.sh ruflo status
+./scripts/one.sh ruflo doctor
+./scripts/one.sh ruflo workflow list
+./scripts/one.sh ruflo task list
+./scripts/one.sh ruflo swarm init --topology hierarchical --max-agents 8
+```
+
 ## Timing / SLOs (observed)
 
 Observed in a local run (order-of-magnitude guidance):
@@ -114,13 +128,13 @@ Practical SLOs:
 
 ## Versioning notes (MCP server vs AQE CLI)
 
-- MCP server is pinned via `.claude/mcp.json` / `.claude/mcp-config-*.json` (`aqe-mcp@2.5.10`).
-- AQE CLI invoked by `./scripts/af aqe *` is currently `npx aqe ...` and may drift to the latest available version.
+- MCP server is pinned via `.claude/mcp.json` / `.claude/mcp-config-*.json` (`agentic-qe@3.11.1 mcp`).
+- AQE CLI invoked by `./scripts/af aqe *` and `./scripts/one.sh aqe` is pinned to `npx agentic-qe@3.11.1` and does not drift.
 
 If you need CLI parity with CI:
 
-- Use pinned npx: `npx aqe@2.5.10 init ...`
-- Or install pinned globally: `npm i -g agentic-qe@2.5.10`
+- Use pinned npx: `npx agentic-qe@3.11.1 init ...`
+- Or install pinned globally: `npm i -g agentic-qe@3.11.1`
 
 ## Evidence / system-of-record artifacts
 

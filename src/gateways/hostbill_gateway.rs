@@ -152,6 +152,60 @@ fn fallback_log_usage(project_id: &str, billable_hours: f64, reason: &str) -> Re
     Ok(())
 }
 
+
+pub fn verify_domain_subscription_status(domain: &str) -> Result<String, String> {
+    let api_url = env::var("HOSTBILL_API_URL").unwrap_or_else(|_| "http://127.0.0.1:9092/api".to_string());
+    let api_id = env::var("HOSTBILL_API_ID").unwrap_or_else(|_| "mock_id".to_string());
+    let api_key = env::var("HOSTBILL_API_KEY").unwrap_or_else(|_| "mock_key".to_string());
+    
+    let mut cb = CIRCUIT_BREAKER.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let state = cb.check_state();
+
+    if state == CircuitState::Open {
+        println!("⚠️ HostBill Gateway Circuit is OPEN - Routing to Fallback Domain Ledger");
+        fallback_log_domain_verification(domain, "CIRCUIT_BREAKER_OPEN")?;
+        return Ok(json!({"status": "pending_retry", "domain": domain}).to_string());
+    }
+
+    let mut params = std::collections::HashMap::new();
+    params.insert("api_id", api_id);
+    params.insert("api_key", api_key);
+    params.insert("call", "getClientServices".to_string());
+    params.insert("domain", domain.to_string());
+
+    use reqwest::blocking::Client;
+    let client = Client::builder().timeout(Duration::from_secs(5)).build().map_err(|e| format!("Client error: {}", e))?;
+
+    match client.post(&api_url).form(&params).send() {
+        Ok(response) => {
+            if response.status().is_success() {
+                cb.record_success();
+                let body = response.text().unwrap_or_else(|_| "{}".to_string());
+                Ok(body)
+            } else {
+                cb.record_failure();
+                fallback_log_domain_verification(domain, &format!("API Error: {}", response.status()))?;
+                Ok(json!({"status": "error", "domain": domain}).to_string())
+            }
+        },
+        Err(e) => {
+            cb.record_failure();
+            fallback_log_domain_verification(domain, &format!("Network Error: {}", e))?;
+            Ok(json!({"status": "network_error", "domain": domain}).to_string())
+        }
+    }
+}
+
+fn fallback_log_domain_verification(domain: &str, reason: &str) -> Result<(), String> {
+    let entry = json!({"timestamp": chrono::Utc::now().to_rfc3339(), "domain": domain, "reason": reason});
+    let path = std::path::Path::new(".goalie/hostbill_domain_fallback.jsonl");
+    if let Some(parent) = path.parent() { let _ = std::fs::create_dir_all(parent); }
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path).map_err(|e| e.to_string())?;
+    writeln!(file, "{}", entry).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

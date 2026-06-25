@@ -16,7 +16,11 @@
 #   wsjf             → scripts/cicd/update_lnnnl.py
 #   dod-gate         → scripts/dod-gate.sh [--pre-task|--post-task|--full]
 #   scorecard        → scripts/gates/scorecard_gate.py [--verify|--file PATH|--json]
+#   upstream         → scripts/cicd/upstream_upgrade_engine.py [--dry-run|--force|--parallel|--json]
 #   edge-sync        → scripts/cicd/edge_gateway_sync_engine.py [--dry-run|--force|--json]
+#   aqe              → npx agentic-qe@3.11.1 <cmd> [args...]
+#   ruflo            → npx ruflo@3.14.1 <cmd> [args...] (workflow, task, swarm, session, ...)
+#   harness          → apps/agent-harness npm run <doctor|evolve|evolve:dry|init>
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -148,8 +152,33 @@ case "$CMD" in
         exec python3 "$ROOT_DIR/scripts/cicd/edge_gateway_sync_engine.py" "$@"
         ;;
 
+    aqe)
+        # Agentic QE v3.11.1 dispatch — full utilization for testing cycles.
+        # Darwin self-learning / cheap-first / best-of-k / cross-model / adversarial-verify
+        # Examples:
+        #   one.sh aqe status
+        #   one.sh aqe test generate <target>
+        #   one.sh aqe coverage <path>
+        #   one.sh aqe quality
+        #   one.sh aqe workflow list
+        shift
+        exec npx --yes agentic-qe@3.11.1 "$@"
+        ;;
+
+    ruflo)
+        # Ruflo v3.14.1 orchestration dispatch — swarm, task, workflow, session, memory, hooks
+        # Examples:
+        #   one.sh ruflo workflow list
+        #   one.sh ruflo task list
+        #   one.sh ruflo swarm init --topology hierarchical --max-agents 8
+        #   one.sh ruflo status
+        #   one.sh ruflo doctor
+        shift
+        exec npx --yes ruflo@3.14.1 "$@"
+        ;;
+
     harness)
-        # Dispatch to the upgraded agent harness
+        # Dispatch to the upgraded agent harness (Darwin Mode self-improvement)
         shift
         if [[ $# -eq 0 ]]; then
             echo "Usage: ./scripts/one.sh harness <doctor|evolve|evolve:dry|init>"
@@ -176,6 +205,8 @@ Usage: ./scripts/one.sh <subcommand> [args...]
   scorecard         Originality/Impact gate: [--verify] [--file PATH] [--json]
   upstream          Upstream repo upgrade engine: [--dry-run] [--force] [--parallel] [--json]
   edge-sync         Edge gateway DNS sync + health probe: [--dry-run] [--force] [--json]
+  aqe               Agentic QE v3.11.1: status, test, coverage, quality, workflow, ...
+  ruflo             Ruflo v3.14.1: workflow, task, swarm, session, memory, hooks, ...
   harness           Dispatch to the upgraded AI Agent Harness: <doctor|evolve|evolve:dry|init>
 HELP
         exit 0

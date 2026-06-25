@@ -43,7 +43,7 @@ execute_standup() {
   # 1. Check for blockers in recent episodes
   if command -v npx >/dev/null 2>&1; then
     local blocker_check
-    blocker_check=$(npx agentdb query "SELECT COUNT(*) as count FROM episodes WHERE circle='$circle' AND status='failed' AND created_at > datetime('now', '-24 hours')" 2>/dev/null | grep -E '^[0-9]+$' | tail -1 || echo "0")
+    blocker_check=$(npx agentdb query --query "SELECT COUNT(*) as count FROM episodes WHERE circle='$circle' AND status='failed' AND created_at > datetime('now', '-24 hours')" 2>/dev/null | grep -oE "[0-9]+" | tail -1 || echo "0")
     blockers_found=${blocker_check:-0}
     
     if [[ $blockers_found -gt 0 ]]; then
@@ -69,7 +69,7 @@ execute_standup() {
   # 3. Check for clear updates (recent episode count)
   if command -v npx >/dev/null 2>&1; then
     local update_count
-    update_count=$(npx agentdb query "SELECT COUNT(*) FROM episodes WHERE circle='$circle' AND created_at > datetime('now', '-1 hour')" 2>/dev/null | grep -E '^[0-9]+$' | tail -1 || echo "1")
+    update_count=$(npx agentdb query --query "SELECT COUNT(*) FROM episodes WHERE circle='$circle' AND created_at > datetime('now', '-1 hour')" 2>/dev/null | grep -oE "[0-9]+" | tail -1 || echo "1")
     
     if [[ ${update_count:-1} -gt 0 ]]; then
       updates_clear=1
@@ -114,7 +114,7 @@ execute_wsjf() {
   # 2. Calculate value clarity (success rate as proxy)
   if command -v npx >/dev/null 2>&1; then
     local success_data
-    success_data=$(npx agentdb query "SELECT COUNT(*) as total, SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) as succeeded FROM episodes WHERE circle='$circle' AND created_at > datetime('now', '-7 days')" 2>/dev/null || echo "1 1")
+    success_data=$(npx agentdb query --query "SELECT COUNT(*) as total, SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) as succeeded FROM episodes WHERE circle='$circle' AND created_at > datetime('now', '-7 days')" 2>/dev/null | grep -oE "[0-9]+" | tr "\n" " " || echo "1 1")
     
     local total=$(echo "$success_data" | awk '{print $1}')
     local succeeded=$(echo "$success_data" | awk '{print $2}')
@@ -135,7 +135,7 @@ execute_wsjf() {
   # 3. Calculate cost of delay (episode count as urgency proxy)
   if command -v npx >/dev/null 2>&1; then
     local pending_count
-    pending_count=$(npx agentdb query "SELECT COUNT(*) FROM episodes WHERE circle='$circle' AND created_at > datetime('now', '-24 hours')" 2>/dev/null | grep -E '^[0-9]+$' | tail -1 || echo "5")
+    pending_count=$(npx agentdb query --query "SELECT COUNT(*) FROM episodes WHERE circle='$circle' AND created_at > datetime('now', '-24 hours')" 2>/dev/null | grep -oE "[0-9]+" | tail -1 || echo "5")
     
     if [[ ${pending_count:-5} -gt 3 ]]; then
       cod_calculated=1
@@ -168,7 +168,7 @@ execute_review() {
   # 1. Extract insights from recent episodes
   if command -v npx >/dev/null 2>&1; then
     local episode_variance
-    episode_variance=$(npx agentdb query "SELECT COUNT(DISTINCT status) as variance FROM episodes WHERE circle='$circle' AND created_at > datetime('now', '-7 days')" 2>/dev/null | grep -E '^[0-9]+$' | tail -1 || echo "1")
+    episode_variance=$(npx agentdb query --query "SELECT COUNT(DISTINCT status) as variance FROM episodes WHERE circle='$circle' AND created_at > datetime('now', '-7 days')" 2>/dev/null | grep -oE "[0-9]+" | tail -1 || echo "1")
     
     if [[ ${episode_variance:-1} -gt 1 ]]; then
       insights_gained=1
@@ -180,7 +180,7 @@ execute_review() {
   # 2. Identify improvements from failures
   if command -v npx >/dev/null 2>&1; then
     local failure_count
-    failure_count=$(npx agentdb query "SELECT COUNT(*) FROM episodes WHERE circle='$circle' AND status='failed' AND created_at > datetime('now', '-7 days')" 2>/dev/null | grep -E '^[0-9]+$' | tail -1 || echo "0")
+    failure_count=$(npx agentdb query --query "SELECT COUNT(*) FROM episodes WHERE circle='$circle' AND status='failed' AND created_at > datetime('now', '-7 days')" 2>/dev/null | grep -oE "[0-9]+" | tail -1 || echo "0")
     
     if [[ ${failure_count:-0} -gt 0 ]]; then
       improvements_identified=$(( failure_count > 3 ? 3 : failure_count ))
@@ -221,7 +221,7 @@ execute_retro() {
   # 1. Identify patterns from episode history
   if command -v npx >/dev/null 2>&1; then
     local pattern_count
-    pattern_count=$(npx agentdb query "SELECT COUNT(DISTINCT ceremony) as ceremonies FROM episodes WHERE circle='$circle' AND created_at > datetime('now', '-7 days')" 2>/dev/null | grep -E '^[0-9]+$' | tail -1 || echo "1")
+    pattern_count=$(npx agentdb query --query "SELECT COUNT(DISTINCT ceremony) as ceremonies FROM episodes WHERE circle='$circle' AND created_at > datetime('now', '-7 days')" 2>/dev/null | grep -oE "[0-9]+" | tail -1 || echo "1")
     
     if [[ ${pattern_count:-1} -ge 2 ]]; then
       patterns_identified=$pattern_count
@@ -233,7 +233,7 @@ execute_retro() {
   # 2. Propose experiments based on variance
   if command -v npx >/dev/null 2>&1; then
     local success_rate
-    success_rate=$(npx agentdb query "SELECT CAST(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS INTEGER) FROM episodes WHERE circle='$circle' AND created_at > datetime('now', '-7 days')" 2>/dev/null | grep -E '^[0-9]+$' | tail -1 || echo "100")
+    success_rate=$(npx agentdb query --query "SELECT CAST(SUM(CASE WHEN status='success' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS INTEGER) FROM episodes WHERE circle='$circle' AND created_at > datetime('now', '-7 days')" 2>/dev/null | grep -oE "[0-9]+" | tail -1 || echo "100")
     
     if [[ ${success_rate:-100} -lt 90 ]]; then
       experiments_proposed=2
@@ -273,7 +273,7 @@ execute_refine() {
   # Refine based on recent performance
   if command -v npx >/dev/null 2>&1; then
     local avg_reward
-    avg_reward=$(npx agentdb query "SELECT AVG(reward) FROM episodes WHERE circle='$circle' AND created_at > datetime('now', '-7 days')" 2>/dev/null | grep -E '^[0-9]+(\.[0-9]+)?$' | tail -1 || echo "0.8")
+    avg_reward=$(npx agentdb query --query "SELECT AVG(reward) FROM episodes WHERE circle='$circle' AND created_at > datetime('now', '-7 days')" 2>/dev/null | grep -oE "[0-9]+(\.[0-9]+)?" | tail -1 || echo "0.8")
     
     output+="Refining based on avg reward: ${avg_reward}. "
     output+="Skills refined: $skills. "
@@ -320,7 +320,7 @@ execute_synthesis() {
   # Synthesize patterns across circles
   if command -v npx >/dev/null 2>&1; then
     local total_episodes
-    total_episodes=$(npx agentdb query "SELECT COUNT(*) FROM episodes WHERE created_at > datetime('now', '-24 hours')" 2>/dev/null | grep -E '^[0-9]+$' | tail -1 || echo "10")
+    total_episodes=$(npx agentdb query --query "SELECT COUNT(*) FROM episodes WHERE created_at > datetime('now', '-24 hours')" 2>/dev/null | grep -oE "[0-9]+" | tail -1 || echo "10")
     
     output+="Synthesizing from $total_episodes recent episodes. "
     output+="Cross-circle patterns identified. "

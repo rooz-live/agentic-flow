@@ -426,3 +426,60 @@ def test_billing_smoke_invoice_engine_generate_issue_lifecycle():
     stats = engine.get_stats()
     assert stats["immutable"] is True
     assert stats["by_status"]["ISSUED"] == 1
+
+
+@pytest.mark.billing
+def test_billing_smoke_domain_subscription_verification():
+    try:
+        import eventops_pyo3
+    except ImportError:
+        pytest.skip("Rust PyO3 library not compiled — run maturin develop")
+
+    # Test the HostBill boundary (It will hit Circuit Breaker or API mock)
+    # We expect an error or a mock JSON status back depending on offline state.
+    try:
+        result = eventops_pyo3.verify_cpanel_stx_domain_billing(
+            "http://127.0.0.1:9092/api", "mock_id", "mock_key", "bhopti.com"
+        )
+        data = json.loads(result)
+        assert "status" in data
+        assert data["domain"] == "bhopti.com"
+    except ValueError as e:
+        assert "ERR_HOSTBILL" in str(e) or "network error" in str(e).lower()
+
+@pytest.mark.billing
+def test_billing_smoke_batch_domain_verification():
+    try:
+        import eventops_pyo3
+    except ImportError:
+        pytest.skip("Rust PyO3 library not compiled — run maturin develop")
+
+    domains = json.dumps(["bhopti.com", "cuddleball.art"])
+    result = eventops_pyo3.batch_verify_cpanel_stx_domains(
+        "http://127.0.0.1:9092/api", "mock_id", "mock_key", domains
+    )
+    data = json.loads(result)
+    assert len(data) == 2
+    assert data[0]["domain"] == "bhopti.com"
+    assert "status" in data[0]
+
+@pytest.mark.billing
+def test_billing_smoke_process_domain_payment():
+    try:
+        import eventops_pyo3
+    except ImportError:
+        pytest.skip("Rust PyO3 library not compiled — run maturin develop")
+
+    payload = json.dumps({
+        "type": "invoice.payment_succeeded",
+        "id": "evt_domain_payment_001",
+        "data": {
+            "object": {
+                "customer_email": "admin@bhopti.com",
+                "subscription": "sub_stx_123"
+            }
+        }
+    })
+    
+    # Should successfully process and append to the EventStore
+    assert eventops_pyo3.process_stripe_domain_payment(payload) is True

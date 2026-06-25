@@ -22,6 +22,7 @@
 
 import argparse
 import ast
+import atexit
 import datetime
 import hashlib
 import json
@@ -33,6 +34,47 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Optional
+
+_temp_files = []
+
+def cleanup_temp_files():
+    for p in _temp_files:
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+
+atexit.register(cleanup_temp_files)
+
+
+def get_allowed_signers_db(env: dict, root_path: str = ".") -> str:
+    override = env.get("AF_ALLOWED_SIGNERS")
+    if override:
+        return override
+
+    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    global_path = Path(root_path) / ".goalie/scorecards/allowed_signers"
+    if is_ci:
+        return str(global_path)
+    
+    local_path = Path(root_path) / ".goalie/scorecards/allowed_signers.local"
+    
+    if global_path.exists() and local_path.exists():
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", delete=False, prefix="allowed_signers_", suffix=".db") as tf:
+                tf.write(global_path.read_text(encoding="utf-8"))
+                tf.write("\n")
+                tf.write(local_path.read_text(encoding="utf-8"))
+                temp_path = tf.name
+            _temp_files.append(temp_path)
+            return temp_path
+        except Exception:
+            return str(global_path)
+            
+    if local_path.exists():
+        return str(local_path)
+    return str(global_path)
+
 
 # ROAM disposition -> fraction of tail severity that still counts against Impact.
 ROAM_PENALTY = {
@@ -161,9 +203,17 @@ def _coerce_new_relationship(val: Any) -> tuple:
         lower = s.lower()
         if lower in ("true", "false", "yes", "no", "1", "0"):
             return False, "new_relationship string must be a meaningful phrase, not a boolean literal"
-        if lower.startswith("new "):
+        
+        # Check for negation words
+        import re
+        negation_pattern = re.compile(r"\b(no|not|false|none|never|without|reject|non)\b", re.IGNORECASE)
+        positive_pattern = re.compile(r"\bnew\b", re.IGNORECASE)
+        
+        if negation_pattern.search(lower):
+            return False, "new_relationship contains negation words"
+        if positive_pattern.search(lower):
             return True, None
-        return False, "new_relationship must be boolean true or a phrase beginning with 'new '"
+        return False, "new_relationship must be boolean true or a phrase containing 'new'"
     return False, "new_relationship must be boolean true"
 
 
@@ -203,8 +253,15 @@ def evaluate(card: dict, *, derive: bool = False, root_path: Any = ".", ingest_o
 
     if baseline_value is None:
         errors.append("impact.baseline_value must be a number")
+    else:
+        if not (0.0 <= baseline_value <= 3.0):
+            errors.append("impact.baseline_value must be between 0 and 3")
+
     if reward_direction is None:
         errors.append("impact.reward_direction must be a number")
+    else:
+        if not (-1.0 <= reward_direction <= 1.5):
+            errors.append("impact.reward_direction must be between -1 and 1.5")
 
     if cod_weight is not None and cod_weight not in VALID_COD:
         errors.append(f"cod_weight must be in {VALID_COD}")
@@ -359,7 +416,7 @@ def load_signals() -> list:
         return signals
 
     # In verification mode (CI/precommit), we strictly check signature
-    allowed_signers = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
+    allowed_signers = get_allowed_signers_db(env, ".")
     sig = data.get("signature")
     principal = data.get("principal")
 
@@ -444,14 +501,32 @@ def _resolve_python_module(root: Any, module_name: str, tracked_files: set) -> b
 def _dynamic_import_call_ok(node: ast.Call, root: Any, tracked_files: set) -> bool:
     """Reject dynamic imports of invented in-repo modules (importlib / __import__)."""
     func = node.func
+    
+    is_import_module = False
+    is_dunder_import = False
+    
     if isinstance(func, ast.Attribute) and func.attr == "import_module":
         base = func.value
         if isinstance(base, ast.Name) and base.id == "importlib":
-            if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
-                return _resolve_python_module(root, node.args[0].value, tracked_files)
-    if isinstance(func, ast.Name) and func.id == "__import__":
-        if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
-            return _resolve_python_module(root, node.args[0].value, tracked_files)
+            is_import_module = True
+    elif isinstance(func, ast.Name) and func.id == "__import__":
+        is_dunder_import = True
+        
+    if not (is_import_module or is_dunder_import):
+        return True
+        
+    module_name = None
+    if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+        module_name = node.args[0].value
+    elif node.keywords:
+        for kw in node.keywords:
+            if kw.arg == "name" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
+                module_name = kw.value.value
+                break
+                
+    if module_name is not None:
+        return _resolve_python_module(root, module_name, tracked_files)
+        
     return True
 
 def run_no_invented_symbols(root: Any) -> bool:
@@ -487,6 +562,7 @@ def run_no_invented_symbols(root: Any) -> bool:
     # Tracked/disk files cache helper
     tracked_out = _git(["ls-files"], root=root)
     tracked_files = set(tracked_out.splitlines()) if tracked_out else set()
+    root_resolved = Path(root).resolve()
 
     def is_exempt(file_path: str) -> bool:
         if any(part.startswith(".") for part in Path(file_path).parts):
@@ -501,7 +577,7 @@ def run_no_invented_symbols(root: Any) -> bool:
         if not file_path or is_exempt(file_path):
             continue
 
-        full_path = Path(root) / file_path
+        full_path = root_resolved / file_path
         if not full_path.exists() or not full_path.is_file():
             continue
 
@@ -525,7 +601,7 @@ def run_no_invented_symbols(root: Any) -> bool:
                     for alias in node.names:
                         parts = alias.name.split(".")
                         if parts[0] in ("src", "tests", "config", "tooling", "domain", "scripts", "validation"):
-                            target_path = Path(root) / "/".join(parts)
+                            target_path = root_resolved / "/".join(parts)
                             possible_paths = [
                                 target_path.with_suffix(".py"),
                                 target_path / "__init__.py"
@@ -533,7 +609,7 @@ def run_no_invented_symbols(root: Any) -> bool:
                             resolved = False
                             for p in possible_paths:
                                 try:
-                                    rel_to_root = p.relative_to(Path(root)).as_posix()
+                                    rel_to_root = p.relative_to(root_resolved).as_posix()
                                 except ValueError:
                                     rel_to_root = None
                                 if rel_to_root and rel_to_root in tracked_files:
@@ -558,7 +634,7 @@ def run_no_invented_symbols(root: Any) -> bool:
                             resolved = False
                             for p in possible_paths:
                                 try:
-                                    rel_to_root = p.relative_to(Path(root)).as_posix()
+                                    rel_to_root = p.relative_to(root_resolved).as_posix()
                                 except ValueError:
                                     rel_to_root = None
                                 if rel_to_root and rel_to_root in tracked_files:
@@ -573,7 +649,7 @@ def run_no_invented_symbols(root: Any) -> bool:
                         if module_name:
                             parts = module_name.split(".")
                             if parts[0] in ("src", "tests", "config", "tooling", "domain", "scripts", "validation"):
-                                target_path = Path(root) / "/".join(parts)
+                                target_path = root_resolved / "/".join(parts)
                                 possible_paths = [
                                     target_path.with_suffix(".py"),
                                     target_path / "__init__.py"
@@ -581,7 +657,7 @@ def run_no_invented_symbols(root: Any) -> bool:
                                 resolved = False
                                 for p in possible_paths:
                                     try:
-                                        rel_to_root = p.relative_to(Path(root)).as_posix()
+                                        rel_to_root = p.relative_to(root_resolved).as_posix()
                                     except ValueError:
                                         rel_to_root = None
                                     if rel_to_root and rel_to_root in tracked_files:
@@ -609,7 +685,7 @@ def run_no_invented_symbols(root: Any) -> bool:
                     resolved = False
                     for p in possible_files:
                         try:
-                            rel_to_root = p.relative_to(Path(root)).as_posix()
+                            rel_to_root = p.relative_to(root_resolved).as_posix()
                         except ValueError:
                             rel_to_root = None
                         if (rel_to_root and rel_to_root in tracked_files):
@@ -647,7 +723,7 @@ def run_no_invented_symbols(root: Any) -> bool:
                     for suffix in possible_extensions:
                         p = Path(str(target_path) + suffix)
                         try:
-                            rel_to_root = p.relative_to(Path(root)).as_posix()
+                            rel_to_root = p.relative_to(root_resolved).as_posix()
                         except ValueError:
                             rel_to_root = None
                         if (rel_to_root and rel_to_root in tracked_files):
@@ -665,10 +741,9 @@ def run_no_invented_symbols(root: Any) -> bool:
 def stamp_local_coherence_signature(artifact_path: str, root: str = ".") -> bool:
     """Sign coherence_results.json with workspace key when present (pre-commit / local runs)."""
     key_path = Path(root) / ".goalie" / "scorecards" / "workspace_signer"
-    allowed = os.environ.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
-    allowed_path = Path(root) / allowed if not os.path.isabs(allowed) else Path(allowed)
+    allowed_db = get_allowed_signers_db(dict(os.environ), root)
     principal = os.environ.get("AF_LOCAL_SIGN_PRINCIPAL", "workspace@local")
-    if not key_path.exists() or not allowed_path.exists():
+    if not key_path.exists() or not os.path.exists(allowed_db):
         return False
     try:
         with open(artifact_path, "r", encoding="utf-8") as fh:
@@ -695,7 +770,7 @@ def stamp_local_coherence_signature(artifact_path: str, root: str = ".") -> bool
             return False
         with open(sig_path, "r", encoding="utf-8") as sf:
             sig_content = sf.read()
-        if not verify_ssh_signature(sig_content, principal, gh, str(allowed_path)):
+        if not verify_ssh_signature(sig_content, principal, gh, allowed_db):
             return False
         data["signature"] = sig_content
         data["principal"] = principal
@@ -710,12 +785,15 @@ def stamp_local_coherence_signature(artifact_path: str, root: str = ".") -> bool
         except OSError:
             pass
 
-def derive_coherence(root_path_or_results: Any, force_dynamic: bool = False, ingest_only: bool = False) -> str:
+def derive_coherence(root_path_or_results: Any, force_dynamic: bool = False, ingest_only: bool = False, env: Optional[dict] = None) -> str:
     if isinstance(root_path_or_results, list):
         required = [r for r in root_path_or_results if r.get("required", True)]
         if not required:
             return "FAIL"
         return "PASS" if all(r.get("ok") for r in required) else "FAIL"
+
+    if env is None:
+        env = dict(os.environ)
 
     root_path = root_path_or_results
     if force_dynamic:
@@ -734,21 +812,38 @@ def derive_coherence(root_path_or_results: Any, force_dynamic: bool = False, ing
         if gh != current_head:
             return "FAIL"
             
-        env = dict(os.environ)
         is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
         is_precommit = env.get("AF_GATE_CONTEXT") == "precommit"
-        allowed_signers = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
-        enforce_signature = is_ci or is_precommit or os.path.exists(allowed_signers)
+        allowed_signers = get_allowed_signers_db(env, root_path)
 
         sig = data.get("signature")
         principal = data.get("principal")
+        enforce_signature = is_ci or is_precommit or os.path.exists(allowed_signers) or bool(sig)
 
         if enforce_signature:
             if not os.path.exists(allowed_signers):
+                if is_precommit:
+                    print(
+                        "🛑 precommit coherence check failed: local workspace signer is not setup.\n"
+                        "👉 Run scripts/gates/setup_workspace_signer.sh to generate local signing keys.",
+                        file=sys.stderr
+                    )
                 return "FAIL"
             if not sig or not principal:
+                if is_precommit:
+                    print(
+                        "🛑 precommit coherence check failed: coherence receipt is not signed.\n"
+                        "👉 Run coherence-gate (e.g. via ./scripts/gates/coherence-gate.sh) to execute tests and sign results.",
+                        file=sys.stderr
+                    )
                 return "FAIL"
             if not verify_ssh_signature(sig, principal, gh, allowed_signers):
+                if is_precommit:
+                    print(
+                        "🛑 precommit coherence check failed: receipt signature verification failed.\n"
+                        "👉 Run coherence-gate (e.g. via ./scripts/gates/coherence-gate.sh) to re-sign with a valid key.",
+                        file=sys.stderr
+                    )
                 return "FAIL"
 
         return str(coherence).upper()
@@ -777,7 +872,7 @@ def derive_gate_integrity(env: Optional[dict] = None) -> GateIntegrityResult:
     if env is None:
         env = dict(os.environ)
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
-    allowed_signers = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
+    allowed_signers = get_allowed_signers_db(env, ".")
     if is_ci:
         event = env.get("GITHUB_EVENT_NAME", "")
         if event not in ("pull_request", "pull_request_review"):
@@ -855,7 +950,7 @@ def collect_reward_proxies(env: dict) -> dict:
         )
     
     # Check if ROAM_TRACKER.yaml is modified or staged
-    roam_status = _git(["status", "--porcelain", ".goalie/ROAM_TRACKER.yaml"])
+    roam_status = _git(["status", "--porcelain", "ROAM_TRACKER.yaml"])
     proxies["roam_updated"] = bool(roam_status and roam_status.strip())
     return proxies
 
@@ -920,7 +1015,7 @@ def verify_signoff(card: dict, env: dict, actual_commit, actual_diff) -> tuple:
 
     Option 1: Cryptographic Signatures (SSH)
     """
-    allowed_signers_path = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
+    allowed_signers_path = get_allowed_signers_db(env, ".")
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
     
     # Determine if this is a one-way door (REV0 x BR1.5)
@@ -948,7 +1043,9 @@ def verify_signoff(card: dict, env: dict, actual_commit, actual_diff) -> tuple:
             
         return False, f"cryptographic signature verification failed for principal {principal}"
 
-    # Fallback to legacy behavior if allowed_signers does not exist AND not in enforcing mode
+    # Legacy bypass: explicit opt-in only (AF_LEGACY_SIGNOFF=1); never in CI/enforcing mode
+    if str(env.get("AF_LEGACY_SIGNOFF", "0")) != "1":
+        return False, "no external approval (legacy bypass disabled; set AF_LEGACY_SIGNOFF=1 for local dev only)"
     token = str(env.get("AF_SIGNOFF", "")).strip()
     if token and token in (actual_commit, actual_diff):
         kind = "commit" if token == actual_commit else "diff"
@@ -977,6 +1074,7 @@ def check_allowed_signers_tamper(env: dict, root: str = ".") -> tuple:
     path = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
     base = env.get("AF_DIFF_BASE")
     if not base:
+        blocks.append("HARD GATE: CI context requires AF_DIFF_BASE to be set to check allowed_signers tampering")
         return blocks, warns
     diff_names = _git(["diff", f"{base}...HEAD", "--name-only", "--", path], root=root)
     if diff_names and diff_names.strip():
@@ -995,7 +1093,7 @@ def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) ->
     meta: dict = {}
 
     # Enforce allowed_signers presence in CI context
-    allowed_signers = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
+    allowed_signers = get_allowed_signers_db(env, ".")
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
     if is_ci and not os.path.exists(allowed_signers):
         extra_blocks.append("HARD GATE: CI context requires allowed_signers configuration")
@@ -1006,7 +1104,7 @@ def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) ->
     # 1) coherence <- real signals
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
     if ingest_only and not is_ci:
-        coherence = derive_coherence(".", force_dynamic=False)
+        coherence = derive_coherence(".", force_dynamic=False, env=env)
         meta["coherence_ingested"] = True
     else:
         old_verify_mode = os.environ.get("AF_VERIFY_MODE")

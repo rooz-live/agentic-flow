@@ -425,6 +425,8 @@ def test_main_precommit_enforced(tmp_path, monkeypatch):
 
 
 def test_main_pr_body_stdin(monkeypatch):
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("AF_GATE_CONTEXT", raising=False)
     body = "## PR\n```scorecard\n" + json.dumps(VALID) + "\n```"
     monkeypatch.setattr("sys.stdin", io.StringIO(body))
     assert gate.main(["--pr-body", "-"]) == 0
@@ -617,17 +619,17 @@ def test_main_verify_blocks_on_stale_commit(tmp_path, monkeypatch):
 
 def test_collect_reward_proxies_is_bounded(monkeypatch):
     # Regression: the untracked scan must be path-scoped to src/ and time-capped.
-    calls = {}
+    calls = []
 
     def fake_git(args, timeout=30, root="."):
-        calls["args"] = args
-        calls["timeout"] = timeout
+        calls.append({"args": args, "timeout": timeout})
         return "src/foo.py\nother.py\n"
 
     monkeypatch.setattr(gate, "_git", fake_git)
     proxies = gate.collect_reward_proxies({})
-    assert "--" in calls["args"] and "src" in calls["args"]  # path-scoped
-    assert calls["timeout"] <= 30  # time-capped
+    first_call = calls[0]
+    assert "--" in first_call["args"] and "src" in first_call["args"]  # path-scoped
+    assert first_call["timeout"] <= 30  # time-capped
     assert proxies["untracked_added"] == 1
 
 
@@ -663,12 +665,12 @@ def test_main_verify_blocks_invented_paths(tmp_path, monkeypatch):
 # GATE-003: unforgeable sign_off
 # --------------------------------------------------------------------------- #
 def test_verify_signoff_env_commit():
-    ok, _ = gate.verify_signoff({}, {"AF_SIGNOFF": "abc123"}, "abc123", "diffsha")
+    ok, _ = gate.verify_signoff({}, {"AF_SIGNOFF": "abc123", "AF_LEGACY_SIGNOFF": "1", "AF_ALLOWED_SIGNERS": "/nonexistent"}, "abc123", "diffsha")
     assert ok
 
 
 def test_verify_signoff_env_diff():
-    ok, _ = gate.verify_signoff({}, {"AF_SIGNOFF": "diffsha"}, "abc123", "diffsha")
+    ok, _ = gate.verify_signoff({}, {"AF_SIGNOFF": "diffsha", "AF_LEGACY_SIGNOFF": "1", "AF_ALLOWED_SIGNERS": "/nonexistent"}, "abc123", "diffsha")
     assert ok
 
 
@@ -681,7 +683,7 @@ def test_verify_signoff_approvals_file(tmp_path, monkeypatch):
     f = tmp_path / "approvals.txt"
     f.write_text("# approvals\nabc123\n")
     monkeypatch.setattr(gate, "APPROVALS_FILE", str(f))
-    ok, _ = gate.verify_signoff({}, {}, "abc123", "diff")
+    ok, _ = gate.verify_signoff({}, {"AF_LEGACY_SIGNOFF": "1", "AF_ALLOWED_SIGNERS": "/nonexistent"}, "abc123", "diff")
     assert ok
 
 
@@ -783,3 +785,48 @@ def test_harden_rd_enforced_overrides_negative(monkeypatch):
     )
     assert hardened["impact"]["reward_direction"] == -1  # overridden by signals
     assert meta["reward_direction_enforced"] is True
+
+
+def test_harden_coherence_hybrid_gating_local_ingest(monkeypatch):
+    monkeypatch.setattr(gate, "git_head", lambda *a, **k: "abc123")
+    monkeypatch.setattr(gate, "current_diff_sha", lambda env: None)
+    monkeypatch.setattr(gate, "collect_reward_proxies", lambda env: {})
+    
+    # Mock derive_coherence to return PASS from ingested file
+    monkeypatch.setattr(gate, "derive_coherence", lambda *a, **k: "PASS")
+    
+    c = base()
+    c["commit"] = "abc123"
+    
+    # Run in local context with ingest_only=True
+    hardened, blocks, warns, meta = gate.harden(
+        c, env={}, strict=False, ingest_only=True
+    )
+    assert hardened["originality"]["coherence"] == "PASS"
+    assert meta.get("coherence_ingested") is True
+    assert "signals" not in meta
+
+
+def test_harden_coherence_hybrid_gating_ci_ingest(monkeypatch):
+    monkeypatch.setattr(gate, "git_head", lambda *a, **k: "abc123")
+    monkeypatch.setattr(gate, "current_diff_sha", lambda env: None)
+    monkeypatch.setattr(gate, "collect_reward_proxies", lambda env: {})
+    
+    # Mock load_signals and run_signals
+    monkeypatch.setattr(gate, "load_signals", lambda: [])
+    monkeypatch.setattr(
+        gate, "run_signals", lambda *a, **k: [{"name": "mock", "required": True, "ok": True}]
+    )
+    # derive_coherence will check signals and return PASS
+    monkeypatch.setattr(gate, "derive_coherence", lambda res, *a, **k: "PASS" if isinstance(res, list) else "FAIL")
+    
+    c = base()
+    c["commit"] = "abc123"
+    
+    # Run in CI context with ingest_only=True
+    hardened, blocks, warns, meta = gate.harden(
+        c, env={"CI": "true"}, strict=False, ingest_only=True
+    )
+    assert hardened["originality"]["coherence"] == "PASS"
+    assert meta.get("coherence_ingested") is not True  # should not ingest
+    assert "signals" in meta  # ran dynamically

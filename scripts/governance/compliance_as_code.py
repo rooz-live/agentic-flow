@@ -19,6 +19,7 @@ import logging
 import argparse
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
+import subprocess
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -506,10 +507,19 @@ class CogComplianceEngine:
             "perceive_index": str(_goalie() / "evidence/access-restore/perceive_index.md"),
         }
 
+        def _git_head() -> str:
+            try:
+                return subprocess.check_output(
+                    ["git", "rev-parse", "HEAD"], text=True, timeout=10
+                ).strip()
+            except Exception:
+                return ""
+
         report = {
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "mode": "cog",
             "scope": self.scope,
+            "git_head": _git_head(),
             "overall": overall,
             "exit_code": exit_code,
             "substrate_truth": {

@@ -206,12 +206,12 @@ def test_spike_vs_drop_routing():
     assert res["originality_score"] == pytest.approx(4.0)
     assert res["decision"] == "SPIKE"
 
-    sc["originality"]["new_relationship"] = False
+    sc["originality"]["new_relationship"] = "transformation, not original"
     res = evaluate(sc)
     assert res["originality_score"] == pytest.approx(0.0)
     assert res["decision"] == "DROP"
 
-    sc["originality"]["new_relationship"] = True
+    sc["originality"]["new_relationship"] = "New boundary"
     sc["originality"]["improbability"] = 0.0
     res = evaluate(sc)
     assert res["originality_score"] == pytest.approx(0.0)
@@ -402,8 +402,11 @@ def test_derive_coherence_crypto_verification(tmp_path, monkeypatch):
     evidence_dir.mkdir(parents=True)
     artifact_file = evidence_dir / "coherence_results.json"
 
-    # Mock git_head
+    # Mock git_head and isolate from any globally set signer env
     monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda r: "mock_sha")
+    monkeypatch.delenv("AF_ALLOWED_SIGNERS", raising=False)
+    monkeypatch.delenv("AF_GATE_CONTEXT", raising=False)
+    monkeypatch.delenv("CI", raising=False)
 
     # 1. No allowed_signers, signature present, but in precommit context -> FAIL (unverifiable signature)
     monkeypatch.setenv("AF_GATE_CONTEXT", "precommit")
@@ -468,7 +471,7 @@ def test_verify_signoff_legacy_enabled_locally(monkeypatch):
     from scripts.gates.scorecard_gate import verify_signoff
 
     sc = make_valid_scorecard()
-    env = {"AF_SIGNOFF": "mock_commit"}
+    env = {"AF_SIGNOFF": "mock_commit", "AF_LEGACY_SIGNOFF": "1"}
 
     monkeypatch.setattr("os.path.exists", lambda p: False)
     ok, reason = verify_signoff(sc, env, "mock_commit", "mock_diff")
@@ -695,12 +698,27 @@ def test_load_signals_override_invalid_signature(monkeypatch, tmp_path):
 
 
 
+
+
+@pytest.mark.parametrize("val,expected_score", [
+    (True, 4.0),
+    ("New abstraction boundary", 4.0),
+    ("true", 0.0),
+    ("false", 0.0),
+    ("renewal", 0.0),
+])
+def test_new_relationship_boolean_and_phrase_edge_cases(val, expected_score):
+    sc = make_valid_scorecard()
+    sc["originality"]["new_relationship"] = val
+    res = evaluate(sc)
+    assert res["originality_score"] == pytest.approx(expected_score)
+
 def test_new_relationship_rejects_renewal_substring_bypass():
     sc = make_valid_scorecard()
     sc["originality"]["new_relationship"] = "renewal"
     res = evaluate(sc)
     assert res["originality_score"] == pytest.approx(0.0)
-    assert any("boolean true" in w for w in res["warnings"])
+    assert any("new_relationship" in w for w in res["warnings"])
     # String values are rejected ( originality_score = 0 ), but impact_net is still high enough to SHIP
     assert res["decision"] == "SHIP"
 
@@ -764,12 +782,19 @@ def test_harden_missing_allowed_signers_ci_blocks(monkeypatch, tmp_path):
     monkeypatch.setenv("AF_ALLOWED_SIGNERS", str(tmp_path / "missing_signers"))
     
     # Mock other functions called inside harden to prevent extraneous blocks
-    monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda: "mock_sha")
-    monkeypatch.setattr("scripts.gates.scorecard_gate.current_diff_sha", lambda env: "mock_diff")
-    monkeypatch.setattr("scripts.gates.scorecard_gate.verify_signoff", lambda c, e, ac, ad: (True, "mock"))
-    monkeypatch.setattr("scripts.gates.scorecard_gate.check_binding", lambda c, ac, ad, s: ([], []))
-    monkeypatch.setattr("scripts.gates.scorecard_gate.run_signals", lambda sigs: [])
-    monkeypatch.setattr("scripts.gates.scorecard_gate.derive_coherence", lambda r: "PASS")
+    monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda *a, **k: "mock_sha")
+    monkeypatch.setattr("scripts.gates.scorecard_gate.current_diff_sha", lambda *a, **k: "mock_diff")
+    monkeypatch.setattr("scripts.gates.scorecard_gate.verify_signoff", lambda *a, **k: (True, "mock"))
+    monkeypatch.setattr("scripts.gates.scorecard_gate.check_binding", lambda *a, **k: ([], []))
+    monkeypatch.setattr("scripts.gates.scorecard_gate.run_signals", lambda *a, **k: [])
+    monkeypatch.setattr("scripts.gates.scorecard_gate.derive_coherence", lambda *a, **k: "PASS")
+    monkeypatch.setattr("scripts.gates.scorecard_gate._git", lambda *a, **k: None)
+    
+    # Block subprocess executions
+    import subprocess
+    def mock_run(*args, **kwargs):
+        raise RuntimeError("Subprocess execution blocked in test_harden_missing_allowed_signers_ci_blocks")
+    monkeypatch.setattr(subprocess, "run", mock_run)
     
     sc = make_valid_scorecard()
     missing = tmp_path / "missing_signers"
@@ -815,4 +840,95 @@ def test_run_no_invented_symbols_multiline_imports(tmp_path, monkeypatch):
     )
     file_path.write_text(py_content_bad)
     assert run_no_invented_symbols(tmp_path) is False
+
+
+def test_get_allowed_signers_db(tmp_path, monkeypatch):
+    from scripts.gates.scorecard_gate import get_allowed_signers_db
+    import os
+
+    # 1. Neither global nor local exists
+    # Should resolve to the global path by default
+    db_path = get_allowed_signers_db({}, root_path=str(tmp_path))
+    assert db_path == str(tmp_path / ".goalie/scorecards/allowed_signers")
+
+    # 2. Only global exists
+    global_dir = tmp_path / ".goalie" / "scorecards"
+    global_dir.mkdir(parents=True, exist_ok=True)
+    global_file = global_dir / "allowed_signers"
+    global_file.write_text("global key content")
+    db_path = get_allowed_signers_db({}, root_path=str(tmp_path))
+    assert db_path == str(global_file)
+
+    # 3. Only local exists
+    global_file.unlink()
+    local_file = global_dir / "allowed_signers.local"
+    local_file.write_text("local key content")
+    db_path = get_allowed_signers_db({}, root_path=str(tmp_path))
+    assert db_path == str(local_file)
+
+    # 4. Both exist
+    global_file.write_text("global key content")
+    db_path = get_allowed_signers_db({}, root_path=str(tmp_path))
+    assert db_path != str(global_file)
+    assert db_path != str(local_file)
+    assert os.path.exists(db_path)
+    
+    with open(db_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    assert "global key content" in content
+    assert "local key content" in content
+
+    # 5. Environment variable override
+    monkeypatch.setenv("AF_ALLOWED_SIGNERS", "/override/path")
+    db_path = get_allowed_signers_db({"AF_ALLOWED_SIGNERS": "/override/path"}, root_path=str(tmp_path))
+    assert db_path == "/override/path"
+
+
+def test_new_relationship_phrase_parsing():
+    from scripts.gates.scorecard_gate import _coerce_new_relationship
+    
+    # Valid boolean
+    assert _coerce_new_relationship(True) == (True, None)
+    assert _coerce_new_relationship(False) == (False, None)
+    
+    # Valid string phrase
+    assert _coerce_new_relationship("New abstraction boundary") == (True, None)
+    assert _coerce_new_relationship("A new layer of primitives") == (True, None)
+    
+    # Invalid string phrases (substring bypass, negation, or boolean literals)
+    v, w = _coerce_new_relationship("renewal")
+    assert v is False
+    assert "containing 'new'" in w
+    
+    v, w = _coerce_new_relationship("not a new relationship")
+    assert v is False
+    assert "contains negation words" in w
+    
+    v, w = _coerce_new_relationship("no new relationship")
+    assert v is False
+    assert "contains negation words" in w
+
+    v, w = _coerce_new_relationship("true")
+    assert v is False
+    assert "meaningful phrase" in w
+
+
+def test_run_no_invented_symbols_blocks_importlib_keyword_import(tmp_path, monkeypatch):
+    from scripts.gates.scorecard_gate import run_no_invented_symbols
+
+    (tmp_path / "src" / "billing").mkdir(parents=True)
+    (tmp_path / "src" / "billing" / "real.py").touch()
+    bad = tmp_path / "dynamic_import_kw.py"
+    bad.write_text("import importlib\nimportlib.import_module(name='src.billing.fake')\n")
+
+    def fake_git(args, timeout=30, root=None):
+        if args[:2] == ["ls-files", "--others"]:
+            return "dynamic_import_kw.py"
+        if args == ["ls-files"]:
+            return "src/billing/real.py"
+        return "dynamic_import_kw.py"
+
+    monkeypatch.setattr("scripts.gates.scorecard_gate._git", fake_git)
+    assert run_no_invented_symbols(tmp_path) is False
+
 

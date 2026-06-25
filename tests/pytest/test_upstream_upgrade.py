@@ -41,6 +41,30 @@ def test_detect_harness_falls_back_to_manifest(tmp_path):
     assert upstream_runner.detect_harness("unknown command", repo_dir=tmp_path) == "cargo"
 
 
+def test_detect_harness_expands_pnpm_yarn_go_docker():
+    assert upstream_runner.detect_harness("pnpm test") == "npm"
+    assert upstream_runner.detect_harness("yarn test") == "npm"
+    assert upstream_runner.detect_harness("yarn run test") == "npm"
+    assert upstream_runner.detect_harness("go test ./...") == "go"
+    assert upstream_runner.detect_harness("docker build .") == "docker"
+    assert upstream_runner.detect_harness("docker compose up") == "docker"
+
+
+def test_detect_harness_falls_back_to_manifest_pnpm_yarn(tmp_path):
+    (tmp_path / "pnpm-lock.yaml").write_text("")
+    assert upstream_runner.detect_harness("unknown command", repo_dir=tmp_path) == "npm"
+
+
+def test_detect_harness_falls_back_to_manifest_go(tmp_path):
+    (tmp_path / "go.mod").write_text("")
+    assert upstream_runner.detect_harness("unknown command", repo_dir=tmp_path) == "go"
+
+
+def test_detect_harness_falls_back_to_manifest_docker(tmp_path):
+    (tmp_path / "Dockerfile").write_text("")
+    assert upstream_runner.detect_harness("unknown command", repo_dir=tmp_path) == "docker"
+
+
 def test_to_receipt_validates_upstream_result(tmp_path):
     """upstream_runner.to_receipt must produce a validated cicd.receipt.v1."""
     result = {

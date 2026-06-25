@@ -34,8 +34,10 @@ _CMD_HARNESS_PATTERNS: List[Tuple[re.Pattern, str]] = [
     (re.compile(r"\bpytest\b"),                             "pytest"),
     (re.compile(r"\bnpx playwright\b"),                     "playwright"),
     (re.compile(r"\bnpm\s+(test|run\s+test)\b"),            "npm"),
-    (re.compile(r"\byarn\s+(test|run\s+test)\b"),           "npm"),
-    (re.compile(r"\bpnpm\s+(test|run\s+test)\b"),           "npm"),
+    (re.compile(r"\byarn\b"),                               "npm"),
+    (re.compile(r"\bpnpm\b"),                               "npm"),
+    (re.compile(r"\bgo\s+(test|build|run)\b"),             "go"),
+    (re.compile(r"\bdocker\b"),                             "docker"),
     (re.compile(r"\bpython3?\b.*\.(py)\b"),                 "python"),
     (re.compile(r"\bpython3?\s+-[mc]\b"),                   "python"),
     (re.compile(r"\b(bash|sh)\s+"),                         "shell"),
@@ -46,13 +48,17 @@ _CMD_HARNESS_PATTERNS: List[Tuple[re.Pattern, str]] = [
 _MANIFEST_HARNESS: List[Tuple[str, str]] = [
     ("Cargo.toml",      "cargo"),
     ("package.json",    "npm"),
+    ("pnpm-lock.yaml",  "npm"),
+    ("yarn.lock",       "npm"),
+    ("go.mod",          "go"),
+    ("Dockerfile",      "docker"),
     ("requirements.txt","pytest"),
     ("setup.py",        "pytest"),
     ("pyproject.toml",  "pytest"),
 ]
 
 
-_VALID_HARNESS_TYPES = {"cargo", "pytest", "playwright", "npm", "python", "shell", "unknown"}
+_VALID_HARNESS_TYPES = {"cargo", "pytest", "playwright", "npm", "go", "docker", "python", "shell", "unknown"}
 
 
 def detect_harness(

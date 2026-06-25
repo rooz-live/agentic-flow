@@ -293,6 +293,13 @@ def save_report_and_cache(
     try:
         receipt_file.write_text(json.dumps(receipt_data, indent=2) + "\n", encoding="utf-8")
         print(f"🧾 CICD receipt: {receipt_file}")
+
+        # Canonical DoD receipt symlink
+        latest_receipt_dir = project_root / ".goalie" / "evidence"
+        latest_receipt_dir.mkdir(parents=True, exist_ok=True)
+        latest_receipt = latest_receipt_dir / "last_upstream_receipt.json"
+        latest_receipt.write_text(json.dumps(receipt_data, indent=2) + "\n", encoding="utf-8")
+        print(f"🧾 CICD receipt: {latest_receipt}")
     except Exception as exc:  # noqa: BLE001
         print(f"⚠️  Failed to write CICD receipt: {exc}")
 

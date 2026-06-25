@@ -767,6 +767,14 @@ def run_local_sweep(
             json.dump(receipt_data, f, indent=2)
             f.write("\n")
         log(f"🧾 CICD receipt: {receipt_path}", log_file)
+
+        # Canonical DoD receipt symlink
+        latest_receipt = project_root / ".goalie" / "evidence" / "last_local_receipt.json"
+        latest_receipt.parent.mkdir(parents=True, exist_ok=True)
+        with open(latest_receipt, "w", encoding="utf-8") as f:
+            json.dump(receipt_data, f, indent=2)
+            f.write("\n")
+        log(f"🧾 CICD receipt: {latest_receipt}", log_file)
     except Exception as e:
         log(f"⚠️ Warning: Failed to write DoD artefact: {e}", log_file)
 

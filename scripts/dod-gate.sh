@@ -214,22 +214,25 @@ print(d.get('violations', '?'))
   fi
 
   # ── CICD receipt gate ─────────────────────────────────────────────────────
-  if [[ -f "$EVIDENCE/last_edge_receipt.json" ]]; then
-    RECEIPT_OK=$(python3 -c "
+  for ctx_receipt in last_upstream_receipt.json last_local_receipt.json last_edge_receipt.json; do
+    ctx_label="${ctx_receipt%.json}"
+    ctx_label="${ctx_label#last_}"
+    if [[ -f "$EVIDENCE/$ctx_receipt" ]]; then
+      RECEIPT_OK=$(python3 -c "
 import json
-with open('$EVIDENCE/last_edge_receipt.json') as f:
+with open('$EVIDENCE/$ctx_receipt') as f:
     d = json.load(f)
 print(d.get('status', 'UNKNOWN'))
 " 2>/dev/null || echo "UNKNOWN")
-    if [[ "$RECEIPT_OK" == "PASS" ]]; then
-      green "  ✓  CICD receipt (edge status=PASS)"
+      if [[ "$RECEIPT_OK" == "PASS" ]]; then
+        green "  ✓  CICD receipt ($ctx_label status=PASS)"
+      else
+        yellow "  WARN: CICD receipt $ctx_label status=$RECEIPT_OK"
+      fi
     else
-      yellow "  WARN: CICD receipt edge status=$RECEIPT_OK"
+      yellow "  SKIP: CICD receipt $ctx_label absent"
     fi
-  else
-    yellow "  SKIP: CICD receipt artefact absent"
-    yellow "        Run: ./scripts/one.sh edge-sync --dry-run"
-  fi
+  done
 
   # ── Public edge ───────────────────────────────────────────────────────────
   echo "  [ ] public_synthetic_check.sh exit 0 on billing.bhopti.com"

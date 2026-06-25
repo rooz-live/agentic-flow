@@ -119,12 +119,24 @@ def _classify_failure(log: Optional[str], status: str) -> str:
     if status == "PASS":
         return "none"
     text = (log or "").lower()
-    if "timeout" in text or "[timeout" in text:
-        return "timeout"
+    # Git clone failure is a specific transport failure; check first
     if "git clone failed" in text or "clone failed" in text:
         return "clone_failed"
+    # HTTP status codes (specific before generic)
+    if "403" in text or "forbidden" in text:
+        return "forbidden"
+    if "500" in text or "internal server error" in text:
+        return "server_error"
+    if "502" in text or "bad gateway" in text:
+        return "bad_gateway"
+    if "503" in text or "service unavailable" in text:
+        return "service_unavailable"
+    if "504" in text or "gateway timeout" in text:
+        return "gateway_timeout"
     if "not found" in text or "404" in text or "enotfound" in text:
         return "not_found"
+    if "timeout" in text or "[timeout" in text:
+        return "timeout"
     if "[exception" in text or "traceback" in text:
         return "exception"
     if "permission denied" in text or "eacces" in text:

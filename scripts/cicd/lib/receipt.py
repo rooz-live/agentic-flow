@@ -40,6 +40,7 @@ def make(
     warnings: list[str] | None = None,
     meta: dict | None = None,
     receipt_id: str | None = None,
+    timestamp: str | None = None,
 ) -> dict:
     """Create a validated receipt dict."""
     if context not in {"upstream", "local", "edge", "orchestration", "scorecard", "hire"}:
@@ -50,7 +51,7 @@ def make(
     return {
         "receipt_id": receipt_id or str(uuid.uuid4()),
         "schema": SCHEMA_VERSION,
-        "timestamp": _now(),
+        "timestamp": timestamp or _now(),
         "context": context,
         "status": status,
         "run": {

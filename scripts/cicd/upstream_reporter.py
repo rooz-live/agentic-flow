@@ -19,8 +19,15 @@ from __future__ import annotations
 import datetime
 import json
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+# Shared CICD receipt envelope (monolith deconstruct foundation)
+LIB_DIR = Path(__file__).resolve().parent / "lib"
+if str(LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(LIB_DIR))
+import receipt
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -249,6 +256,45 @@ def save_report_and_cache(
         print(f"🎉 Evidence artefact: {report_file}")
     except Exception as exc:  # noqa: BLE001
         print(f"❌ Failed to write evidence artefact: {exc}")
+
+    # ── Standard CICD receipt v1 artefact (monolith deconstruct) ────────────────
+    signals = []
+    for res in enriched_results:
+        signals.append({
+            "name": f"repo:{res['repository_id']}",
+            "ok": res["integration_status"] == "PASS" or res.get("skipped", False),
+            "required": not res.get("skipped", False),
+            "details": {
+                "status": res["integration_status"],
+                "skipped": res.get("skipped", False),
+                "failure_category": res.get("failure_category"),
+                "lane": res.get("lane"),
+            },
+        })
+    receipt_data = receipt.make(
+        context="upstream",
+        status="PASS" if all_passed else "FAIL",
+        command=f"upstream_upgrade_engine run_id={run_id}",
+        exit_code=0 if all_passed else 1,
+        duration_seconds=round(total_duration, 2),
+        signals=signals,
+        errors=[f"{r['repository_id']}: {r['integration_status']}" for r in enriched_results if r["integration_status"] != "PASS" and not r.get("skipped", False)],
+        warnings=[f"{r['repository_id']}: skipped" for r in enriched_results if r.get("skipped", False)],
+        meta={
+            "run_id": run_id,
+            "active_count": active_count,
+            "active_passed": active_passed,
+            "queue_depth": queue_depth,
+            "throughput_deliveries_per_hour": round(throughput, 2),
+            "eta_seconds": eta_seconds,
+        },
+    )
+    receipt_file = evidence_dir / f"receipt_{timestamp}.json"
+    try:
+        receipt_file.write_text(json.dumps(receipt_data, indent=2) + "\n", encoding="utf-8")
+        print(f"🧾 CICD receipt: {receipt_file}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"⚠️  Failed to write CICD receipt: {exc}")
 
     # ── Console summary ──────────────────────────────────────────────────────
     print("\n" + "=" * 60)

@@ -61,6 +61,34 @@ def test_eta_seconds_sanity():
     assert upstream_reporter._eta_seconds(1, 0.0) == float("inf")
 
 
+def test_save_report_and_cache_writes_cicd_receipt(tmp_path):
+    """save_report_and_cache must also emit a validated cicd.receipt.v1 artefact."""
+    results = [
+        {
+            "repository_id": "repo-a",
+            "integration_status": "PASS",
+            "latest_commit_sha": "sha123",
+            "duration_seconds": 1.0,
+            "skipped": False,
+            "log": "ok",
+        }
+    ]
+    cache = {}
+    ok = upstream_reporter.save_report_and_cache(
+        results, cache, tmp_path, "20260619T100000Z", run_id="run-1"
+    )
+    assert ok is True
+    receipt_file = tmp_path / ".goalie" / "evidence" / "upgrades" / "receipt_20260619T100000Z.json"
+    assert receipt_file.is_file()
+    data = json.loads(receipt_file.read_text(encoding="utf-8"))
+    assert data["schema"] == "cicd.receipt.v1"
+    assert data["context"] == "upstream"
+    assert data["status"] == "PASS"
+    assert data["run"]["exit_code"] == 0
+    assert data["signals"][0]["name"] == "repo:repo-a"
+    assert data["signals"][0]["ok"] is True
+
+
 # ==============================================================================
 # Local Upgrader Unit Tests
 # ==============================================================================

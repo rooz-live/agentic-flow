@@ -39,6 +39,7 @@ make_fake_project() {
     mkdir -p "$proj/scripts/cicd/lib" "$proj/src/proxies" "$proj/config/cicd" "$proj/.goalie/evidence"
     cp "$ENGINE_SRC" "$proj/scripts/cicd/edge_gateway_sync_engine.py"
     cp "$DLQ_ROAM_SRC" "$proj/scripts/cicd/lib/dlq_roam_apply.py"
+    cp "$ROOT_DIR/scripts/cicd/lib/receipt.py" "$proj/scripts/cicd/lib/receipt.py"
     {
         echo "version: 1.0.0"
         echo "dlq_path: .goalie/evidence/edge_gateway/dlq.jsonl"
@@ -255,6 +256,53 @@ PY
     run_assert_rc 1 "$TMPROOT/r3.out" run_engine "$proj" --no-coherence
     assert_file_contains "$proj/.goalie/evidence/edge_gateway/dlq.jsonl" "ghost.bhopti.com"
     assert_file_contains "$proj/.goalie/evidence/edge_gateway/dlq.jsonl" "R-EDGE-01"
+}
+
+# ── P4: Standard cicd.receipt.v1 artifact is emitted and validated ──────────
+test_receipt_artifact_emitted() {
+    echo ""
+    echo "P4: standard receipt artefact emitted"
+    local proj="$TMPROOT/p4"
+    make_fake_project "$proj"
+    cat > "$proj/src/proxies/edge_gateway.cfg" <<'CFG'
+billing.bhopti.com {
+    reverse_proxy 23.92.79.2:80
+}
+CFG
+    cat > "$proj/config/fqdn_registry.yaml" <<'YAML'
+domains:
+  - fqdn: billing.bhopti.com
+    origin: "23.92.79.2"
+    health_path: /
+YAML
+    mkdir -p "$proj/.goalie/evidence/edge_gateway"
+    echo '{"billing.bhopti.com": "23.92.79.2"}' > "$proj/.goalie/evidence/edge_gateway/last_known_state.json"
+
+    cat > "$proj/scripts/cicd/edge_fetcher.py" <<'PY'
+from pathlib import Path
+OFFLINE = "offline_or_unresolved"
+def fetch_edge_status(project_root):
+    fqdns = ["billing.bhopti.com"]
+    registry = {"billing.bhopti.com": "23.92.79.2"}
+    live = {"billing.bhopti.com": "23.92.79.2"}
+    cache = {"billing.bhopti.com": "23.92.79.2"}
+    to_sync = []
+    meta = {"billing.bhopti.com": {"origin": "23.92.79.2", "health_path": "/", "sync_timeout_s": 5, "roam_risk_id": None, "notify_on_fail": False}}
+    return fqdns, registry, live, cache, to_sync, meta
+PY
+    cat > "$proj/scripts/cicd/edge_runner.py" <<'PY'
+def run_edge_sync(*args, **kwargs): return []
+PY
+
+    run_assert_rc 0 "$TMPROOT/p4.out" run_engine "$proj" --no-coherence
+    local rcpt
+    rcpt=$(find "$proj/.goalie/evidence/edge_gateway" -name 'receipt_edge_sync_*.json' | head -1)
+    assert_file_exists "$rcpt"
+    assert_file_contains "$rcpt" '"schema": "cicd.receipt.v1"'
+    assert_file_contains "$rcpt" '"context": "edge"'
+    assert_file_contains "$rcpt" '"status": "PASS"'
+    assert_file_contains "$rcpt" '"edge_dns_sync"'
+    assert_valid_json "$rcpt"
 }
 
 # ── R4: Retry on transient DNS failure ────────────────────────────────────────
@@ -560,6 +608,7 @@ main() {
     test_dod_artefact_fields
     test_json_stdout
     test_dlq_notify_on_fail
+    test_receipt_artifact_emitted
     test_one_sh_edge_sync_routes
     test_coherence_gate_blocks
     print_test_summary

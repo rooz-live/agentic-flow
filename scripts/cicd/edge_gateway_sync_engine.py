@@ -25,6 +25,10 @@ except ImportError as e:
     print(f"❌ Core import failed: {e}", file=sys.stderr)
     sys.exit(3)
 
+# Shared CICD receipt envelope (monolith deconstruct contract)
+sys.path.insert(0, str(SCRIPT_DIR / "lib"))
+import receipt
+
 
 def _current_head(project_root: Path) -> str:
     """Return current git HEAD SHA."""
@@ -101,6 +105,76 @@ def _write_dod_artifact(
     symlink.unlink(missing_ok=True)
     symlink.symlink_to(path.name)
     print(f"✅ DoD artefact: {path}")
+
+
+def _write_receipt_artifact(
+    project_root: Path,
+    run_id: str,
+    timestamp: str,
+    status: str,
+    results: list,
+    coherence_ok: bool,
+    coherence_reason: str,
+    exit_code: int,
+) -> Path:
+    """Write a standard cicd.receipt.v1 artifact for fetch-run-report."""
+    failed_domains = [r["fqdn"] for r in results if r.get("status") != "PASS" and not r.get("skipped", False)]
+    skipped_domains = [r["fqdn"] for r in results if r.get("skipped", False)]
+    signals = [
+        {
+            "name": "edge_dns_sync",
+            "ok": status == "PASS",
+            "required": True,
+            "details": {
+                "domains_checked": len(results),
+                "domains_passed": len([r for r in results if r.get("status") == "PASS"]),
+                "domains_failed": failed_domains,
+                "domains_skipped": skipped_domains,
+            },
+        },
+        {
+            "name": "coherence_gate",
+            "ok": coherence_ok,
+            "required": True,
+            "details": {"reason": coherence_reason},
+        },
+    ]
+    rcpt = receipt.make(
+        context="edge",
+        status=status,
+        command="scripts/cicd/edge_gateway_sync_engine.py",
+        exit_code=exit_code,
+        duration_seconds=sum(r.get("duration_seconds", 0) for r in results),
+        signals=signals,
+        errors=failed_domains,
+        warnings=skipped_domains,
+        meta={
+            "run_id": run_id,
+            "git_head": _current_head(project_root),
+            "coherence_ok": coherence_ok,
+            "coherence_reason": coherence_reason,
+            "domains": [
+                {
+                    "fqdn": r["fqdn"],
+                    "status": r["status"],
+                    "skipped": r.get("skipped", False),
+                    "resolved_ip": r.get("resolved_ip"),
+                    "expected_ip": r.get("expected_ip"),
+                }
+                for r in results
+            ],
+        },
+        timestamp=timestamp,
+    )
+    evidence_dir = project_root / ".goalie" / "evidence" / "edge_gateway"
+    receipt_path = evidence_dir / f"receipt_edge_sync_{run_id}.json"
+    receipt.write(rcpt, receipt_path)
+    # Symlink latest receipt
+    symlink = project_root / ".goalie" / "evidence" / "edge_gateway" / "last_receipt.json"
+    symlink.unlink(missing_ok=True)
+    symlink.symlink_to(receipt_path.name)
+    print(f"🧾 Receipt artefact: {receipt_path}")
+    return receipt_path
 
 
 def main():
@@ -185,7 +259,12 @@ def main():
     )
 
     overall_status = "PASS" if all_passed else "FAIL"
+    exit_code = 0 if all_passed else 1
     _write_dod_artifact(project_root, run_id, timestamp, overall_status, results, coherence_ok, coherence_reason)
+    _write_receipt_artifact(
+        project_root, run_id, timestamp, overall_status, results,
+        coherence_ok, coherence_reason, exit_code,
+    )
 
     if args.json_output:
         print(json.dumps(summary, indent=2))

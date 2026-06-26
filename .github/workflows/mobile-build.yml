@@ -19,7 +19,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.3'
@@ -57,10 +57,26 @@ jobs:
         run: npm ci
       - name: Sync Capacitor
         run: npx cap sync ios
+      - name: Select available iOS simulator
+        id: sim
+        run: |
+          device=$(xcrun simctl list devices available -j | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+for rkey in sorted(d.get("devices", {}).keys(), reverse=True):
+    for dev in d["devices"][rkey]:
+        if dev.get("availability") == "(available)" and "iPhone" in dev["name"] and "Pro" in dev["name"]:
+            print(f"platform=iOS Simulator,name={dev[\"name\"]}")
+            sys.exit(0)
+')
+          echo "destination=$device" >> "$GITHUB_OUTPUT"
       - name: Build iOS release archive
         env:
           SUMMERJOBSWAP_IOS_TEAM_ID: ${{ secrets.SUMMERJOBSWAP_IOS_TEAM_ID }}
           SUMMERJOBSWAP_IOS_BUNDLE_ID: ${{ secrets.SUMMERJOBSWAP_IOS_BUNDLE_ID }}
+          SUMMERJOBSWAP_IOS_SIM_DESTINATION: ${{ steps.sim.outputs.destination }}
+          FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 120
+          FASTLANE_XCODE_BUILD_SETTINGS_TIMEOUT: 120
         run: bundle exec fastlane ios release
       - name: Upload IPA
         uses: actions/upload-artifact@v4

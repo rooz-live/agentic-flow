@@ -22,6 +22,14 @@ App Store and Google Play.
 | iOS | Bundle ID | `SUMMERJOBSWAP_IOS_BUNDLE_ID` (default: `com.sovereign.summerjobswap`) |
 | iOS | App Store Connect API key | GitHub secret / fastlane match (not yet configured) |
 
+## Local setup
+
+```bash
+cd apps/summerjobswap
+npm install
+# Copy .env.local.example to .env.local and fill in Android keystore values
+```
+
 ## Build commands
 
 ```bash
@@ -39,6 +47,15 @@ bundle exec fastlane ios debug_sim
 # iOS release archive (requires team ID)
 SUMMERJOBSWAP_IOS_TEAM_ID=YOUR_TEAM_ID bundle exec fastlane ios release
 ```
+
+## Notes
+
+- Android requires JDK 21 (Capacitor 8 + AGP 8.13). The CI uses Temurin 21.
+- iOS simulator destination defaults to `iPhone 17 Pro,OS=26.5`. Override with
+  `SUMMERJOBSWAP_IOS_SIM_DESTINATION` if your local Xcode runtimes differ.
+- The Xcode project includes a build phase that strips extended attributes
+  before ad-hoc codesign; this is required on macOS Sequoia+ to avoid
+  `resource fork, Finder information, or similar detritus not allowed` errors.
 
 ## CI
 

@@ -12,11 +12,13 @@ local SHA cache.  New vs. previous behaviour:
 
 import json
 import subprocess
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 OFFLINE_SENTINEL = "offline_or_cached_sha"
+DEFAULT_MAX_RETRIES = 2
 REQUIRED_REPO_FIELDS = {"id", "url", "branch", "integration_test"}
 
 
@@ -76,6 +78,36 @@ def _fetch_one(repo_id: str, url: str, branch: str, timeout_s: int) -> FetchResu
         return FetchResult(repo_id, OFFLINE_SENTINEL, f"timeout after {timeout_s}s")
     except Exception as exc:  # noqa: BLE001
         return FetchResult(repo_id, OFFLINE_SENTINEL, str(exc))
+
+
+def _fetch_one_with_retry(
+    repo_id: str,
+    url: str,
+    branch: str,
+    timeout_s: int,
+    max_retries: int = DEFAULT_MAX_RETRIES,
+) -> FetchResult:
+    """Fetch HEAD SHA for one remote branch with exponential-backoff retries.
+
+    Retries only on transient errors (timeout, non-zero exit, empty output).
+    Permanent errors such as exit 128 or "not found" are not retried.
+    """
+    for attempt in range(max_retries + 1):
+        result = _fetch_one(repo_id, url, branch, timeout_s)
+        if result.sha != OFFLINE_SENTINEL:
+            return result
+
+        permanent_error = result.error and (
+            "exit 128" in result.error or "not found" in result.error
+        )
+        if permanent_error or attempt >= max_retries:
+            return result
+
+        sleep_s = min(2 ** attempt, 30)
+        print(f"⚠️  {repo_id}: transient error, retry {attempt + 1}/{max_retries}...")
+        time.sleep(sleep_s)
+
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -140,13 +172,18 @@ def fetch_active_targets(
     remote_heads: Dict[str, str] = {}
     if use_parallel and active_repos:
         fetch_args = [
-            (r["id"], r["url"], r["branch"],
-             int(r.get("timeout_s", default_timeout)))
+            (
+                r["id"],
+                r["url"],
+                r["branch"],
+                int(r.get("timeout_s", default_timeout)),
+                int(r.get("retry", cfg.get("default_retry", cfg.get("default_max_retries", DEFAULT_MAX_RETRIES)))),
+            )
             for r in active_repos
         ]
         with ThreadPoolExecutor(max_workers=len(fetch_args)) as pool:
             futures = {
-                pool.submit(_fetch_one, *args): args[0]
+                pool.submit(_fetch_one_with_retry, *args): args[0]
                 for args in fetch_args
             }
             for fut in as_completed(futures):
@@ -157,7 +194,12 @@ def fetch_active_targets(
     else:
         for repo in active_repos:
             t = int(repo.get("timeout_s", default_timeout))
-            result = _fetch_one(repo["id"], repo["url"], repo["branch"], t)
+            max_retries = int(
+                repo.get("retry", cfg.get("default_retry", cfg.get("default_max_retries", DEFAULT_MAX_RETRIES)))
+            )
+            result = _fetch_one_with_retry(
+                repo["id"], repo["url"], repo["branch"], t, max_retries
+            )
             remote_heads[result.repo_id] = result.sha
             if result.error:
                 print(f"  ⚠️  {result.repo_id}: {result.error}")

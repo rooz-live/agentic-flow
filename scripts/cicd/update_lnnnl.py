@@ -7,10 +7,94 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
 # Insert project root to path to import calculator
-PROJECT_ROOT = str(Path(__file__).parent.parent.parent.resolve())
+PROJECT_ROOT = os.environ.get("REPO_ROOT") or str(Path(__file__).resolve().parents[2])
 sys.path.insert(0, PROJECT_ROOT)
 
 from src.wsjf.calculator import WsjfCalculator, WsjfItem
+
+sys.path.insert(0, os.path.join(PROJECT_ROOT, "scripts", "cicd", "lib"))
+from env_key_resolver import sync_roam_env_deps
+
+SHIPPABLE_ID_RE = re.compile(r"^P1-[A-Z0-9]+-\d+$", re.I)
+BLOCKER_ID_RE = re.compile(r"^(DEP-|BLK-|B-|R04|R-)", re.I)
+
+
+def load_shippable_queue(root):
+    prompts_path = os.path.join(root, "config/cicd/loop_prompts.yaml")
+    if not os.path.exists(prompts_path):
+        return []
+    with open(prompts_path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    out = []
+    for row in data.get("wsjf_now_items", []):
+        iid = str(row.get("id") or "")
+        if SHIPPABLE_ID_RE.match(iid):
+            out.append({"id": iid, "title": iid, "type": "shippable"})
+    return out
+
+
+def format_slot(item_id, title):
+    desc = str(title or item_id).replace('"', "").replace("\n", " ").strip()
+    if len(desc) > 100:
+        desc = desc[:97] + "..."
+    return f"[{item_id}] {desc}"
+
+
+def is_blocker_item(item_id, item_type):
+    iid = str(item_id or "")
+    if SHIPPABLE_ID_RE.match(iid):
+        return False
+    if BLOCKER_ID_RE.match(iid):
+        return True
+    return item_type in ("blocker", "dependency", "risk", "risk_cog")
+
+
+def build_lane_schedules(sorted_items, shippable_queue):
+    labels = ["now", "near", "next", "later", "likely"]
+    blockers = []
+    for p in sorted_items:
+        item_data = p["item"]
+        if is_blocker_item(item_data.get("id"), item_data.get("type", "")):
+            blockers.append(item_data)
+    shippable = list(shippable_queue)
+    for p in sorted_items:
+        item_data = p["item"]
+        iid = str(item_data.get("id") or "")
+        if SHIPPABLE_ID_RE.match(iid) and not any(s["id"] == iid for s in shippable):
+            shippable.append({"id": iid, "title": item_data.get("title", iid), "type": "shippable"})
+
+    def lane_from(items):
+        lane = {}
+        for i, label in enumerate(labels):
+            if i < len(items):
+                row = items[i]
+                lane[label] = format_slot(row.get("id"), row.get("title"))
+            else:
+                lane[label] = "No pending task."
+        return lane
+
+    return lane_from(shippable), lane_from(blockers)
+
+
+def reconcile_wsjf_dependency_links(tracker_data):
+    deps = {str(d.get("id")): str(d.get("status", "")).lower()
+            for d in tracker_data.get("dependencies", [])}
+    wsjf = tracker_data.get("wsjf") or {}
+    links = wsjf.get("dependency_links") or []
+    changed = False
+    for link in links:
+        current_status = str(link.get("status", "")).upper()
+        if current_status == "RESOLVED":
+            continue
+        dep_ids = link.get("depends_on") or []
+        if dep_ids and all(deps.get(str(d)) == "resolved" for d in dep_ids):
+            link["status"] = "RESOLVED"
+            changed = True
+    if changed:
+        wsjf["dependency_links"] = links
+        tracker_data["wsjf"] = wsjf
+    return changed
+
 
 def parse_deadline(deadline_str):
     if not deadline_str:
@@ -89,9 +173,11 @@ def main():
     roam_root_path = os.path.join(PROJECT_ROOT, "ROAM_TRACKER.yaml")
     loop_prompts_path = os.path.join(PROJECT_ROOT, "config/cicd/loop_prompts.yaml")
 
-    resolved = sync_roam_env_deps(Path(PROJECT_ROOT))
-    if resolved:
-        print(f"Auto-resolved env deps: {', '.join(resolved)}")
+    resolved = []
+    if os.environ.get("AF_SKIP_ROAM_SYNC", "0") != "1":
+        resolved = sync_roam_env_deps(Path(PROJECT_ROOT))
+        if resolved:
+            print(f"Auto-resolved env deps: {', '.join(resolved)}")
 
     now_utc = datetime.now(timezone.utc)
     today_str = now_utc.strftime('%Y-%m-%d')
@@ -295,37 +381,27 @@ def main():
 
     shippable_lane, blockers_lane = build_lane_schedules(sorted_items, load_shippable_queue(PROJECT_ROOT))
 
-    # Update LNNNL schedule (legacy + dual-lane)
-    schedule_labels = ['now', 'near', 'next', 'later', 'likely']
     schedule = {}
-    for i, label in enumerate(schedule_labels):
-        if i < len(sorted_items):
-            p = sorted_items[i]
-            item_data = p['item']
-            desc = item_data['title'].replace('"', '').replace('\n', ' ').strip()
-            # Clean up desc if too long
-            if len(desc) > 100:
-                desc = desc[:97] + "..."
-            schedule[label] = f"[{item_data['id']}] {desc}"
+    for label in ['now', 'near', 'next', 'later', 'likely']:
+        ship = shippable_lane.get(label, "")
+        blk = blockers_lane.get(label, "")
+        if ship and ship != "No pending task.":
+            schedule[label] = ship
+        elif blk and blk != "No pending task.":
+            schedule[label] = blk
         else:
             schedule[label] = "No pending task."
-
-    # Build multi-lane schedule: shippable work from loop_prompts + ROAM backlog
-    loop_prompts_data = _load_loop_prompts(loop_prompts_path)
-    shippable_items = _extract_shippable_items(loop_prompts_data)
-    lanes = {
-        "shippable": {
-            label: _format_item(items[0]) if items else "No pending shippable task."
-            for label, items in shippable_items.items()
-        },
-        "blockers": schedule,
-    }
+    schedule["shippable_now"] = shippable_lane.get("now", "")
+    schedule["shippable_near"] = shippable_lane.get("near", "")
+    schedule["shippable_next"] = shippable_lane.get("next", "")
+    schedule["blockers_now"] = blockers_lane.get("now", "")
+    schedule["blockers_near"] = blockers_lane.get("near", "")
 
     lnnnl_data = {
         "version": "1.1",
-        "lanes": lanes,
         "schedule": schedule,
-        "last_updated": now_iso
+        "lanes": {"shippable": shippable_lane, "blockers": blockers_lane},
+        "last_updated": now_iso,
     }
 
     with open(lnnnl_path, 'w') as f:
@@ -335,11 +411,8 @@ def main():
     print("\nUpdated LNNNL Schedule (WSJF Prioritized):")
     for k, v in schedule.items():
         print(f"  {k.upper()}: {v}")
-    print("\nUpdated LNNNL Lanes:")
-    for lane_name, lane_schedule in lanes.items():
-        print(f"  [{lane_name}]")
-        for k, v in lane_schedule.items():
-            print(f"    {k.upper()}: {v}")
+    print("\nShippable NOW:", schedule.get("shippable_now", ""))
+    print("Blockers NOW:", schedule.get("blockers_now", ""))
 
     reconcile_wsjf_dependency_links(tracker_data)
 
@@ -376,17 +449,19 @@ def main():
         for b in blockers:
             roam_status = str(b.get('roam_status', '')).upper()
             if roam_status != 'RESOLVED':
-                # Fix any malformed discovered field
                 disc = b.get('discovered', '')
-                if '(' in str(disc):
+                if not disc or '(' in str(disc):
                     b['discovered'] = today_str
-                b['last_updated'] = now_iso
+                b['last_verified'] = today_str
 
         # Refresh dependencies
         for d in dependencies:
             status = str(d.get('status', '')).lower()
             if status != 'resolved':
-                d['discovered'] = today_str
+                disc = d.get('discovered', '')
+                if not disc or '(' in str(disc):
+                    d['discovered'] = today_str
+                d['last_verified'] = today_str
 
         # Refresh risks + Fix 'status' field mapping
         for r in tracker_risks:
@@ -396,7 +471,10 @@ def main():
                 r['status'] = roam_status.lower()
             status = str(r.get('status', '')).lower()
             if status not in ('mitigated', 'accepted', 'resolved'):
-                r['discovered'] = today_str
+                disc = r.get('discovered', '')
+                if not disc or '(' in str(disc):
+                    r['discovered'] = today_str
+                r['last_verified'] = today_str
 
         with open(roam_path, 'w') as f:
             yaml.dump(tracker_data, f, default_flow_style=False, sort_keys=False)

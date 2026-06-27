@@ -391,14 +391,18 @@ def test_extract_non_dict_json_returns_none():
 # --------------------------------------------------------------------------- #
 # main(): exit codes + source resolution
 # --------------------------------------------------------------------------- #
-def test_main_file_ship(tmp_path):
+def test_main_file_ship(tmp_path, monkeypatch):
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("AF_GATE_CONTEXT", raising=False)
     p = tmp_path / "c.json"
     p.write_text(json.dumps(VALID))
     assert gate.main(["--file", str(p)]) == 0
 
 
-def test_main_file_block(tmp_path):
+def test_main_file_block(tmp_path, monkeypatch):
     """Coherence FAIL → BLOCK → exit 2."""
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("AF_GATE_CONTEXT", raising=False)
     c = base()
     c["originality"]["coherence"] = "FAIL"
     p = tmp_path / "c.json"
@@ -406,7 +410,9 @@ def test_main_file_block(tmp_path):
     assert gate.main(["--file", str(p)]) == 2
 
 
-def test_main_bad_json_returns_parse_error(tmp_path):
+def test_main_bad_json_returns_parse_error(tmp_path, monkeypatch):
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("AF_GATE_CONTEXT", raising=False)
     p = tmp_path / "bad.json"
     p.write_text("{not json")
     assert gate.main(["--file", str(p)]) == 3
@@ -561,6 +567,7 @@ def test_harden_overrides_self_asserted_fields(monkeypatch):
     monkeypatch.setattr(gate, "git_head", lambda *a, **k: "abc123")
     monkeypatch.setattr(gate, "current_diff_sha", lambda env: None)
     monkeypatch.setattr(gate, "collect_reward_proxies", lambda env: {"untracked_added": 0})
+    monkeypatch.setattr(gate, "_git", lambda *a, **k: None)
     c = base()  # self-asserts coherence PASS + gate_integrity PASS
     c["commit"] = "abc123"
     hardened, blocks, warns, meta = gate.harden(
@@ -587,6 +594,7 @@ def _verify_mocks(monkeypatch, signal_ok, head="abc123"):
     monkeypatch.setattr(gate, "git_head", lambda *a, **k: head)
     monkeypatch.setattr(gate, "current_diff_sha", lambda env: None)
     monkeypatch.setattr(gate, "collect_reward_proxies", lambda env: {})
+    monkeypatch.setattr(gate, "_git", lambda *a, **k: None)
     monkeypatch.setenv("AF_GATE_CONTEXT", "ci")
 
 
@@ -830,3 +838,127 @@ def test_harden_coherence_hybrid_gating_ci_ingest(monkeypatch):
     assert hardened["originality"]["coherence"] == "PASS"
     assert meta.get("coherence_ingested") is not True  # should not ingest
     assert "signals" in meta  # ran dynamically
+
+
+def test_harden_blocks_unsigned_db_schema_or_model_alterations(monkeypatch, tmp_path):
+    sc = base()
+    monkeypatch.setattr(gate, "git_head", lambda *a, **k: "mock_sha")
+    monkeypatch.setattr(gate, "current_diff_sha", lambda *a, **k: "mock_diff")
+    monkeypatch.setattr(gate, "run_signals", lambda *a, **k: [])
+    monkeypatch.setattr(gate, "derive_coherence", lambda *a, **k: "PASS")
+    monkeypatch.setattr(gate, "derive_gate_integrity", lambda *a, **k: ("PASS", "mock"))
+    monkeypatch.setattr(gate, "verify_signoff", lambda *a, **k: (False, "unsigned"))
+    
+    def mock_altered(*a, **k):
+        return {"src/db/schema.sql"}
+    monkeypatch.setattr(gate, "get_altered_files", mock_altered)
+    
+    hardened, blocks, warns, meta = gate.harden(sc, env={}, strict=False, ingest_only=True)
+    assert any("alterations to DB schemas or models require a cryptographically verified review signature" in err for err in blocks)
+
+
+def test_harden_allows_signed_db_schema_or_model_alterations(monkeypatch, tmp_path):
+    sc = base()
+    monkeypatch.setattr(gate, "git_head", lambda *a, **k: "mock_sha")
+    monkeypatch.setattr(gate, "current_diff_sha", lambda *a, **k: "mock_diff")
+    monkeypatch.setattr(gate, "run_signals", lambda *a, **k: [])
+    monkeypatch.setattr(gate, "derive_coherence", lambda *a, **k: "PASS")
+    monkeypatch.setattr(gate, "derive_gate_integrity", lambda *a, **k: ("PASS", "mock"))
+    monkeypatch.setattr(gate, "verify_signoff", lambda *a, **k: (True, "signed"))
+    
+    def mock_altered(*a, **k):
+        return {"src/db/schema.sql"}
+    monkeypatch.setattr(gate, "get_altered_files", mock_altered)
+    
+    hardened, blocks, warns, meta = gate.harden(sc, env={}, strict=False, ingest_only=True)
+    assert not any("alterations to DB schemas or models require a cryptographically verified review signature" in err for err in blocks)
+
+
+def test_load_signals_rejects_unsigned_changes_locally(monkeypatch, tmp_path):
+    monkeypatch.setenv("AF_GATE_CONTEXT", "precommit")
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    
+    signals_file = tmp_path / "verify_signals.json"
+    custom_signals = [{"name": "custom-cmd", "cmd": "echo 1"}]
+    signals_file.write_text(json.dumps({
+        "signals": custom_signals,
+        "signature": "invalid_signature",
+        "principal": "owner"
+    }))
+    
+    monkeypatch.setattr(gate, "VERIFY_SIGNALS_FILE", str(signals_file))
+    
+    # Mock verify_signals.json is modified locally
+    def mock_git(args, **kwargs):
+        if "status" in args:
+            return " M " + str(signals_file)
+        return ""
+    monkeypatch.setattr(gate, "_git", mock_git)
+    
+    # Mock verify_ssh_signature to fail
+    monkeypatch.setattr(gate, "verify_ssh_signature", lambda *a, **k: False)
+    
+    # Should fall back to DEFAULT_SIGNALS
+    assert gate.load_signals() == gate.DEFAULT_SIGNALS
+
+
+def test_collect_reward_proxies_scans_all_directories(monkeypatch):
+    def mock_git(args, **kwargs):
+        if "ls-files" in args:
+            target = args[-1]
+            return f"{target}/untracked_file.py"
+        return ""
+    monkeypatch.setattr(gate, "_git", mock_git)
+    
+    proxies = gate.collect_reward_proxies({})
+    assert proxies["untracked_added"] == 4
+
+
+def test_audit_pytest_imports_allowed_and_untracked(tmp_path, monkeypatch):
+    pytest_dir = tmp_path / "tests" / "pytest"
+    pytest_dir.mkdir(parents=True)
+    (tmp_path / "requirements.txt").write_text("pytest\nrequests\npyyaml\n")
+    (tmp_path / "package.json").write_text(json.dumps({"dependencies": {"lodash": "1.0.0"}}))
+    
+    test_file = pytest_dir / "test_ok.py"
+    test_file.write_text("import pytest\nimport os\nimport requests\nimport yaml\n")
+    assert gate.audit_pytest_imports(str(tmp_path)) is True
+    
+    test_file.write_text("import pytest\nimport untracked_pkg\n")
+    assert gate.audit_pytest_imports(str(tmp_path)) is False
+
+
+def test_roam_tracker_update_unregistered_untracked_files(monkeypatch, tmp_path):
+    sc = base()
+    monkeypatch.setattr(gate, "git_head", lambda *a, **k: "mock_sha")
+    monkeypatch.setattr(gate, "current_diff_sha", lambda *a, **k: "mock_diff")
+    monkeypatch.setattr(gate, "run_signals", lambda *a, **k: [])
+    monkeypatch.setattr(gate, "derive_coherence", lambda *a, **k: "PASS")
+    monkeypatch.setattr(gate, "derive_gate_integrity", lambda *a, **k: ("PASS", "mock"))
+    monkeypatch.setattr(gate, "verify_signoff", lambda *a, **k: (True, "mock"))
+    
+    # Mock ROAM_TRACKER.yaml is modified
+    # And mock untracked files to return src/new_file.py
+    def mock_git(args, **kwargs):
+        if "status" in args and "ROAM_TRACKER.yaml" in args:
+            return " M ROAM_TRACKER.yaml"
+        if "ls-files" in args and "--others" in args:
+            return "src/new_file.py"
+        return ""
+    monkeypatch.setattr(gate, "_git", mock_git)
+    
+    # Write ROAM_TRACKER.yaml without src/new_file.py
+    tracker_file = tmp_path / "ROAM_TRACKER.yaml"
+    tracker_file.write_text("metadata:\n  version: '2.5'\n")
+    
+    monkeypatch.chdir(tmp_path)
+    
+    hardened, blocks, warns, meta = gate.harden(sc, env={}, strict=False, ingest_only=True)
+    assert any("ROAM_TRACKER.yaml was updated, but the following newly added untracked files are not registered" in err for err in blocks)
+    
+    # Now write ROAM_TRACKER.yaml WITH src/new_file.py
+    tracker_file.write_text("metadata:\n  version: '2.5'\nrisks:\n  - path: src/new_file.py\n")
+    hardened, blocks, warns, meta = gate.harden(sc, env={}, strict=False, ingest_only=True)
+    assert not any("ROAM_TRACKER.yaml was updated, but the following newly added untracked files are not registered" in err for err in blocks)
+

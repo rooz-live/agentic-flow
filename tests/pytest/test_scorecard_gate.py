@@ -931,4 +931,199 @@ def test_run_no_invented_symbols_blocks_importlib_keyword_import(tmp_path, monke
     monkeypatch.setattr("scripts.gates.scorecard_gate._git", fake_git)
     assert run_no_invented_symbols(tmp_path) is False
 
+def test_harden_precommit_uses_coherence_artifact(tmp_path, monkeypatch):
+    """Precommit verify must ingest coherence artifact instead of re-running pytest signals."""
+    from scripts.gates import scorecard_gate as sg
+
+    import subprocess
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=tmp_path, check=True, capture_output=True)
+    (tmp_path / "README.md").write_text("init\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
+
+    (tmp_path / ".goalie" / "scorecards").mkdir(parents=True, exist_ok=True)
+    (tmp_path / ".goalie" / "scorecards" / "current.json").write_text(
+        json.dumps(
+            {
+                "originality": {"coherence": "PASS"},
+                "impact": {"reward_direction": 1},
+                "gates": {"gate_integrity": "PASS"},
+                "sign_off": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    called = {"signals": 0}
+
+    def _boom(*_a, **_k):
+        called["signals"] += 1
+        raise AssertionError("run_signals should not run when artifact is fresh")
+
+    monkeypatch.setattr(sg, "run_signals", _boom)
+    monkeypatch.setattr(sg, "_coherence_artifact_usable", lambda *a, **k: True)
+    monkeypatch.setattr(sg, "derive_coherence", lambda *a, **k: "PASS")
+    monkeypatch.chdir(tmp_path)
+    env = {"AF_GATE_CONTEXT": "precommit"}
+    card = json.loads((tmp_path / ".goalie/scorecards/current.json").read_text())
+    hardened, blocks, warns, meta = sg.harden(card, env=env, strict=False, ingest_only=False)
+    assert meta.get("coherence_source") == "artifact"
+    assert meta.get("coherence_ingested") is True
+    assert called["signals"] == 0
+    assert hardened["originality"]["coherence"] == "PASS"
+
+
+def test_harden_blocks_unsigned_db_schema_or_model_alterations(monkeypatch, tmp_path):
+    from scripts.gates import scorecard_gate as sg
+    sc = make_valid_scorecard()
+    
+    # Mock git functions & signals
+    monkeypatch.setattr(sg, "git_head", lambda *a, **k: "mock_sha")
+    monkeypatch.setattr(sg, "current_diff_sha", lambda *a, **k: "mock_diff")
+    monkeypatch.setattr(sg, "run_signals", lambda *a, **k: [])
+    monkeypatch.setattr(sg, "derive_coherence", lambda *a, **k: "PASS")
+    monkeypatch.setattr(sg, "derive_gate_integrity", lambda *a, **k: ("PASS", "mock"))
+    
+    # Mock verify_signoff to fail (unsigned review)
+    monkeypatch.setattr(sg, "verify_signoff", lambda *a, **k: (False, "unsigned"))
+    
+    # Mock altered files to return a schema file
+    def mock_altered(*a, **k):
+        return {"src/db/schema.sql"}
+    monkeypatch.setattr(sg, "get_altered_files", mock_altered)
+    
+    hardened, blocks, warns, meta = sg.harden(sc, env={}, strict=False, ingest_only=True)
+    assert any("alterations to DB schemas or models require a cryptographically verified review signature" in err for err in blocks)
+
+
+def test_harden_allows_signed_db_schema_or_model_alterations(monkeypatch, tmp_path):
+    from scripts.gates import scorecard_gate as sg
+    sc = make_valid_scorecard()
+    
+    # Mock git functions & signals
+    monkeypatch.setattr(sg, "git_head", lambda *a, **k: "mock_sha")
+    monkeypatch.setattr(sg, "current_diff_sha", lambda *a, **k: "mock_diff")
+    monkeypatch.setattr(sg, "run_signals", lambda *a, **k: [])
+    monkeypatch.setattr(sg, "derive_coherence", lambda *a, **k: "PASS")
+    monkeypatch.setattr(sg, "derive_gate_integrity", lambda *a, **k: ("PASS", "mock"))
+    
+    # Mock verify_signoff to pass (signed review)
+    monkeypatch.setattr(sg, "verify_signoff", lambda *a, **k: (True, "signed"))
+    
+    # Mock altered files to return a schema file
+    def mock_altered(*a, **k):
+        return {"src/db/schema.sql"}
+    monkeypatch.setattr(sg, "get_altered_files", mock_altered)
+    
+    hardened, blocks, warns, meta = sg.harden(sc, env={}, strict=False, ingest_only=True)
+    assert not any("alterations to DB schemas or models require a cryptographically verified review signature" in err for err in blocks)
+
+
+def test_load_signals_rejects_unsigned_changes_locally(monkeypatch, tmp_path):
+    from scripts.gates import scorecard_gate as sg
+    monkeypatch.setenv("AF_GATE_CONTEXT", "precommit")
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    
+    signals_file = tmp_path / "verify_signals.json"
+    custom_signals = [{"name": "custom-cmd", "cmd": "echo 1"}]
+    signals_file.write_text(json.dumps({
+        "signals": custom_signals,
+        "signature": "invalid_signature",
+        "principal": "owner"
+    }))
+    
+    monkeypatch.setattr(sg, "VERIFY_SIGNALS_FILE", str(signals_file))
+    
+    # Mock verify_signals.json is modified locally
+    def mock_git(args, **kwargs):
+        if "status" in args:
+            return " M " + str(signals_file)
+        return ""
+    monkeypatch.setattr(sg, "_git", mock_git)
+    
+    # Mock verify_ssh_signature to fail
+    monkeypatch.setattr(sg, "verify_ssh_signature", lambda *a, **k: False)
+    
+    # Should fall back to DEFAULT_SIGNALS
+    assert sg.load_signals() == sg.DEFAULT_SIGNALS
+
+
+def test_collect_reward_proxies_scans_all_directories(monkeypatch):
+    from scripts.gates import scorecard_gate as sg
+    
+    # Mock _git to return one file for each target dir
+    def mock_git(args, **kwargs):
+        if "ls-files" in args:
+            # args[-1] is target directory
+            target = args[-1]
+            return f"{target}/untracked_file.py"
+        return ""
+    monkeypatch.setattr(sg, "_git", mock_git)
+    
+    proxies = sg.collect_reward_proxies({})
+    assert proxies["untracked_added"] == 4  # 1 for each of: src, domain, scripts, tests
+
+
+def test_audit_pytest_imports_allowed_and_untracked(tmp_path, monkeypatch):
+    from scripts.gates import scorecard_gate as sg
+    
+    # Create test directory structure
+    pytest_dir = tmp_path / "tests" / "pytest"
+    pytest_dir.mkdir(parents=True)
+    
+    # Create requirements.txt
+    (tmp_path / "requirements.txt").write_text("pytest\nrequests\npyyaml\n")
+    
+    # Create package.json
+    (tmp_path / "package.json").write_text(json.dumps({"dependencies": {"lodash": "1.0.0"}}))
+    
+    # 1. Allowed imports (standard lib + requirements + package.json + local)
+    test_file = pytest_dir / "test_ok.py"
+    test_file.write_text("import pytest\nimport os\nimport requests\nimport yaml\n")
+    
+    assert sg.audit_pytest_imports(str(tmp_path)) is True
+    
+    # 2. Untracked import (untracked_pkg)
+    test_file.write_text("import pytest\nimport untracked_pkg\n")
+    assert sg.audit_pytest_imports(str(tmp_path)) is False
+
+
+def test_roam_tracker_update_unregistered_untracked_files(monkeypatch, tmp_path):
+    from scripts.gates import scorecard_gate as sg
+    sc = make_valid_scorecard()
+    
+    # Mock git functions & signals
+    monkeypatch.setattr(sg, "git_head", lambda *a, **k: "mock_sha")
+    monkeypatch.setattr(sg, "current_diff_sha", lambda *a, **k: "mock_diff")
+    monkeypatch.setattr(sg, "run_signals", lambda *a, **k: [])
+    monkeypatch.setattr(sg, "derive_coherence", lambda *a, **k: "PASS")
+    monkeypatch.setattr(sg, "derive_gate_integrity", lambda *a, **k: ("PASS", "mock"))
+    monkeypatch.setattr(sg, "verify_signoff", lambda *a, **k: (True, "mock"))
+    
+    # Mock ROAM_TRACKER.yaml is modified
+    # And mock untracked files to return src/new_file.py
+    def mock_git(args, **kwargs):
+        if "status" in args and "ROAM_TRACKER.yaml" in args:
+            return " M ROAM_TRACKER.yaml"
+        if "ls-files" in args and "--others" in args:
+            return "src/new_file.py"
+        return ""
+    monkeypatch.setattr(sg, "_git", mock_git)
+    
+    # Write ROAM_TRACKER.yaml without src/new_file.py
+    tracker_file = tmp_path / "ROAM_TRACKER.yaml"
+    tracker_file.write_text("metadata:\n  version: '2.5'\n")
+    
+    monkeypatch.chdir(tmp_path)
+    
+    hardened, blocks, warns, meta = sg.harden(sc, env={}, strict=False, ingest_only=True)
+    assert any("ROAM_TRACKER.yaml was updated, but the following newly added untracked files are not registered" in err for err in blocks)
+    
+    # Now write ROAM_TRACKER.yaml WITH src/new_file.py
+    tracker_file.write_text("metadata:\n  version: '2.5'\nrisks:\n  - path: src/new_file.py\n")
+    hardened, blocks, warns, meta = sg.harden(sc, env={}, strict=False, ingest_only=True)
+    assert not any("ROAM_TRACKER.yaml was updated, but the following newly added untracked files are not registered" in err for err in blocks)
 

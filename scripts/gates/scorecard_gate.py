@@ -426,6 +426,13 @@ def load_signals() -> list:
         if verify_ssh_signature(sig, principal, canonical, allowed_signers):
             return signals
 
+    # Local precommit may use the repo's unsigned verify_signals.json (lighter than DEFAULT_SIGNALS).
+    # Reject unsigned changes locally (if verify_signals.json itself is modified/untracked).
+    if is_precommit and not is_ci and signals:
+        status = _git(["status", "--porcelain", VERIFY_SIGNALS_FILE])
+        if not (status and status.strip()):
+            return signals
+
     # Signature verification failed or allowed_signers missing
     return DEFAULT_SIGNALS
 
@@ -529,7 +536,99 @@ def _dynamic_import_call_ok(node: ast.Call, root: Any, tracked_files: set) -> bo
         
     return True
 
+
+PACKAGE_ALIASES = {
+    "yaml": "pyyaml",
+    "pyyaml": "yaml",
+}
+
+
+def get_allowed_python_packages(root: str) -> set[str]:
+    req_path = Path(root) / "requirements.txt"
+    packages = set()
+    if req_path.is_file():
+        for line in req_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            m = re.match(r"^([a-zA-Z0-9_\-]+)", line)
+            if m:
+                name = m.group(1).lower().replace("-", "_")
+                packages.add(name)
+    return packages
+
+
+def get_allowed_node_packages(root: str) -> set[str]:
+    pkg_path = Path(root) / "package.json"
+    packages = set()
+    if pkg_path.is_file():
+        try:
+            with open(pkg_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for section in ("dependencies", "devDependencies"):
+                if section in data and isinstance(data[section], dict):
+                    for pkg in data[section].keys():
+                        name = pkg.lower().replace("-", "_")
+                        packages.add(name)
+        except Exception:
+            pass
+    return packages
+
+
+def is_local_module(root: str, module_name: str) -> bool:
+    p_dir = Path(root) / module_name
+    p_file = Path(root) / f"{module_name}.py"
+    return p_dir.is_dir() or p_file.is_file()
+
+
+def audit_pytest_imports(root: str) -> bool:
+    allowed_py = get_allowed_python_packages(root)
+    allowed_node = get_allowed_node_packages(root)
+    allowed_all = allowed_py | allowed_node
+    
+    import sys
+    std_lib = set(getattr(sys, "stdlib_module_names", [])) | set(sys.builtin_module_names) | {"__future__", "sys", "os"}
+    
+    pytest_dir = Path(root) / "tests" / "pytest"
+    if not pytest_dir.is_dir():
+        return True
+        
+    for p in pytest_dir.rglob("*.py"):
+        try:
+            content = p.read_text(encoding="utf-8")
+            tree = ast.parse(content)
+        except Exception:
+            continue
+            
+        for node in ast.walk(tree):
+            modules = []
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    modules.append(alias.name.split(".")[0])
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                if node.level > 0:
+                    continue
+                modules.append(node.module.split(".")[0])
+                
+            for mod in modules:
+                mod_norm = mod.lower().replace("-", "_")
+                alias = PACKAGE_ALIASES.get(mod_norm)
+                if mod in std_lib:
+                    continue
+                if is_local_module(root, mod):
+                    continue
+                if mod_norm in allowed_all or (alias and alias in allowed_all):
+                    continue
+                
+                print(f"🛑 Import audit violation in {p.relative_to(root)}: untracked dependency '{mod}'", file=sys.stderr)
+                return False
+    return True
+
+
 def run_no_invented_symbols(root: Any) -> bool:
+    if not audit_pytest_imports(root):
+        return False
+
     # 1. Get the list of modified/added/untracked files
     env = dict(os.environ)
     files = set()
@@ -566,9 +665,6 @@ def run_no_invented_symbols(root: Any) -> bool:
 
     def is_exempt(file_path: str) -> bool:
         if any(part.startswith(".") for part in Path(file_path).parts):
-            return True
-        exempt_prefixes = ("scripts/gates/", "scripts/ci/", "scripts/deploy/", "tests/pytest/")
-        if file_path.startswith(exempt_prefixes):
             return True
         return False
 
@@ -785,6 +881,26 @@ def stamp_local_coherence_signature(artifact_path: str, root: str = ".") -> bool
         except OSError:
             pass
 
+def _coherence_artifact_usable(root_path: Any, env: Optional[dict] = None) -> bool:
+    """True when a fresh PASS coherence_results.json exists for HEAD."""
+    env = env or dict(os.environ)
+    path = Path(root_path) / ".goalie" / "evidence" / "coherence_results.json"
+    if not path.is_file():
+        return False
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if str(data.get("coherence", "")).upper() != "PASS":
+            return False
+        gh = data.get("git_head")
+        current = git_head(root_path)
+        if gh and current and gh != current:
+            return False
+        return True
+    except (OSError, json.JSONDecodeError, TypeError):
+        return False
+
+
 def derive_coherence(root_path_or_results: Any, force_dynamic: bool = False, ingest_only: bool = False, env: Optional[dict] = None) -> str:
     if isinstance(root_path_or_results, list):
         required = [r for r in root_path_or_results if r.get("required", True)]
@@ -943,11 +1059,15 @@ def check_binding(card: dict, actual_commit, actual_diff_sha, strict: bool) -> t
 def collect_reward_proxies(env: dict) -> dict:
     """Cheap, objective proxies for reward direction (Anti-CVT: untracked sprawl)."""
     proxies: dict = {}
-    out = _git(["ls-files", "--others", "--exclude-standard", "--", "src"], timeout=10)
-    if out is not None:
-        proxies["untracked_added"] = sum(
-            1 for line in out.splitlines() if line.startswith("src/")
-        )
+    targets = ["src", "domain", "scripts", "tests"]
+    untracked_count = 0
+    for target in targets:
+        out = _git(["ls-files", "--others", "--exclude-standard", "--", target], timeout=10)
+        if out is not None:
+            untracked_count += sum(
+                1 for line in out.splitlines() if line.startswith(f"{target}/")
+            )
+    proxies["untracked_added"] = untracked_count
     
     # Check if ROAM_TRACKER.yaml is modified or staged
     roam_status = _git(["status", "--porcelain", "ROAM_TRACKER.yaml"])
@@ -965,10 +1085,10 @@ def derive_reward_direction(proxies: dict) -> tuple:
     if untracked > 0:
         if roam_updated:
             rd = 1.5  # Inverted penalty! Bonus for proper ROAM-ing of tails.
-            notes.append(f"{untracked} new untracked src/ file(s), but ROAM_TRACKER updated (Penalty Inverted)")
+            notes.append(f"{untracked} new untracked file(s), but ROAM_TRACKER updated (Penalty Inverted)")
         else:
             rd = -1
-            notes.append(f"{untracked} new untracked src/ file(s) (Anti-CVT, un-ROAMed)")
+            notes.append(f"{untracked} new untracked file(s) (Anti-CVT, un-ROAMed)")
     return rd, notes
 
 
@@ -1088,6 +1208,42 @@ def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) ->
 
     Returns (hardened_card, extra_blocks, extra_warnings, meta).
     """
+    keys_to_align = ("AF_GATE_CONTEXT", "CI", "GITHUB_ACTIONS", "AF_VERIFY_MODE", "AF_SIGNAL_TIMEOUT")
+    orig_env = {k: os.environ.get(k) for k in keys_to_align}
+    for key in keys_to_align:
+        if key in env and env[key] is not None:
+            os.environ[key] = str(env[key])
+    try:
+        return _harden_internal(card, env=env, strict=strict, ingest_only=ingest_only)
+    finally:
+        for key, val in orig_env.items():
+            if val is not None:
+                os.environ[key] = val
+            else:
+                os.environ.pop(key, None)
+
+
+def get_altered_files(root: str = ".", env: Optional[dict] = None) -> set[str]:
+    files = set()
+    staged = _git(["diff", "--cached", "--name-only"], root=root)
+    if staged:
+        files.update(staged.splitlines())
+    unstaged = _git(["diff", "--name-only"], root=root)
+    if unstaged:
+        files.update(unstaged.splitlines())
+    untracked = _git(["ls-files", "--others", "--exclude-standard"], root=root)
+    if untracked:
+        files.update(untracked.splitlines())
+    env = env or dict(os.environ)
+    base = env.get("AF_DIFF_BASE")
+    if base:
+        base_diff = _git(["diff", f"{base}...HEAD", "--name-only"], root=root)
+        if base_diff:
+            files.update(base_diff.splitlines())
+    return {f.strip() for f in files if f.strip()}
+
+
+def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) -> tuple:
     extra_blocks: list = []
     extra_warnings: list = []
     meta: dict = {}
@@ -1101,11 +1257,42 @@ def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) ->
     extra_blocks += tamper_blocks
     extra_warnings += tamper_warns
 
-    # 1) coherence <- real signals
+    # ROAM update validation: if ROAM_TRACKER.yaml is updated, ensure untracked files are registered
+    roam_status = _git(["status", "--porcelain", "ROAM_TRACKER.yaml"])
+    roam_updated = bool(roam_status and roam_status.strip())
+    if roam_updated:
+        untracked_files = []
+        for target in ["src", "domain", "scripts", "tests"]:
+            out = _git(["ls-files", "--others", "--exclude-standard", "--", target], timeout=10)
+            if out:
+                untracked_files.extend(line.strip() for line in out.splitlines() if line.strip().startswith(f"{target}/"))
+        if untracked_files:
+            try:
+                with open("ROAM_TRACKER.yaml", "r", encoding="utf-8") as fh:
+                    tracker_content = fh.read()
+            except Exception:
+                tracker_content = ""
+            missing_from_tracker = [f for f in untracked_files if f not in tracker_content]
+            if missing_from_tracker:
+                extra_blocks.append(
+                    f"HARD GATE: ROAM_TRACKER.yaml was updated, but the following newly added untracked files are not registered: "
+                    f"{', '.join(missing_from_tracker)}"
+                )
+
+    # 1) coherence <- real signals (or ingest PASS artifact to avoid duplicate pytest)
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
-    if ingest_only and not is_ci:
+    is_precommit = env.get("AF_GATE_CONTEXT") == "precommit"
+    artifact_ok = _coherence_artifact_usable(".", env)
+    artifact_only = str(env.get("AF_COHERENCE_ARTIFACT_ONLY", "")).lower() in ("1", "true", "yes")
+    prefer_artifact = (
+        (ingest_only and not is_ci)
+        or (not is_ci and is_precommit and artifact_ok)
+        or (not is_ci and artifact_only and artifact_ok)
+    )
+    if prefer_artifact:
         coherence = derive_coherence(".", force_dynamic=False, env=env)
         meta["coherence_ingested"] = True
+        meta["coherence_source"] = "artifact"
     else:
         old_verify_mode = os.environ.get("AF_VERIFY_MODE")
         os.environ["AF_VERIFY_MODE"] = "1"
@@ -1113,6 +1300,7 @@ def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) ->
             results = run_signals(load_signals())
             coherence = derive_coherence(results)
             meta["signals"] = results
+            meta["coherence_source"] = "signals"
         finally:
             if old_verify_mode is not None:
                 os.environ["AF_VERIFY_MODE"] = old_verify_mode
@@ -1160,6 +1348,21 @@ def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) ->
     card["sign_off"] = verified_signoff
     meta["sign_off_verified"] = verified_signoff
     meta["sign_off_reason"] = so_reason
+
+    # Verify DB schema/model alterations require verified review signature
+    altered_files = get_altered_files(".", env)
+    has_db_schema_or_model = False
+    for f in altered_files:
+        f_lower = f.lower()
+        if any(f.startswith(p) for p in ("tests/", "scripts/", "tooling/", "config/", ".")):
+            continue
+        is_in_source = any(p in f for p in ("src/", "domain/", "docs/api/", "crates/", "packages/", "rust/core/"))
+        if is_in_source:
+            if "schema" in f_lower or "model" in f_lower or f_lower.endswith(".sql") or f_lower.endswith(".proto"):
+                has_db_schema_or_model = True
+                break
+    if has_db_schema_or_model and not verified_signoff:
+        extra_blocks.append("HARD GATE: alterations to DB schemas or models require a cryptographically verified review signature")
 
     # 4) reward_direction <- proxy (GATE-006)
     #    Default advisory (warn). With AF_RD_ENFORCE=1 a negative objective signal
@@ -1274,7 +1477,6 @@ def main(argv: Optional[list] = None) -> int:
     env = dict(os.environ)
     if args.precommit:
         env["AF_GATE_CONTEXT"] = "precommit"
-        os.environ["AF_GATE_CONTEXT"] = "precommit"
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
     is_precommit = env.get("AF_GATE_CONTEXT") == "precommit" or args.precommit
     verify_mode = args.verify or is_ci or is_precommit

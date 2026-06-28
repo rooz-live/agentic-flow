@@ -68,6 +68,24 @@ const STRICT_MANIFEST = process.env.TLD_GATE_STRICT_MANIFEST === '1';
 const STRICT_DNS = process.env.TLD_GATE_STRICT_DNS === '1';
 const FINGERPRINT = process.env.TLD_GATE_FINGERPRINT === '1';
 const BYPASS_TOKEN = process.env.TLD_GATE_BYPASS_TOKEN || '';
+const LENIENT = process.env.TLD_GATE_LENIENT === '1';
+/** Strict CI path: no outage/placeholder skips unless TLD_GATE_LENIENT=1. */
+function isStrictClosed(): boolean {
+  return (STRICT_MANIFEST || STRICT_DNS) && !LENIENT;
+}
+
+function isOroBillingHost(tld: string): boolean {
+  return (
+    tld.includes('crm.bhopti.com') ||
+    tld.includes('shop.bhopti.com') ||
+    tld.includes('billing.bhopti.com')
+  );
+}
+
+function isTransitionPlaceholder(body: string): boolean {
+  return body.includes('Sovereign Swarm Transition Phase') || body.includes('OroCommerce B2B Storefront');
+}
+
 /** Prefix before `assets/` in built HTML (e.g. `/trading/` for trader:build:tld, `/` for trader:build). */
 const ASSET_BASE_HINT =
   process.env.TLD_GATE_ASSET_BASE_HINT === undefined ||
@@ -95,7 +113,10 @@ for (const { tld, url, titlePattern, redirects } of TLD_TARGETS) {
         });
         
         // Handle 502/503 / connection errors for known offline VMs
-        if ((res.status() === 502 || res.status() === 503) && (tld.includes('crm.bhopti.com') || tld.includes('shop.bhopti.com'))) {
+        if ((res.status() === 502 || res.status() === 503) && isOroBillingHost(tld)) {
+          if (isStrictClosed()) {
+            throw new Error(`${tld}: HTTP ${res.status()} — strict gate forbids outage skip (set TLD_GATE_LENIENT=1 to skip)`);
+          }
           console.warn(`[ROAM RISK] OroCommerce VM offline for ${tld} (HTTP ${res.status()}). Skipping test.`);
           test.skip(true, `OroCommerce VM offline (HTTP ${res.status()})`);
           return;
@@ -104,7 +125,10 @@ for (const { tld, url, titlePattern, redirects } of TLD_TARGETS) {
         const body = await res.text();
         expect(res.status(), `${tld} should return HTTP 200 or 30x`).toBeLessThan(400);
         
-        if (body.includes('Sovereign Swarm Transition Phase') || body.includes('OroCommerce B2B Storefront')) {
+        if (isTransitionPlaceholder(body)) {
+          if (isStrictClosed()) {
+            throw new Error(`${tld}: transition placeholder page — strict gate requires real content`);
+          }
           console.log(`[TLD-GATE] ${tld} is in Sovereign Swarm Transition Phase placeholder.`);
         } else {
           expect(body.length, `${tld} body should not be empty`).toBeGreaterThan(100);
@@ -120,14 +144,19 @@ for (const { tld, url, titlePattern, redirects } of TLD_TARGETS) {
       } catch (error) {
         const err = error as any;
         const msg = String(err?.message ?? err);
-        if (isUnresolvableHostError(msg) || ((msg.includes('connection') || msg.includes('ECONN') || msg.includes('closed') || msg.includes('refused')) && (tld.includes('crm.bhopti.com') || tld.includes('shop.bhopti.com') || tld.includes('billing.bhopti.com')))) {
+        if (isUnresolvableHostError(msg) || ((msg.includes('connection') || msg.includes('ECONN') || msg.includes('closed') || msg.includes('refused')) && isOroBillingHost(tld))) {
           if (STRICT_DNS && isUnresolvableHostError(msg)) {
             test.fail(true, `${tld}: [DNS ENOTFOUND] True DNS resolution failed heavily on the canonical runner. RCA Deep Why: Missing /etc/hosts mapping or root DNS propagation gap (TLD_GATE_STRICT_DNS=1)`);
+          } else if (isStrictClosed()) {
+            throw new Error(`${tld}: connection/DNS failure in strict mode: ${msg}`);
           } else {
-            console.warn(`[ROAM RISK] DNS/Connection for ${tld} (${msg}) — explicitly skipping. Note: This lenient skip hides DNS gaps! NOT DoD LABEL.`);
-            test.skip(true, `[OUT OF SCOPE] DNS/Connection: host not resolved or unreachable from this runner. (Lenient Mode — Not DoD / Canonical)`);
+            console.warn(`[ROAM RISK] DNS/Connection for ${tld} (${msg})`);
+            lenientSkipOrFail(`[OUT OF SCOPE] DNS/Connection for ${tld}: ${msg}`);
           }
         } else if (shouldSkipInterfaceRunnerTimeout(tld, msg)) {
+          if (isStrictClosed()) {
+            throw new Error(`${tld}: runner timeout in strict mode — use edge network or TLD_GATE_LENIENT=1`);
+          }
           console.warn(`[ROAM RISK] interface.rooz.live HTTP Timeout — slow edge/VPN constraint.`);
           test.skip(
             true,
@@ -148,7 +177,10 @@ for (const { tld, url, titlePattern, redirects } of TLD_TARGETS) {
         
         if (res) {
           const status = res.status();
-          if ((status === 502 || status === 503) && (tld.includes('crm.bhopti.com') || tld.includes('shop.bhopti.com'))) {
+          if ((status === 502 || status === 503) && isOroBillingHost(tld)) {
+            if (isStrictClosed()) {
+              throw new Error(`${tld}: HTTP ${status} — strict gate forbids outage skip on title check`);
+            }
             console.warn(`[ROAM RISK] OroCommerce VM offline for ${tld} (HTTP ${status}). Skipping title check.`);
             test.skip(true, `OroCommerce VM offline (HTTP ${status})`);
             return;
@@ -156,7 +188,10 @@ for (const { tld, url, titlePattern, redirects } of TLD_TARGETS) {
         }
 
         const body = await page.content();
-        if (body.includes('Sovereign Swarm Transition Phase') || body.includes('OroCommerce B2B Storefront')) {
+        if (isTransitionPlaceholder(body)) {
+          if (isStrictClosed()) {
+            throw new Error(`${tld}: transition placeholder — strict gate requires real title`);
+          }
           console.log(`[TLD-GATE] ${tld} matches the transition phase placeholder. Title check skipped.`);
           return;
         }
@@ -185,14 +220,17 @@ for (const { tld, url, titlePattern, redirects } of TLD_TARGETS) {
       } catch (error) {
         const err = error as any;
         const msg = String(err?.message ?? err);
-        if (isUnresolvableHostError(msg) || ((msg.includes('connection') || msg.includes('ECONN') || msg.includes('closed') || msg.includes('refused')) && (tld.includes('crm.bhopti.com') || tld.includes('shop.bhopti.com') || tld.includes('billing.bhopti.com')))) {
+        if (isUnresolvableHostError(msg) || ((msg.includes('connection') || msg.includes('ECONN') || msg.includes('closed') || msg.includes('refused')) && isOroBillingHost(tld))) {
           if (STRICT_DNS && isUnresolvableHostError(msg)) {
             throw new Error(
               `${tld}: DNS / name resolution failed during title check (TLD_GATE_STRICT_DNS=1): ${msg}`,
             );
           }
-          console.warn(`[WARNING] connection/DNS error for ${tld} during title check — skipping`);
-          test.skip(true, 'connection/DNS error: host unreachable');
+          if (isStrictClosed()) {
+            throw new Error(`${tld}: connection/DNS failure during title check (strict): ${msg}`);
+          }
+          console.warn(`[WARNING] connection/DNS error for ${tld} during title check`);
+          lenientSkipOrFail(`connection/DNS error for ${tld}: ${msg}`);
         } else if (shouldSkipInterfaceRunnerTimeout(tld, msg)) {
           test.skip(true, 'interface.rooz.live: timeout from this runner (lenient mode)');
         } else {

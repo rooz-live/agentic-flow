@@ -149,6 +149,7 @@ for EXT_PATH in "$DOMAINS_DIR"/*/; do
         echo "📡 Uploading $FQDN → $TARGET_DIR (User: $CPANEL_ACCT)..."
         DOMAINS_ATTEMPTED=$((DOMAINS_ATTEMPTED + 1))
         DOMAIN_OK=true
+        FILES_UPLOADED=0
 
         for FILE in "$DOMAIN_PATH"/*; do
             [[ -f "$FILE" ]] || continue
@@ -162,37 +163,59 @@ for EXT_PATH in "$DOMAINS_DIR"/*/; do
 
             CONTENT=$(cat "$FILE")
 
-            # Token is never echoed; use -s (silent) + check exit code
+            CURL_EC=0
             if [[ "$USE_TOKEN" == "true" ]]; then
-                RESPONSE=$(curl -s -k -X POST \
+                RESPONSE=$(curl -s -k -w "\n%{http_code}" -X POST \
                     -H "Authorization: whm root:${WHM_API_TOKEN}" \
                     "https://${WHM_HOST}:2087/json-api/cpanel?cpanel_jsonapi_user=${CPANEL_ACCT}&cpanel_jsonapi_apiversion=3&cpanel_jsonapi_module=Fileman&cpanel_jsonapi_func=save_file_content" \
                     --data-urlencode "dir=${TARGET_DIR}" \
                     --data-urlencode "file=${FILENAME}" \
-                    --data-urlencode "content=${CONTENT}" 2>&1) || true
+                    --data-urlencode "content=${CONTENT}" 2>&1) || CURL_EC=$?
             else
-                RESPONSE=$(curl -s -k -X POST \
+                RESPONSE=$(curl -s -k -w "\n%{http_code}" -X POST \
                     -u "${WHM_USER}:${WHM_PASSWORD}" \
                     "https://${WHM_HOST}:2087/json-api/cpanel?cpanel_jsonapi_user=${CPANEL_ACCT}&cpanel_jsonapi_apiversion=3&cpanel_jsonapi_module=Fileman&cpanel_jsonapi_func=save_file_content" \
                     --data-urlencode "dir=${TARGET_DIR}" \
                     --data-urlencode "file=${FILENAME}" \
-                    --data-urlencode "content=${CONTENT}" 2>&1) || true
+                    --data-urlencode "content=${CONTENT}" 2>&1) || CURL_EC=$?
             fi
 
-            # Robust error detection (handles 'error', 'errors', 'status:0')
-            if [[ "$RESPONSE" == *'"errors"'* && "$RESPONSE" != *'"errors":null'* ]] \
+            HTTP_CODE="${RESPONSE##*$'\n'}"
+            BODY="${RESPONSE%$'\n'$HTTP_CODE}"
+            RESPONSE="$BODY"
+
+            UPLOAD_OK=true
+            if [[ $CURL_EC -ne 0 ]]; then
+                yellow "  ⚠️  curl failed (exit $CURL_EC) uploading $FILENAME to $FQDN"
+                UPLOAD_OK=false
+            elif [[ -z "${RESPONSE//[[:space:]]/}" ]]; then
+                yellow "  ⚠️  Empty WHM response uploading $FILENAME to $FQDN (HTTP ${HTTP_CODE:-?})"
+                UPLOAD_OK=false
+            elif ! echo "$RESPONSE" | python3 -c "import json,sys; json.load(sys.stdin)" 2>/dev/null; then
+                yellow "  ⚠️  Non-JSON WHM response uploading $FILENAME to $FQDN: ${RESPONSE:0:120}"
+                UPLOAD_OK=false
+            elif [[ "$RESPONSE" == *'"errors"'* && "$RESPONSE" != *'"errors":null'* ]] \
                || [[ "$RESPONSE" == *'"error":'* ]] \
                || [[ "$RESPONSE" == *'"status":0'* ]]; then
-                # Redact any token echoed back in error body before printing
                 SAFE_RESPONSE=$(echo "$RESPONSE" | sed 's/"whm root:[^"]*"/"whm root:[REDACTED]"/g')
                 yellow "  ⚠️  Error uploading $FILENAME to $FQDN: $SAFE_RESPONSE"
-                DOMAIN_OK=false
-            else
+                UPLOAD_OK=false
+            fi
+
+            if [[ "$UPLOAD_OK" == "true" ]]; then
+                FILES_UPLOADED=$((FILES_UPLOADED + 1))
                 echo "  └── ✔ $FILENAME"
+            else
+                DOMAIN_OK=false
             fi
         done
 
-        [[ "$DOMAIN_OK" == "true" ]] && DOMAINS_OK=$((DOMAINS_OK + 1))
+        if [[ "$DOMAIN_OK" == "true" && "$FILES_UPLOADED" -gt 0 ]]; then
+            DOMAINS_OK=$((DOMAINS_OK + 1))
+        elif [[ "$DOMAIN_OK" == "true" && "$FILES_UPLOADED" -eq 0 ]]; then
+            yellow "  ⚠️  No uploadable files for $FQDN — domain not counted OK"
+            DOMAIN_OK=false
+        fi
     done
 done
 
@@ -212,9 +235,9 @@ if [[ -f "$TAG_VOTE_REDIRECT_SCRIPT" ]]; then
     }
     load_env
     if command -v uapi &>/dev/null && [[ "${TAG_VOTE_REMOTE:-0}" != "1" ]]; then
-        bash "$TAG_VOTE_REDIRECT_SCRIPT" || yellow "  tag-vote-redirects.sh failed — manual WHM run required"
+        bash "$TAG_VOTE_REDIRECT_SCRIPT" || { red "  tag-vote-redirects.sh failed"; exit 1; }
     elif [[ -n "${WHM_API_TOKEN:-}" && -n "${CPANEL_HOST:-}" ]]; then
-        bash "$TAG_VOTE_REDIRECT_SCRIPT" || yellow "  tag-vote-redirects.sh (remote) failed"
+        bash "$TAG_VOTE_REDIRECT_SCRIPT" || { red "  tag-vote-redirects.sh (remote) failed"; exit 1; }
     else
         yellow "  tag-vote-redirects: skipped (no uapi on host and no WHM_API_TOKEN+CPANEL_HOST)"
     fi
@@ -237,6 +260,7 @@ TLD_GATE_STATUS="skipped"
 if [[ "${AF_TRIGGER_TLD_GATE_CI:-1}" == "1" ]]; then
     echo "--> Strict TLD gate via GitHub Actions (fail-closed, AF_TLD_GATE_WAIT=${AF_TLD_GATE_WAIT:-1})..."
     export AF_TLD_GATE_REF="${AF_TLD_GATE_REF:-main}"
+    export AF_TLD_GATE_REQUIRE_WAIT=1
     set +e
     bash "$ROOT_DIR/scripts/deploy/trigger_tld_gate_ci.sh"
     TLD_GATE_CI_EXIT=$?
@@ -270,30 +294,66 @@ HASH=$(git rev-parse HEAD 2>/dev/null || echo "no-git")
 mkdir -p "$ARTIFACT_DIR"
 ARTIFACT_PATH="$ARTIFACT_DIR/deploy_uapi_${RUN_ID}.json"
 
-cat > "$ARTIFACT_PATH" <<EOF
-{
-  "gate": "deploy-uapi",
-  "run_id": "$RUN_ID",
-  "hash": "$HASH",
-  "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
-  "domains_attempted": $DOMAINS_ATTEMPTED,
-  "domains_ok": $DOMAINS_OK,
-  "playwright_exit": $PLAYWRIGHT_EXIT,
-  "tld_gate_ci_exit": $TLD_GATE_CI_EXIT,
-  "tld_gate_status": "$TLD_GATE_STATUS",
-  "tld_gate_dispatch": ".goalie/evidence/tld_gate_dispatch_latest.json"
+DISPATCH_EVIDENCE="$ROOT_DIR/.goalie/evidence/tld_gate_dispatch_latest.json"
+export AF_DEPLOY_ARTIFACT_PATH="$ARTIFACT_PATH"
+export AF_DEPLOY_DISPATCH_PATH="$DISPATCH_EVIDENCE"
+export AF_DEPLOY_RUN_ID="$RUN_ID"
+export AF_DEPLOY_HASH="$HASH"
+export AF_DEPLOY_DOMAINS_ATTEMPTED="$DOMAINS_ATTEMPTED"
+export AF_DEPLOY_DOMAINS_OK="$DOMAINS_OK"
+export AF_DEPLOY_PLAYWRIGHT_EXIT="$PLAYWRIGHT_EXIT"
+export AF_DEPLOY_TLD_GATE_CI_EXIT="$TLD_GATE_CI_EXIT"
+export AF_DEPLOY_TLD_GATE_STATUS="$TLD_GATE_STATUS"
+python3 <<'PY'
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+out = Path(os.environ["AF_DEPLOY_ARTIFACT_PATH"])
+dispatch_path = Path(os.environ["AF_DEPLOY_DISPATCH_PATH"])
+dispatch = {}
+if dispatch_path.is_file():
+    try:
+        dispatch = json.loads(dispatch_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        dispatch = {}
+
+doc = {
+    "gate": "deploy-uapi",
+    "run_id": os.environ["AF_DEPLOY_RUN_ID"],
+    "hash": os.environ["AF_DEPLOY_HASH"],
+    "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "domains_attempted": int(os.environ["AF_DEPLOY_DOMAINS_ATTEMPTED"]),
+    "domains_ok": int(os.environ["AF_DEPLOY_DOMAINS_OK"]),
+    "playwright_exit": int(os.environ["AF_DEPLOY_PLAYWRIGHT_EXIT"]),
+    "tld_gate_ci_exit": int(os.environ["AF_DEPLOY_TLD_GATE_CI_EXIT"]),
+    "tld_gate_status": os.environ["AF_DEPLOY_TLD_GATE_STATUS"],
+    "tld_gate_dispatch": ".goalie/evidence/tld_gate_dispatch_latest.json",
+    "tld_gate_github_run_id": dispatch.get("github_run_id"),
+    "tld_gate_conclusion": dispatch.get("conclusion"),
+    "tld_gate_receipt_status": dispatch.get("status"),
+    "tld_gate_github_run_url": dispatch.get("github_run_url"),
 }
-EOF
+out.parent.mkdir(parents=True, exist_ok=True)
+out.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+print(out)
+PY
+
 ln -sf "$(basename "$ARTIFACT_PATH")" "$ARTIFACT_DIR/last_deploy_uapi.json"
 
 green "✅ DoD artifact: $ARTIFACT_PATH"
 
-# Gate fails if any domains failed OR playwright had unexpected error
+# Gate fails if any domains failed OR TLD gate / playwright not pass (fail-closed DoD)
 if [[ $DOMAINS_ATTEMPTED -gt 0 && $DOMAINS_OK -lt $DOMAINS_ATTEMPTED ]]; then
     red "❌ $((DOMAINS_ATTEMPTED - DOMAINS_OK)) domain(s) had upload errors."
     exit 1
 fi
-if [[ $PLAYWRIGHT_EXIT -ne 0 && $PLAYWRIGHT_EXIT -ne 99 ]]; then
+if [[ "${AF_TRIGGER_TLD_GATE_CI:-1}" == "1" && "$TLD_GATE_STATUS" != "pass" ]]; then
+    red "❌ DoD blocked: tld_gate_status=$TLD_GATE_STATUS (required pass; receipt in tld_gate_dispatch_latest.json)"
+    exit 1
+fi
+if [[ $PLAYWRIGHT_EXIT -ne 0 ]]; then
     red "❌ Post-deploy Playwright gate failed (exit $PLAYWRIGHT_EXIT)."
     exit $PLAYWRIGHT_EXIT
 fi

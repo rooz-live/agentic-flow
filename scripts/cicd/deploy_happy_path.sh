@@ -160,36 +160,58 @@ if [[ $DEP_EC -ne 0 ]]; then
   exit "$EXIT"
 fi
 
+
 # ── Phase 4: post-deploy strict TLD gate (optional) ─────────────────────────
+# Single dispatch: deploy-uapi already triggers strict CI by default.
 if [[ "$STRICT" == "1" ]]; then
   log_phase "tld-gate-strict"
   TLD_EC=0
-  export DEPLOY_RUN_ID="${RUN_ID:-happy}"
-  if [[ "${AF_TLD_GATE_VIA_CI:-1}" == "1" ]]; then
+  DEPLOY_ART="$ROOT/.goalie/evidence/last_deploy_uapi.json"
+  if [[ -f "$DEPLOY_ART" ]]; then
+    TLD_VERIFY=$(python3 -c "
+import json
+d = json.load(open('$DEPLOY_ART', encoding='utf-8'))
+status = d.get('tld_gate_status', '')
+pw = int(d.get('playwright_exit', -1))
+if status == 'pass' and pw == 0:
+    print('pass')
+elif status == 'fail_open':
+    print('fail_open')
+else:
+    print('fail:' + str(status) + ':pw=' + str(pw))
+" 2>/dev/null || echo 'fail:parse')
+    case "$TLD_VERIFY" in
+      pass)
+        record_phase "tld_gate_strict" "ok" "dedupe: deploy-uapi already passed strict CI (single-dispatch)"
+        ;;
+      fail_open)
+        if [[ "${AF_TLD_GATE_FAIL_OPEN:-0}" == "1" ]]; then
+          record_phase "tld_gate_strict" "warn" "fail_open=1 receipt=deploy-uapi"
+        else
+          record_phase "tld_gate_strict" "fail" "fail_open without AF_TLD_GATE_FAIL_OPEN=1"
+          TLD_EC=1
+          EXIT=$TLD_EC
+        fi
+        ;;
+      *)
+        record_phase "tld_gate_strict" "fail" "receipt=$TLD_VERIFY (no duplicate CI dispatch)"
+        TLD_EC=1
+        EXIT=$TLD_EC
+        ;;
+    esac
+  else
+    export DEPLOY_RUN_ID="${RUN_ID:-happy}"
+    export AF_TLD_GATE_REQUIRE_WAIT=1
     set +e
     bash "$ROOT/scripts/deploy/trigger_tld_gate_ci.sh"
     TLD_EC=$?
     set -e
-    if [[ $TLD_EC -eq 2 ]]; then
-      echo "deploy_happy_path: gh unavailable — local strict fallback"
-      set +e
-      pnpm run test:e2e:tld-gate:strict
-      TLD_EC=$?
-      set -e
+    if [[ $TLD_EC -eq 0 ]]; then
+      record_phase "tld_gate_strict" "ok" "exit=0 single-dispatch-no-deploy-artifact"
+    else
+      record_phase "tld_gate_strict" "fail" "exit=$TLD_EC"
+      EXIT=$TLD_EC
     fi
-  else
-    set +e
-    pnpm run test:e2e:tld-gate:strict
-    TLD_EC=$?
-    set -e
-  fi
-  if [[ $TLD_EC -eq 0 ]]; then
-    record_phase "tld_gate_strict" "ok" "exit=0 via_ci=${AF_TLD_GATE_VIA_CI:-1} wait=${AF_TLD_GATE_WAIT:-1}"
-  elif [[ $TLD_EC -eq 2 && "${AF_TLD_GATE_FAIL_OPEN:-0}" == "1" ]]; then
-    record_phase "tld_gate_strict" "warn" "exit=2 fail_open=1 gh_unavailable"
-  else
-    record_phase "tld_gate_strict" "fail" "exit=$TLD_EC via_ci=${AF_TLD_GATE_VIA_CI:-1} wait=${AF_TLD_GATE_WAIT:-1}"
-    EXIT=$TLD_EC
   fi
 fi
 

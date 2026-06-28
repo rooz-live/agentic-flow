@@ -1541,9 +1541,10 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
         if is_precommit:
             unstaged_diff = _git(["diff", "--name-only"])
             if unstaged_diff:
+                scorecard_path = Path(DEFAULT_SCORECARD).as_posix()
                 non_ignored = [
                     f for f in unstaged_diff.strip().splitlines()
-                    if f.strip() and not _git_ignored(f.strip())
+                    if f.strip() and not _git_ignored(f.strip()) and f.strip() != scorecard_path
                 ]
                 if non_ignored:
                     extra_blocks.append(

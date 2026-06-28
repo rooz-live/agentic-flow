@@ -18,8 +18,8 @@
 #   scorecard        → scripts/gates/scorecard_gate.py [--verify|--file PATH|--json]
 #   upstream         → scripts/cicd/upstream_upgrade_engine.py [--dry-run|--force|--parallel|--json]
 #   edge-sync        → scripts/cicd/edge_gateway_sync_engine.py [--dry-run|--force|--json]
-#   aqe              → npx agentic-qe@3.11.1 <cmd> [args...]
-#   ruflo            → npx ruflo@3.14.1 <cmd> [args...] (workflow, task, swarm, session, ...)
+#   aqe              → scripts/one-sh.d/aqe.sh [init|status|<aqe-cmd>]
+#   ruflo            → scripts/one-sh.d/workflow.sh [init|status|<ruflo-cmd>]
 #   harness          → apps/agent-harness npm run <doctor|evolve|evolve:dry|init>
 set -euo pipefail
 
@@ -46,7 +46,7 @@ case "$CMD" in
         ;;
 
     ci)
-        exec bash "$ROOT_DIR/scripts/one-sh.d/ci.sh"
+        exec bash "$ROOT_DIR/scripts/one-sh.d/ci.sh" "${@:2}"
         ;;
 
     deploy-uapi)

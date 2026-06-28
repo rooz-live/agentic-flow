@@ -38,7 +38,6 @@ if [[ "$AUTO_COMMIT" == "1" && $PE -eq 0 ]] && ! git diff --cached --quiet; then
   cls_refuse_auto_commit_on_main || exit 1
   git commit -m "chore(cicd): wave autopilot slice ${RUN_ID}" || true
 fi
-python3 "$REPO_ROOT/scripts/cicd/update_lnnnl.py" >/dev/null || true
 echo "AGENT_LOOP_TICK_CLS {\"run_id\":\"$RUN_ID\",\"perceive_ec\":$PE,\"cls_ec\":$CE,\"retry_max\":$MAX}"
 [[ $PE -eq 0 && $CE -eq 0 ]] && exit 0
 exit 1

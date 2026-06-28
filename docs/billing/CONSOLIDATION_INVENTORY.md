@@ -285,4 +285,17 @@ Synthetic check `public_synthetic_check.sh billing.bhopti.com` wrote evidence wi
 Real invoice on public edge blocked until: (1) public DNS for `billing.bhopti.com` resolves from edge probes, (2) valid TLS chain on Caddy (`src/proxies/edge_gateway.cfg`), (3) HostBill + invoice API behind reverse proxy, (4) trust-path artifact at current HEAD (`verify-contract`).
 
 CI deploy smoke may still target `api.billing.o-gov.com` per `FQDN_CANONICAL.md` until cutover.
+---
 
+## Index Slice Audit (P1-INDEX-01)
+
+| Field | Value |
+|-------|-------|
+| Task | P1-INDEX-01 surgical index (`scripts/`, `code/tooling/scripts/`) |
+| Last run | 2026-06-28 |
+| Max batch | 40 paths |
+| Untracked in scope | 0 (slice complete for this scope) |
+| Executor | `scripts/cicd/index_slice_p1_scripts.sh` |
+| Evidence | `.goalie/evidence/learning/p1_index01_latest.json` |
+
+> Next shippable index work: **P1-INDEX-02** via `scripts/cicd/index_slice_substrate.sh` (bounded substrate, max 25).

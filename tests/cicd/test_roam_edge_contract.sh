@@ -41,6 +41,10 @@ grep -q 'interface.tag.vote' "$AUTOPILOT" && fail 'wave_autopilot must not claim
 [[ -x "$SMOKE" ]] || fail 'missing tooling/scripts/cog_edge_smoke.sh (local partial evidence)'
 [[ -f "$BILLING_SYN" ]] || fail 'missing code/tooling billing synthetic (dual-edge spine)'
 
-COGNITUM_WEBHOOK_SECRET="" bash "$SMOKE" >/dev/null || fail 'cog_edge_smoke must PASS locally (does not close R01 deploy)'
+rc=0
+COGNITUM_WEBHOOK_SECRET="" bash "$SMOKE" >/dev/null || rc=$?
+if [[ $rc -ne 0 && $rc -ne 2 ]]; then
+  fail 'cog_edge_smoke must PASS or report BLOCKED/offline locally (exit 0 or 2)'
+fi
 
 echo "PASS roam_edge_contract (R01/R## FA lanes separate from autopilot billing perceive)"

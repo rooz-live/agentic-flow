@@ -102,7 +102,7 @@ These four primitives form the canonical owner surface for pacing, routing, and 
 
 - **Definition**: The maximum-ROI-per-hour compass. It answers the question: *"given current state, what is the highest-return next move?"*.
 - **Entry point**: `scripts/one-sh.d/goal.sh` → `scripts/cicd/lib/roi_iterate.py`.
-- **DoN signal**: Emits a JSON snapshot of ranked opportunities, cost-of-delay weights, and the current anti-CVT velocity (`%` closed, `#` open, `#.%` pace, `%.#` velocity).
+- **DoN signal**: Emits a JSON snapshot of ranked opportunities, cost-of-delay weights, and the current anti-CVT velocity (`%` closed, `#` open, `#.%` pace, `%.#` velocity). Producer: `scripts/metrics/inbox_zero_timescape.py` → `.goalie/evidence/inbox_zero_latest.json`.
 - **DoD signal**: Must produce a committable next-step hint or a blocker decision with a ROAM disposition; no-op "advice only" output is considered theater.
 
 ### `/workflows` — Logic / Ruflo Orchestration
@@ -147,7 +147,7 @@ Each `tick_post_hooks.sh` run follows this order; skipping or reordering breaks 
 
 | Step | Command / owner | Notes |
 |------|-----------------|-------|
-| 1 Export | `env_key_resolver.py --export-shell` | TRACKED_KEYS only; lazy `op read`; `mktemp` + `source` (not `eval`) |
+| 1 Export | `env_key_resolver.py --export-shell` | TRACKED_KEYS only; lazy `op read`; fd-only `source <(printf …)` (not `eval`, not disk `mktemp`) |
 | 2 Sync ROAM | `--sync-roam` once | Set `AF_SKIP_OP_READ=1` only when exports present |
 | 3 Rank | `update_lnnnl.py` → `LNNNL.yaml` v1.1 | Single WSJF owner; `AF_SKIP_ROAM_SYNC=1` on second callers |
 | 4 Pace | `pace_from_lnnnl.py` → `tick_cycle_policy.py` | **Shippable lane only** (`lanes.shippable`); blockers visible but do not set pace |
@@ -165,6 +165,27 @@ Each `tick_post_hooks.sh` run follows this order; skipping or reordering breaks 
 | `AF_ROAM_REFRESH_TIMESTAMPS` | `0` | Do not reset ROAM `discovered` on every tick |
 
 Evidence: `.goalie/evidence/tick_post_latest.json` records `env_export_ok`, `lnnnl_exit`, `pace_cod_weight`.
+
+### Anti-CVT velocity notation (`%` / `#` / `%.#` / `#.%`)
+
+Canonical compact gauges for inbox-zero / goal snapshots. **Read order is type-tagged** (symbol before number), not decimal fractions.
+
+| Symbol | Field | Producer | Meaning |
+|--------|-------|----------|---------|
+| `%` | `pct_closed` / `completion_ratio_percent` | `inbox_zero_timescape.py` | Share of tracked items closed in the timescape window (ROAM + upstream + DLQ numerator/denominator). |
+| `#` | `open_count` / `absolute_open_items` | `inbox_zero_timescape.py` | Absolute open backlog (open ROAM + open upstream + DLQ rows). |
+| `%.#` | `velocity_fmt` | `inbox_zero_timescape.py` | **Left = `%` closed (one decimal), right = `#` open (integer)** — e.g. `42.5.17` → 42.5% closed, 17 open. Not a single float. |
+| `#.%` | `pace_fmt` | `inbox_zero_timescape.py` | **Left = `#` open (integer), right = shippable CoD pace (one decimal)** — pace from `lanes.shippable` head WSJF via `pace_from_lnnnl.py`. |
+
+**Pace vs blocker pace (dual-lane):**
+
+| Field | Producer | Lane | Notes |
+|-------|----------|------|-------|
+| `pace` / `pace_cod_weight` | `pace_from_lnnnl.py`, `tick_post_latest.json` | `lanes.shippable` only | Drives AQE utilization and `tick_cycle_policy.py` (`utilize_mode`). |
+| `blocker_pace_cod_weight` | `pace_from_lnnnl.py`, `tick_post_latest.json` | `lanes.blockers` head | Visibility / ROAM closure pressure; does **not** raise shippable `#.%` pace. |
+| `pace_source` | `tick_post_latest.json` | n/a | `live` \| `last_good` \| `stale` — fail-closed when `AF_PACE_FAIL_CLOSED=1`. |
+
+**Anti-CVT breakdown** (`anti_cvt` in inbox snapshot): `untracked` + `unobservable` + `unorchestrated` + `unutilized` → `anti_cvt_score` / `total`. Blocker-only WSJF wins improve `%` / `#` and may raise `blocker_pace_cod_weight`, but **#.% shippable pace** stays flat until a `P1-*` / `NNEAR-*` item leads `lanes.shippable.now`.
 
 ### Dual-lane pace vs blocker WSJF
 

@@ -5,7 +5,9 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$PROJECT_ROOT"
 export REPO_ROOT="$PROJECT_ROOT"
-export COGNITUM_WEBHOOK_SECRET=""
+if [[ -z "${COGNITUM_WEBHOOK_SECRET:-}" ]]; then
+  eval "$(python3 "$PROJECT_ROOT/scripts/cicd/lib/env_key_resolver.py" --export-shell 2>/dev/null | grep COGNITUM_WEBHOOK_SECRET || true)"
+fi
 
 EVIDENCE_LIB="$PROJECT_ROOT/tooling/scripts/lib/evidence_json.sh"
 if [[ -f "$EVIDENCE_LIB" ]]; then

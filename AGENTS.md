@@ -230,3 +230,66 @@ src/pipelines/pipeline_engine.py — CI/CD pipeline orchestration (953 LOC)
 src/embeddings/multi_modal.py  — Code/log/metric embeddings (468 LOC)
 src/proxies/edge_gateway.cfg   — Caddy reverse proxy (63 LOC)
 ```
+
+## Bounded Quality & Maturity Definitions
+
+### Bounded Quality Gates (DoN, DoR, DoD)
+- **DoN (Definition of Now)**: Dictates what must be worked on *right now* to maximize ROI and minimize Cost of Delay (CoD). Configured under `wsjf_now_items` in `config/cicd/loop_prompts.yaml`. Prioritizes critical-path blockers/SPOFs, LNNNL queue head-of-lane items, and ROAM tail-risks over general features.
+- **DoR (Definition of Readiness)**: Entry criteria before task execution: workspace clean state verified by `agent_session_dor.sh` (exits 0), cryptographically verified signer keys present, and local test harnesses (Cargo, pytest, Playwright) fully functional.
+- **DoD (Definition of Done)**: Exit criteria for shippable changes: post-task gate validation `dod-gate.sh --post-task` (exits 0), 100% green test suites, signed gate scorecard (`current.json`), all modifications committed (no untracked environment pollution), and public edge health check pass.
+
+### Product Maturity & Edge Flow Contexts
+- **TLD Cypher / Registry**: Canonical FQDN inventory map (`config/fqdn_registry.yaml`) cataloged by `gate_tier` taxonomy (`smoke`, `billing`, `apex`) with a drift detector (`tld_registry_drift.py`) validating spec-to-registry coherence.
+- **iOS/Android Prod Maturity**: Web-redirect store presence Capacitor shell (`apps/summerjobswap/`) with web funnel checks. Native binary is marked as *not shippable* (lack of native signing, Detox, fastlane, Firebase setup) and managed under the accepted risk register (`R-MOBILE-01`).
+- **Earnings Web Flow**: End-to-end ledger and sync process (`earnings_ledger.jsonl`, `earnings_latest.json`) translating agent scorecard performance into verified earnings using a shared JSON-RPC MCP envelope synced via `sync_earnings_to_hire.py`.
+
+### Earnings Per Circle Metrics (EPA, EPE, EPEng, EPI)
+- **Agent: Earning's Per Agent (EPA)**: Focuses on execution execution concurrency. Disciplined by `decentralized_lock.py` leveraging OS-level atomic `flock` locks to allow parallel workers to execute upgrades concurrently without collisions.
+- **Engine: Earning's Per Engine (EPE)**: Focuses on execution throughput and environment hygiene. Disciplined by running validations in transient sandbox directories (`scratch/sandbox/`) with package-lock/Cargo.lock hash matching.
+- **Engineer: Earning's Per Engineer (EPEng)**: Focuses on Cost of Delay / WSJF prioritization and automated build evidence. Disciplined by integrating scorecards directly into CI/CD pipelines to output cryptographically verified build receipts.
+- **Ingenuity: Earning's Per Ingenuity (EPI)**: Focuses on originality yield. Disciplined by scoring rubric gating where `Originality = Improbability x Resonance x NewRelationship` under the strict constraint of `Coherence == PASS`.
+
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
+
+This project is indexed by GitNexus as **agentic-flow** (428554 symbols, 687884 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
+
+## Always Do
+
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
+
+## Never Do
+
+- NEVER edit a function, class, or method without first running `impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit changes without running `detect_changes()` to check affected scope.
+
+## Resources
+
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/agentic-flow/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/agentic-flow/clusters` | All functional areas |
+| `gitnexus://repo/agentic-flow/processes` | All execution flows |
+| `gitnexus://repo/agentic-flow/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+
+<!-- gitnexus:end -->

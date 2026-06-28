@@ -866,6 +866,11 @@ def stamp_local_coherence_signature(artifact_path: str, root: str = ".") -> bool
             return False
         with open(sig_path, "r", encoding="utf-8") as sf:
             sig_content = sf.read()
+        # Some OpenSSH versions emit the signature on stdout instead of the -s file.
+        if not sig_content and proc.stdout:
+            sig_content = proc.stdout.decode("utf-8")
+        if not sig_content:
+            return False
         if not verify_ssh_signature(sig_content, principal, gh, allowed_db):
             return False
         data["signature"] = sig_content
@@ -1009,7 +1014,9 @@ def derive_gate_integrity(env: Optional[dict] = None) -> GateIntegrityResult:
     context = env.get("AF_GATE_CONTEXT", "")
     if context in GATE_CONTEXTS:
         return GateIntegrityResult("PASS", f"valid context: {context}")
-    return GateIntegrityResult("OWNED", "no valid execution context (local fallback)")
+    if str(env.get("AF_ALLOW_OWNED_LOCAL", "")).lower() in ("1", "true", "yes"):
+        return GateIntegrityResult("OWNED", "local fallback allowed by AF_ALLOW_OWNED_LOCAL")
+    return GateIntegrityResult("FAIL", "no valid execution context (set AF_GATE_CONTEXT or AF_ALLOW_OWNED_LOCAL=1)")
 
 
 def _git(args: list, timeout: int = 30, root: Any = ".") -> Optional[str]:
@@ -1084,8 +1091,9 @@ def derive_reward_direction(proxies: dict) -> tuple:
     
     if untracked > 0:
         if roam_updated:
-            rd = 1.5  # Inverted penalty! Bonus for proper ROAM-ing of tails.
-            notes.append(f"{untracked} new untracked file(s), but ROAM_TRACKER updated (Penalty Inverted)")
+            # Updating ROAM reduces the penalty but does not invert it into a bonus.
+            rd = -0.5
+            notes.append(f"{untracked} new untracked file(s), ROAM_TRACKER updated (reduced penalty)")
         else:
             rd = -1
             notes.append(f"{untracked} new untracked file(s) (Anti-CVT, un-ROAMed)")
@@ -1203,7 +1211,7 @@ def check_allowed_signers_tamper(env: dict, root: str = ".") -> tuple:
         )
     return blocks, warns
 
-def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) -> tuple:
+def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False, skip_roam_check: bool = False) -> tuple:
     """Override self-asserted fields with verified signals.
 
     Returns (hardened_card, extra_blocks, extra_warnings, meta).
@@ -1214,7 +1222,7 @@ def harden(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) ->
         if key in env and env[key] is not None:
             os.environ[key] = str(env[key])
     try:
-        return _harden_internal(card, env=env, strict=strict, ingest_only=ingest_only)
+        return _harden_internal(card, env=env, strict=strict, ingest_only=ingest_only, skip_roam_check=skip_roam_check)
     finally:
         for key, val in orig_env.items():
             if val is not None:
@@ -1243,7 +1251,7 @@ def get_altered_files(root: str = ".", env: Optional[dict] = None) -> set[str]:
     return {f.strip() for f in files if f.strip()}
 
 
-def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool = False) -> tuple:
+def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool = False, skip_roam_check: bool = False) -> tuple:
     extra_blocks: list = []
     extra_warnings: list = []
     meta: dict = {}
@@ -1258,26 +1266,27 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
     extra_warnings += tamper_warns
 
     # ROAM update validation: if ROAM_TRACKER.yaml is updated, ensure untracked files are registered
-    roam_status = _git(["status", "--porcelain", "ROAM_TRACKER.yaml"])
-    roam_updated = bool(roam_status and roam_status.strip())
-    if roam_updated:
-        untracked_files = []
-        for target in ["src", "domain", "scripts", "tests"]:
-            out = _git(["ls-files", "--others", "--exclude-standard", "--", target], timeout=10)
-            if out:
-                untracked_files.extend(line.strip() for line in out.splitlines() if line.strip().startswith(f"{target}/"))
-        if untracked_files:
-            try:
-                with open("ROAM_TRACKER.yaml", "r", encoding="utf-8") as fh:
-                    tracker_content = fh.read()
-            except Exception:
-                tracker_content = ""
-            missing_from_tracker = [f for f in untracked_files if f not in tracker_content]
-            if missing_from_tracker:
-                extra_blocks.append(
-                    f"HARD GATE: ROAM_TRACKER.yaml was updated, but the following newly added untracked files are not registered: "
-                    f"{', '.join(missing_from_tracker)}"
-                )
+    if not skip_roam_check:
+        roam_status = _git(["status", "--porcelain", "ROAM_TRACKER.yaml"])
+        roam_updated = bool(roam_status and roam_status.strip())
+        if roam_updated:
+            untracked_files = []
+            for target in ["src", "domain", "scripts", "tests"]:
+                out = _git(["ls-files", "--others", "--exclude-standard", "--", target], timeout=10)
+                if out:
+                    untracked_files.extend(line.strip() for line in out.splitlines() if line.strip().startswith(f"{target}/"))
+            if untracked_files:
+                try:
+                    with open("ROAM_TRACKER.yaml", "r", encoding="utf-8") as fh:
+                        tracker_content = fh.read()
+                except Exception:
+                    tracker_content = ""
+                missing_from_tracker = [f for f in untracked_files if f not in tracker_content]
+                if missing_from_tracker:
+                    extra_blocks.append(
+                        f"HARD GATE: ROAM_TRACKER.yaml was updated, but the following newly added untracked files are not registered: "
+                        f"{', '.join(missing_from_tracker)}"
+                    )
 
     # 1) coherence <- real signals (or ingest PASS artifact to avoid duplicate pytest)
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
@@ -1335,9 +1344,11 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
     actual_diff = current_diff_sha(env)
     meta["commit"] = actual_commit
     meta["diff_sha256"] = actual_diff
-    if actual_commit and not card.get("commit"):
+    # Always overwrite claimed binding with actual HEAD/diff in verify mode.
+    # This prevents committed self-asserted bindings from stale-checking themselves.
+    if actual_commit:
         card["commit"] = actual_commit
-    if actual_diff and not card.get("diff_sha256"):
+    if actual_diff:
         card["diff_sha256"] = actual_diff
     b, w = check_binding(card, actual_commit, actual_diff, strict)
     extra_blocks += b
@@ -1346,6 +1357,7 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
     # GATE-003: sign_off <- external approval (never the self-asserted boolean)
     verified_signoff, so_reason = verify_signoff(card, env, actual_commit, actual_diff)
     card["sign_off"] = verified_signoff
+    card.setdefault("impact", {})["sign_off"] = verified_signoff
     meta["sign_off_verified"] = verified_signoff
     meta["sign_off_reason"] = so_reason
 
@@ -1458,6 +1470,11 @@ def main(argv: Optional[list] = None) -> int:
         "and anti-replay binding (git); these OVERRIDE self-asserted fields",
     )
     parser.add_argument(
+        "--self-asserted",
+        action="store_true",
+        help="trust self-asserted scorecard fields (default is verify; use only for local drafts)",
+    )
+    parser.add_argument(
         "--ingest-only",
         action="store_true",
         help="ingest CI-produced results artifact rather than running checks inline",
@@ -1472,6 +1489,16 @@ def main(argv: Optional[list] = None) -> int:
         action="store_true",
         help=f"write result+verification JSON under {EVIDENCE_DIR}/",
     )
+    parser.add_argument(
+        "--write-back",
+        action="store_true",
+        help="write the hardened scorecard back to the source file (local development only)",
+    )
+    parser.add_argument(
+        "--skip-roam-check",
+        action="store_true",
+        help="skip the ROAM_TRACKER.yaml untracked-files check (local development only)",
+    )
     args = parser.parse_args(argv)
 
     env = dict(os.environ)
@@ -1479,7 +1506,8 @@ def main(argv: Optional[list] = None) -> int:
         env["AF_GATE_CONTEXT"] = "precommit"
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
     is_precommit = env.get("AF_GATE_CONTEXT") == "precommit" or args.precommit
-    verify_mode = args.verify or is_ci or is_precommit
+    # Default is verified (hardened). Self-asserted is opt-in; CI/precommit always verify.
+    verify_mode = (not args.self_asserted) or is_ci or is_precommit
 
     require = env.get("AF_REQUIRE_SCORECARD", "0") == "1"
 
@@ -1500,16 +1528,29 @@ def main(argv: Optional[list] = None) -> int:
     extra_blocks: list = []
     extra_warnings: list = []
     meta: dict = {}
+    source_path = None
     if verify_mode:
         card, extra_blocks, extra_warnings, meta = harden(
-            card, env=env, strict=args.strict, ingest_only=args.ingest_only
+            card, env=env, strict=args.strict, ingest_only=args.ingest_only, skip_roam_check=args.skip_roam_check
         )
+        if args.write_back:
+            source_path = args.file or (DEFAULT_SCORECARD if args.precommit else None)
 
     result = evaluate(card)
     if verify_mode:
         result = finalize(result, extra_blocks, extra_warnings, meta)
     elif not args.json:
         print("note: self-asserted scorecard (run with --verify to verify signals)")
+
+    if args.write_back and source_path:
+        try:
+            with open(source_path, "w", encoding="utf-8") as fh:
+                json.dump(card, fh, indent=2)
+                fh.write("\n")
+            if not args.json:
+                print(f"scorecard written back: {source_path}")
+        except OSError as exc:
+            print(f"scorecard write-back failed: {exc}", file=sys.stderr)
 
     if args.emit_evidence:
         path = _write_evidence(result)

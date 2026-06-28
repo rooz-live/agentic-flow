@@ -40,7 +40,9 @@ PY
     python3 - "$REPO_ROOT/.goalie/LNNNL.yaml" <<'PY'
 import sys, yaml
 doc = yaml.safe_load(open(sys.argv[1])) or {}
-now = (doc.get("schedule") or {}).get("now", "")
+lanes = doc.get("lanes") or {}
+ship = lanes.get("shippable") or {}
+now = ship.get("now") or (doc.get("schedule") or {}).get("now") or ""
 print(now)
 PY
   fi

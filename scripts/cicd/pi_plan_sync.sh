@@ -27,7 +27,9 @@ payload = {
 lnnnl = root / ".goalie/LNNNL.yaml"
 if lnnnl.is_file():
     import yaml
-    payload["lnnnl_schedule"] = (yaml.safe_load(lnnnl.read_text()) or {}).get("schedule", {})
+    ldoc = yaml.safe_load(lnnnl.read_text()) or {}
+    payload["lnnnl_schedule"] = ldoc.get("schedule", {})
+    payload["lnnnl_lanes"] = ldoc.get("lanes", {})
 
 for name in ("inbox_zero_latest.json", "agentic_time_latest.json", "timescape_correlation_latest.json"):
     p = root / ".goalie/evidence" / name

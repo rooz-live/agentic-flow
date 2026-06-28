@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-SHIPPABLE_LOOP = re.compile(r"\bP1-[A-Z0-9]+-\d+\b", re.I)
+SHIPPABLE_LOOP = re.compile(r"\b(?:P1-[A-Z0-9]+-\d+|NNEAR-\d+)\b", re.I)
 
 
 def is_shippable_work(item: str) -> bool:

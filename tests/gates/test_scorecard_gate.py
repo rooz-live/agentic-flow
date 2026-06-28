@@ -396,7 +396,7 @@ def test_main_file_ship(tmp_path, monkeypatch):
     monkeypatch.delenv("AF_GATE_CONTEXT", raising=False)
     p = tmp_path / "c.json"
     p.write_text(json.dumps(VALID))
-    assert gate.main(["--file", str(p)]) == 0
+    assert gate.main(["--file", str(p), "--self-asserted"]) == 0
 
 
 def test_main_file_block(tmp_path, monkeypatch):
@@ -407,7 +407,7 @@ def test_main_file_block(tmp_path, monkeypatch):
     c["originality"]["coherence"] = "FAIL"
     p = tmp_path / "c.json"
     p.write_text(json.dumps(c))
-    assert gate.main(["--file", str(p)]) == 2
+    assert gate.main(["--file", str(p), "--self-asserted"]) == 2
 
 
 def test_main_bad_json_returns_parse_error(tmp_path, monkeypatch):
@@ -435,7 +435,34 @@ def test_main_pr_body_stdin(monkeypatch):
     monkeypatch.delenv("AF_GATE_CONTEXT", raising=False)
     body = "## PR\n```scorecard\n" + json.dumps(VALID) + "\n```"
     monkeypatch.setattr("sys.stdin", io.StringIO(body))
-    assert gate.main(["--pr-body", "-"]) == 0
+    assert gate.main(["--pr-body", "-", "--self-asserted"]) == 0
+
+
+def test_main_default_verify_blocks_self_asserted_pass(tmp_path, monkeypatch):
+    """Default CLI mode verifies signals; a self-asserted PASS is not enough."""
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("AF_GATE_CONTEXT", raising=False)
+    # Mock signal runner to fail (simulating real CI evidence missing).
+    monkeypatch.setattr(
+        gate,
+        "run_signals",
+        lambda signals, timeout=None: [
+            {"name": s.get("name", "?"), "required": s.get("required", True), "ok": False, "returncode": 1}
+            for s in signals
+        ],
+    )
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps(VALID))
+    assert gate.main(["--file", str(p)]) == 2
+
+
+def test_main_self_asserted_opt_in(tmp_path, monkeypatch):
+    """--self-asserted is the only way to trust self-asserted fields locally."""
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("AF_GATE_CONTEXT", raising=False)
+    p = tmp_path / "c.json"
+    p.write_text(json.dumps(VALID))
+    assert gate.main(["--file", str(p), "--self-asserted"]) == 0
 
 
 # --------------------------------------------------------------------------- #
@@ -447,6 +474,40 @@ def test_derive_coherence_all_required_ok():
         {"name": "b", "required": True, "ok": True},
     ]
     assert gate.derive_coherence(res) == "PASS"
+
+
+# --------------------------------------------------------------------------- #
+# Scorecard write-back + ROAM skip
+# --------------------------------------------------------------------------- #
+def test_write_back_overwrites_binding_and_signoff(tmp_path, monkeypatch):
+    """--write-back re-binds the scorecard to HEAD and overwrites sign_off."""
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.setenv("AF_GATE_CONTEXT", "review")
+    # Avoid running the real heavy signal suite in this unit test.
+    monkeypatch.setattr(
+        gate,
+        "run_signals",
+        lambda signals, timeout=None: [
+            {"name": s.get("name", "?"), "required": s.get("required", True), "ok": True, "returncode": 0}
+            for s in signals
+        ],
+    )
+    monkeypatch.setattr(gate, "run_no_invented_symbols", lambda root: True)
+    p = tmp_path / "c.json"
+    c = base()
+    c["commit"] = "deadbeef"
+    c["diff_sha256"] = "0" * 64
+    c["impact"]["sign_off"] = True
+    p.write_text(json.dumps(c))
+    assert gate.main(["--file", str(p), "--write-back", "--skip-roam-check"]) == 0
+    rewritten = json.loads(p.read_text())
+    assert rewritten["commit"] != "deadbeef"
+    assert rewritten["diff_sha256"] != "0" * 64
+    assert rewritten.get("sign_off") is False
+    assert rewritten["impact"]["sign_off"] is False
+
+
+
 
 
 def test_derive_coherence_one_required_fails():
@@ -500,8 +561,14 @@ def test_derive_gate_integrity_context_token():
 
 
 def test_derive_gate_integrity_empty_env_fails():
-    """No CI env and no AF_GATE_CONTEXT → OWNED (local fallback)."""
+    """No CI env and no AF_GATE_CONTEXT → FAIL."""
     verdict, _ = gate.derive_gate_integrity({})
+    assert verdict == "FAIL"
+
+
+def test_derive_gate_integrity_owned_with_explicit_local_flag():
+    """AF_ALLOW_OWNED_LOCAL=1 opts into the legacy local fallback."""
+    verdict, _ = gate.derive_gate_integrity({"AF_ALLOW_OWNED_LOCAL": "1"})
     assert verdict == "OWNED"
 
 
@@ -533,6 +600,13 @@ def test_check_binding_diff_mismatch_blocks():
 def test_derive_reward_direction_untracked_negative():
     rd, notes = gate.derive_reward_direction({"untracked_added": 3})
     assert rd == -1 and notes
+
+
+def test_derive_reward_direction_untracked_with_roam_still_negative():
+    # Updating ROAM must not invert the penalty into a bonus.
+    rd, notes = gate.derive_reward_direction({"untracked_added": 3, "roam_updated": True})
+    assert rd < 0, f"expected negative reward_direction, got {rd}"
+    assert "roam" in " ".join(notes).lower()
 
 
 def test_derive_reward_direction_clean_positive():
@@ -616,13 +690,16 @@ def test_main_verify_ships_when_signals_pass(tmp_path, monkeypatch):
     assert gate.main(["--file", str(p), "--verify"]) == 0
 
 
-def test_main_verify_blocks_on_stale_commit(tmp_path, monkeypatch):
+def test_main_verify_rebinds_stale_commit(tmp_path, monkeypatch):
+    """Verify mode overwrites stale binding with actual HEAD; gate passes."""
     _verify_mocks(monkeypatch, signal_ok=True, head="newsha")
     c = base()
     c["commit"] = "oldsha"  # stale binding
     p = tmp_path / "c.json"
     p.write_text(json.dumps(c))
-    assert gate.main(["--file", str(p), "--verify"]) == 2
+    assert gate.main(["--file", str(p), "--verify", "--write-back"]) == 0
+    rewritten = json.loads(p.read_text())
+    assert rewritten["commit"] == "newsha"
 
 
 def test_collect_reward_proxies_is_bounded(monkeypatch):

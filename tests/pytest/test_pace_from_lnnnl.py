@@ -11,6 +11,12 @@ def test_is_shippable_work_detects_p1_items():
     assert not is_shippable_work(None)
 
 
+def test_is_shippable_work_detects_nnear_items():
+    assert is_shippable_work("[NNEAR-01] near work")
+    assert is_shippable_work("NNEAR-42")
+    assert not is_shippable_work("NN-01")
+
+
 def test_pace_now_shippable_returns_1_5():
     schedule = {
         "now": "[P1-BILLING-001] invoice engine",

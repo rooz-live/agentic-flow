@@ -15,7 +15,7 @@ from src.wsjf.calculator import WsjfCalculator, WsjfItem
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "scripts", "cicd", "lib"))
 from env_key_resolver import sync_roam_env_deps
 
-SHIPPABLE_ID_RE = re.compile(r"^P1-[A-Z0-9]+-\d+$", re.I)
+SHIPPABLE_ID_RE = re.compile(r"^(P1-[A-Z0-9]+-\d+|NNEAR-\d+)$", re.I)
 BLOCKER_ID_RE = re.compile(r"^(DEP-|BLK-|B-|R04|R-)", re.I)
 
 
@@ -26,10 +26,11 @@ def load_shippable_queue(root):
     with open(prompts_path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     out = []
-    for row in data.get("wsjf_now_items", []):
-        iid = str(row.get("id") or "")
-        if SHIPPABLE_ID_RE.match(iid):
-            out.append({"id": iid, "title": iid, "type": "shippable"})
+    for key in ("wsjf_now_items", "wsjf_near_items"):
+        for row in data.get(key, []):
+            iid = str(row.get("id") or "")
+            if SHIPPABLE_ID_RE.match(iid):
+                out.append({"id": iid, "title": iid, "type": "shippable"})
     return out
 
 
@@ -120,16 +121,6 @@ def parse_deadline(deadline_str):
                 except ValueError:
                     continue
     return None
-
-def _load_loop_prompts(path: str) -> dict:
-    """Load loop_prompts.yaml and return P1/NNEAR shippable items."""
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            data = yaml.safe_load(f) or {}
-    except Exception:
-        return {}
-    return data
-
 
 def _extract_shippable_items(data: dict) -> dict:
     """Return {now: [...], near: [...], next: [...]} from loop_prompts items.
@@ -381,14 +372,14 @@ def main():
 
     shippable_lane, blockers_lane = build_lane_schedules(sorted_items, load_shippable_queue(PROJECT_ROOT))
 
+    # Dual-lane schedule: top-level schedule is shippable-only. Blockers live in
+    # lanes.blockers. This keeps pace/schedule consumers focused on shippable
+    # work while preserving blocker visibility under lanes.blockers.
     schedule = {}
     for label in ['now', 'near', 'next', 'later', 'likely']:
         ship = shippable_lane.get(label, "")
-        blk = blockers_lane.get(label, "")
         if ship and ship != "No pending task.":
             schedule[label] = ship
-        elif blk and blk != "No pending task.":
-            schedule[label] = blk
         else:
             schedule[label] = "No pending task."
     schedule["shippable_now"] = shippable_lane.get("now", "")
@@ -396,6 +387,7 @@ def main():
     schedule["shippable_next"] = shippable_lane.get("next", "")
     schedule["blockers_now"] = blockers_lane.get("now", "")
     schedule["blockers_near"] = blockers_lane.get("near", "")
+    schedule["blockers_next"] = blockers_lane.get("next", "")
 
     lnnnl_data = {
         "version": "1.1",

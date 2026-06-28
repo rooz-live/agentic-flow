@@ -1065,6 +1065,35 @@ def test_load_signals_rejects_unsigned_changes_locally(monkeypatch, tmp_path):
     assert sg.load_signals() == sg.DEFAULT_SIGNALS
 
 
+def test_verify_signals_json_requires_no_invented_symbols_and_full_pytest():
+    """The checked-in verify_signals.json must not be weaker than DEFAULT_SIGNALS.
+
+    This prevents the placeholder no-invented-paths probe from silently weakening
+    the coherence gate in CI/precommit once the file is committed and unmodified.
+    """
+    from scripts.gates import scorecard_gate as sg
+
+    signals_file = Path(sg.VERIFY_SIGNALS_FILE)
+    assert signals_file.exists(), f"{signals_file} must exist"
+    data = json.loads(signals_file.read_text(encoding="utf-8"))
+    signals = data.get("signals", [])
+    by_name = {s["name"]: s for s in signals}
+
+    pytest_sig = by_name.get("pytest")
+    assert pytest_sig is not None, "verify_signals.json must define a pytest signal"
+    assert pytest_sig.get("required") is True, "pytest signal must be required"
+    cmd = pytest_sig.get("cmd", [])
+    assert "tests/billing/" in cmd, "pytest must cover tests/billing/"
+    assert "tests/gates/" in cmd, "pytest must cover tests/gates/"
+
+    no_invented = by_name.get("no-invented-symbols")
+    assert no_invented is not None, "verify_signals.json must define no-invented-symbols"
+    assert no_invented.get("required") is True, "no-invented-symbols must be required"
+    assert "run_no_invented_symbols" in str(no_invented.get("cmd", [])), "no-invented-symbols must invoke run_no_invented_symbols"
+
+    assert "no-invented-paths" not in by_name, "placeholder no-invented-paths signal must be removed"
+
+
 def test_collect_reward_proxies_scans_all_directories(monkeypatch):
     from scripts.gates import scorecard_gate as sg
     

@@ -41,6 +41,8 @@ build_fake_repo() {
     cp "$DEPLOY_EDGE" "$REPO/scripts/deploy/deploy-edge-cfg.sh"
     chmod +x "$REPO/scripts/deploy/deploy-edge-cfg.sh"
     cp "$ROOT_DIR"/scripts/cicd/edge_*.py "$REPO/scripts/cicd/"
+    mkdir -p "$REPO/scripts/cicd/lib"
+    cp "$ROOT_DIR"/scripts/cicd/lib/receipt.py "$REPO/scripts/cicd/lib/"
     echo "$REPO"
 }
 

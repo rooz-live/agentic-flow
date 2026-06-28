@@ -91,7 +91,7 @@ test_r1_runner_pass() {
     echo "R1: Passing command → status=PASS, attempts=1"
 
     local out
-    out=$(python3 - "$TMPROOT" << 'PY' 2>&1
+    out=$(PYTEST_CURRENT_TEST=1 python3 - "$TMPROOT" << 'PY' 2>&1
 import sys, json
 from pathlib import Path
 sys.path.insert(0, 'scripts/cicd')
@@ -199,7 +199,7 @@ test_r5_log_truncation() {
     echo "R5: Output > log_truncate_bytes → truncation marker in log"
 
     local out
-    out=$(python3 - "$TMPROOT" << 'PY' 2>&1
+    out=$(PYTEST_CURRENT_TEST=1 python3 - "$TMPROOT" << 'PY' 2>&1
 import sys, json
 from pathlib import Path
 sys.path.insert(0, 'scripts/cicd')

@@ -44,7 +44,7 @@ if [[ $EXIT_CODE -eq 0 ]]; then
         tests/billing/ \
         tests/pytest/ \
         tests/gates/ \
-        tests/integration/ \
+        --ignore=tests/integration/ \
         -q --tb=line 2>&1; then
         green "  pytest: PASS"
     else

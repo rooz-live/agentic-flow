@@ -137,6 +137,9 @@ if [[ $EXIT_CODE -eq 0 ]]; then
     # Stable symlink for gate-one-pass verify-contract compatibility
     ln -sf "coherence_results.json" "$ARTIFACT_DIR/last_coherence_gate.json"
 
+    # Sign artifact with local workspace signer if available (precommit/verify mode)
+    python3 "$ROOT_DIR/scripts/gates/scorecard_gate.py" --sign-coherence >/dev/null 2>&1 || true
+
     green "====================================================================="
     green "✅ COHERENCE GATE PASSED — artifact: $ARTIFACT_PATH"
     green "====================================================================="

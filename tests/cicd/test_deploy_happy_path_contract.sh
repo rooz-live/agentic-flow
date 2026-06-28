@@ -29,3 +29,9 @@ grep -q 'no displayTitle match' scripts/deploy/trigger_tld_gate_ci.sh || { echo 
 ! grep -q 'strict=false' .github/workflows/tld-deploy-gate.yml || { echo 'FAIL: workflow still allows strict=false'; exit 1; }
 grep -q '!redirects || isStrictClosed()' tests/e2e/tld-deploy-gate.spec.ts || { echo 'FAIL: strict redirect manifest'; exit 1; }
 echo "PASS deploy receipt freshness contract"
+grep -q 'exit 1' scripts/deploy_uapi.sh || { echo 'FAIL: deploy_uapi shim must hard-fail'; exit 1; }
+! grep -q 'exec bash.*deploy-uapi' scripts/deploy_uapi.sh || { echo 'FAIL: deploy_uapi shim must not exec canonical script'; exit 1; }
+grep -q 'index_slice_p1_scripts' scripts/cicd/index_slice_p1_scripts.sh || { echo 'FAIL: missing P1-INDEX-01 executor'; exit 1; }
+! grep -q 'setdefault("AF_ALLOW_OWNED_LOCAL"' scripts/cicd/lib/scorecard_vector.py || { echo 'FAIL: cycle vector must not default AF_ALLOW_OWNED_LOCAL'; exit 1; }
+echo "PASS P1 index and gate integrity contracts"
+

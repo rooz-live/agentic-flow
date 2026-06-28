@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# DEPRECATED: use scripts/deploy/deploy-uapi.sh via ./scripts/one.sh deploy-uapi
+# REMOVED: use canonical deploy router only.
 set -euo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-echo "WARN: scripts/deploy_uapi.sh is deprecated — exec scripts/deploy/deploy-uapi.sh" >&2
-exec bash "$ROOT/scripts/deploy/deploy-uapi.sh" "$@"
+echo "ERROR: scripts/deploy_uapi.sh is removed — use one of:" >&2
+echo "  ./scripts/one.sh deploy-uapi" >&2
+echo "  bash scripts/deploy/deploy-uapi.sh" >&2
+exit 1

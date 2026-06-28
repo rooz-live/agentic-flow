@@ -20,7 +20,6 @@ def evaluate_scorecard_not_block(root: Path) -> dict[str, Any]:
             "errors": [] if ok else ["scorecard missing"],
         }
     env = dict(os.environ)
-    env.setdefault("AF_ALLOW_OWNED_LOCAL", "1")
     proc = subprocess.run(
         [
             sys.executable,

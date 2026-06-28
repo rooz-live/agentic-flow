@@ -1143,10 +1143,13 @@ def test_roam_tracker_update_unregistered_untracked_files(monkeypatch, tmp_path)
 
 
 
-def test_verify_deploy_uapi_receipt_closed(tmp_path):
+def test_verify_deploy_uapi_receipt_closed(tmp_path, monkeypatch):
     evidence = tmp_path / ".goalie" / "evidence"
     evidence.mkdir(parents=True)
+    head = "abc123" * 7
+    monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda r: head)
     art = {
+        "hash": head,
         "tld_gate_status": "pass",
         "playwright_exit": 0,
         "tld_gate_conclusion": "success",
@@ -1157,6 +1160,7 @@ def test_verify_deploy_uapi_receipt_closed(tmp_path):
     ok, doc, msg = __import__("scripts.gates.scorecard_gate", fromlist=["verify_deploy_uapi_receipt"]).verify_deploy_uapi_receipt(tmp_path)
     assert ok is True
     assert doc is not None
+    assert msg == "deploy receipt closed"
 
 
 def test_verify_deploy_uapi_receipt_blocks_bad_status(tmp_path):
@@ -1164,11 +1168,8 @@ def test_verify_deploy_uapi_receipt_blocks_bad_status(tmp_path):
     evidence.mkdir(parents=True)
     art = {"tld_gate_status": "fail", "playwright_exit": 1, "hash": "deadbeef1234"}
     (evidence / "last_deploy_uapi.json").write_text(__import__("json").dumps(art))
-    from scripts.gates.scorecard_gate import verify_deploy_uapi_receipt, git_head
-    print(f"\n[DEBUG] tmp_path={tmp_path}")
-    print(f"[DEBUG] git_head(tmp_path)={git_head(tmp_path)!r}")
+    from scripts.gates.scorecard_gate import verify_deploy_uapi_receipt
     ok, doc, msg = verify_deploy_uapi_receipt(tmp_path)
-    print(f"[DEBUG] ok={ok}, msg={msg!r}")
     assert ok is False
     assert doc is not None
     assert "tld_gate_status" in msg

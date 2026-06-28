@@ -11,6 +11,8 @@ TESTS=(
   test_max_roi_iterate.sh
   test_inbox_minimal_zero.sh
   test_deploy_happy_path_contract.sh
+  test_loop_item_binding_contract.sh
+  test_deploy_receipt_behavior.sh
   test_tld_targets_generator.sh
   test_lnnnl_dual_lane_contract.sh
   test_roam_edge_contract.sh

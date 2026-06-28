@@ -247,6 +247,7 @@ COG_RULES_SCOPED: List[CogRule] = [
     CogRule("CVT-002", "COG smoke pass", "Latest smoke must pass — no false green", ("edge", "full"), "hard", "check_cog_smoke_recent", 48),
     CogRule("CVT-EDGE-001", "interface.tag.vote live edge", "Public health=200 and cog=302", ("edge", "full"), "hard", "check_cog_edge_live"),
     CogRule("CVT-FWD-001", "tag.vote/cog forwarder alive", "cPanel path must remain 302", ("edge", "full"), "hard", "check_tag_vote_forwarder"),
+    CogRule("CVT-FWD-002", "tag.vote apex Discord", "Apex must redirect to Discord until prod maturity", ("edge", "full"), "hard", "check_tag_vote_apex_discord"),
     CogRule("CVT-ARTIFACT-001", "Smoke artifact schema", "Recent smoke JSON with checks fields", ("edge", "governance", "full"), "hard", "check_smoke_artifact_schema", 48),
     CogRule("CVT-003", "ROAM COG tracker fresh", "ROAM_TRACKER_COG.yaml within TTL", ("governance", "full"), "warn", "check_roam_cog_fresh", 24),
     CogRule("CVT-004", "UPSTREAM phase1 documented", "Pending phase1 items flagged", ("governance", "full"), "warn", "check_upstream_phase1"),
@@ -373,6 +374,47 @@ def check_tag_vote_forwarder(self, rule: CogRule) -> ComplianceResult:
     if code == "000":
         return _cog_result(rule, ComplianceStatus.WARN, f"tag.vote unreachable (DNS/network block)", **details)
     return _cog_result(rule, ComplianceStatus.FAIL, f"tag.vote/cog not 302: {code}", **details)
+
+
+def check_tag_vote_apex_discord(self, rule: CogRule) -> ComplianceResult:
+    """tag.vote apex must redirect to Discord until TLD_GATE_PROD_MATURITY / Phase 2 sign-off."""
+    import os
+    import subprocess
+
+    discord_url = os.environ.get("TAG_VOTE_DISCORD_URL", "https://discord.gg/VFGeGDhhfj")
+    if os.environ.get("TLD_GATE_PROD_MATURITY") == "1":
+        signoff = _goalie() / "evidence" / "cog-upgrade" / "phase2_signoff.json"
+        if signoff.exists():
+            return _cog_result(
+                rule,
+                ComplianceStatus.WARN,
+                "TLD_GATE_PROD_MATURITY=1 — verify Cognitum apex authorized before changing policy",
+            )
+
+    code = _curl_code("https://tag.vote/")
+    proc = subprocess.run(
+        ["curl", "-sS", "-I", "--connect-timeout", "12", "--max-time", "20", "https://tag.vote/"],
+        capture_output=True,
+        text=True,
+        timeout=25,
+    )
+    location = ""
+    for line in (proc.stdout or "").splitlines():
+        if line.lower().startswith("location:"):
+            location = line.split(":", 1)[1].strip()
+    details = {"http_code": code, "location": location, "expected": discord_url}
+    if code == "000":
+        return _cog_result(rule, ComplianceStatus.WARN, "tag.vote apex unreachable (DNS/network block)", **details)
+    if code in ("301", "302") and "cognitum" in location.lower():
+        return _cog_result(
+            rule,
+            ComplianceStatus.FAIL,
+            "tag.vote apex wrongly forwards to Cognitum — run tag-vote-redirects.sh",
+            **details,
+        )
+    if code in ("301", "302") and ("discord" in location.lower() or discord_url.rstrip("/") in location.rstrip("/")):
+        return _cog_result(rule, ComplianceStatus.PASS, f"tag.vote apex Discord forwarder ({code})", **details)
+    return _cog_result(rule, ComplianceStatus.FAIL, f"tag.vote apex not Discord redirect: {code}", **details)
 
 
 def check_smoke_artifact_schema(self, rule: CogRule) -> ComplianceResult:

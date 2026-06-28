@@ -228,6 +228,11 @@ PLAYWRIGHT_EXIT=0
 TLD_GATE_CI_EXIT=0
 export DEPLOY_RUN_ID="deploy_uapi_${RUN_ID:-unknown}"
 
+# Test mode skips the external CI dispatch so DoR-only tests stay hermetic.
+if [[ -n "${DEPLOY_UAPI_TEST:-}" ]]; then
+    AF_TRIGGER_TLD_GATE_CI=0
+fi
+
 TLD_GATE_STATUS="skipped"
 if [[ "${AF_TRIGGER_TLD_GATE_CI:-1}" == "1" ]]; then
     echo "--> Strict TLD gate via GitHub Actions (fail-closed, AF_TLD_GATE_WAIT=${AF_TLD_GATE_WAIT:-1})..."

@@ -112,10 +112,10 @@ def _git_head(root: Path) -> str:
         return ""
 
 
-def _overlay_enforce_signature() -> bool:
+def _overlay_enforce_signature(root: Path | None = None) -> bool:
     is_ci = _is_ci_env()
     is_precommit = os.environ.get("AF_GATE_CONTEXT") == "precommit"
-    root = repo_root()
+    root = root or repo_root()
     allowed = root / ".goalie" / "scorecards" / "allowed_signers"
     local_allowed = root / ".goalie" / "scorecards" / "allowed_signers.local"
     return is_ci or is_precommit or allowed.is_file() or local_allowed.is_file()
@@ -143,7 +143,7 @@ def overlay_trusted(doc: dict[str, Any], root: Path | None = None) -> bool:
         return True
     if _verify_overlay_signature(doc, root):
         return True
-    if _overlay_enforce_signature():
+    if _overlay_enforce_signature(root):
         return False
     # Local dev: honor unsigned overlay only when session stamp matches (same apply session).
     return _overlay_session_fresh(root)
@@ -333,12 +333,8 @@ def collect_vectors(
     trust = _run(["bash", str(one), "trust-path"], root, timeout=300)
     vectors["trust_path_exit_0"] = {"ok": trust == 0, "exit_code": trust}
 
-    # scorecard_not_block is derived from the real signals already produced by
-    # this cycle: coherence (cargo + pytest + no-invented-symbols) and
-    # trust-path (perceive + index gate). Invoking the full scorecard gate here
-    # would re-run expensive checks and depend on a signed scorecard artifact.
-    sc_ok = (coh == 0 and trust == 0)
-    vectors["scorecard_not_block"] = {"ok": sc_ok, "exit_code": 0 if sc_ok else 1}
+    from scorecard_vector import evaluate_scorecard_not_block
+    vectors["scorecard_not_block"] = evaluate_scorecard_not_block(root)
 
     aqe_q = _run(
         ["bash", str(one), "aqe", "quality", "assess", "--gate"],

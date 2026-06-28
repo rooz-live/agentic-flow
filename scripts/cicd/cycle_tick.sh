@@ -4,6 +4,12 @@ set -euo pipefail
 source "$(dirname "$0")/lib/cls_common.sh"
 cls_repo_root
 
+# Local Echo 13 models — avoid OpenRouter token spend when mounted
+if [[ -f "$REPO_ROOT/scripts/system/activate-echo-llm.sh" ]]; then
+  # shellcheck disable=SC1091
+  source "$REPO_ROOT/scripts/system/activate-echo-llm.sh" quiet || true
+fi
+
 MODE="${CYCLE_MODE:-SA}"
 [[ "${1:-}" == "FA" || "${1:-}" == "fa" ]] && MODE="FA"
 [[ "${1:-}" == "SA" || "${1:-}" == "sa" ]] && MODE="SA"
@@ -163,12 +169,9 @@ vectors["coherence_exit_0"] = {"ok": coh_ec == 0, "exit_code": coh_ec}
 trust = run(["bash", str(one), "trust-path"])
 vectors["trust_path_exit_0"] = {"ok": trust == 0, "exit_code": trust}
 
-# scorecard_not_block derived from real signals already produced by this cycle:
-# coherence (cargo + pytest + no-invented-symbols) and trust-path (perceive + index gate).
-# Avoid invoking the full scorecard gate inline because it depends on a signed
-# scorecard artifact that is not available during the tick.
-sc_ok = (coh_ec == 0 and trust == 0)
-vectors["scorecard_not_block"] = {"ok": sc_ok, "exit_code": 0 if sc_ok else 1}
+sys.path.insert(0, str(root / "scripts/cicd/lib"))
+from scorecard_vector import evaluate_scorecard_not_block
+vectors["scorecard_not_block"] = evaluate_scorecard_not_block(root)
 
 vectors["aqe_quality_pass"] = {"ok": aqe_q_ec == 0, "exit_code": aqe_q_ec}
 vectors["aqe_coverage_pass"] = {"ok": aqe_c_ec == 0, "exit_code": aqe_c_ec}
@@ -215,6 +218,22 @@ if [[ -x "$REPO_ROOT/scripts/cicd/tick_post_hooks.sh" ]]; then
     echo "tick_post_hooks exited $POST_EXIT; propagating to EXIT_CODE"
     EXIT_CODE=$POST_EXIT
   fi
+fi
+
+
+# Bounded ceremony between max-ROI cycles (standup/review/retro/wsjf/pi_sync).
+if [[ "${CEREMONY_OFF:-0}" != "1" ]]; then
+  export LOOP_CEREMONY="${LOOP_CEREMONY:-light}"
+  CEREMONY_ARGS=()
+  if [[ $EXIT_CODE -eq 0 && "$CYCLE_PASSED" == "1" ]]; then
+    CEREMONY_ARGS+=(--commit-unit)
+  fi
+  set +e
+  timeout "${CEREMONY_MAX_MINUTES:-5}m" python3 "$REPO_ROOT/scripts/cicd/lib/ceremony_engine.py"     --tick "${LOOP_TICK_COUNT}" "${CEREMONY_ARGS[@]}" --json > "$STATE_DIR/ceremony_latest.json"
+  CER_EC=$?
+  set -e
+  [[ $CER_EC -ne 0 ]] && echo "WARN: ceremony exited $CER_EC (non-blocking)"
+  export CEREMONY_RAN=1
 fi
 
 python3 "$REPO_ROOT/scripts/cicd/lib/cycle_knob_engine.py" propose "$MODE" \

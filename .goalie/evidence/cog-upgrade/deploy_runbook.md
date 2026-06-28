@@ -12,6 +12,15 @@
 
 ## Ordered Steps
 
+### 0. Enforce tag.vote redirects (canonical: config/edge/tag_vote_redirect.yaml)
+
+```bash
+# WHM shell or laptop with WHM_API_TOKEN — syncs Mime + public_html/.htaccess
+bash scripts/infra/cpanel/tag-vote-redirects.sh
+python3 scripts/edge/tag_vote_redirect_lib.py check
+```
+
+
 ### 1. Sync nginx config
 
 ```bash

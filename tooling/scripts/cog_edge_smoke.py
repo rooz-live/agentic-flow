@@ -8,9 +8,26 @@ import json
 import os
 import sys
 import urllib.request
-import urllib.error
-from datetime import datetime, timezone
-from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+def _enrich_tag_vote_route(route):
+    """Merge canonical redirect URLs from config/edge/tag_vote_redirect.yaml."""
+    if route.get("fqdn") != "tag.vote":
+        return route
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        sys.path.insert(0, os.path.join(root, "scripts", "edge"))
+        from tag_vote_redirect_lib import load_policy, destinations
+        policy = load_policy(Path(root))
+        _, apex, cog = destinations(policy)
+        route = dict(route)
+        route["expected_redirect"] = apex
+        route["expected_cog_redirect"] = cog
+        route["canonical"] = "config/edge/tag_vote_redirect.yaml"
+    except Exception as e:
+        print(f"Warning: could not load tag_vote_redirect canonical: {e}")
+    return route
+
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, hdrs, newurl):
@@ -54,16 +71,27 @@ def evaluate_route(route, secret, ref):
     fqdn = route["fqdn"]
     results = {}
     
-    # 1. Health probe
-    health_url = f"https://{fqdn}/health"
-    health_status, _ = probe_endpoint(health_url)
-    results["health"] = {"code": health_status, "expect": route["expected_health"]}
+    # 1. Health probe (skip for apex-only redirect domains)
+    if fqdn == "tag.vote":
+        apex_url = f"https://{fqdn}/"
+        apex_status, apex_location = probe_endpoint(apex_url)
+        expected_apex = route.get("expected_redirect", "")
+        results["apex"] = {
+            "code": apex_status,
+            "location": apex_location,
+            "expect": expected_apex or "Discord",
+        }
+    else:
+        health_url = f"https://{fqdn}/health"
+        health_status, _ = probe_endpoint(health_url)
+        results["health"] = {"code": health_status, "expect": route["expected_health"]}
     
-    # 2. Redirect/Cog probe if domain is tag.vote or interface.tag.vote
-    if "tag.vote" in fqdn:
+    # 2. /cog affiliate forwarder (tag.vote + interface.tag.vote)
+    if fqdn in ("tag.vote", "interface.tag.vote"):
         cog_url = f"https://{fqdn}/cog"
         cog_status, location = probe_endpoint(cog_url)
-        results["cog"] = {"code": cog_status, "location": location, "expect": f"302 with ref={ref}"}
+        expected_cog = route.get("expected_cog_redirect", f"302 with ref={ref}")
+        results["cog"] = {"code": cog_status, "location": location, "expect": expected_cog}
         
     # 3. Webhook probe if interface.tag.vote and secret is set
     if fqdn == "interface.tag.vote" and secret:
@@ -99,7 +127,7 @@ def main():
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_path = os.path.join(evidence_dir, f"smoke_{ts}.json")
     
-    routes = config["domains"]
+    routes = [_enrich_tag_vote_route(r) for r in config["domains"]]
     
     # Run evaluations in parallel
     with ThreadPoolExecutor(max_workers=5) as executor:
@@ -110,7 +138,25 @@ def main():
     passed = True
     
     # Evaluate overall pass/fail criteria
-    # We aggregate verification metrics for the primary edge (interface.tag.vote)
+    tag_vote = probes.get("tag.vote", {})
+    if tag_vote:
+        apex_code = tag_vote.get("apex", {}).get("code", 0)
+        apex_loc = tag_vote.get("apex", {}).get("location", "")
+        cog_code = tag_vote.get("cog", {}).get("code", 0)
+        cog_loc = tag_vote.get("cog", {}).get("location", "")
+        if apex_code == 0 or cog_code == 0:
+            edge_blocked = True
+        if apex_code not in (301, 302):
+            passed = False
+        if "cognitum" in apex_loc.lower():
+            passed = False
+        elif "discord" not in apex_loc.lower():
+            passed = False
+        if cog_code not in (301, 302):
+            passed = False
+        if "cognitum" not in cog_loc.lower() or f"ref={ref}" not in cog_loc:
+            passed = False
+
     primary_checks = probes.get("interface.tag.vote", {})
     if primary_checks:
         health_code = primary_checks.get("health", {}).get("code", 0)
@@ -141,7 +187,7 @@ def main():
         "timestamp": ts,
         "base": f"https://interface.tag.vote",
         "ref": ref,
-        "checks": primary_checks,
+        "checks": {**tag_vote, **primary_checks},
         "all_probes": probes,
         "edge_blocked": edge_blocked,
         "pass": passed and not edge_blocked,

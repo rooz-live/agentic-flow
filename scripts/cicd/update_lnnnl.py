@@ -78,22 +78,30 @@ def build_lane_schedules(sorted_items, shippable_queue):
 
 
 def reconcile_wsjf_dependency_links(tracker_data):
-    deps = {str(d.get("id")): str(d.get("status", "")).lower()
-            for d in tracker_data.get("dependencies", [])}
-    wsjf = tracker_data.get("wsjf") or {}
+    deps = {}
+    for d in tracker_data.get("dependencies", []):
+        deps[str(d.get("id"))] = str(d.get("status", "")).lower()
+    for b in tracker_data.get("blockers", []):
+        deps[str(b.get("id"))] = str(b.get("roam_status", "")).lower()
+    for r in tracker_data.get("risks", []):
+        status = r.get("status") or r.get("roam_status") or ""
+        deps[str(r.get("id"))] = str(status).lower()
+
+    wsjf_key = "wsjf_integration" if "wsjf_integration" in tracker_data else "wsjf"
+    wsjf = tracker_data.get(wsjf_key) or {}
     links = wsjf.get("dependency_links") or []
     changed = False
     for link in links:
         current_status = str(link.get("status", "")).upper()
-        if current_status == "RESOLVED":
+        if current_status in ("RESOLVED", "COMPLETED"):
             continue
         dep_ids = link.get("depends_on") or []
-        if dep_ids and all(deps.get(str(d)) == "resolved" for d in dep_ids):
+        if dep_ids and all(deps.get(str(d)) in ("resolved", "mitigated", "accepted") for d in dep_ids):
             link["status"] = "RESOLVED"
             changed = True
     if changed:
         wsjf["dependency_links"] = links
-        tracker_data["wsjf"] = wsjf
+        tracker_data[wsjf_key] = wsjf
     return changed
 
 
@@ -174,7 +182,7 @@ def _parse_roam_timestamp(value, now_utc):
 
 
 def _item_verification_anchor(raw_item, now_utc):
-    for key in ("last_verified", "discovered"):
+    for key in ("discovered", "last_verified"):
         ts = _parse_roam_timestamp((raw_item or {}).get(key), now_utc)
         if ts is not None:
             return ts

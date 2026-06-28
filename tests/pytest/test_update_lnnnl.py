@@ -7,6 +7,8 @@ from scripts.cicd.update_lnnnl import (
     is_blocker_item,
     load_shippable_queue,
     SHIPPABLE_ID_RE,
+    _item_verification_anchor,
+    reconcile_wsjf_dependency_links,
 )
 
 
@@ -94,3 +96,62 @@ def test_load_shippable_queue_includes_nnear(tmp_path):
     assert "P1-ADB-01" in ids
     assert "NNEAR-02" in ids
     assert "CVT-004" not in ids
+
+
+def test_item_verification_anchor_prioritizes_discovered():
+    from datetime import datetime, timezone
+    now_utc = datetime.now(timezone.utc)
+
+    # Both present -> discovered prioritized
+    item_both = {"discovered": "2026-06-20", "last_verified": "2026-06-25"}
+    anchor = _item_verification_anchor(item_both, now_utc)
+    assert anchor is not None
+    assert anchor.year == 2026 and anchor.month == 6 and anchor.day == 20
+
+    # Only last_verified present -> fallback to last_verified
+    item_only_verified = {"last_verified": "2026-06-25"}
+    anchor = _item_verification_anchor(item_only_verified, now_utc)
+    assert anchor is not None
+    assert anchor.year == 2026 and anchor.month == 6 and anchor.day == 25
+
+    # Neither present -> None
+    assert _item_verification_anchor({}, now_utc) is None
+
+
+def test_reconcile_wsjf_dependency_links_updates_wsjf_integration():
+    tracker_data = {
+        "dependencies": [
+            {"id": "DEP-001", "status": "RESOLVED"},
+            {"id": "DEP-002", "status": "active"},
+        ],
+        "blockers": [
+            {"id": "BLOCKER-001", "roam_status": "RESOLVED"},
+            {"id": "BLOCKER-002", "roam_status": "OWNED"},
+        ],
+        "risks": [
+            {"id": "RISK-001", "status": "MITIGATED"},
+            {"id": "RISK-002", "status": "active"},
+        ],
+        "wsjf_integration": {
+            "dependency_links": [
+                {"wsjf_id": "BUILD-001", "depends_on": ["DEP-001", "BLOCKER-001"], "status": "READY"},
+                {"wsjf_id": "BUILD-002", "depends_on": ["DEP-002", "BLOCKER-001"], "status": "READY"},
+                {"wsjf_id": "BUILD-003", "depends_on": ["RISK-001"], "status": "READY"},
+                {"wsjf_id": "BUILD-004", "depends_on": ["RISK-002"], "status": "READY"},
+            ]
+        }
+    }
+
+    changed = reconcile_wsjf_dependency_links(tracker_data)
+    assert changed is True
+
+    links = tracker_data["wsjf_integration"]["dependency_links"]
+    # BUILD-001: DEP-001 (RESOLVED) + BLOCKER-001 (RESOLVED) -> RESOLVED
+    assert links[0]["status"] == "RESOLVED"
+    # BUILD-002: DEP-002 (active) -> not resolved
+    assert links[1]["status"] == "READY"
+    # BUILD-003: RISK-001 (MITIGATED) -> RESOLVED
+    assert links[2]["status"] == "RESOLVED"
+    # BUILD-004: RISK-002 (active) -> not resolved
+    assert links[3]["status"] == "READY"
+

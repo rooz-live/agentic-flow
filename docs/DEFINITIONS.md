@@ -187,6 +187,19 @@ Canonical compact gauges for inbox-zero / goal snapshots. **Read order is type-t
 
 **Anti-CVT breakdown** (`anti_cvt` in inbox snapshot): `untracked` + `unobservable` + `unorchestrated` + `unutilized` → `anti_cvt_score` / `total`. Blocker-only WSJF wins improve `%` / `#` and may raise `blocker_pace_cod_weight`, but **#.% shippable pace** stays flat until a `P1-*` / `NNEAR-*` item leads `lanes.shippable.now`.
 
+
+### AQE utilization honesty (shippable vs deferrable)
+
+`tick_cycle_policy.py` splits utilization so deferrable/blocker-remediation runs never inflate shippable `#.%` pace:
+
+| Field | Meaning |
+|-------|---------|
+| `aqe_utilization_pct` | Shippable lane only: **0** or **100** (100 when `pace_cod_weight >= 1.0` and `utilize_mode=full`). |
+| `aqe_deferrable_ran` | True when AQE ran under `deferrable` or `blocker-remediation` (pace below shippable head). |
+| `aqe_scope_utilization_pct` | Scoped run intensity: 100 for full shippable, 50 for deferrable/blocker-remediation, else 0. |
+
+`cycle_tick.sh` defaults `AF_AQE_ENFORCE=1` when shippable pace ≥ 1.0 (from `pace_from_lnnnl.py`); keeps `AF_AQE_ENFORCE=0` when pace < 1.0 or `AQE_UTILIZE_DEFERRABLE=1`.
+
 ### Dual-lane pace vs blocker WSJF
 
 Blockers (`lanes.blockers`) rank high in WSJF for visibility and ROAM closure **%/#**, but **#.% pace** and AQE utilization read **shippable** `P1-*` / `NNEAR-*` only. Closing `R-SPOF-01` does not raise pace until a shippable item heads `lanes.shippable.now`.

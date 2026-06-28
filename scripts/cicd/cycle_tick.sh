@@ -209,6 +209,10 @@ fi
 export CYCLE_EXIT_CODE="$EXIT_CODE"
 python3 "$REPO_ROOT/scripts/cicd/lib/cycle_knob_engine.py" receipt "$MODE" || true
 
+export AF_LNNNL_ENFORCE="${AF_LNNNL_ENFORCE:-1}"
+export AF_TICK_POST_ENFORCE="${AF_TICK_POST_ENFORCE:-1}"
+export AF_LNNNL_STALE_ENFORCE="${AF_LNNNL_STALE_ENFORCE:-1}"
+
 if [[ -x "$REPO_ROOT/scripts/cicd/tick_post_hooks.sh" ]]; then
   set +e
   bash "$REPO_ROOT/scripts/cicd/tick_post_hooks.sh"

@@ -7,20 +7,29 @@ cls_load_wave_retry_max
 cls_enforce_session_tick_budget || exit $?
 cls_require_trust_green || exit 1
 cls_warn_session_tick_budget
+if [[ -z "${LOOP_ITEM:-}" ]]; then
+  LOOP_ITEM="$(python3 "$REPO_ROOT/scripts/metrics/pace_from_lnnnl.py" --loop-item 2>/dev/null || true)"
+fi
 ITEM="${LOOP_ITEM:-P1-INDEX-01}"
 echo "Loop tick: $ITEM (LOOP_TICK_COUNT=${LOOP_TICK_COUNT:-0}, WAVE_RETRY_MAX=$WAVE_RETRY_MAX)"
 bash "$REPO_ROOT/scripts/cicd/tick_prep_hooks.sh"
 bash scripts/cicd/session_rehydration_reader.sh --emit 2>/dev/null || true
 TICK_EXIT=0
+_record_tick_exit() {
+  local ec=$1
+  if [[ "$ec" -ne 0 && "$TICK_EXIT" -eq 0 ]]; then
+    TICK_EXIT="$ec"
+  fi
+}
 set +e
 case "$ITEM" in
-  P1-INDEX-01) bash scripts/cicd/wave_autopilot.sh ;;
+  P1-INDEX-01) bash scripts/cicd/wave_autopilot.sh; _record_tick_exit $? ;;
   P1-INDEX-02)
-    bash scripts/cicd/index_slice_substrate.sh
-    bash scripts/cicd/wave_autopilot.sh
+    bash scripts/cicd/index_slice_substrate.sh; _record_tick_exit $?
+    bash scripts/cicd/wave_autopilot.sh; _record_tick_exit $?
     ;;
   P1-ADB-01)
-    bash scripts/governance/agentdb_freshness.sh || TICK_EXIT=$?
+    bash scripts/governance/agentdb_freshness.sh; _record_tick_exit $?
     python3 scripts/governance/compliance_as_code.py --cog --scope=governance || true
     mkdir -p docs/research
     python3 - <<'PYADB' || true
@@ -39,9 +48,8 @@ print(f"wrote {out}")
 PYADB
     bash scripts/cicd/wave_autopilot.sh
     ;;
-  *) bash scripts/cicd/wave_autopilot.sh ;;
+  *) bash scripts/cicd/wave_autopilot.sh; _record_tick_exit $? ;;
 esac
-TICK_EXIT=$?
 set -e
 export TICK_EXIT
 bash scripts/cicd/write_tick_rehydration_manifest.sh

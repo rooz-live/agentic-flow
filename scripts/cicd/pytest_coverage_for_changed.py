@@ -7,6 +7,7 @@ runs coverage, and enforces a minimum threshold. Returns the pytest exit code.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -76,6 +77,7 @@ def run_pytest_coverage(root: Path, threshold: int) -> int:
 
     print(f"pytest-coverage: sources={source_dirs} tests={test_modules}")
     include_arg = ",".join(include_patterns)
+    clean_env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "AF_VERIFY_MODE", "AF_GATE_CONTEXT")}
     cov = subprocess.run(
         [
             sys.executable,
@@ -94,6 +96,7 @@ def run_pytest_coverage(root: Path, threshold: int) -> int:
             "-q",
         ],
         cwd=root,
+        env=clean_env,
     )
     if cov.returncode != 0:
         return cov.returncode

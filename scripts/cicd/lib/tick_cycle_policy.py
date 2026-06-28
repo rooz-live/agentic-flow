@@ -98,8 +98,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--pace", type=float, default=0.5)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--utilize-mode-hint", default=None)
     args = parser.parse_args()
-    policy = load_policy(pace=args.pace)
+    policy = load_policy(pace=args.pace, utilize_mode_hint=args.utilize_mode_hint)
     print(json.dumps(policy, indent=2) if args.json else json.dumps(policy))
     return 0
 

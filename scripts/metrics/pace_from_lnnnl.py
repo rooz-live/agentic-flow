@@ -24,6 +24,17 @@ def is_blocker_work(item: str) -> bool:
     return bool(s and BLOCKER_LOOP.search(s))
 
 
+
+def shippable_loop_item_from_doc(doc: dict | None) -> str | None:
+    """Extract P1-* / NNEAR-* id from lanes.shippable.now (DoN LOOP_ITEM binding)."""
+    lane = _shippable_lane(doc)
+    now = str(lane.get("now") or "").strip()
+    if not now or now == "No pending task.":
+        return None
+    m = SHIPPABLE_LOOP.search(now)
+    return m.group(0) if m else None
+
+
 def _lane_from_doc(doc: dict | None, lane_name: str, schedule_prefix: str) -> dict:
     doc = doc or {}
     lanes = doc.get("lanes") or {}
@@ -66,6 +77,14 @@ def blocker_pace_cod_weight_from_schedule(schedule: dict | None, *, lnnnl: dict 
 
 def pace_from_lnnnl_doc(doc: dict | None) -> float:
     return pace_cod_weight_from_schedule(doc.get("schedule") if doc else None, lnnnl=doc)
+
+
+def shippable_loop_item_from_doc(doc: dict | None) -> str | None:
+    """Return the first shippable identifier in the 'now' slot, or None."""
+    lane = _shippable_lane(doc)
+    now = str(lane.get("now") or "").strip()
+    match = SHIPPABLE_LOOP.search(now)
+    return match.group(0) if match else None
 
 
 def _lane_empty(lane: dict) -> bool:
@@ -175,10 +194,20 @@ def main() -> None:
     import sys
 
     parser = argparse.ArgumentParser()
+    parser.add_argument("--loop-item", action="store_true", help="Print shippable LOOP_ITEM from LNNNL")
     parser.add_argument("--from-lnnnl", action="store_true")
     parser.add_argument("--json", action="store_true", help="Emit resolve_pace_bundle JSON")
     parser.add_argument("--lnnnl-exit", type=int, default=0)
     args = parser.parse_args()
+    if args.loop_item:
+        p = Path(".goalie/LNNNL.yaml")
+        d = yaml.safe_load(p.read_text(encoding="utf-8")) if p.is_file() else {}
+        item = shippable_loop_item_from_doc(d)
+        if not item:
+            sys.exit(1)
+        print(item)
+        return
+
     if args.from_lnnnl and args.json:
         bundle = resolve_pace_bundle(lnnnl_exit=args.lnnnl_exit)
         if os.environ.get("AF_PACE_FAIL_CLOSED", "1") == "1" and bundle.get("pace_source") == "stale":

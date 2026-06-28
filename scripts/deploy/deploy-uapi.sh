@@ -164,25 +164,25 @@ for EXT_PATH in "$DOMAINS_DIR"/*/; do
             CONTENT=$(cat "$FILE")
 
             CURL_EC=0
+            UPLOAD_TMP="$(mktemp)"
+            HTTP_CODE=""
             if [[ "$USE_TOKEN" == "true" ]]; then
-                RESPONSE=$(curl -s -k -w "\n%{http_code}" -X POST \
+                HTTP_CODE=$(curl -s -k -o "$UPLOAD_TMP" -w '%{http_code}' -X POST \
                     -H "Authorization: whm root:${WHM_API_TOKEN}" \
                     "https://${WHM_HOST}:2087/json-api/cpanel?cpanel_jsonapi_user=${CPANEL_ACCT}&cpanel_jsonapi_apiversion=3&cpanel_jsonapi_module=Fileman&cpanel_jsonapi_func=save_file_content" \
                     --data-urlencode "dir=${TARGET_DIR}" \
                     --data-urlencode "file=${FILENAME}" \
-                    --data-urlencode "content=${CONTENT}" 2>&1) || CURL_EC=$?
+                    --data-urlencode "content=${CONTENT}") || CURL_EC=$?
             else
-                RESPONSE=$(curl -s -k -w "\n%{http_code}" -X POST \
+                HTTP_CODE=$(curl -s -k -o "$UPLOAD_TMP" -w '%{http_code}' -X POST \
                     -u "${WHM_USER}:${WHM_PASSWORD}" \
                     "https://${WHM_HOST}:2087/json-api/cpanel?cpanel_jsonapi_user=${CPANEL_ACCT}&cpanel_jsonapi_apiversion=3&cpanel_jsonapi_module=Fileman&cpanel_jsonapi_func=save_file_content" \
                     --data-urlencode "dir=${TARGET_DIR}" \
                     --data-urlencode "file=${FILENAME}" \
-                    --data-urlencode "content=${CONTENT}" 2>&1) || CURL_EC=$?
+                    --data-urlencode "content=${CONTENT}") || CURL_EC=$?
             fi
-
-            HTTP_CODE="${RESPONSE##*$'\n'}"
-            BODY="${RESPONSE%$'\n'$HTTP_CODE}"
-            RESPONSE="$BODY"
+            RESPONSE="$(cat "$UPLOAD_TMP" 2>/dev/null || true)"
+            rm -f "$UPLOAD_TMP"
 
             UPLOAD_OK=true
             if [[ $CURL_EC -ne 0 ]]; then
@@ -269,9 +269,6 @@ if [[ "${AF_TRIGGER_TLD_GATE_CI:-1}" == "1" ]]; then
         TLD_GATE_STATUS="pass"
         PLAYWRIGHT_EXIT=0
         green "  TLD gate CI: PASS (strict run completed)"
-    elif [[ $TLD_GATE_CI_EXIT -eq 2 && "${AF_TLD_GATE_FAIL_OPEN:-0}" == "1" ]]; then
-        yellow "  TLD gate CI: gh unavailable — fail-open local lenient fallback"
-        TLD_GATE_STATUS="fail_open"
     else
         TLD_GATE_STATUS="fail"
         PLAYWRIGHT_EXIT="${TLD_GATE_CI_EXIT:-1}"
@@ -279,10 +276,7 @@ if [[ "${AF_TRIGGER_TLD_GATE_CI:-1}" == "1" ]]; then
     fi
 fi
 
-if [[ "$TLD_GATE_STATUS" == "fail_open" && "${AF_UAPI_LOCAL_PLAYWRIGHT:-1}" == "1" && "$PLAYWRIGHT_AVAILABLE" == "true" ]]; then
-    echo "--> Local lenient fallback (AF_TLD_GATE_FAIL_OPEN=1 only)..."
-    npx playwright test tests/e2e/tld-deploy-gate.spec.ts --reporter=list || PLAYWRIGHT_EXIT=$?
-elif [[ "$TLD_GATE_STATUS" == "skipped" && "$PLAYWRIGHT_AVAILABLE" == "true" && "${AF_UAPI_LOCAL_PLAYWRIGHT:-0}" == "1" ]]; then
+if [[ "$TLD_GATE_STATUS" == "skipped" && "$PLAYWRIGHT_AVAILABLE" == "true" && "${AF_UAPI_LOCAL_PLAYWRIGHT:-0}" == "1" ]]; then
     npx playwright test tests/e2e/tld-deploy-gate.spec.ts --reporter=list || PLAYWRIGHT_EXIT=$?
 elif [[ "$TLD_GATE_STATUS" == "skipped" && "$PLAYWRIGHT_AVAILABLE" != "true" ]]; then
     yellow "  Playwright: SKIPPED (npx not available)"

@@ -222,7 +222,7 @@ def enforce_stale_roam_gate(stale_items):
         print(f"  - {row.get('id')}: {row.get('reason')}")
     if len(stale_items) > 25:
         print(f"  ... and {len(stale_items) - 25} more")
-    if os.environ.get("AF_LNNNL_STALE_ENFORCE", "0") == "1":
+    if os.environ.get("AF_LNNNL_STALE_ENFORCE", "1") == "1":
         return STALE_EXIT
     return 0
 
@@ -322,6 +322,11 @@ def main():
                 'deadline': r.get('deadline'),
                 'raw_item': r
             })
+
+    stale_items = find_stale_roam_items(active_items, now_utc)
+    stale_exit = enforce_stale_roam_gate(stale_items)
+    if stale_exit != 0:
+        raise SystemExit(stale_exit)
 
     # WSJF Calculator
     calc = WsjfCalculator()

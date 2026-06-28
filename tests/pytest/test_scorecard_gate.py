@@ -1162,10 +1162,13 @@ def test_verify_deploy_uapi_receipt_closed(tmp_path):
 def test_verify_deploy_uapi_receipt_blocks_bad_status(tmp_path):
     evidence = tmp_path / ".goalie" / "evidence"
     evidence.mkdir(parents=True)
-    art = {"tld_gate_status": "fail", "playwright_exit": 1}
+    art = {"tld_gate_status": "fail", "playwright_exit": 1, "hash": "deadbeef1234"}
     (evidence / "last_deploy_uapi.json").write_text(__import__("json").dumps(art))
-    from scripts.gates.scorecard_gate import verify_deploy_uapi_receipt
+    from scripts.gates.scorecard_gate import verify_deploy_uapi_receipt, git_head
+    print(f"\n[DEBUG] tmp_path={tmp_path}")
+    print(f"[DEBUG] git_head(tmp_path)={git_head(tmp_path)!r}")
     ok, doc, msg = verify_deploy_uapi_receipt(tmp_path)
+    print(f"[DEBUG] ok={ok}, msg={msg!r}")
     assert ok is False
     assert doc is not None
     assert "tld_gate_status" in msg
@@ -1200,3 +1203,31 @@ def test_verify_deploy_uapi_receipt_skips_stale_hash(tmp_path, monkeypatch):
     ok, doc, msg = verify_deploy_uapi_receipt(tmp_path)
     assert ok is True
     assert "stale" in msg.lower()
+
+def test_deploy_receipt_applicable_requires_hash(tmp_path):
+    from scripts.gates.scorecard_gate import deploy_receipt_applicable
+    art = {"tld_gate_status": "pass", "playwright_exit": 0}
+    applicable, msg = deploy_receipt_applicable(art, tmp_path)
+    assert applicable is False
+    assert "hash" in msg.lower()
+
+
+def test_ingest_deploy_receipt_skips_stale_on_ci(tmp_path, monkeypatch):
+    evidence = tmp_path / ".goalie" / "evidence"
+    evidence.mkdir(parents=True)
+    art = {
+        "hash": "deadbeef" * 5,
+        "tld_gate_status": "pass",
+        "playwright_exit": 0,
+        "tld_gate_conclusion": "success",
+        "tld_gate_receipt_status": "pass",
+        "tld_gate_github_run_id": "123",
+    }
+    (evidence / "last_deploy_uapi.json").write_text(__import__("json").dumps(art))
+    monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda r: "cafebabe" * 5)
+    from scripts.gates.scorecard_gate import ingest_deploy_receipt
+    meta, blocks = {}, []
+    ingest_deploy_receipt(tmp_path, {"CI": "1"}, meta, blocks)
+    assert not blocks
+    assert "stale" in meta.get("deploy_receipt_verify", "").lower()
+

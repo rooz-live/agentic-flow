@@ -6,6 +6,10 @@
 set -euo pipefail
 ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "$ROOT"
+export AF_LNNNL_ENFORCE="${AF_LNNNL_ENFORCE:-1}"
+export AF_TICK_POST_ENFORCE="${AF_TICK_POST_ENFORCE:-1}"
+export AF_LNNNL_STALE_ENFORCE="${AF_LNNNL_STALE_ENFORCE:-1}"
+
 source "$ROOT/scripts/cicd/lib/cls_common.sh"
 
 read_timer_cfg() {

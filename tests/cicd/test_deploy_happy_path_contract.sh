@@ -35,3 +35,10 @@ grep -q 'index_slice_p1_scripts' scripts/cicd/index_slice_p1_scripts.sh || { ech
 ! grep -q 'setdefault("AF_ALLOW_OWNED_LOCAL"' scripts/cicd/lib/scorecard_vector.py || { echo 'FAIL: cycle vector must not default AF_ALLOW_OWNED_LOCAL'; exit 1; }
 echo "PASS P1 index and gate integrity contracts"
 
+grep -q 'UPLOAD_TMP' scripts/deploy/deploy-uapi.sh || { echo 'FAIL: deploy-uapi must use curl -o temp file'; exit 1; }
+! grep -q 'fail_open' scripts/deploy/deploy-uapi.sh || { echo 'FAIL: fail_open path must be removed'; exit 1; }
+grep -q 'pace_from_lnnnl.py.*--loop-item' scripts/cicd/run_loop_tick.sh || grep -q '--loop-item' scripts/cicd/run_loop_tick.sh || { echo 'FAIL: run_loop_tick must bind LOOP_ITEM from LNNNL'; exit 1; }
+grep -q '_record_tick_exit' scripts/cicd/run_loop_tick.sh || { echo 'FAIL: run_loop_tick must accumulate TICK_EXIT'; exit 1; }
+grep -q 'find_stale_roam_items(active_items' scripts/cicd/update_lnnnl.py || { echo 'FAIL: update_lnnnl must wire stale ROAM gate'; exit 1; }
+grep -q 'verify_deploy_uapi_receipt(root_path)' scripts/gates/scorecard_gate.py || { echo 'FAIL: ingest must call verify_deploy_uapi_receipt'; exit 1; }
+echo "PASS deploy receipt behavior contracts"

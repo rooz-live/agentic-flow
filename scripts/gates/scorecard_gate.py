@@ -469,11 +469,14 @@ def run_signals(signals: list, timeout: int = SIGNAL_TIMEOUT) -> list:
         try:
             # Run signals in a clean environment so scorecard-internal flags
             # (AF_VERIFY_MODE, AF_GATE_CONTEXT) do not leak into the test suite
-            # and cause false self-test failures. Do NOT inject PYTHONPATH into
-            # the signal env; tests that run subprocesses in temp repos rely on
-            # a clean module search path.
+            # and cause false self-test failures.
             signal_env = {k: v for k, v in os.environ.items() if k not in ("AF_VERIFY_MODE", "AF_GATE_CONTEXT")}
-            signal_env.pop("PYTHONPATH", None)
+            root_abs = str(Path(".").resolve())
+            existing_pythonpath = os.environ.get("PYTHONPATH", "")
+            if existing_pythonpath:
+                signal_env["PYTHONPATH"] = f"{root_abs}:{existing_pythonpath}"
+            else:
+                signal_env["PYTHONPATH"] = root_abs
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=signal_env)
             entry["returncode"] = proc.returncode
             entry["ok"] = proc.returncode == 0

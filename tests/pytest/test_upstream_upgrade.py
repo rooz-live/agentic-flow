@@ -609,3 +609,105 @@ def test_engine_htr_verify(mock_exit, tmp_path):
         
     assert mock_exit.called
     mock_exit.assert_called_with(0)
+
+
+def test_verify_mobile_app_store_readiness_passes_empty(tmp_path):
+    from upstream_runner import verify_mobile_app_store_readiness
+    ok, issues = verify_mobile_app_store_readiness(tmp_path)
+    assert ok is True
+    assert issues == []
+
+
+def test_verify_mobile_app_store_readiness_fails_missing_fastfile(tmp_path):
+    from upstream_runner import verify_mobile_app_store_readiness
+    (tmp_path / "ios").mkdir()
+    (tmp_path / "Info.plist").write_text("CFBundleVersion CFBundleShortVersionString", encoding="utf-8")
+    ok, issues = verify_mobile_app_store_readiness(tmp_path)
+    assert ok is False
+    assert any("Fastfile" in iss for iss in issues)
+
+
+def test_verify_mobile_app_store_readiness_fails_android_versioning(tmp_path):
+    from upstream_runner import verify_mobile_app_store_readiness
+    (tmp_path / "fastlane").mkdir()
+    (tmp_path / "fastlane" / "Fastfile").touch()
+    (tmp_path / "build.gradle").write_text("apply plugin: 'com.android.application'", encoding="utf-8")
+    ok, issues = verify_mobile_app_store_readiness(tmp_path)
+    assert ok is False
+    assert any("versionCode" in iss for iss in issues)
+
+
+def test_verify_mobile_app_store_readiness_fails_ios_versioning(tmp_path):
+    from upstream_runner import verify_mobile_app_store_readiness
+    (tmp_path / "fastlane").mkdir()
+    (tmp_path / "fastlane" / "Fastfile").touch()
+    (tmp_path / "Info.plist").write_text("xml data", encoding="utf-8")
+    ok, issues = verify_mobile_app_store_readiness(tmp_path)
+    assert ok is False
+    assert any("CFBundleVersion" in iss for iss in issues)
+
+
+def test_verify_mobile_app_store_readiness_fails_firebase(tmp_path):
+    from upstream_runner import verify_mobile_app_store_readiness
+    (tmp_path / "fastlane").mkdir()
+    (tmp_path / "fastlane" / "Fastfile").touch()
+    (tmp_path / "Info.plist").write_text("CFBundleVersion CFBundleShortVersionString", encoding="utf-8")
+    (tmp_path / "app.ts").write_text("import firebase from 'firebase'", encoding="utf-8")
+    ok, issues = verify_mobile_app_store_readiness(tmp_path)
+    assert ok is False
+    assert any("Firebase" in iss for iss in issues)
+
+
+def test_detect_harness_go_and_docker(tmp_path):
+    from upstream_runner import detect_harness
+    (tmp_path / "go.mod").write_text("module test", encoding="utf-8")
+    assert detect_harness("go test", tmp_path) == "go"
+    (tmp_path / "Dockerfile").write_text("FROM alpine", encoding="utf-8")
+    assert detect_harness("docker build .", tmp_path) == "docker"
+
+
+@patch("local_upgrader.scan_repositories")
+@patch("local_upgrader.get_default_branch")
+@patch("local_upgrader.run_cmd")
+def test_local_upgrader_enriched_receipt_metrics(mock_run_cmd, mock_get_branch, mock_scan, tmp_path):
+    repo_path = tmp_path / "metrics_repo"
+    repo_path.mkdir()
+    (repo_path / "requirements.txt").touch()
+
+    mock_scan.return_value = [repo_path]
+    mock_get_branch.return_value = "main"
+    
+    mock_run_cmd.side_effect = [
+        (True, "sha123\n"),  # git rev-parse HEAD
+        (True, "Already up to date.\n"),  # git pull
+        (True, "venv created\n"),  # uv venv .venv
+        (True, "Successfully installed...\n"),  # uv pip install -r requirements.txt
+        (True, "Successfully upgraded...\n"),  # uv pip install --upgrade -r requirements.txt
+    ]
+
+    results, upgraded, failed = local_upgrader.run_local_sweep(
+        [str(tmp_path)], dry_run=False, project_root=tmp_path
+    )
+    
+    receipt_file = tmp_path / ".goalie" / "evidence" / "last_local_receipt.json"
+    assert receipt_file.is_file()
+    data = json.loads(receipt_file.read_text(encoding="utf-8"))
+    
+    sig = data["signals"][0]
+    assert "sandbox_setup_duration" in sig["details"]
+    assert "git_pull_duration" in sig["details"]
+    assert "upgrade_duration" in sig["details"]
+    assert "test_duration" in sig["details"]
+
+
+@patch("subprocess.run")
+def test_edge_runner_caddy_reload_dynamic(mock_run):
+    mock_run.return_value = MagicMock(returncode=1)
+    
+    fqdns = ["billing.bhopti.com"]
+    to_sync = ["billing.bhopti.com"]
+    registry = {"billing.bhopti.com": "23.92.79.2"}
+    live_resolutions = {"billing.bhopti.com": "23.92.79.2"}
+    
+    results = edge_runner.run_edge_sync(fqdns, to_sync, registry, live_resolutions, Path("/dummy"))
+    assert len(results) == 1

@@ -106,6 +106,9 @@ SAVED_PACE_BUNDLE="$(read_pace_bundle)"
 PACE="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('pace_cod_weight') or 0.5)" <<<"$SAVED_PACE_BUNDLE")"
 echo "pace_cod_weight=$PACE pace_source=$(python3 -c "import json,sys; print(json.load(sys.stdin).get('pace_source','unknown'))" <<<"$SAVED_PACE_BUNDLE")"
 
+echo "=== tick_post: max_roi_cycles ==="
+python3 "$ROOT/scripts/metrics/max_roi_cycles.py" --write-evidence || echo "WARN: max_roi_cycles calculation failed"
+
 echo "=== tick_post: inbox_zero_timescape ==="
 bash "$ROOT/scripts/metrics/inbox_zero_timescape.sh" || _tick_post_enforce_fail "inbox_zero_timescape" $?
 
@@ -125,11 +128,14 @@ if [[ -f "$ROOT/scripts/metrics/correlate_timescape_evidence.py" ]]; then
   fi
 fi
 
-if [[ "${CEREMONY_RAN:-0}" != "1" && -f "$ROOT/scripts/cicd/lib/ceremony_engine.py" ]]; then
+if [[ -f "$ROOT/scripts/metrics/timescape_envelope.py" ]]; then
+  python3 "$ROOT/scripts/metrics/timescape_envelope.py" || echo "WARN: timescape_envelope failed"
+fi
+
+if [[ "${CEREMONY_RAN:-0}" != "1" && -x "$ROOT/scripts/cicd/ceremony_tick.sh" ]]; then
   echo "=== tick_post: bounded ceremony (CEREMONY_RAN!=1) ==="
   set +e
-  timeout "${CEREMONY_MAX_MINUTES:-5}m" python3 "$ROOT/scripts/cicd/lib/ceremony_engine.py" --tick "${LOOP_TICK_COUNT:-0}" --json \
-    > "$EVIDENCE_DIR/ceremony_unit_latest.json" 2>/dev/null
+  timeout "${CEREMONY_MAX_MINUTES:-5}m" bash "$ROOT/scripts/cicd/ceremony_tick.sh" > "$EVIDENCE_DIR/ceremony_unit_latest.json" 2>/dev/null
   CER_EC=$?
   set -e
   [[ $CER_EC -ne 0 ]] && echo "WARN: ceremony exited $CER_EC"
@@ -152,6 +158,10 @@ if [[ "$RUN_AQE" == "1" ]]; then
     AQE_PHASE_MIN="$MAX_MIN"
   fi
   echo "=== tick_post: scoped AQE (${AQE_PHASE_MIN}m/phase; knob max=${MAX_MIN}m) ==="
+  LLM_EXPORTS="$(python3 "$ROOT/scripts/cicd/lib/llm_model_registry.py" --export-shell 2>/dev/null || true)"
+  if [[ -n "$LLM_EXPORTS" ]] && grep -qE '^export ' <<<"$LLM_EXPORTS"; then
+    _source_exports "$LLM_EXPORTS"
+  fi
   set +e
   timeout "${AQE_PHASE_MIN}m" bash "$ROOT/scripts/one.sh" aqe quality assess --scope changed
   _tick_post_enforce_fail "aqe quality" $?
@@ -175,9 +185,9 @@ if [[ -x "$ROOT/scripts/cicd/pi_plan_sync.sh" ]]; then
   SKIP_WSJF=1 bash "$ROOT/scripts/cicd/pi_plan_sync.sh" || echo "WARN: pi_plan_sync failed"
 fi
 
-if [[ "${HIRE_SYNC_EARNINGS:-0}" == "1" && -x "$ROOT/scripts/hire/sync_earnings_to_hire.py" ]]; then
-  echo "=== tick_post: earnings → hire.agentics.org sync ==="
-  python3 "$ROOT/scripts/hire/sync_earnings_to_hire.py" || echo "WARN: hire earnings sync failed"
+if [[ -x "$ROOT/scripts/cicd/receipt_chain.sh" ]]; then
+  echo "=== tick_post: receipt_chain ==="
+  AF_RECEIPT_CHAIN_ENFORCE="${AF_RECEIPT_CHAIN_ENFORCE:-0}" bash "$ROOT/scripts/cicd/receipt_chain.sh" || _tick_post_enforce_fail "receipt_chain" $?
 fi
 
 exit "${TICK_POST_EXIT}"

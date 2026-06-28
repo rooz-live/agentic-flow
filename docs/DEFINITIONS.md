@@ -173,7 +173,7 @@ Blockers (`lanes.blockers`) rank high in WSJF for visibility and ROAM closure **
 ### TLD gate and DoD
 
 - **PR / default CI**: lenient Playwright skips (DNS timeout, manifest 404) are **not** DoD green.
-- **Post-deploy**: run `.github/workflows/tld-deploy-gate.yml` with `strict=true` after `deploy-uapi`.
+- **Post-deploy**: run `.github/workflows/tld-deploy-gate.yml` (strict-only) after `deploy-uapi`.
 
 ### Deploy → TLD gate receipt chain (fail-closed)
 
@@ -186,4 +186,20 @@ Blockers (`lanes.blockers`) rank high in WSJF for visibility and ROAM closure **
 | Single dispatch | `deploy_happy_path.sh` | Dedupes phase-4 TLD when deploy-uapi already passed |
 
 Lenient Playwright skips require **`TLD_GATE_LENIENT=1`**; `test:e2e:tld-gate:strict` sets `TLD_GATE_LENIENT=0`.
+### Deploy receipt closed (DoD)
 
+**Deploy receipt closed** when `.goalie/evidence/last_deploy_uapi.json` on current `HEAD` contains:
+
+- `tld_gate_status`: `pass`
+- `playwright_exit`: `0`
+- `tld_gate_github_run_id`: bound GitHub Actions run id
+- `tld_gate_conclusion`: `success`
+
+Legacy artifacts (no `tld_gate_status`) or stale artifacts (`hash` ≠ `git HEAD`) are **skipped** by DoD and scorecard derive — not FAIL.
+
+
+| `1` in production loops | Propagate AQE/upstream/ceremony/receipt failures (not unconditional exit 0) |
+
+| `0` | When refresh enabled, do not rewrite `discovered` (only `last_verified`) |
+
+| `blocker-remediation` when shippable empty + blocker NOW | Scoped AQE coherence without upstream |

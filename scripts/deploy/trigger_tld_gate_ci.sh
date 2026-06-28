@@ -27,35 +27,26 @@ WAIT="${AF_TLD_GATE_WAIT:-1}"
 REQUIRE_WAIT="${AF_TLD_GATE_REQUIRE_WAIT:-1}"
 DISPATCH_AFTER="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+if [[ "$REQUIRE_WAIT" == "1" && "$WAIT" != "1" ]]; then
+  echo "trigger_tld_gate_ci: ERROR — AF_TLD_GATE_WAIT must be 1 on deploy path (got $WAIT)"
+  exit 4
+fi
+
 if [[ "${AF_TLD_REGENERATE:-0}" == "1" ]]; then
   pnpm run tld:targets:generate
 fi
 
 pnpm run tld:targets:check
 
-echo "trigger_tld_gate_ci: dispatching $WORKFLOW ref=$REF deploy_run_id=$DEPLOY_RUN_ID"
-gh workflow run "$WORKFLOW" --ref "$REF" -f strict=true -f deploy_run_id="$DEPLOY_RUN_ID"
+echo "trigger_tld_gate_ci: dispatching $WORKFLOW ref=$REF deploy_run_id=$DEPLOY_RUN_ID (strict-only workflow)"
+gh workflow run "$WORKFLOW" --ref "$REF" -f deploy_run_id="$DEPLOY_RUN_ID"
 
 resolve_run_id() {
-  local rid=""
-  rid="$(gh run list --workflow="$WORKFLOW" --branch="$REF" --limit 15 \
+  gh run list --workflow="$WORKFLOW" --branch="$REF" --limit 20 \
     --json databaseId,createdAt,displayTitle,event \
     --jq --arg since "$DISPATCH_AFTER" --arg did "$DEPLOY_RUN_ID" \
       '[.[] | select(.event == "workflow_dispatch") | select(.createdAt >= $since) |
-        select((.displayTitle // "") | contains($did))] | first | .databaseId' 2>/dev/null || true)"
-  if [[ -n "$rid" && "$rid" != "null" ]]; then
-    echo "$rid"
-    return 0
-  fi
-  rid="$(gh run list --workflow="$WORKFLOW" --branch="$REF" --limit 10 \
-    --json databaseId,createdAt,event \
-    --jq --arg since "$DISPATCH_AFTER" \
-      '[.[] | select(.event == "workflow_dispatch") | select(.createdAt >= $since)] | first | .databaseId' 2>/dev/null || true)"
-  if [[ -n "$rid" && "$rid" != "null" ]]; then
-    echo "$rid"
-    return 0
-  fi
-  return 1
+        select((.displayTitle // "") | contains($did))] | first | .databaseId' 2>/dev/null || true
 }
 
 RUN_ID=""
@@ -66,7 +57,7 @@ for _ in $(seq 1 30); do
 done
 
 if [[ -z "$RUN_ID" || "$RUN_ID" == "null" ]]; then
-  echo "trigger_tld_gate_ci: ERROR — could not bind workflow run to deploy_run_id=$DEPLOY_RUN_ID"
+  echo "trigger_tld_gate_ci: ERROR — could not bind workflow run to deploy_run_id=$DEPLOY_RUN_ID (no displayTitle match)"
   exit 3
 fi
 
@@ -75,16 +66,12 @@ echo "trigger_tld_gate_ci: bound run $RUN_ID (deploy_run_id=$DEPLOY_RUN_ID) → 
 
 WATCH_EXIT=0
 RUN_CONCLUSION="pending"
-if [[ "$WAIT" == "1" ]]; then
-  echo "trigger_tld_gate_ci: watching (AF_TLD_GATE_WAIT=1)..."
-  set +e
-  gh run watch "$RUN_ID" --exit-status
-  WATCH_EXIT=$?
-  set -e
-  RUN_CONCLUSION="$(gh run view "$RUN_ID" --json conclusion --jq '.conclusion // "unknown"' 2>/dev/null || echo unknown)"
-else
-  RUN_CONCLUSION="$(gh run view "$RUN_ID" --json status,conclusion --jq 'if .status == "completed" then (.conclusion // "unknown") else "pending" end' 2>/dev/null || echo pending)"
-fi
+echo "trigger_tld_gate_ci: watching (AF_TLD_GATE_WAIT=1)..."
+set +e
+gh run watch "$RUN_ID" --exit-status
+WATCH_EXIT=$?
+set -e
+RUN_CONCLUSION="$(gh run view "$RUN_ID" --json conclusion --jq '.conclusion // "unknown"' 2>/dev/null || echo unknown)"
 
 python3 - "$EVIDENCE" "$DEPLOY_RUN_ID" "$REF" "$RUN_ID" "$RUN_LINK" "$RUN_CONCLUSION" "$WATCH_EXIT" "$DISPATCH_AFTER" <<'PY'
 import json, sys
@@ -114,11 +101,6 @@ Path(out).parent.mkdir(parents=True, exist_ok=True)
 Path(out).write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
 print(out)
 PY
-
-if [[ "$REQUIRE_WAIT" == "1" && "$WAIT" != "1" ]]; then
-  echo "trigger_tld_gate_ci: ERROR — AF_TLD_GATE_REQUIRE_WAIT=1 but AF_TLD_GATE_WAIT=0 (must be 1)"
-  exit 4
-fi
 
 if [[ "$WAIT" == "1" && $WATCH_EXIT -ne 0 ]]; then
   echo "trigger_tld_gate_ci: FAIL watch exit=$WATCH_EXIT conclusion=$RUN_CONCLUSION"

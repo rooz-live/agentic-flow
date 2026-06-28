@@ -188,9 +188,34 @@ print(d.get('tld_status', 'unknown'))
 
   # ── Deploy UAPI (optional — only check if artifact present) ───────────────
   if [[ -f "$EVIDENCE/last_deploy_uapi.json" ]]; then
-    check_artifact \
-      "deploy-uapi" \
-      "$EVIDENCE/last_deploy_uapi.json"
+    DEPLOY_RECEIPT_OUT=$(python3 -c "
+import sys
+sys.path.insert(0, '$PROJECT_ROOT')
+from scripts.gates.scorecard_gate import verify_deploy_uapi_receipt
+ok, art, msg = verify_deploy_uapi_receipt('$PROJECT_ROOT')
+if art is None:
+    print('SKIP|no artifact')
+elif ok and msg == 'deploy receipt closed':
+    print('PASS|' + msg)
+elif ok:
+    print('SKIP|' + msg)
+else:
+    print('FAIL|' + msg)
+" 2>/dev/null || echo "FAIL|parse_error")
+    DEPLOY_RECEIPT_KIND="${DEPLOY_RECEIPT_OUT%%|*}"
+    DEPLOY_RECEIPT_MSG="${DEPLOY_RECEIPT_OUT#*|}"
+    case "$DEPLOY_RECEIPT_KIND" in
+      PASS)
+        green "  ✓  deploy-uapi (tld_gate_status=pass, playwright_exit=0, receipt closed)"
+        ;;
+      SKIP)
+        yellow "  SKIP: deploy-uapi — $DEPLOY_RECEIPT_MSG"
+        ;;
+      *)
+        red "  FAIL: deploy-uapi receipt — $DEPLOY_RECEIPT_MSG"
+        EXIT_CODE=1
+        ;;
+    esac
   else
     yellow "  SKIP: deploy-uapi artifact absent (not required for every commit)"
   fi

@@ -471,6 +471,12 @@ def run_signals(signals: list, timeout: int = SIGNAL_TIMEOUT) -> list:
             # (AF_VERIFY_MODE, AF_GATE_CONTEXT) do not leak into the test suite
             # and cause false self-test failures.
             signal_env = {k: v for k, v in os.environ.items() if k not in ("AF_VERIFY_MODE", "AF_GATE_CONTEXT")}
+            root_abs = str(Path(".").resolve())
+            existing_pythonpath = os.environ.get("PYTHONPATH", "")
+            if existing_pythonpath:
+                signal_env["PYTHONPATH"] = f"{root_abs}:{existing_pythonpath}"
+            else:
+                signal_env["PYTHONPATH"] = root_abs
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=signal_env)
             entry["returncode"] = proc.returncode
             entry["ok"] = proc.returncode == 0
@@ -720,8 +726,6 @@ def run_no_invented_symbols(root: Any) -> bool:
     # Untracked files
     untracked = _git(["ls-files", "--others", "--exclude-standard"], root=root)
     untracked_files = {line.strip() for line in untracked.splitlines() if line.strip()} if untracked else set()
-    if untracked:
-        files.update(untracked.splitlines())
         
     # If AF_DIFF_BASE is set, check diff against base
     base = env.get("AF_DIFF_BASE")
@@ -765,6 +769,7 @@ def run_no_invented_symbols(root: Any) -> bool:
             try:
                 tree = ast.parse(content)
             except SyntaxError:
+                print(f"no-invented-symbols: SyntaxError in {file_path}", file=sys.stderr)
                 return False
 
             for node in ast.walk(tree):
@@ -787,6 +792,14 @@ def run_no_invented_symbols(root: Any) -> bool:
                                     resolved = True
                                     break
                             if not resolved:
+                                try:
+                                    dir_rel = target_path.relative_to(root_resolved).as_posix()
+                                    if any(f == dir_rel or f.startswith(f"{dir_rel}/") for f in tracked_files):
+                                        resolved = True
+                                except ValueError:
+                                    pass
+                            if not resolved:
+                                print(f"no-invented-symbols: Unresolved import alias '{alias.name}' in {file_path}", file=sys.stderr)
                                 return False
                 elif isinstance(node, ast.ImportFrom):
                     module_name = node.module or ""
@@ -812,6 +825,14 @@ def run_no_invented_symbols(root: Any) -> bool:
                                     resolved = True
                                     break
                             if not resolved:
+                                try:
+                                    dir_rel = target_path.relative_to(root_resolved).as_posix()
+                                    if any(f == dir_rel or f.startswith(f"{dir_rel}/") for f in tracked_files):
+                                        resolved = True
+                                except ValueError:
+                                    pass
+                            if not resolved:
+                                print(f"no-invented-symbols: Unresolved relative import '{module_name}' in {file_path}", file=sys.stderr)
                                 return False
                         else:
                             if not parent_dir.exists():
@@ -835,9 +856,18 @@ def run_no_invented_symbols(root: Any) -> bool:
                                         resolved = True
                                         break
                                 if not resolved:
+                                    try:
+                                        dir_rel = target_path.relative_to(root_resolved).as_posix()
+                                        if any(f == dir_rel or f.startswith(f"{dir_rel}/") for f in tracked_files):
+                                            resolved = True
+                                    except ValueError:
+                                        pass
+                                if not resolved:
+                                    print(f"no-invented-symbols: Unresolved absolute import '{module_name}' in {file_path}", file=sys.stderr)
                                     return False
                 elif isinstance(node, ast.Call):
                     if not _dynamic_import_call_ok(node, root, tracked_files):
+                        print(f"no-invented-symbols: Unresolved dynamic import call in {file_path}", file=sys.stderr)
                         return False
 
         elif ext == ".rs":
@@ -983,8 +1013,19 @@ def _coherence_artifact_usable(root_path: Any, env: Optional[dict] = None) -> bo
 
 
 
+def deploy_receipt_applicable(art: dict, root_path: Any) -> tuple[bool, str]:
+    """Only enforce receipt when artifact is post-hardening and bound to current HEAD."""
+    if "tld_gate_status" not in art:
+        return False, "legacy artifact (no tld_gate_status) — enforcement skipped"
+    art_hash = str(art.get("hash") or "").strip()
+    head = git_head(root_path) or ""
+    if art_hash and head and art_hash != head:
+        return False, f"stale deploy artifact (hash {art_hash[:12]} != HEAD {head[:12]}) — enforcement skipped"
+    return True, "artifact bound to HEAD"
+
+
 def verify_deploy_uapi_receipt(root_path: Any) -> tuple[bool, Optional[dict], str]:
-    """When deploy-uapi artifact exists, require closed TLD gate receipt chain."""
+    """When a fresh deploy-uapi artifact exists for HEAD, require closed TLD gate receipt."""
     path = Path(root_path) / ".goalie" / "evidence" / "last_deploy_uapi.json"
     if not path.is_file():
         return True, None, "no deploy artifact"
@@ -992,6 +1033,9 @@ def verify_deploy_uapi_receipt(root_path: Any) -> tuple[bool, Optional[dict], st
         art = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return False, None, "deploy-uapi artifact unreadable"
+    applicable, reason = deploy_receipt_applicable(art, root_path)
+    if not applicable:
+        return True, art, reason
     status = str(art.get("tld_gate_status", ""))
     pw = int(art.get("playwright_exit", -1))
     conc = str(art.get("tld_gate_conclusion", "") or "")
@@ -1571,7 +1615,7 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
     rd_proxy, rnotes = derive_reward_direction(proxies)
     meta["reward_direction_proxy"] = rd_proxy
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
-    enforce_rd = str(env.get("AF_RD_ENFORCE", "1" if is_ci else "0")) == "1"
+    enforce_rd = str(env.get("AF_RD_ENFORCE", "1" if (is_ci or is_precommit) else "0")) == "1"
     meta["reward_direction_enforced"] = enforce_rd
     asserted = card.get("impact", {}).get("reward_direction")
     if enforce_rd:
@@ -1703,8 +1747,8 @@ def main(argv: Optional[list] = None) -> int:
         if branch in ("main", "master"):
             require = True
 
-    if is_ci and args.self_asserted:
-        print("🛑 --self-asserted is not allowed in CI", file=sys.stderr)
+    if (is_ci or is_precommit) and args.self_asserted:
+        print("🛑 --self-asserted is not allowed in CI/pre-commit", file=sys.stderr)
         return 2
 
     try:

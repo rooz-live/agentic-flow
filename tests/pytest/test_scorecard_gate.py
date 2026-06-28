@@ -291,10 +291,20 @@ def test_derive_gate_integrity_ci(monkeypatch):
 
 
 def test_derive_gate_integrity_local(monkeypatch):
-    """No CI env + no AF_GATE_CONTEXT → OWNED (local fallback)."""
+    """No CI env + no AF_GATE_CONTEXT → FAIL."""
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     monkeypatch.delenv("AF_GATE_CONTEXT", raising=False)
+    monkeypatch.delenv("AF_ALLOW_OWNED_LOCAL", raising=False)
+    assert str(derive_gate_integrity()) == "FAIL"
+
+
+def test_derive_gate_integrity_local_owned_opt_in(monkeypatch):
+    """AF_ALLOW_OWNED_LOCAL=1 opts into the legacy local fallback."""
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    monkeypatch.delenv("AF_GATE_CONTEXT", raising=False)
+    monkeypatch.setenv("AF_ALLOW_OWNED_LOCAL", "1")
     assert str(derive_gate_integrity()) == "OWNED"
 
 
@@ -373,6 +383,10 @@ def test_evaluate_derive_mode(monkeypatch):
     # Mock derive_coherence and derive_gate_integrity
     monkeypatch.setattr("scripts.gates.scorecard_gate.derive_coherence", lambda r, **kwargs: "PASS")
     monkeypatch.setattr("scripts.gates.scorecard_gate.derive_gate_integrity", lambda: "PASS")
+    monkeypatch.setattr(
+        "scripts.gates.scorecard_gate.verify_deploy_uapi_receipt",
+        lambda r: (True, None, "no deploy artifact"),
+    )
 
     sc = make_valid_scorecard()
     # The scorecard values should be overridden/ignored by derived values
@@ -1127,3 +1141,62 @@ def test_roam_tracker_update_unregistered_untracked_files(monkeypatch, tmp_path)
     hardened, blocks, warns, meta = sg.harden(sc, env={}, strict=False, ingest_only=True)
     assert not any("ROAM_TRACKER.yaml was updated, but the following newly added untracked files are not registered" in err for err in blocks)
 
+
+
+def test_verify_deploy_uapi_receipt_closed(tmp_path):
+    evidence = tmp_path / ".goalie" / "evidence"
+    evidence.mkdir(parents=True)
+    art = {
+        "tld_gate_status": "pass",
+        "playwright_exit": 0,
+        "tld_gate_conclusion": "success",
+        "tld_gate_receipt_status": "pass",
+        "tld_gate_github_run_id": "12345",
+    }
+    (evidence / "last_deploy_uapi.json").write_text(__import__("json").dumps(art))
+    ok, doc, msg = __import__("scripts.gates.scorecard_gate", fromlist=["verify_deploy_uapi_receipt"]).verify_deploy_uapi_receipt(tmp_path)
+    assert ok is True
+    assert doc is not None
+
+
+def test_verify_deploy_uapi_receipt_blocks_bad_status(tmp_path):
+    evidence = tmp_path / ".goalie" / "evidence"
+    evidence.mkdir(parents=True)
+    art = {"tld_gate_status": "fail", "playwright_exit": 1}
+    (evidence / "last_deploy_uapi.json").write_text(__import__("json").dumps(art))
+    from scripts.gates.scorecard_gate import verify_deploy_uapi_receipt
+    ok, doc, msg = verify_deploy_uapi_receipt(tmp_path)
+    assert ok is False
+    assert doc is not None
+    assert "tld_gate_status" in msg
+
+
+def test_verify_deploy_uapi_receipt_skips_legacy(tmp_path):
+    evidence = tmp_path / ".goalie" / "evidence"
+    evidence.mkdir(parents=True)
+    art = {"playwright_exit": 1, "domains_ok": 27}
+    (evidence / "last_deploy_uapi.json").write_text(__import__("json").dumps(art))
+    from scripts.gates.scorecard_gate import verify_deploy_uapi_receipt
+    ok, doc, msg = verify_deploy_uapi_receipt(tmp_path)
+    assert ok is True
+    assert doc is not None
+    assert "legacy" in msg.lower() or "skipped" in msg.lower()
+
+
+def test_verify_deploy_uapi_receipt_skips_stale_hash(tmp_path, monkeypatch):
+    evidence = tmp_path / ".goalie" / "evidence"
+    evidence.mkdir(parents=True)
+    art = {
+        "hash": "deadbeef" * 5,
+        "tld_gate_status": "pass",
+        "playwright_exit": 0,
+        "tld_gate_conclusion": "success",
+        "tld_gate_receipt_status": "pass",
+        "tld_gate_github_run_id": "123",
+    }
+    (evidence / "last_deploy_uapi.json").write_text(__import__("json").dumps(art))
+    monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda r: "cafebabe" * 5)
+    from scripts.gates.scorecard_gate import verify_deploy_uapi_receipt
+    ok, doc, msg = verify_deploy_uapi_receipt(tmp_path)
+    assert ok is True
+    assert "stale" in msg.lower()

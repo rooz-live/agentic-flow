@@ -239,7 +239,7 @@ for (const { tld, url, titlePattern, redirects } of TLD_TARGETS) {
       }
     });
 
-    if (!redirects) {
+    if (!redirects || isStrictClosed()) {
       test(`${url} dynamically hosts fresh evidence-manifest.json @tld-gate`, async ({ request }) => {
         const manifestUrl = `${url}evidence-manifest.json`;
         try {

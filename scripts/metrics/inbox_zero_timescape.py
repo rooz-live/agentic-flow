@@ -72,6 +72,16 @@ def _dlq_rows(path: Path) -> int:
         return sum(1 for _ in fh)
 
 
+def _load_tick_post(root: Path) -> dict:
+    path = root / ".goalie" / "evidence" / "tick_post_latest.json"
+    if not path.is_file():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
 def _pace_from_lnnnl(path: Path) -> float:
     if not path.is_file():
         return 0.5
@@ -183,7 +193,14 @@ def build_timescape(root: Path | None = None, *, window_hours: float = DEFAULT_W
     closed_roam += cog_closed
     open_upstream, closed_upstream = _count_upstream(root / ".goalie" / "UPSTREAM_ACTIONS.yaml")
     dlq_rows = _dlq_rows(root / "dlq.jsonl")
-    pace = _pace_from_lnnnl(root / ".goalie" / "LNNNL.yaml")
+    tick_post = _load_tick_post(root)
+    pace_source = tick_post.get("pace_source")
+    shippable_lane_empty = bool(tick_post.get("shippable_lane_empty"))
+    tick_pace = tick_post.get("pace_cod_weight")
+    if tick_pace is not None:
+        pace = float(tick_pace)
+    else:
+        pace = _pace_from_lnnnl(root / ".goalie" / "LNNNL.yaml")
 
     open_count = open_roam + open_upstream + dlq_rows
     closed_count = closed_roam + closed_upstream
@@ -195,7 +212,16 @@ def build_timescape(root: Path | None = None, *, window_hours: float = DEFAULT_W
     anti = _anti_cvt_breakdown(root, policy)
     roi = _max_roi(root)
     velocity_fmt = f"{pct_closed:.1f}.{open_count}"
-    pace_fmt = f"{open_count}.{pace:.1f}"
+    if (
+        shippable_lane_empty
+        or open_count == 0
+        or tick_post.get("pace_cod_weight") is None
+        or tick_post.get("pace_source") in ("stale", "deferred")
+    ):
+        pace_fmt = "#.%"
+    else:
+        pace_fmt = f"{open_count}.{pace:.1f}"
+    pace_source_out = pace_source or ("tick_post" if tick_post else "lnnnl")
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -207,6 +233,8 @@ def build_timescape(root: Path | None = None, *, window_hours: float = DEFAULT_W
             "pace": pace,
             "velocity_fmt": velocity_fmt,
             "pace_fmt": pace_fmt,
+            "pace_source": pace_source_out,
+            "shippable_lane_empty": shippable_lane_empty,
         },
         "pct_closed": round(pct_closed, 2),
         "open_count": open_count,
@@ -214,6 +242,8 @@ def build_timescape(root: Path | None = None, *, window_hours: float = DEFAULT_W
         "pace": pace,
         "velocity_fmt": velocity_fmt,
         "pace_fmt": pace_fmt,
+        "pace_source": pace_source_out,
+        "shippable_lane_empty": shippable_lane_empty,
         "anti_cvt": anti,
         "aqe_utilization_pct": policy.get("aqe_utilization_pct", 0),
         "harness_utilization_pct": policy.get("harness_utilization_pct", 0),

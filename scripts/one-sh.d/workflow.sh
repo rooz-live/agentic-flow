@@ -20,7 +20,9 @@ if [[ "$CMD" == "init" ]]; then
     shift
     echo "--> Initializing Ruflo..."
     npx --yes ruflo@3.14.1 init --minimal --start-daemon "$@"
-    echo "--> Ruflo daemon ready."
+    echo "--> Ensuring Ruflo daemon is running..."
+    npx --yes ruflo@3.14.1 start --daemon || true
+    echo "--> Ruflo runtime ready."
     exit 0
 fi
 

@@ -1184,9 +1184,31 @@ def _git(args: list, timeout: int = 30, root: Any = ".") -> Optional[str]:
 
 
 def _git_ignored(path: str, root: Any = ".") -> bool:
-    """True if git considers the path ignored (including tracked-but-ignored)."""
+    """True if git considers the path ignored (untracked files only)."""
     out = _git(["check-ignore", path], root=root)
     return bool(out and out.strip())
+
+
+# Generated artifacts that are tracked despite being in .gitignore.
+# The hard gate should not require dynamic test execution for these.
+ARTIFACT_PATH_PREFIXES = (
+    ".goalie/cron_state/",
+    ".goalie/evidence/",
+    ".goalie/trust_snapshots/",
+    "reports/",
+)
+ARTIFACT_PATH_EXACT = frozenset({
+    ".goalie/scorecards/current.json",
+    ".goalie/trust_cache.json",
+    ".goalie/ROAM_TRACKER_COG.yaml",
+})
+
+
+def _is_generated_artifact(path: str) -> bool:
+    return (
+        path in ARTIFACT_PATH_EXACT
+        or any(path.startswith(p) for p in ARTIFACT_PATH_PREFIXES)
+    )
 
 
 def git_head(root: Any = ".") -> Optional[str]:
@@ -1544,7 +1566,10 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
                 scorecard_path = Path(DEFAULT_SCORECARD).as_posix()
                 non_ignored = [
                     f for f in unstaged_diff.strip().splitlines()
-                    if f.strip() and not _git_ignored(f.strip()) and f.strip() != scorecard_path
+                    if f.strip()
+                    and f.strip() != scorecard_path
+                    and not _git_ignored(f.strip())
+                    and not _is_generated_artifact(f.strip())
                 ]
                 if non_ignored:
                     extra_blocks.append(

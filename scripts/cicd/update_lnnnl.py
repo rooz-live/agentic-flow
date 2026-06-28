@@ -26,7 +26,7 @@ def load_shippable_queue(root):
     with open(prompts_path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     out = []
-    for key in ("wsjf_now_items", "wsjf_near_items"):
+    for key in ("wsjf_now_items", "wsjf_near_items", "wsjf_backlog_items"):
         for row in data.get(key, []):
             iid = str(row.get("id") or "")
             if SHIPPABLE_ID_RE.match(iid):

@@ -418,6 +418,7 @@ def test_derive_coherence_crypto_verification(tmp_path, monkeypatch):
 
     # Mock git_head and isolate from any globally set signer env
     monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda r: "mock_sha")
+    monkeypatch.setattr("scripts.gates.scorecard_gate.get_allowed_signers_db", lambda env, root_path=".": str(tmp_path / "allowed_signers"))
     monkeypatch.delenv("AF_ALLOWED_SIGNERS", raising=False)
     monkeypatch.delenv("AF_GATE_CONTEXT", raising=False)
     monkeypatch.delenv("CI", raising=False)
@@ -756,8 +757,8 @@ def test_harden_blocks_allowed_signers_pr_tamper(monkeypatch, tmp_path):
     monkeypatch.setattr("scripts.gates.scorecard_gate.derive_coherence", lambda r: "PASS")
 
     def fake_git(args, timeout=30, root="."):
-        if "--" in args and str(allowed) in " ".join(args):
-            return str(allowed)
+        if "--" in args and (".goalie/scorecards/allowed_signers" in " ".join(args) or str(allowed) in " ".join(args)):
+            return ".goalie/scorecards/allowed_signers"
         return None
 
     monkeypatch.setattr("scripts.gates.scorecard_gate._git", fake_git)
@@ -797,6 +798,7 @@ def test_harden_missing_allowed_signers_ci_blocks(monkeypatch, tmp_path):
     
     # Mock other functions called inside harden to prevent extraneous blocks
     monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda *a, **k: "mock_sha")
+    monkeypatch.setattr("scripts.gates.scorecard_gate.get_allowed_signers_db", lambda env, root_path=".": str(tmp_path / "missing_signers"))
     monkeypatch.setattr("scripts.gates.scorecard_gate.current_diff_sha", lambda *a, **k: "mock_diff")
     monkeypatch.setattr("scripts.gates.scorecard_gate.verify_signoff", lambda *a, **k: (True, "mock"))
     monkeypatch.setattr("scripts.gates.scorecard_gate.check_binding", lambda *a, **k: ([], []))

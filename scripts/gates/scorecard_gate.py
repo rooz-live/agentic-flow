@@ -48,14 +48,15 @@ atexit.register(cleanup_temp_files)
 
 
 def get_allowed_signers_db(env: dict, root_path: str = ".") -> str:
-    override = env.get("AF_ALLOWED_SIGNERS")
-    if override:
-        return override
-
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
     global_path = Path(root_path) / ".goalie/scorecards/allowed_signers"
     if is_ci:
+        # Strictly ignore AF_ALLOWED_SIGNERS override in CI context to prevent tampering
         return str(global_path)
+
+    override = env.get("AF_ALLOWED_SIGNERS")
+    if override:
+        return override
     
     local_path = Path(root_path) / ".goalie/scorecards/allowed_signers.local"
     
@@ -1366,7 +1367,10 @@ def check_allowed_signers_tamper(env: dict, root: str = ".") -> tuple:
     is_precommit = env.get("AF_GATE_CONTEXT") == "precommit"
     if not is_ci and not is_precommit:
         return blocks, warns
-    path = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
+    if is_ci:
+        path = ".goalie/scorecards/allowed_signers"
+    else:
+        path = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
     base = env.get("AF_DIFF_BASE")
     if not base:
         if is_ci:
@@ -1640,6 +1644,28 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
                 f"({'; '.join(rnotes) or 'no negative signals'})"
             )
     ingest_deploy_receipt(".", env, meta, extra_blocks)
+
+    # 5) blast_radius <- proxy based on file change count
+    card_impact = card.setdefault("impact", {})
+    asserted_br = card_impact.get("blast_radius")
+    prod_altered = [
+        f for f in altered_files
+        if not any(f.startswith(p) for p in ("tests/", "scripts/", "tooling/", "config/", "."))
+    ]
+    file_count = len(prod_altered)
+    if file_count > 10:
+        br_proxy = 1.5
+    elif file_count >= 3:
+        br_proxy = 1.0
+    else:
+        br_proxy = 0.5
+    meta["blast_radius_proxy"] = br_proxy
+    if asserted_br is None or asserted_br < br_proxy:
+        card_impact["blast_radius"] = br_proxy
+        extra_warnings.append(
+            f"blast_radius overridden to {br_proxy} based on {file_count} prod modified files (asserted {asserted_br})"
+        )
+
     return card, extra_blocks, extra_warnings, meta
 
 

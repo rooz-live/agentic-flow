@@ -161,8 +161,12 @@ Each `tick_post_hooks.sh` run follows this order; skipping or reordering breaks 
 | `AF_SKIP_OP_READ` | unset | After successful export-shell, skip further `op read` in child Python |
 | `AF_SKIP_ROAM_SYNC` | `0` | Skip duplicate `sync_roam_env_deps` in `update_lnnnl` |
 | `AF_OP_VAULT_SCAN` | `0` | Scan Antigravity vault blobs (expensive; off in tick) |
-| `AF_LNNNL_ENFORCE` | `1` in `loop_timer_engine.sh`, `run_loop_tick.sh`, `cycle_tick.sh` (`0` opt-out) | Fail tick when `update_lnnnl.py` exits non-zero |
-| `AF_ROAM_REFRESH_TIMESTAMPS` | `0` | Do not reset ROAM `discovered` on every tick |
+| `AF_LNNNL_ENFORCE` | `1` | Fail tick when `update_lnnnl.py` exits non-zero |
+| `AF_LNNNL_STALE_ENFORCE` | `1` | Fail tick when `update_lnnnl.py` exits with 2 (stale ROAM gate) |
+| `AF_TICK_POST_ENFORCE` | `1` | Propagates sub-hook failures (exit code) to the final script exit status (propagates to production loops) |
+| `AF_ROAM_REFRESH_TIMESTAMPS` | `0` | When enabled (set to `1`), refreshes `last_verified` (and `discovered` if uninitialized) in ROAM tracker files |
+| `AF_CORRELATE_ENFORCE` | `0` | If `1`, enforces strict correlation of timescape evidence |
+| `AF_RECEIPT_CHAIN_ENFORCE` | `1` | If `1`, enforces receipt chain validation |
 
 Evidence: `.goalie/evidence/tick_post_latest.json` records `env_export_ok`, `lnnnl_exit`, `pace_cod_weight`.
 
@@ -190,7 +194,14 @@ Canonical compact gauges for inbox-zero / goal snapshots. **Read order is type-t
 
 ### AQE utilization honesty (shippable vs deferrable)
 
-`tick_cycle_policy.py` splits utilization so deferrable/blocker-remediation runs never inflate shippable `#.%` pace:
+`tick_cycle_policy.py` splits utilization so deferrable/blocker-remediation runs never inflate shippable `#.%` pace. The execution mode is governed by `utilize_mode`:
+
+| Mode | Condition | Meaning |
+|------|-----------|---------|
+| `full` | Shippable pace $\ge 1.0$ | Full shippable lane execution. Runs AQE and upstream upgrades. |
+| `deferred` | Shippable pace $< 1.0$ | Skips AQE and upstream checks. |
+| `deferrable` | Shippable pace $< 1.0$ & `AQE_UTILIZE_DEFERRABLE=1` | Runs scoped AQE checks. |
+| `blocker-remediation` | Shippable empty + blocker NOW | Scoped AQE coherence without upstream upgrades. |
 
 | Field | Meaning |
 |-------|---------|
@@ -232,8 +243,64 @@ Lenient Playwright skips require **`TLD_GATE_LENIENT=1`**; `test:e2e:tld-gate:st
 Legacy artifacts (no `tld_gate_status`) or stale artifacts (`hash` ≠ `git HEAD`) are **skipped** by DoD and scorecard derive — not FAIL.
 
 
-| `1` in production loops | Propagate AQE/upstream/ceremony/receipt failures (not unconditional exit 0) |
 
-| `0` | When refresh enabled, do not rewrite `discovered` (only `last_verified`) |
+---
 
-| `blocker-remediation` when shippable empty + blocker NOW | Scoped AQE coherence without upstream |
+## 🪙 7. ROAM Cost, Theater Risks, & Closed MPP Receipt Chains
+
+### ROAM Cost & Theater Risks
+
+Autonomy and execution metrics can easily fall prey to **under-utilization theater**. This occurs when the head of the shippable lane (`lanes.shippable`) is blocked or empty, but loop cycles continue to burn wall-clock compute executing non-head, deferrable, or minor blocker tasks.
+
+- **Under-Utilization Theater**: Compute metrics appear active (e.g. running loops, committing minor fixes), but the shippable pace remains at `0` because no high-value `P1-*` or `NNEAR-*` items are being delivered.
+- **Compute spent vs. Shippable pace**: Running tests and loops is cheap, but it is extremely expensive when it masks behavioral regressions or delays resolving critical-path blockers.
+- **Enforcement**: Setting `AF_LNNNL_STALE_ENFORCE=1` blocks loop execution if the ROAM tracker or WSJF inputs are stale, forcing manual or automated remediation of aging risks before consuming more compute.
+
+### Closed MPP Receipt Chain
+
+To prevent contract drift between the local agent ledger and public web platforms, the platform enforces a **Closed MPP (Model-Processor-Protocol) Receipt Chain**.
+
+- **Earning-to-Profile Sync**: Every time an agent completes a cycle and generates signed scorecard evidence, its verified earnings (Earning's Per Agent, Engine, Engineer, and Ingenuity) are appended to a local ledger (`earnings_ledger.jsonl`).
+- **JSON-RPC MCP Client**: Rather than using isolated scripts, the sync hook (`sync_earnings_to_hire.py`) leverages a JSON-RPC request over the Model Context Protocol (MCP) to securely push earnings vectors and update the public profile (`rooz.live` / `hire.agentics.org`).
+- **Verification**: The public `profile_readme.md` is derived dynamically from these ledger vectors, creating a cryptographically and locally verifiable audit trail from tick execution to public presence.
+
+### Causal System Diagram
+
+```mermaid
+graph TD
+    subgraph Planning & Prioritization
+        G[/goal/] -->|Rank opportunities & compute ROI| S[/schedule/]
+        S -->|Update LNNNL.yaml & WSJF| DL{Dual-Lane Check}
+    end
+
+    subgraph Dual-Lane Routing
+        DL -->|Shippable Lane: P1/NNEAR| SL[lanes.shippable.now]
+        DL -->|Blocker Lane: DEP/BLK/R| BL[lanes.blockers]
+    end
+
+    subgraph Execution Loop
+        SL -->|Pace >= 1.0 / Loop Tick| L[/loop/]
+        BL -->|Remediation / Deferrable| L
+        L -->|Execute atomic unit| W[/workflows/]
+    end
+
+    subgraph Verification & Gates
+        W -->|Emit code & tests| CoherenceGate{Coherence Gate}
+        CoherenceGate -->|FAIL| Rollback[Rollback / Triage]
+        CoherenceGate -->|PASS| Scorecard[Sign Scorecard & current.json]
+        Scorecard -->|Verify signature| Deploy[Deploy / TLD Gate]
+    end
+
+    subgraph closed_mpp_receipt_chain [Closed MPP Receipt Chain]
+        Deploy -->|Deploy Receipt| Ledger[(earnings_ledger.jsonl)]
+        Ledger -->|JSON-RPC MCP Sync| Profile[rooz.live Profile Update]
+        Profile --> G
+    end
+
+    style G fill:#f9f,stroke:#333,stroke-width:2px
+    style S fill:#bbf,stroke:#333,stroke-width:2px
+    style L fill:#bfb,stroke:#333,stroke-width:2px
+    style W fill:#fbf,stroke:#333,stroke-width:2px
+    style Ledger fill:#ffb,stroke:#333,stroke-width:2px
+    style Profile fill:#bff,stroke:#333,stroke-width:2px
+```

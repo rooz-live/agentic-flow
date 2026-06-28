@@ -8,6 +8,8 @@ import json
 import os
 import sys
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from pathlib import Path
 
 def _enrich_tag_vote_route(route):
@@ -39,10 +41,23 @@ opener = urllib.request.build_opener(NoRedirectHandler)
 urllib.request.install_opener(opener)
 
 def get_webhook_secret():
+    # Prefer a resolved value via the canonical resolver (handles op:// references
+    # and process env). Fall back to a local .env scan for standalone runs.
+    try:
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        resolver_dir = os.path.join(project_root, "scripts", "cicd", "lib")
+        if resolver_dir not in sys.path:
+            sys.path.insert(0, resolver_dir)
+        from env_key_resolver import resolve_key_value
+        val, src = resolve_key_value("COGNITUM_WEBHOOK_SECRET", root=Path(project_root))
+        if val:
+            return val
+    except Exception as e:
+        print(f"Note: env_key_resolver failed: {e}")
+
     if "COGNITUM_WEBHOOK_SECRET" in os.environ:
         return os.environ["COGNITUM_WEBHOOK_SECRET"]
-    
-    
+
     # Try reading from .env files up to 2 directories up
     for env_file in [".env", "../.env", "../../.env"]:
         if os.path.exists(env_file):

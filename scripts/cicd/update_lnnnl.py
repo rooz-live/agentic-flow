@@ -13,7 +13,7 @@ sys.path.insert(0, PROJECT_ROOT)
 from src.wsjf.calculator import WsjfCalculator, WsjfItem
 
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "scripts", "cicd", "lib"))
-from env_key_resolver import sync_roam_env_deps
+from env_key_resolver import sync_roam_cog_env_deps, sync_roam_env_deps
 
 SHIPPABLE_ID_RE = re.compile(r"^(P1-[A-Z0-9]+-\d+|NNEAR-\d+)$", re.I)
 BLOCKER_ID_RE = re.compile(r"^(DEP-|BLK-|B-|R04|R-)", re.I)
@@ -157,6 +157,76 @@ def _format_item(item: dict) -> str:
     return f"[{item.get('id')}] {prompt}"
 
 
+
+STALE_EXIT = 2
+DEFAULT_ROAM_TTL_HOURS = float(os.environ.get("AF_ROAM_DEFAULT_TTL_HOURS", "168"))
+
+
+def _parse_roam_timestamp(value, now_utc):
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        dt = value
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    return parse_deadline(str(value))
+
+
+def _item_verification_anchor(raw_item, now_utc):
+    for key in ("last_verified", "discovered"):
+        ts = _parse_roam_timestamp((raw_item or {}).get(key), now_utc)
+        if ts is not None:
+            return ts
+    return None
+
+
+def find_stale_roam_items(active_items, now_utc):
+    """Active ROAM rows past TTL without verified closure."""
+    stale = []
+    for item in active_items:
+        raw = item.get("raw_item") or {}
+        ttl_raw = item.get("staleness_ttl_hours")
+        if ttl_raw is None:
+            ttl_raw = raw.get("staleness_ttl_hours")
+        try:
+            ttl = float(ttl_raw) if ttl_raw is not None else DEFAULT_ROAM_TTL_HOURS
+        except (TypeError, ValueError):
+            ttl = DEFAULT_ROAM_TTL_HOURS
+        anchor = _item_verification_anchor(raw, now_utc)
+        if anchor is None:
+            stale.append({
+                "id": item.get("id"),
+                "type": item.get("type"),
+                "reason": "missing_verification_timestamp",
+                "ttl_hours": ttl,
+            })
+            continue
+        age_hours = (now_utc - anchor).total_seconds() / 3600.0
+        if age_hours > ttl:
+            stale.append({
+                "id": item.get("id"),
+                "type": item.get("type"),
+                "reason": f"age_hours={age_hours:.1f}>ttl={ttl}",
+                "ttl_hours": ttl,
+                "anchor": anchor.isoformat(),
+            })
+    return stale
+
+
+def enforce_stale_roam_gate(stale_items):
+    if not stale_items:
+        return 0
+    print(f"STALE ROAM items ({len(stale_items)}):")
+    for row in stale_items[:25]:
+        print(f"  - {row.get('id')}: {row.get('reason')}")
+    if len(stale_items) > 25:
+        print(f"  ... and {len(stale_items) - 25} more")
+    if os.environ.get("AF_LNNNL_STALE_ENFORCE", "0") == "1":
+        return STALE_EXIT
+    return 0
+
+
 def main():
     roam_cog_path = os.path.join(PROJECT_ROOT, ".goalie/ROAM_TRACKER_COG.yaml")
     roam_path = os.path.join(PROJECT_ROOT, ".goalie/ROAM_TRACKER.yaml")
@@ -167,6 +237,8 @@ def main():
     resolved = []
     if os.environ.get("AF_SKIP_ROAM_SYNC", "0") != "1":
         resolved = sync_roam_env_deps(Path(PROJECT_ROOT))
+        cog_resolved = sync_roam_cog_env_deps(Path(PROJECT_ROOT))
+        resolved.extend(cog_resolved)
         if resolved:
             print(f"Auto-resolved env deps: {', '.join(resolved)}")
 

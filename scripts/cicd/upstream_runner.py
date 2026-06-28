@@ -60,6 +60,80 @@ _MANIFEST_HARNESS: List[Tuple[str, str]] = [
 
 _VALID_HARNESS_TYPES = {"cargo", "pytest", "playwright", "npm", "go", "docker", "python", "shell", "unknown"}
 
+# Coarse-grained harness families for downstream reporting and dashboard grouping.
+_HARNESS_FAMILY: Dict[str, str] = {
+    "pytest": "python",
+    "python": "python",
+    "npm": "web",
+    "playwright": "web",
+    "yarn": "web",
+    "pnpm": "web",
+    "cargo": "rust",
+    "go": "go",
+    "docker": "docker",
+    "shell": "shell",
+    "unknown": "unknown",
+}
+
+
+def _harness_family(harness_type: str) -> str:
+    return _HARNESS_FAMILY.get(harness_type, "unknown")
+
+
+# Pseudo-HTTP status class for upstream run outcomes.  Used for retry policy and dashboards.
+# - 2xx: success
+# - 4xx: client/config error (fail-fast, no retry)
+# - 5xx: server/transient/flake error (retry eligible)
+# - 0xx: not run / skipped
+_4XX_PATTERNS = (
+    re.compile(r"git clone failed"),
+    re.compile(r"import error", re.I),
+    re.compile(r"modulenotfounderror", re.I),
+    re.compile(r"dor failed"),
+    re.compile(r"assertion failed"),
+    re.compile(r"\[test\]\s*.*\b(pytest|cargo|npm)\b.*\bfailed\b", re.I),
+)
+_5XX_PATTERNS = (
+    re.compile(r"timeout", re.I),
+    re.compile(r"\[process error\]", re.I),
+    re.compile(r"\[exception", re.I),
+    re.compile(r"network\s+(error|unreachable|timeout)", re.I),
+    re.compile(r"connection\s+(refused|reset|timeout)", re.I),
+    re.compile(r"502\s+bad\s+gateway", re.I),
+    re.compile(r"503\s+service\s+unavailable", re.I),
+    re.compile(r"504\s+gateway\s+timeout", re.I),
+    re.compile(r"500\s+internal\s+server\s+error", re.I),
+)
+
+
+def _classify_http_status_class(
+    *,
+    passed: bool,
+    skipped: bool = False,
+    dor_status: str = "skipped",
+    log: Optional[str] = None,
+    transient_fail: bool = False,
+) -> str:
+    """Map an upstream run outcome to a pseudo-HTTP status class."""
+    if skipped:
+        return "0xx"
+    if passed:
+        return "2xx"
+    if transient_fail:
+        return "5xx"
+    if dor_status == "fail":
+        return "4xx"
+    text = (log or "").lower()
+    for pat in _5XX_PATTERNS:
+        if pat.search(text):
+            return "5xx"
+    for pat in _4XX_PATTERNS:
+        if pat.search(text):
+            return "4xx"
+    # Default deterministic test failures are client/config errors (fail-fast).
+    return "4xx"
+
+
 
 def detect_harness(
     integration_test: str,
@@ -259,7 +333,8 @@ def run_one_repo(
             return _result(repo_id, url, branch, remote_sha,
                            passed=False, duration=round(time.monotonic() - t_start, 2),
                            log=f"git clone failed: {clone_proc.stderr.strip()}",
-                           dor_status="fail", attempts=0)
+                           dor_status="fail", attempts=0,
+                           http_status_class="4xx")
     else:
         harness = detect_harness(test_cmd, sandbox_path, hint=harness_hint)
 
@@ -345,7 +420,8 @@ def run_one_repo(
                 shutil.rmtree(sandbox_path, ignore_errors=True)
             return _result(repo_id, url, branch, remote_sha,
                            passed=False, duration=dur,
-                           log=log, dor_status="fail", attempts=0)
+                           log=log, dor_status="fail", attempts=0,
+                           http_status_class="4xx")
         dor_status = "pass"
         print(f"  ✓  DoR passed ({dur}s)")
 
@@ -355,6 +431,7 @@ def run_one_repo(
     duration = 0.0
     log = ""
     transient_fail = False
+    http_status_class = "0xx"
 
     for attempt in range(max(1, retry)):
         attempts += 1
@@ -367,17 +444,29 @@ def run_one_repo(
             )
             status_str = "PASS" if passed else "FAIL"
             print(f"  {status_str}  ({duration}s)")
+            transient_fail = "[TIMEOUT" in log or "[EXCEPTION" in log or "timeout" in log.lower()
+            http_status_class = _classify_http_status_class(
+                passed=passed,
+                dor_status=dor_status,
+                log=log,
+                transient_fail=transient_fail,
+            )
             if passed:
                 break
-            # If the command ran successfully but tests failed, that's a real
-            # failure — do not retry.
-            transient_fail = "[TIMEOUT" in log or "[EXCEPTION" in log
-            if not transient_fail:
+            # 5xx-like failures (transient/flake) are retry-eligible; 4xx-like
+            # (client/config/deterministic test failures) fail fast.
+            if http_status_class != "5xx":
                 break
         except _TRANSIENT_EXCEPTIONS as exc:
             duration = round(time.monotonic(), 2)
             log = f"[PROCESS ERROR] {exc}"
             transient_fail = True
+            http_status_class = _classify_http_status_class(
+                passed=False,
+                dor_status=dor_status,
+                log=log,
+                transient_fail=True,
+            )
             print(f"  ⚠️  Process error on attempt {attempts}: {exc}")
 
     # ── App Store Submission Readiness Check ──────────────────────────────────
@@ -404,6 +493,7 @@ def run_one_repo(
                    log=log if not passed else None,
                    dor_status=dor_status, attempts=attempts,
                    harness=harness,
+                   http_status_class=http_status_class,
                    app_store_readiness="PASS" if app_store_ok else "FAIL")
 
 
@@ -462,6 +552,7 @@ def _result(
     dor_status: str,
     attempts: int,
     harness: str = "unknown",
+    http_status_class: str = "0xx",
     app_store_readiness: Optional[str] = None,
 ) -> Dict[str, Any]:
     res = {
@@ -475,6 +566,8 @@ def _result(
         "attempts": attempts,
         "dor_status": dor_status,
         "harness_type": harness,
+        "harness_family": _harness_family(harness),
+        "http_status_class": http_status_class,
         "log": log,
     }
     if app_store_readiness:
@@ -504,6 +597,10 @@ def run_validations(
 
     # Emit cached-pass entries immediately
     for repo in skip_repos:
+        harness = detect_harness(
+            repo.get("integration_test", ""),
+            hint=repo.get("harness_type") or repo.get("harness_hint"),
+        )
         results.append({
             "repository_id": repo["id"],
             "url": repo["url"],
@@ -514,10 +611,9 @@ def run_validations(
             "skipped": True,
             "attempts": 0,
             "dor_status": "skipped",
-            "harness_type": detect_harness(
-                repo.get("integration_test", ""),
-                hint=repo.get("harness_type") or repo.get("harness_hint"),
-            ),
+            "harness_type": harness,
+            "harness_family": _harness_family(harness),
+            "http_status_class": "0xx",
             "log": None,
         })
 

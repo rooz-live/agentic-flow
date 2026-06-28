@@ -516,6 +516,8 @@ def to_receipt(result: Dict[str, Any], project_root: Path) -> Dict[str, Any]:
                 "required": not skipped,
                 "details": {
                     "harness_type": result.get("harness_type", "unknown"),
+                    "harness_family": result.get("harness_family", "unknown"),
+                    "http_status_class": result.get("http_status_class", "0xx"),
                     "dor_status": result.get("dor_status", "skipped"),
                     "attempts": result.get("attempts", 0),
                     "app_store_readiness": result.get("app_store_readiness", "skipped"),
@@ -638,6 +640,10 @@ def run_validations(
             lock = DecentralizedLock(project_root / ".goalie" / "locks", repo["id"])
             if not lock.acquire():
                 print(f"🔒 Repo {repo['id']} is locked by another worker. Skipping.")
+                harness = detect_harness(
+                    repo.get("integration_test", ""),
+                    hint=repo.get("harness_type") or repo.get("harness_hint"),
+                )
                 return {
                     "repository_id": repo["id"],
                     "url": repo["url"],
@@ -648,6 +654,9 @@ def run_validations(
                     "skipped": True,
                     "attempts": 0,
                     "dor_status": "locked",
+                    "harness_type": harness,
+                    "harness_family": _harness_family(harness),
+                    "http_status_class": "0xx",
                     "log": "Claimed by another worker",
                 }
             try:

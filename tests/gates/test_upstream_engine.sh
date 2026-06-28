@@ -637,10 +637,10 @@ expected = {
     "cargo": "rust",
     "pytest": "python",
     "python": "python",
-    "playwright": "node",
-    "npm": "node",
+    "playwright": "web",
+    "npm": "web",
     "go": "go",
-    "docker": "container",
+    "docker": "docker",
     "shell": "shell",
     "unknown": "unknown",
 }
@@ -711,18 +711,20 @@ print(json.dumps({
     "has_family": "harness_family" in skip,
     "family": skip.get("harness_family"),
     "harness_type": skip.get("harness_type"),
+    "has_status_class": "http_status_class" in skip,
+    "status_class": skip.get("http_status_class"),
 }))
 PY
 )
 
     last_line=$(echo "$out" | grep -E '^\s*\{' | tail -1)
     TESTS_RUN=$((TESTS_RUN + 1))
-    if echo "$last_line" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); assert d['has_family'] and d['family']=='python' and d['harness_type']=='pytest'" 2>/dev/null; then
+    if echo "$last_line" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); assert d['has_family'] and d['family']=='python' and d['harness_type']=='pytest' and d['has_status_class'] and isinstance(d['status_class'], str) and len(d['status_class'])>0" 2>/dev/null; then
         TESTS_PASSED=$((TESTS_PASSED + 1))
-        echo -e "\033[32m✓\033[0m  skip-list result has harness_family=python"
+        echo -e "\033[32m✓\033[0m  skip-list result has harness_family=python and http_status_class"
     else
         TESTS_FAILED=$((TESTS_FAILED + 1))
-        echo -e "\033[31m✗\033[0m  expected harness_family in skip result (got: $last_line)"
+        echo -e "\033[31m✗\033[0m  expected classification fields in skip result (got: $last_line)"
     fi
 }
 

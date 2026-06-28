@@ -13,13 +13,13 @@
 #   deploy-edge      → scripts/deploy/deploy-edge-cfg.sh
 #   run-safely       → (inline: git stash checkpoint + rollback on failure)
 #   mail-wave-close  → scripts/mail/mail-wave-close.sh
-#   wsjf             → scripts/cicd/update_lnnnl.py
+#   schedule|wsjf    → scripts/one-sh.d/schedule.sh → scripts/cicd/update_lnnnl.py
 #   dod-gate         → scripts/dod-gate.sh [--pre-task|--post-task|--full]
 #   scorecard        → scripts/gates/scorecard_gate.py [--verify|--file PATH|--json]
 #   upstream         → scripts/cicd/upstream_upgrade_engine.py [--dry-run|--force|--parallel|--json]
 #   edge-sync        → scripts/cicd/edge_gateway_sync_engine.py [--dry-run|--force|--json]
 #   aqe              → scripts/one-sh.d/aqe.sh [init|status|<aqe-cmd>]
-#   ruflo            → scripts/one-sh.d/workflow.sh [init|status|<ruflo-cmd>]
+#   ruflo|workflow   → scripts/one-sh.d/workflow.sh [init|status|<ruflo-cmd>]
 #   harness          → apps/agent-harness npm run <doctor|evolve|evolve:dry|init>
 set -euo pipefail
 

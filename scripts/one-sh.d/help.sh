@@ -17,13 +17,13 @@ Usage: ./scripts/one.sh <subcommand> [args...]
   goal              Max-ROI cycles/hour snapshot (metrics)
   iterate           ROI iteration: iterate [cycle] — snapshot + ceremony + next step
   ceremony          Bounded ceremony unit: ceremony [standup|retro|pi-sync|wsjf] [--commit-unit]
-  wsjf              Update WSJF schedule ledger
+  schedule|wsjf     Update WSJF schedule ledger (LNNNL)
   dod-gate          DoR/DoD gate: --pre-task | --post-task | --full (default)
   scorecard         Originality/Impact gate: [--verify] [--file PATH] [--json]
   upstream          Upstream repo upgrade engine: [--dry-run] [--force] [--parallel] [--json]
   edge-sync         Edge gateway DNS sync + health probe: [--dry-run] [--force] [--json]
   fetch-run-report  Query the CICD receipt store: [--summary] [--json] [--context C] [--status S]
   aqe               Agentic QE v3.11.1: init, status, test, coverage, quality, workflow, ...
-  ruflo             Ruflo v3.14.1: init, workflow, task, swarm, session, memory, hooks, ...
+  ruflo|workflow    Ruflo v3.14.1: init, workflow, task, swarm, session, memory, hooks, ...
   harness           Dispatch to the upgraded AI Agent Harness: <doctor|evolve|evolve:dry|init>
 HELP

@@ -8,6 +8,15 @@ import json
 import logging
 import os
 import sys
+from pathlib import Path
+
+CANONICAL_WSJF_MODULE = "src.wsjf.calculator"
+CANONICAL_TICK_OWNER = "scripts/cicd/update_lnnnl.py"
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from scripts.wsjf._canonical_redirect import canonical_wsjf_score
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -201,11 +210,17 @@ class WSJFCalculator:
             # Calculate Cost of Delay (CoD)
             cost_of_delay = ubv + tc + rr
 
-            # Calculate WSJF score
+            # Calculate WSJF score (canonical owner: src.wsjf.calculator)
             if normalized_job_size == 0:
                 wsjf_score = float('inf')  # Infinite priority for zero-size jobs
             else:
-                wsjf_score = cost_of_delay / normalized_job_size
+                wsjf_score = canonical_wsjf_score(
+                    inputs.user_business_value,
+                    inputs.time_criticality,
+                    inputs.risk_reduction,
+                    normalized_job_size,
+                    item_id=inputs.job_id or "_legacy_shim",
+                )
 
             # Normalize final score to configured range
             min_score = self.config["scoring"]["min_score"]

@@ -13,6 +13,7 @@ TESTS=(
   test_deploy_happy_path_contract.sh
   test_loop_item_binding_contract.sh
   test_deploy_receipt_behavior.sh
+  test_wsjf_canonical_owner.sh
   test_tld_targets_generator.sh
   test_lnnnl_dual_lane_contract.sh
   test_roam_edge_contract.sh

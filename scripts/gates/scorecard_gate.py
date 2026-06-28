@@ -1183,6 +1183,12 @@ def _git(args: list, timeout: int = 30, root: Any = ".") -> Optional[str]:
         return None
 
 
+def _git_ignored(path: str, root: Any = ".") -> bool:
+    """True if git considers the path ignored (including tracked-but-ignored)."""
+    out = _git(["check-ignore", path], root=root)
+    return bool(out and out.strip())
+
+
 def git_head(root: Any = ".") -> Optional[str]:
     out = _git(["rev-parse", "HEAD"], root=root)
     return out.strip() if out else None
@@ -1534,10 +1540,16 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
     if prefer_artifact:
         if is_precommit:
             unstaged_diff = _git(["diff", "--name-only"])
-            if unstaged_diff and unstaged_diff.strip():
-                extra_blocks.append(
-                    "HARD GATE: pre-commit verification requires dynamic test execution when unstaged modifications are present"
-                )
+            if unstaged_diff:
+                non_ignored = [
+                    f for f in unstaged_diff.strip().splitlines()
+                    if f.strip() and not _git_ignored(f.strip())
+                ]
+                if non_ignored:
+                    extra_blocks.append(
+                        "HARD GATE: pre-commit verification requires dynamic test execution when unstaged modifications are present: "
+                        f"{', '.join(non_ignored[:10])}"
+                    )
         coherence = derive_coherence(".", force_dynamic=False, env=env)
         meta["coherence_ingested"] = True
         meta["coherence_source"] = "artifact"

@@ -267,3 +267,102 @@ Some text
 ```
 """
     assert gate.extract_from_text(text) is None
+
+
+def test_check_allowed_signers_tamper_fails_when_diff_base_unset_in_ci():
+    # CI context requires AF_DIFF_BASE to be set to check allowed_signers tampering.
+    env = {"CI": "true"}
+    blocks, warns = gate.check_allowed_signers_tamper(env)
+    assert any("CI context requires AF_DIFF_BASE" in b for b in blocks)
+
+
+def test_harden_mandates_matching_derived_proxy_when_enforced(monkeypatch):
+    monkeypatch.setattr(gate, "git_head", lambda *a, **k: "mock_commit")
+    monkeypatch.setattr(gate, "current_diff_sha", lambda *a, **k: "mock_diff")
+    monkeypatch.setattr(gate, "verify_signoff", lambda *a, **k: (True, "mock"))
+    monkeypatch.setattr(gate, "check_binding", lambda *a, **k: ([], []))
+    monkeypatch.setattr(gate, "collect_reward_proxies", lambda env: {"untracked_added": 0})  # clean -> rd_proxy = 1
+    monkeypatch.setattr(gate, "derive_coherence", lambda *a, **k: "PASS")
+    monkeypatch.setattr(gate, "load_signals", lambda: [])
+    monkeypatch.setattr(gate, "run_signals", lambda *a, **k: [])
+    monkeypatch.setattr(gate, "_git", lambda *a, **k: None)
+    
+    # Asserted is 1.5, which is positive but different from proxy 1.
+    sc = get_base()
+    sc["impact"]["reward_direction"] = 1.5
+    
+    # Case A: enforce_rd = True (CI defaults to True, or explicit flag)
+    env = {"CI": "true"}
+    hardened, blocks, warns, meta = gate.harden(sc, env=env, strict=False, ingest_only=True)
+    assert hardened["impact"]["reward_direction"] == 1.0
+    assert any("reward_direction overridden" in w for w in warns)
+
+    # Case B: enforce_rd = False
+    env = {"CI": "false"}
+    sc_copy = get_base()
+    sc_copy["impact"]["reward_direction"] = 1.5
+    hardened2, blocks2, warns2, meta2 = gate.harden(sc_copy, env=env, strict=False, ingest_only=True)
+    assert hardened2["impact"]["reward_direction"] == 1.5
+
+
+def test_derive_coherence_signature_enforced_in_ci_and_precommit(tmp_path, monkeypatch):
+    # Setup faked results file without signature
+    evidence_dir = tmp_path / ".goalie" / "evidence"
+    evidence_dir.mkdir(parents=True)
+    artifact_file = evidence_dir / "coherence_results.json"
+    artifact_file.write_text('{"coherence": "PASS", "git_head": "mock_sha"}')
+    
+    monkeypatch.setattr(gate, "git_head", lambda *a, **k: "mock_sha")
+    
+    # Signature is enforced in CI -> fails because it's unsigned
+    assert gate.derive_coherence(tmp_path, env={"CI": "true"}) == "FAIL"
+    # Signature is enforced in precommit -> fails because it's unsigned
+    assert gate.derive_coherence(tmp_path, env={"AF_GATE_CONTEXT": "precommit"}) == "FAIL"
+
+
+def test_harden_blocks_unstaged_modifications_in_precommit(monkeypatch):
+    sc = get_base()
+    monkeypatch.setattr(gate, "_coherence_artifact_usable", lambda *a, **kw: True)
+    monkeypatch.setattr(gate, "_git", lambda args, **kw: "some_file.py" if args == ["diff", "--name-only"] else "")
+    monkeypatch.setattr(gate, "derive_coherence", lambda *a, **kw: "PASS")
+    monkeypatch.setattr(gate, "derive_gate_integrity", lambda *a, **kw: ("PASS", ""))
+    
+    env = {"AF_GATE_CONTEXT": "precommit"}
+    _, extra_blocks, _, _ = gate.harden(sc, env=env, strict=False, ingest_only=True)
+    assert any("unstaged modifications are present" in block for block in extra_blocks)
+
+
+def test_check_allowed_signers_tamper_precommit(monkeypatch):
+    def mock_git(args, **kw):
+        if args[:3] == ["rev-parse", "--verify", "--quiet"]:
+            return "commit_sha"
+        if args[0] == "diff":
+            return ".goalie/scorecards/allowed_signers"
+        return ""
+    monkeypatch.setattr(gate, "_git", mock_git)
+
+    env = {"AF_GATE_CONTEXT": "precommit"}
+    blocks, warns = gate.check_allowed_signers_tamper(env)
+    assert any("allowed_signers modified" in b for b in blocks)
+
+
+def test_run_no_invented_symbols_skips_untracked_files(tmp_path, monkeypatch):
+    def mock_git(args, **kw):
+        if args == ["diff", "--cached", "--name-only"]:
+            return ""
+        if args == ["diff", "--name-only"]:
+            return ""
+        if args == ["ls-files", "--others", "--exclude-standard"]:
+            return "untracked_file.py"
+        if args == ["ls-files"]:
+            return ""
+        return ""
+    monkeypatch.setattr(gate, "_git", mock_git)
+
+    untracked_file = tmp_path / "untracked_file.py"
+    untracked_file.write_text("import src.nonexistent_module\n")
+
+    res = gate.run_no_invented_symbols(str(tmp_path))
+    # Untracked files are not silently skipped; invented imports in them are flagged.
+    assert res is False
+

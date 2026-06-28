@@ -187,7 +187,7 @@ fi
 
 if [[ -x "$ROOT/scripts/cicd/receipt_chain.sh" ]]; then
   echo "=== tick_post: receipt_chain ==="
-  AF_RECEIPT_CHAIN_ENFORCE="${AF_RECEIPT_CHAIN_ENFORCE:-0}" bash "$ROOT/scripts/cicd/receipt_chain.sh" || _tick_post_enforce_fail "receipt_chain" $?
+  AF_RECEIPT_CHAIN_ENFORCE="${AF_RECEIPT_CHAIN_ENFORCE:-1}" bash "$ROOT/scripts/cicd/receipt_chain.sh" || _tick_post_enforce_fail "receipt_chain" $?
 fi
 
 exit "${TICK_POST_EXIT}"

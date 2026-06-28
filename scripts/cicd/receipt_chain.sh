@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "$ROOT"
 
-ENFORCE="${AF_RECEIPT_CHAIN_ENFORCE:-0}"
+ENFORCE="${AF_RECEIPT_CHAIN_ENFORCE:-1}"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 RECEIPT_DIR="$ROOT/.goalie/evidence/receipts"
 RECEIPT_PATH="$RECEIPT_DIR/tick_${TS}.json"
@@ -14,7 +14,11 @@ HEAD_SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
 CEREMONY_TICK="${LOOP_TICK_COUNT:-0}"
 
 _find_scorecard() {
-  for candidate in "$ROOT/coherence_results.json" "$ROOT/.goalie/scorecards/latest.json"; do
+  for candidate in \
+    "$ROOT/.goalie/scorecards/current.json" \
+    "$ROOT/.goalie/evidence/coherence_results.json" \
+    "$ROOT/coherence_results.json" \
+    "$ROOT/.goalie/scorecards/latest.json"; do
     if [[ -f "$candidate" ]]; then
       echo "$candidate"
       return 0
@@ -65,14 +69,18 @@ EARNINGS_HASH=""
 VERIFY_EXIT=0
 
 if ! SCORECARD="$(_find_scorecard)"; then
-  echo "receipt_chain: no scorecard found — SKIP"
-  _write_receipt "SKIP" 0 "" "" "[]"
+  echo "receipt_chain: no scorecard found"
+  _write_receipt "SKIP" 0 "" "" '["no scorecard candidate on disk"]'
+  if [[ "$ENFORCE" == "1" ]]; then
+    exit 1
+  fi
   exit 0
 fi
 
 echo "=== receipt_chain: verify earnings ($SCORECARD) ==="
 set +e
-python3 "$ROOT/scripts/metrics/earnings_engine.py" --scorecard "$SCORECARD" --verify
+AF_GATE_CONTEXT="${AF_GATE_CONTEXT:-review}" \
+  python3 "$ROOT/scripts/metrics/earnings_engine.py" --scorecard "$SCORECARD" --verify
 VERIFY_EXIT=$?
 set -e
 
@@ -95,6 +103,13 @@ fi
 
 RECEIPT_OUT="$(_write_receipt "PASS" 0 "$SCORECARD" "$EARNINGS_HASH" "[]")"
 echo "receipt_chain: wrote $RECEIPT_OUT"
+
+echo "=== receipt_chain: compile profile_readme ==="
+python3 "$ROOT/scripts/hire/compile_profile_readme.py" || {
+  echo "receipt_chain: compile_profile_readme failed"
+  _write_receipt "BLOCK" 1 "$SCORECARD" "$EARNINGS_HASH" '["compile_profile_readme failed"]'
+  if [[ "$ENFORCE" == "1" ]]; then exit 1; fi
+}
 
 echo "=== receipt_chain: hire sync ==="
 if [[ -n "${HIRE_SYNC_TOKEN:-}" ]] || [[ -n "${HIRE_MCP_TOKEN:-}" ]] || [[ -n "${HIRE_CLIENT_ID:-}" ]]; then

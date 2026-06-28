@@ -4,6 +4,21 @@ set -euo pipefail
 source "$(dirname "$0")/lib/cls_common.sh"
 cls_repo_root
 
+# AF_AQE_ENFORCE: default from shippable pace (1 when pace>=1.0); override via env.
+if [[ -z "${AF_AQE_ENFORCE+x}" ]]; then
+  _PACE_JSON="$(python3 "$REPO_ROOT/scripts/metrics/pace_from_lnnnl.py" --json --from-lnnnl 2>/dev/null || echo '{}')"
+  _PACE="$(python3 -c "import json,sys; print(json.loads(sys.argv[1] or '{}').get('pace_cod_weight', 0.5))" "$_PACE_JSON")"
+  if [[ "${AQE_UTILIZE_DEFERRABLE:-0}" == "1" ]]; then
+    export AF_AQE_ENFORCE=0
+  elif python3 -c "import sys; sys.exit(0 if float('${_PACE}') >= 1.0 else 1)"; then
+    export AF_AQE_ENFORCE=1
+  else
+    export AF_AQE_ENFORCE=0
+  fi
+else
+  export AF_AQE_ENFORCE="${AF_AQE_ENFORCE}"
+fi
+
 # Local Echo 13 models — avoid OpenRouter token spend when mounted
 if [[ -f "$REPO_ROOT/scripts/system/activate-echo-llm.sh" ]]; then
   # shellcheck disable=SC1091
@@ -18,7 +33,6 @@ export CYCLE_MODE="$MODE"
 # AQE quality is enforced by default. Pytest coverage on changed files is
 # available and enforceable via PYTEST_COVERAGE_ENFORCE=1; default is advisory
 # until the codebase has matching tests for every changed file.
-export AF_AQE_ENFORCE="${AF_AQE_ENFORCE:-0}"
 export PYTEST_COVERAGE_ENFORCE="${PYTEST_COVERAGE_ENFORCE:-1}"
 
 MAX_MIN="$(cls_budget_get max_minutes_per_tick 40)"

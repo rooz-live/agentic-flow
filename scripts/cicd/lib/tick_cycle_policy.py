@@ -71,7 +71,15 @@ def load_policy(
         and aqe_coverage_ok and aqe_quality_ok and pace >= 1.0
     )
 
-    aqe_util = 100.0 if run_aqe and pace >= 1.0 else (50.0 if run_aqe else 0.0)
+    # Shippable utilization: 0 or 100 only (never 50% at full shippable pace).
+    aqe_util = 100.0 if run_aqe and pace >= 1.0 and utilize_mode == "full" else (
+        0.0 if pace >= 1.0 else (100.0 if run_aqe and utilize_mode == "full" else 0.0)
+    )
+    aqe_deferrable_ran = run_aqe and utilize_mode in ("deferrable", "blocker-remediation")
+    aqe_scope_util = (
+        100.0 if run_aqe and utilize_mode == "full" and pace >= 1.0
+        else (50.0 if aqe_deferrable_ran else 0.0)
+    )
     harness_util = 100.0 if run_upstream else (25.0 if utilize_deferrable and pace < 1.0 else 0.0)
 
     return {
@@ -85,6 +93,8 @@ def load_policy(
         "aqe_scope": aqe_scope,
         "utilize_mode": utilize_mode,
         "aqe_utilization_pct": aqe_util,
+        "aqe_deferrable_ran": aqe_deferrable_ran,
+        "aqe_scope_utilization_pct": aqe_scope_util,
         "harness_utilization_pct": harness_util,
         "knobs": knobs,
         "cycle_vectors_fresh": bool(vectors),

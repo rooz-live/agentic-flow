@@ -1739,7 +1739,23 @@ def main(argv: Optional[list] = None) -> int:
         action="store_true",
         help="skip the ROAM_TRACKER.yaml untracked-files check (local development only)",
     )
+    parser.add_argument(
+        "--sign-coherence",
+        action="store_true",
+        help="sign .goalie/evidence/coherence_results.json with the local workspace signer and exit",
+    )
     args = parser.parse_args(argv)
+
+    if args.sign_coherence:
+        artifact_path = Path(".goalie/evidence/coherence_results.json")
+        if not artifact_path.is_file():
+            print("🛑 --sign-coherence: no coherence artifact found", file=sys.stderr)
+            return 3
+        if stamp_local_coherence_signature(str(artifact_path), "."):
+            print(f"✅ Signed coherence artifact: {artifact_path}")
+            return 0
+        print("🛑 --sign-coherence: signing failed (workspace signer or allowed_signers missing)", file=sys.stderr)
+        return 3
 
     env = dict(os.environ)
     if args.precommit:

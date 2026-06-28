@@ -98,24 +98,39 @@ def test_load_shippable_queue_includes_nnear(tmp_path):
     assert "CVT-004" not in ids
 
 
-def test_item_verification_anchor_prioritizes_discovered():
+def test_item_verification_anchor_prioritizes_last_verified():
     from datetime import datetime, timezone
     now_utc = datetime.now(timezone.utc)
 
-    # Both present -> discovered prioritized
+    # Both present -> last_verified wins (post-remediation freshness)
     item_both = {"discovered": "2026-06-20", "last_verified": "2026-06-25"}
     anchor = _item_verification_anchor(item_both, now_utc)
     assert anchor is not None
-    assert anchor.year == 2026 and anchor.month == 6 and anchor.day == 20
+    assert anchor.year == 2026 and anchor.month == 6 and anchor.day == 25
 
-    # Only last_verified present -> fallback to last_verified
     item_only_verified = {"last_verified": "2026-06-25"}
     anchor = _item_verification_anchor(item_only_verified, now_utc)
     assert anchor is not None
     assert anchor.year == 2026 and anchor.month == 6 and anchor.day == 25
 
-    # Neither present -> None
     assert _item_verification_anchor({}, now_utc) is None
+
+
+def test_load_shippable_queue_excludes_done_items(tmp_path):
+    prompts = tmp_path / "config" / "cicd" / "loop_prompts.yaml"
+    prompts.parent.mkdir(parents=True)
+    prompts.write_text(
+        "wsjf_now_items:\n"
+        "  - id: P1-INDEX-02\n"
+        "  - id: P1-CICD-01\n"
+        "wsjf_done_items:\n"
+        "  - id: P1-INDEX-01\n"
+        "    status: done\n"
+    )
+    queue = load_shippable_queue(str(tmp_path))
+    ids = [q["id"] for q in queue]
+    assert ids == ["P1-INDEX-02", "P1-CICD-01"]
+    assert "P1-INDEX-01" not in ids
 
 
 def test_reconcile_wsjf_dependency_links_updates_wsjf_integration():

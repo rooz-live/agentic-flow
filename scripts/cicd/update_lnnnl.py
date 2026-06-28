@@ -25,12 +25,21 @@ def load_shippable_queue(root):
         return []
     with open(prompts_path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
+    done_ids = {
+        str(row.get("id") or "")
+        for row in (data.get("wsjf_done_items") or [])
+        if str(row.get("status", "")).lower() in ("done", "complete", "completed", "resolved")
+    }
     out = []
+    seen = set()
     for key in ("wsjf_now_items", "wsjf_near_items", "wsjf_backlog_items"):
         for row in data.get(key, []):
             iid = str(row.get("id") or "")
+            if iid in done_ids or iid in seen:
+                continue
             if SHIPPABLE_ID_RE.match(iid):
                 out.append({"id": iid, "title": iid, "type": "shippable"})
+                seen.add(iid)
     return out
 
 
@@ -182,8 +191,10 @@ def _parse_roam_timestamp(value, now_utc):
 
 
 def _item_verification_anchor(raw_item, now_utc):
-    for key in ("discovered", "last_verified"):
-        ts = _parse_roam_timestamp((raw_item or {}).get(key), now_utc)
+    """Prefer last_verified (post-remediation) over discovered (open date)."""
+    raw = raw_item or {}
+    for key in ("last_verified", "discovered"):
+        ts = _parse_roam_timestamp(raw.get(key), now_utc)
         if ts is not None:
             return ts
     return None

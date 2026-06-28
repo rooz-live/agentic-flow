@@ -109,29 +109,6 @@ echo "pace_cod_weight=$PACE pace_source=$(python3 -c "import json,sys; print(jso
 echo "=== tick_post: max_roi_cycles ==="
 python3 "$ROOT/scripts/metrics/max_roi_cycles.py" --write-evidence || echo "WARN: max_roi_cycles calculation failed"
 
-echo "=== tick_post: inbox_zero_timescape ==="
-bash "$ROOT/scripts/metrics/inbox_zero_timescape.sh" || _tick_post_enforce_fail "inbox_zero_timescape" $?
-
-CORRELATE_EXIT=0
-if [[ -f "$ROOT/scripts/metrics/correlate_timescape_evidence.py" ]]; then
-  set +e
-  python3 "$ROOT/scripts/metrics/correlate_timescape_evidence.py"
-  CORRELATE_EXIT=$?
-  set -e
-  if [[ $CORRELATE_EXIT -ne 0 ]]; then
-    if [[ "${AF_CORRELATE_ENFORCE:-0}" == "1" ]]; then
-      echo "CORRELATE BLOCK enforced (AF_CORRELATE_ENFORCE=1)"
-      _tick_post_enforce_fail "correlate" "$CORRELATE_EXIT"
-    else
-      echo "WARN: correlate BLOCK (set AF_CORRELATE_ENFORCE=1 to hard-fail tick)"
-    fi
-  fi
-fi
-
-if [[ -f "$ROOT/scripts/metrics/timescape_envelope.py" ]]; then
-  python3 "$ROOT/scripts/metrics/timescape_envelope.py" || echo "WARN: timescape_envelope failed"
-fi
-
 if [[ "${CEREMONY_RAN:-0}" != "1" && -x "$ROOT/scripts/cicd/ceremony_tick.sh" ]]; then
   echo "=== tick_post: bounded ceremony (CEREMONY_RAN!=1) ==="
   set +e
@@ -179,6 +156,31 @@ if [[ "$RUN_UP" == "1" ]]; then
   set -e
 else
   echo "SKIP upstream: cycle policy deferred"
+fi
+
+echo "$POLICY" > "$EVIDENCE_DIR/tick_cycle_policy_latest.json"
+
+echo "=== tick_post: inbox_zero_timescape (post-policy/AQE) ==="
+bash "$ROOT/scripts/metrics/inbox_zero_timescape.sh" || _tick_post_enforce_fail "inbox_zero_timescape" $?
+
+CORRELATE_EXIT=0
+if [[ -f "$ROOT/scripts/metrics/correlate_timescape_evidence.py" ]]; then
+  set +e
+  python3 "$ROOT/scripts/metrics/correlate_timescape_evidence.py"
+  CORRELATE_EXIT=$?
+  set -e
+  if [[ $CORRELATE_EXIT -ne 0 ]]; then
+    if [[ "${AF_CORRELATE_ENFORCE:-0}" == "1" ]]; then
+      echo "CORRELATE BLOCK enforced (AF_CORRELATE_ENFORCE=1)"
+      _tick_post_enforce_fail "correlate" "$CORRELATE_EXIT"
+    else
+      echo "WARN: correlate BLOCK (set AF_CORRELATE_ENFORCE=1 to hard-fail tick)"
+    fi
+  fi
+fi
+
+if [[ -f "$ROOT/scripts/metrics/timescape_envelope.py" ]]; then
+  python3 "$ROOT/scripts/metrics/timescape_envelope.py" || echo "WARN: timescape_envelope failed"
 fi
 
 if [[ -x "$ROOT/scripts/cicd/pi_plan_sync.sh" ]]; then

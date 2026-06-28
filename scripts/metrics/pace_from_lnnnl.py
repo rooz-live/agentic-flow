@@ -10,8 +10,26 @@ from typing import Any
 import yaml
 
 SHIPPABLE_LOOP = re.compile(r"\b(?:P1-[A-Z0-9]+-\d+|NNEAR-\d+)\b", re.I)
-BLOCKER_LOOP = re.compile(r"\[(?:R\d+|DEP-?\d+)\]", re.I)
+# Must stay aligned with scripts/cicd/update_lnnnl.py BLOCKER_ID_RE
+BLOCKER_ID_RE = re.compile(r"^(DEP-|BLK-|B-|R04|R-)", re.I)
+BRACKET_TOKEN_RE = re.compile(r"\[([^\]]+)\]")
 LAST_GOOD_CACHE = Path(".goalie/evidence/last_pace_bundle.json")
+
+
+def _loop_ids_from_slot(item: str) -> list[str]:
+    s = str(item or "").strip()
+    if not s:
+        return []
+    ids: list[str] = []
+    for m in BRACKET_TOKEN_RE.finditer(s):
+        token = m.group(1).strip()
+        if token:
+            ids.append(token.split()[0])
+    if not ids and s.startswith("["):
+        inner = s.lstrip("[").split("]", 1)[0].strip()
+        if inner:
+            ids.append(inner.split()[0])
+    return ids
 
 
 def is_shippable_work(item: str) -> bool:
@@ -21,7 +39,12 @@ def is_shippable_work(item: str) -> bool:
 
 def is_blocker_work(item: str) -> bool:
     s = str(item or "").strip()
-    return bool(s and BLOCKER_LOOP.search(s))
+    if not s:
+        return False
+    for iid in _loop_ids_from_slot(s):
+        if BLOCKER_ID_RE.match(iid):
+            return True
+    return False
 
 
 
@@ -78,13 +101,6 @@ def blocker_pace_cod_weight_from_schedule(schedule: dict | None, *, lnnnl: dict 
 def pace_from_lnnnl_doc(doc: dict | None) -> float:
     return pace_cod_weight_from_schedule(doc.get("schedule") if doc else None, lnnnl=doc)
 
-
-def shippable_loop_item_from_doc(doc: dict | None) -> str | None:
-    """Return the first shippable identifier in the 'now' slot, or None."""
-    lane = _shippable_lane(doc)
-    now = str(lane.get("now") or "").strip()
-    match = SHIPPABLE_LOOP.search(now)
-    return match.group(0) if match else None
 
 
 def _lane_empty(lane: dict) -> bool:

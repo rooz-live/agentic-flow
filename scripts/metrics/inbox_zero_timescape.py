@@ -72,6 +72,16 @@ def _dlq_rows(path: Path) -> int:
         return sum(1 for _ in fh)
 
 
+def _load_tick_policy(root: Path) -> dict:
+    path = root / ".goalie" / "evidence" / "tick_cycle_policy_latest.json"
+    if not path.is_file():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
 def _load_tick_post(root: Path) -> dict:
     path = root / ".goalie" / "evidence" / "tick_post_latest.json"
     if not path.is_file():
@@ -103,14 +113,42 @@ def _anti_cvt_untracked(root: Path) -> int:
 
 
 
-def _policy_utilization(root: Path, pace: float) -> dict:
+def _policy_utilization(
+    root: Path,
+    pace: float,
+    *,
+    tick_post: dict | None = None,
+    tick_policy: dict | None = None,
+) -> dict:
+    tick_policy = tick_policy or {}
+    if tick_policy:
+        return {
+            "aqe_utilization_pct": float(tick_policy.get("aqe_utilization_pct", 0.0)),
+            "aqe_scope_utilization_pct": float(tick_policy.get("aqe_scope_utilization_pct", 0.0)),
+            "aqe_deferrable_ran": bool(tick_policy.get("aqe_deferrable_ran", False)),
+            "harness_utilization_pct": float(tick_policy.get("harness_utilization_pct", 0.0)),
+            "utilize_mode": tick_policy.get("utilize_mode", "unknown"),
+        }
+    tick_post = tick_post or {}
     try:
         import sys
         sys.path.insert(0, str(root / "scripts" / "cicd" / "lib"))
         from tick_cycle_policy import load_policy
-        return load_policy(root, pace=pace)
+        return load_policy(
+            root,
+            pace=pace,
+            shippable_lane_empty=bool(tick_post.get("shippable_lane_empty")),
+            blocker_lane_has_now=bool(tick_post.get("blocker_lane_has_now")),
+            utilize_mode_hint=tick_post.get("utilize_mode_hint"),
+        )
     except Exception:
-        return {"aqe_utilization_pct": 0.0, "harness_utilization_pct": 0.0, "utilize_mode": "unknown"}
+        return {
+            "aqe_utilization_pct": 0.0,
+            "aqe_scope_utilization_pct": 0.0,
+            "aqe_deferrable_ran": False,
+            "harness_utilization_pct": 0.0,
+            "utilize_mode": "unknown",
+        }
 
 
 def _anti_cvt_unobservable(root: Path, *, stale_hours: float = 24.0) -> int:
@@ -153,7 +191,11 @@ def _anti_cvt_breakdown(root: Path, policy: dict) -> dict:
     untracked = _anti_cvt_untracked(root)
     unobservable = _anti_cvt_unobservable(root)
     unorchestrated = _anti_cvt_unorchestrated(root)
-    unutilized = min(100, max(0, int(100.0 - float(policy.get("aqe_utilization_pct", 0)))))
+    effective_util = max(
+        float(policy.get("aqe_utilization_pct", 0)),
+        float(policy.get("aqe_scope_utilization_pct", 0)),
+    )
+    unutilized = min(100, max(0, int(100.0 - effective_util)))
     total = untracked + unobservable + unorchestrated + unutilized
     return {
         "total": total,
@@ -208,16 +250,14 @@ def build_timescape(root: Path | None = None, *, window_hours: float = DEFAULT_W
     pct_closed = (closed_count / total * 100.0) if total > 0 else 100.0
     velocity = closed_count / window_hours if window_hours > 0 else 0.0
 
-    policy = _policy_utilization(root, pace)
+    tick_policy = _load_tick_policy(root)
+    policy = _policy_utilization(root, pace, tick_post=tick_post, tick_policy=tick_policy)
     anti = _anti_cvt_breakdown(root, policy)
     roi = _max_roi(root)
     velocity_fmt = f"{pct_closed:.1f}.{open_count}"
-    if (
-        shippable_lane_empty
-        or open_count == 0
-        or tick_post.get("pace_cod_weight") is None
-        or tick_post.get("pace_source") in ("stale", "deferred")
-    ):
+    if tick_post.get("pace_source") == "stale" and tick_post.get("pace_cod_weight") is None:
+        pace_fmt = "#.%"
+    elif shippable_lane_empty and tick_pace is None:
         pace_fmt = "#.%"
     else:
         pace_fmt = f"{open_count}.{pace:.1f}"
@@ -235,6 +275,8 @@ def build_timescape(root: Path | None = None, *, window_hours: float = DEFAULT_W
             "pace_fmt": pace_fmt,
             "pace_source": pace_source_out,
             "shippable_lane_empty": shippable_lane_empty,
+            "aqe_scope_utilization_pct": policy.get("aqe_scope_utilization_pct", 0),
+            "aqe_deferrable_ran": bool(policy.get("aqe_deferrable_ran", False)),
         },
         "pct_closed": round(pct_closed, 2),
         "open_count": open_count,
@@ -248,6 +290,8 @@ def build_timescape(root: Path | None = None, *, window_hours: float = DEFAULT_W
         "aqe_utilization_pct": policy.get("aqe_utilization_pct", 0),
         "harness_utilization_pct": policy.get("harness_utilization_pct", 0),
         "utilize_mode": policy.get("utilize_mode", "unknown"),
+        "aqe_scope_utilization_pct": policy.get("aqe_scope_utilization_pct", 0),
+        "aqe_deferrable_ran": bool(policy.get("aqe_deferrable_ran", False)),
         "max_roi_cycles_per_hour": roi.get("roi_cycles_per_hour"),
         "target_roi_cycles_per_hour": roi.get("target_roi_cycles_per_hour"),
         "roi_gap": roi.get("roi_gap"),

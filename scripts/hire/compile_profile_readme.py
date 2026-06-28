@@ -50,6 +50,8 @@ def main() -> int:
             except json.JSONDecodeError:
                 continue
 
+            if entry.get("verified") is not True:
+                continue
             earnings = entry.get("earnings", {})
             if not earnings:
                 continue

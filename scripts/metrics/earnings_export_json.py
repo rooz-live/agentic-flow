@@ -1,27 +1,24 @@
 #!/usr/bin/env python3
-"""Export latest earnings summary for web/hire sync."""
+"""Export latest verified earnings summary for web/hire sync."""
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import importlib.util
 
-def _load_earnings_engine():
-    eng_path = Path(__file__).resolve().parent / "earnings_engine.py"
-    spec = importlib.util.spec_from_file_location("earnings_engine", eng_path)
+def _load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
     mod = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
+    sys.path.insert(0, str(path.parent))
     spec.loader.exec_module(mod)
     return mod
-
-_ee = _load_earnings_engine()
-LEDGER_PATH = _ee.LEDGER_PATH
-calculate_earnings = _ee.calculate_earnings
 
 
 def repo_root() -> Path:
@@ -31,63 +28,94 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def _latest_ledger_entry(root: Path) -> dict[str, Any] | None:
+_metrics = Path(__file__).resolve().parent
+_ee = _load_module("earnings_engine", _metrics / "earnings_engine.py")
+_sr = _load_module("scorecard_resolver", _metrics / "scorecard_resolver.py")
+LEDGER_PATH = _ee.LEDGER_PATH
+resolve_scorecard_path = _sr.resolve_scorecard_path
+
+
+def _latest_verified_ledger_entry(root: Path) -> dict[str, Any] | None:
     ledger = root / LEDGER_PATH
     if not ledger.is_file():
         return None
-    last_line = ""
+    verified: dict[str, Any] | None = None
     with ledger.open(encoding="utf-8") as fh:
         for line in fh:
-            if line.strip():
-                last_line = line.strip()
-    if not last_line:
-        return None
-    try:
-        return json.loads(last_line)
-    except json.JSONDecodeError:
-        return None
-
-
-def _latest_scorecard(root: Path) -> dict[str, Any] | None:
-    for pattern in ("coherence_results.json", ".goalie/scorecards/latest.json"):
-        path = root / pattern
-        if path.is_file():
-            try:
-                return json.loads(path.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError):
+            line = line.strip()
+            if not line:
                 continue
-    return None
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if entry.get("verified") is True and entry.get("earnings"):
+                verified = entry
+    return verified
 
 
-def build_export(root: Path | None = None) -> dict[str, Any]:
+def build_export(root: Path | None = None, *, require_verified: bool = True) -> dict[str, Any]:
     root = root or repo_root()
-    ledger = _latest_ledger_entry(root)
-    scorecard = _latest_scorecard(root)
+    ledger = _latest_verified_ledger_entry(root)
+    scorecard_path = resolve_scorecard_path(root)
     earnings = ledger.get("earnings") if ledger else None
-    if earnings is None and scorecard:
-        earnings = calculate_earnings(scorecard)
+    source = "empty"
+    head_sha = None
+    scorecard_ref = str(scorecard_path) if scorecard_path else None
+
+    if earnings:
+        source = "ledger_verified"
+        head_sha = ledger.get("commit")
+    elif not require_verified and scorecard_path:
+        # Legacy advisory path — disabled by default for receipt chain.
+        source = "scorecard_unverified_blocked"
+
+    if require_verified and not earnings:
+        return {
+            "schema": "metrics.earnings_export.v1",
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "head_sha": head_sha,
+            "scorecard": scorecard_ref,
+            "earnings": {},
+            "source": source,
+            "verified": False,
+            "error": "no verified ledger entry",
+        }
+
     return {
         "schema": "metrics.earnings_export.v1",
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "head_sha": scorecard.get("verification", {}).get("commit") if scorecard else None,
+        "head_sha": head_sha,
+        "scorecard": scorecard_ref,
         "earnings": earnings or {},
-        "source": "ledger" if ledger else ("scorecard" if scorecard else "empty"),
+        "source": source,
+        "verified": bool(earnings),
+        "ledger_timestamp": ledger.get("timestamp") if ledger else None,
     }
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Export earnings_latest.json")
     parser.add_argument("--output", default=None, help="Output path override")
+    parser.add_argument(
+        "--require-verified",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Only export verified ledger entries (default: true)",
+    )
     args = parser.parse_args(argv)
     root = repo_root()
-    payload = build_export(root)
+    payload = build_export(root, require_verified=args.require_verified)
+    if args.require_verified and not payload.get("verified"):
+        print(json.dumps(payload, indent=2), file=sys.stderr)
+        return 1
     if args.output == "-":
         print(json.dumps(payload, indent=2))
         return 0
-    out = Path(args.output) if args.output else root / ".goalie" / "evidence" / "earnings_latest.json"
+    out = Path(args.output) if args.output else root / ".goalie/evidence/earnings_latest.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"path": str(out), "source": payload["source"]}, indent=2))
+    print(json.dumps({"path": str(out), "source": payload["source"], "verified": payload.get("verified")}, indent=2))
     return 0
 
 

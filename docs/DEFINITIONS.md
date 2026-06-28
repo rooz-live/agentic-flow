@@ -141,7 +141,7 @@ graph LR
 
 ---
 
-## 5. Tick Orchestration Contract (per cycle)
+## 6. Tick Orchestration Contract (per cycle)
 
 Each `tick_post_hooks.sh` run follows this order; skipping or reordering breaks pace/AQE policy.
 
@@ -161,7 +161,7 @@ Each `tick_post_hooks.sh` run follows this order; skipping or reordering breaks 
 | `AF_SKIP_OP_READ` | unset | After successful export-shell, skip further `op read` in child Python |
 | `AF_SKIP_ROAM_SYNC` | `0` | Skip duplicate `sync_roam_env_deps` in `update_lnnnl` |
 | `AF_OP_VAULT_SCAN` | `0` | Scan Antigravity vault blobs (expensive; off in tick) |
-| `AF_LNNNL_ENFORCE` | `0` | Fail tick when `update_lnnnl.py` exits non-zero |
+| `AF_LNNNL_ENFORCE` | `1` in `loop_timer_engine.sh`, `run_loop_tick.sh`, `cycle_tick.sh` (`0` opt-out) | Fail tick when `update_lnnnl.py` exits non-zero |
 | `AF_ROAM_REFRESH_TIMESTAMPS` | `0` | Do not reset ROAM `discovered` on every tick |
 
 Evidence: `.goalie/evidence/tick_post_latest.json` records `env_export_ok`, `lnnnl_exit`, `pace_cod_weight`.
@@ -174,4 +174,16 @@ Blockers (`lanes.blockers`) rank high in WSJF for visibility and ROAM closure **
 
 - **PR / default CI**: lenient Playwright skips (DNS timeout, manifest 404) are **not** DoD green.
 - **Post-deploy**: run `.github/workflows/tld-deploy-gate.yml` with `strict=true` after `deploy-uapi`.
+
+### Deploy → TLD gate receipt chain (fail-closed)
+
+| Step | Signal | Fail-closed rule |
+|------|--------|------------------|
+| UAPI upload | curl exit, non-empty JSON WHM response | Domain not counted OK; deploy exits if any domain fails |
+| TLD dispatch | `tld_gate_dispatch_latest.json` | `github_run_id` bound to `deploy_run_id`; pending → exit 5 when `AF_TLD_GATE_REQUIRE_WAIT=1` |
+| DoD artifact | `last_deploy_uapi.json` | Requires `tld_gate_status=pass` and `playwright_exit=0` when CI trigger enabled |
+| Scorecard `--verify` | `ingest_deploy_receipt()` | CI/enforce blocks when receipt status ≠ pass |
+| Single dispatch | `deploy_happy_path.sh` | Dedupes phase-4 TLD when deploy-uapi already passed |
+
+Lenient Playwright skips require **`TLD_GATE_LENIENT=1`**; `test:e2e:tld-gate:strict` sets `TLD_GATE_LENIENT=0`.
 

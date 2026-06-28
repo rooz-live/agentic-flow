@@ -345,6 +345,19 @@ def evaluate(card: dict, *, derive: bool = False, root_path: Any = ".", ingest_o
     if reversibility == 0 and br == 1.5 and sign_off is not True:
         errors.append("one-way door (REV0 x BR1.5) requires sign_off")
 
+    deploy_receipt_meta: Optional[dict] = None
+    if derive:
+        receipt_ok, receipt_doc, receipt_msg = verify_deploy_uapi_receipt(root_path)
+        if receipt_doc is not None:
+            deploy_receipt_meta = {
+                "ok": receipt_ok,
+                "message": receipt_msg,
+                "tld_gate_github_run_id": receipt_doc.get("tld_gate_github_run_id"),
+                "tld_gate_conclusion": receipt_doc.get("tld_gate_conclusion"),
+            }
+            if not receipt_ok:
+                errors.append(f"deploy-uapi receipt not closed: {receipt_msg}")
+
     # --- Disposition ---
     if errors:
         disposition = "BLOCK"
@@ -372,6 +385,8 @@ def evaluate(card: dict, *, derive: bool = False, root_path: Any = ".", ingest_o
     if derive:
         res["derived_coherence"] = coherence
         res["derived_gate_integrity"] = gate_integrity
+        if deploy_receipt_meta is not None:
+            res["deploy_uapi_receipt"] = deploy_receipt_meta
     return res
 
 
@@ -452,7 +467,11 @@ def run_signals(signals: list, timeout: int = SIGNAL_TIMEOUT) -> list:
             results.append(entry)
             continue
         try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            # Run signals in a clean environment so scorecard-internal flags
+            # (AF_VERIFY_MODE, AF_GATE_CONTEXT) do not leak into the test suite
+            # and cause false self-test failures.
+            signal_env = {k: v for k, v in os.environ.items() if k not in ("AF_VERIFY_MODE", "AF_GATE_CONTEXT")}
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=signal_env)
             entry["returncode"] = proc.returncode
             entry["ok"] = proc.returncode == 0
         except FileNotFoundError:
@@ -542,6 +561,12 @@ PACKAGE_ALIASES = {
     "pyyaml": "yaml",
 }
 
+# Native/Rust-built modules that are not installed via pip but are allowed
+# because they are built from the local workspace.
+NATIVE_MODULE_ALIASES = {
+    "eventops_pyo3": "eventops_pyo3",
+}
+
 
 def get_allowed_python_packages(root: str) -> set[str]:
     req_path = Path(root) / "requirements.txt"
@@ -575,16 +600,65 @@ def get_allowed_node_packages(root: str) -> set[str]:
     return packages
 
 
+_LOCAL_MODULE_CACHE: dict[str, set[str]] = {}
+
+
+def _local_module_names(root: str) -> set[str]:
+    if root in _LOCAL_MODULE_CACHE:
+        return _LOCAL_MODULE_CACHE[root]
+    names: set[str] = set()
+    try:
+        # Fast path: use tracked files to avoid scanning the whole tree
+        proc = subprocess.run(
+            ["git", "ls-files", "*.py"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if proc.returncode == 0:
+            for line in proc.stdout.splitlines():
+                p = Path(line)
+                if p.name == "__init__.py":
+                    if p.parent.name:
+                        names.add(p.parent.name)
+                else:
+                    names.add(p.stem)
+                # Treat any intermediate directory under scripts/ or src/ as a
+                # potential package prefix (e.g., scripts/cicd/lib/receipt.py → lib).
+                for part in p.parts[1:-1] if p.parts[0] in ("scripts", "src") else []:
+                    names.add(part)
+            _LOCAL_MODULE_CACHE[root] = names
+            return names
+    except Exception:
+        pass
+    root_path = Path(root)
+    for search_dir in (root_path, root_path / "src", root_path / "scripts", root_path / "domain"):
+        if not search_dir.is_dir():
+            continue
+        for p in search_dir.rglob("*.py"):
+            if p.name == "__init__.py":
+                if p.parent != search_dir:
+                    names.add(p.parent.name)
+            else:
+                names.add(p.stem)
+    _LOCAL_MODULE_CACHE[root] = names
+    return names
+
+
 def is_local_module(root: str, module_name: str) -> bool:
-    p_dir = Path(root) / module_name
-    p_file = Path(root) / f"{module_name}.py"
+    if module_name in _local_module_names(root):
+        return True
+    root_path = Path(root)
+    p_dir = root_path / module_name
+    p_file = root_path / f"{module_name}.py"
     return p_dir.is_dir() or p_file.is_file()
 
 
 def audit_pytest_imports(root: str) -> bool:
     allowed_py = get_allowed_python_packages(root)
     allowed_node = get_allowed_node_packages(root)
-    allowed_all = allowed_py | allowed_node
+    allowed_all = allowed_py | allowed_node | set(NATIVE_MODULE_ALIASES.keys())
     
     import sys
     std_lib = set(getattr(sys, "stdlib_module_names", [])) | set(sys.builtin_module_names) | {"__future__", "sys", "os"}
@@ -645,6 +719,7 @@ def run_no_invented_symbols(root: Any) -> bool:
         
     # Untracked files
     untracked = _git(["ls-files", "--others", "--exclude-standard"], root=root)
+    untracked_files = {line.strip() for line in untracked.splitlines() if line.strip()} if untracked else set()
     if untracked:
         files.update(untracked.splitlines())
         
@@ -906,6 +981,37 @@ def _coherence_artifact_usable(root_path: Any, env: Optional[dict] = None) -> bo
         return False
 
 
+
+
+def verify_deploy_uapi_receipt(root_path: Any) -> tuple[bool, Optional[dict], str]:
+    """When deploy-uapi artifact exists, require closed TLD gate receipt chain."""
+    path = Path(root_path) / ".goalie" / "evidence" / "last_deploy_uapi.json"
+    if not path.is_file():
+        return True, None, "no deploy artifact"
+    try:
+        art = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False, None, "deploy-uapi artifact unreadable"
+    status = str(art.get("tld_gate_status", ""))
+    pw = int(art.get("playwright_exit", -1))
+    conc = str(art.get("tld_gate_conclusion", "") or "")
+    receipt = str(art.get("tld_gate_receipt_status", "") or "")
+    run_id = art.get("tld_gate_github_run_id")
+    errors: list[str] = []
+    if status != "pass":
+        errors.append(f"tld_gate_status={status!r}")
+    if pw != 0:
+        errors.append(f"playwright_exit={pw}")
+    if status == "pass" and conc and conc != "success":
+        errors.append(f"tld_gate_conclusion={conc!r}")
+    if status == "pass" and receipt and receipt != "pass":
+        errors.append(f"tld_gate_receipt_status={receipt!r}")
+    if status == "pass" and not run_id:
+        errors.append("tld_gate_github_run_id missing")
+    if errors:
+        return False, art, "; ".join(errors)
+    return True, art, "deploy receipt closed"
+
 def derive_coherence(root_path_or_results: Any, force_dynamic: bool = False, ingest_only: bool = False, env: Optional[dict] = None) -> str:
     if isinstance(root_path_or_results, list):
         required = [r for r in root_path_or_results if r.get("required", True)]
@@ -1032,6 +1138,19 @@ def _git(args: list, timeout: int = 30, root: Any = ".") -> Optional[str]:
 def git_head(root: Any = ".") -> Optional[str]:
     out = _git(["rev-parse", "HEAD"], root=root)
     return out.strip() if out else None
+
+
+
+def git_branch(root: Any = ".") -> str:
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        return out.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return ""
 
 
 def current_diff_sha(env: dict) -> Optional[str]:
@@ -1193,21 +1312,32 @@ def verify_signoff(card: dict, env: dict, actual_commit, actual_diff) -> tuple:
 
 
 def check_allowed_signers_tamper(env: dict, root: str = ".") -> tuple:
-    """Block PR modifications to allowed_signers unless keys match base branch."""
+    """Block PR and local modifications to allowed_signers unless keys match base branch."""
     blocks: list = []
     warns: list = []
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
-    if not is_ci:
+    is_precommit = env.get("AF_GATE_CONTEXT") == "precommit"
+    if not is_ci and not is_precommit:
         return blocks, warns
     path = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
     base = env.get("AF_DIFF_BASE")
     if not base:
-        blocks.append("HARD GATE: CI context requires AF_DIFF_BASE to be set to check allowed_signers tampering")
-        return blocks, warns
+        if is_ci:
+            blocks.append("HARD GATE: CI context requires AF_DIFF_BASE to be set to check allowed_signers tampering")
+            return blocks, warns
+        else:
+            # Local pre-commit fallback: search for origin/main or main
+            for cand in ("origin/main", "main"):
+                ref = _git(["rev-parse", "--verify", "--quiet", cand], root=root)
+                if ref and ref.strip():
+                    base = cand
+                    break
+            if not base:
+                return blocks, warns
     diff_names = _git(["diff", f"{base}...HEAD", "--name-only", "--", path], root=root)
     if diff_names and diff_names.strip():
         blocks.append(
-            "HARD GATE: allowed_signers modified in PR — use base-branch keys only"
+            f"HARD GATE: allowed_signers modified in PR against {base} — use base-branch keys only"
         )
     return blocks, warns
 
@@ -1249,6 +1379,56 @@ def get_altered_files(root: str = ".", env: Optional[dict] = None) -> set[str]:
         if base_diff:
             files.update(base_diff.splitlines())
     return {f.strip() for f in files if f.strip()}
+
+
+
+def ingest_deploy_receipt(root_path: Any, env: dict, meta: dict, extra_blocks: list) -> None:
+    """Ingest deploy-uapi artifact + TLD dispatch receipt for provenance binding."""
+    root = Path(root_path)
+    evidence = root / ".goalie" / "evidence"
+    last_deploy = evidence / "last_deploy_uapi.json"
+    dispatch = evidence / "tld_gate_dispatch_latest.json"
+    deploy_doc: dict = {}
+    disp_doc: dict = {}
+    if last_deploy.is_file():
+        try:
+            deploy_doc = json.loads(last_deploy.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            extra_blocks.append("HARD GATE: last_deploy_uapi.json is not valid JSON")
+    if dispatch.is_file():
+        try:
+            disp_doc = json.loads(dispatch.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            extra_blocks.append("HARD GATE: tld_gate_dispatch_latest.json is not valid JSON")
+    if deploy_doc or disp_doc:
+        meta["deploy_receipt"] = deploy_doc
+        meta["tld_gate_dispatch"] = disp_doc
+    enforce = str(env.get("AF_DEPLOY_RECEIPT_ENFORCE", "0")) == "1"
+    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    if not enforce and not is_ci:
+        return
+    if not deploy_doc and not disp_doc:
+        return
+    tld_status = str(deploy_doc.get("tld_gate_status", "") or disp_doc.get("status", ""))
+    pw_exit = deploy_doc.get("playwright_exit")
+    gh_run = disp_doc.get("github_run_id") or deploy_doc.get("tld_gate_github_run_id")
+    conclusion = disp_doc.get("conclusion") or deploy_doc.get("tld_gate_conclusion")
+    meta["deploy_tld_gate_status"] = tld_status
+    meta["deploy_github_run_id"] = gh_run
+    meta["deploy_gate_conclusion"] = conclusion
+    if enforce or is_ci:
+        if tld_status and tld_status != "pass":
+            extra_blocks.append(
+                f"HARD GATE: deploy TLD gate status={tld_status!r} (required pass)"
+            )
+        if pw_exit is not None and int(pw_exit) != 0:
+            extra_blocks.append(
+                f"HARD GATE: deploy playwright_exit={pw_exit} (required 0)"
+            )
+        if disp_doc and disp_doc.get("strict") and conclusion not in (None, "success"):
+            extra_blocks.append(
+                f"HARD GATE: TLD dispatch conclusion={conclusion!r} (required success)"
+            )
 
 
 def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool = False, skip_roam_check: bool = False) -> tuple:
@@ -1299,6 +1479,12 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
         or (not is_ci and artifact_only and artifact_ok)
     )
     if prefer_artifact:
+        if is_precommit:
+            unstaged_diff = _git(["diff", "--name-only"])
+            if unstaged_diff and unstaged_diff.strip():
+                extra_blocks.append(
+                    "HARD GATE: pre-commit verification requires dynamic test execution when unstaged modifications are present"
+                )
         coherence = derive_coherence(".", force_dynamic=False, env=env)
         meta["coherence_ingested"] = True
         meta["coherence_source"] = "artifact"
@@ -1388,18 +1574,20 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
     enforce_rd = str(env.get("AF_RD_ENFORCE", "1" if is_ci else "0")) == "1"
     meta["reward_direction_enforced"] = enforce_rd
     asserted = card.get("impact", {}).get("reward_direction")
-    if enforce_rd and rd_proxy < 0:
+    if enforce_rd:
         card.setdefault("impact", {})["reward_direction"] = rd_proxy
-        extra_warnings.append(
-            f"reward_direction overridden to {rd_proxy} by objective signals "
-            f"({'; '.join(rnotes)})"
-        )
+        if asserted != rd_proxy:
+            extra_warnings.append(
+                f"reward_direction overridden to {rd_proxy} by objective signals "
+                f"({'; '.join(rnotes) or 'no negative signals'})"
+            )
     elif isinstance(asserted, (int, float)) and not isinstance(asserted, bool):
         if (asserted >= 0) != (rd_proxy >= 0):
             extra_warnings.append(
                 f"reward_direction asserted {asserted} but proxy={rd_proxy} "
                 f"({'; '.join(rnotes) or 'no negative signals'})"
             )
+    ingest_deploy_receipt(".", env, meta, extra_blocks)
     return card, extra_blocks, extra_warnings, meta
 
 
@@ -1510,6 +1698,14 @@ def main(argv: Optional[list] = None) -> int:
     verify_mode = (not args.self_asserted) or is_ci or is_precommit
 
     require = env.get("AF_REQUIRE_SCORECARD", "0") == "1"
+    if is_precommit and not require and env.get("AF_REQUIRE_SCORECARD", "") == "":
+        branch = git_branch()
+        if branch in ("main", "master"):
+            require = True
+
+    if is_ci and args.self_asserted:
+        print("🛑 --self-asserted is not allowed in CI", file=sys.stderr)
+        return 2
 
     try:
         card = load_scorecard(args)
@@ -1539,6 +1735,13 @@ def main(argv: Optional[list] = None) -> int:
     result = evaluate(card)
     if verify_mode:
         result = finalize(result, extra_blocks, extra_warnings, meta)
+        if is_ci and result.get("disposition") == "SHIP":
+            derived = (result.get("verification") or {}).get("coherence_derived")
+            if derived != "PASS":
+                result["disposition"] = "BLOCK"
+                result["blocks"] = list(result.get("blocks", [])) + [
+                    f"CI: coherence_derived must be PASS (got {derived!r})"
+                ]
     elif not args.json:
         print("note: self-asserted scorecard (run with --verify to verify signals)")
 

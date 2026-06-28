@@ -628,9 +628,10 @@ def run_local_sweep(
                 except Exception:
                     pass
 
-                if local_pytest.is_file():
-                    log("  Running local venv pytest in sandbox...", log_file)
-                    test_success, test_log = run_cmd([str(local_pytest)], sandbox_dir, False, timeout_s=run_timeout_s)
+                local_python = sandbox_dir / ".venv" / "bin" / "python"
+                if local_python.is_file():
+                    log("  Running local venv python -m pytest in sandbox...", log_file)
+                    test_success, test_log = run_cmd([str(local_python), "-m", "pytest"], sandbox_dir, False, timeout_s=run_timeout_s)
                 elif has_uv and (sandbox_dir / "pyproject.toml").is_file():
                     log("  Running uv run pytest in sandbox...", log_file)
                     test_success, test_log = run_cmd(["uv", "run", "pytest"], sandbox_dir, False, timeout_s=run_timeout_s)
@@ -744,6 +745,11 @@ def run_local_sweep(
                 "details": {
                     "status": status,
                     "skipped": res.get("skipped", False),
+                    "sandbox_setup_duration": res.get("sandbox_setup_duration", 0.0),
+                    "git_pull_duration": res.get("git_pull_duration", 0.0),
+                    "upgrade_duration": res.get("upgrade_duration", 0.0),
+                    "test_duration": res.get("test_duration", 0.0),
+                    "duration_seconds": res.get("duration_seconds", 0.0),
                 },
             })
         receipt_data = receipt.make(

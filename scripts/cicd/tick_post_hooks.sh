@@ -1,23 +1,113 @@
 #!/usr/bin/env bash
-# Post-tick termination: relate (inbox, agentic, correlate) → WSJF once → pace-gated AQE/upstream.
+# Post-tick: transform (WSJF) → relate (inbox, correlate) → infer (pace/AQE/upstream).
 set -euo pipefail
 ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "$ROOT"
+EVIDENCE_DIR="$ROOT/.goalie/evidence"
+mkdir -p "$EVIDENCE_DIR"
+TICK_POST_EVIDENCE="$EVIDENCE_DIR/tick_post_latest.json"
+LNNNL_EXIT=0
+ENV_EXPORT_OK=0
+TICK_POST_EXIT=0
+SAVED_PACE_BUNDLE=""
 
-read_pace_from_lnnnl() {
-  python3 "$ROOT/scripts/metrics/pace_from_lnnnl.py" --from-lnnnl 2>/dev/null || echo "0.5"
+_tick_post_enforce_fail() {
+  local label="$1"
+  local ec="$2"
+  [[ "$ec" -eq 0 ]] && return 0
+  echo "WARN: $label failed (exit=$ec)"
+  if [[ "${AF_TICK_POST_ENFORCE:-${AF_LNNNL_ENFORCE:-1}}" == "1" ]]; then
+    TICK_POST_EXIT="$ec"
+  fi
 }
 
-echo "=== tick_post: inbox_zero_timescape ==="
-bash "$ROOT/scripts/metrics/inbox_zero_timescape.sh"
+# Source export lines via fd-only process substitution (no disk-backed secret file).
+_source_exports() {
+  local exports="$1"
+  set -a
+  # shellcheck source=/dev/null
+  source <(printf '%s\n' "$exports")
+  set +a
+}
 
-PACE="$(python3 -c "import json; print(json.load(open('.goalie/evidence/inbox_zero_latest.json')).get('pace_cod_weight', 0))")"
-echo "pace_cod_weight=$PACE (from inbox evidence; shippable-aware)"
+read_pace_bundle() {
+  LNNNL_EXIT="${LNNNL_EXIT:-0}" python3 "$ROOT/scripts/metrics/pace_from_lnnnl.py" \
+    --from-lnnnl --json --lnnnl-exit "${LNNNL_EXIT:-0}" 2>/dev/null || echo '{"pace_source":"stale","pace_cod_weight":null}'
+}
 
-echo "=== tick_post: agentic_time snapshot (emergent-time) ==="
-if [[ -f "$ROOT/apps/agent-harness/scripts/agentic_time_snapshot.mjs" ]]; then
-  node "$ROOT/apps/agent-harness/scripts/agentic_time_snapshot.mjs" || echo "WARN: agentic_time snapshot failed"
+write_tick_evidence() {
+  local bundle="${1:-{}}"
+  python3 - "$TICK_POST_EVIDENCE" "$ENV_EXPORT_OK" "$LNNNL_EXIT" "$bundle" <<'PY'
+import json, sys
+from datetime import datetime, timezone
+path, export_ok, lnnnl_exit, bundle_raw = sys.argv[1:5]
+try:
+    bundle = json.loads(bundle_raw)
+except json.JSONDecodeError:
+    bundle = {"pace_source": "stale", "pace_cod_weight": None}
+pace = bundle.get("pace_cod_weight")
+payload = {
+    "schema": "tick_post.v2",
+    "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "env_export_ok": bool(int(export_ok)),
+    "lnnnl_exit": int(lnnnl_exit),
+    "pace_cod_weight": pace,
+    "blocker_pace_cod_weight": bundle.get("blocker_pace_cod_weight"),
+    "pace_source": bundle.get("pace_source", "unknown"),
+    "utilize_mode_hint": bundle.get("utilize_mode_hint"),
+    "shippable_lane_empty": bundle.get("shippable_lane_empty"),
+    "blocker_lane_has_now": bundle.get("blocker_lane_has_now"),
+    "af_skip_op_read": __import__("os").environ.get("AF_SKIP_OP_READ", "0"),
+}
+open(path, "w", encoding="utf-8").write(json.dumps(payload, indent=2) + "\n")
+PY
+}
+
+on_exit() {
+  local bundle
+  bundle="${SAVED_PACE_BUNDLE:-$(read_pace_bundle)}"
+  write_tick_evidence "$bundle" || true
+}
+trap on_exit EXIT
+
+echo "=== tick_post: env key resolver (export-shell + sync-roam once) ==="
+ENV_EXPORTS="$(python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --export-shell 2>/dev/null || true)"
+if [[ -n "$ENV_EXPORTS" ]] && grep -qE '^export ' <<<"$ENV_EXPORTS"; then
+  _source_exports "$ENV_EXPORTS"
+  export AF_SKIP_OP_READ=1
+  ENV_EXPORT_OK=1
+else
+  echo "WARN: export-shell produced no exports; AF_SKIP_OP_READ not set"
 fi
+python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --sync-roam || echo "WARN: env_key_resolver sync-roam failed"
+
+echo "=== tick_post: WSJF (single owner; before relate/upstream) ==="
+set +e
+AF_SKIP_ROAM_SYNC=1 python3 "$ROOT/scripts/cicd/update_lnnnl.py"
+LNNNL_EXIT=$?
+set -e
+if [[ "$LNNNL_EXIT" -ne 0 ]]; then
+  if [[ "$LNNNL_EXIT" -eq 2 ]]; then
+    echo "WARN: update_lnnnl stale ROAM gate (exit=$LNNNL_EXIT)"
+    if [[ "${AF_LNNNL_STALE_ENFORCE:-1}" == "1" || "${AF_LNNNL_ENFORCE:-1}" == "1" ]]; then
+      echo "BLOCK: AF_LNNNL_STALE_ENFORCE/AF_LNNNL_ENFORCE"
+      exit "$LNNNL_EXIT"
+    fi
+  else
+    echo "WARN: update_lnnnl failed (exit=$LNNNL_EXIT)"
+    if [[ "${AF_LNNNL_ENFORCE:-1}" == "1" ]]; then
+      echo "BLOCK: AF_LNNNL_ENFORCE"
+      exit "$LNNNL_EXIT"
+    fi
+  fi
+fi
+
+SAVED_PACE_BUNDLE="$(read_pace_bundle)"
+PACE="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('pace_cod_weight') or 0.5)" <<<"$SAVED_PACE_BUNDLE")"
+echo "pace_cod_weight=$PACE pace_source=$(python3 -c "import json,sys; print(json.load(sys.stdin).get('pace_source','unknown'))" <<<"$SAVED_PACE_BUNDLE")"
+
+echo "=== tick_post: inbox_zero_timescape ==="
+bash "$ROOT/scripts/metrics/inbox_zero_timescape.sh" || _tick_post_enforce_fail "inbox_zero_timescape" $?
 
 CORRELATE_EXIT=0
 if [[ -f "$ROOT/scripts/metrics/correlate_timescape_evidence.py" ]]; then
@@ -28,22 +118,25 @@ if [[ -f "$ROOT/scripts/metrics/correlate_timescape_evidence.py" ]]; then
   if [[ $CORRELATE_EXIT -ne 0 ]]; then
     if [[ "${AF_CORRELATE_ENFORCE:-0}" == "1" ]]; then
       echo "CORRELATE BLOCK enforced (AF_CORRELATE_ENFORCE=1)"
-      exit 1
+      _tick_post_enforce_fail "correlate" "$CORRELATE_EXIT"
+    else
+      echo "WARN: correlate BLOCK (set AF_CORRELATE_ENFORCE=1 to hard-fail tick)"
     fi
-    echo "WARN: correlate BLOCK (set AF_CORRELATE_ENFORCE=1 to hard-fail tick)"
   fi
 fi
 
-echo "=== tick_post: env key resolver (.env* + op://) ==="
-python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --sync-roam || echo "WARN: env_key_resolver failed"
+if [[ "${CEREMONY_RAN:-0}" != "1" && -f "$ROOT/scripts/cicd/lib/ceremony_engine.py" ]]; then
+  echo "=== tick_post: bounded ceremony (CEREMONY_RAN!=1) ==="
+  set +e
+  timeout "${CEREMONY_MAX_MINUTES:-5}m" python3 "$ROOT/scripts/cicd/lib/ceremony_engine.py" --tick "${LOOP_TICK_COUNT:-0}" --json \
+    > "$EVIDENCE_DIR/ceremony_unit_latest.json" 2>/dev/null
+  CER_EC=$?
+  set -e
+  [[ $CER_EC -ne 0 ]] && echo "WARN: ceremony exited $CER_EC"
+fi
 
-echo "=== tick_post: WSJF (single owner per tick; before upstream pull) ==="
-python3 "$ROOT/scripts/cicd/update_lnnnl.py" || echo "WARN: update_lnnnl failed (non-blocking)"
-
-PACE="$(read_pace_from_lnnnl)"
-echo "pace_cod_weight=$PACE (post-WSJF LNNNL; shippable LOOP_ITEM only)"
-
-POLICY="$(python3 "$ROOT/scripts/cicd/lib/tick_cycle_policy.py" --pace "$PACE" --json)"
+UTILIZE_MODE_HINT="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('utilize_mode_hint','full'))" <<<"$SAVED_PACE_BUNDLE")"
+POLICY="$(python3 "$ROOT/scripts/cicd/lib/tick_cycle_policy.py" --pace "$PACE" --json --utilize-mode-hint "$UTILIZE_MODE_HINT")"
 MAX_MIN="$(python3 -c "import json,sys; print(json.load(sys.stdin)['max_minutes_per_tick'])" <<<"$POLICY")"
 RUN_AQE="$(python3 -c "import json,sys; print('1' if json.load(sys.stdin)['run_aqe'] else '0')" <<<"$POLICY")"
 RUN_UP="$(python3 -c "import json,sys; print('1' if json.load(sys.stdin)['run_upstream'] else '0')" <<<"$POLICY")"
@@ -52,7 +145,7 @@ echo "cycle_policy: max_minutes=$MAX_MIN run_aqe=$RUN_AQE run_upstream=$RUN_UP m
 
 if [[ "$RUN_AQE" == "1" ]]; then
   AQE_PHASE_MIN="${AQE_PHASE_TIMEOUT_MIN:-15}"
-  if [[ "$UTILIZE_MODE" == "deferrable" ]]; then
+  if [[ "$UTILIZE_MODE" == "deferrable" || "$UTILIZE_MODE" == "blocker-remediation" ]]; then
     AQE_PHASE_MIN="${AQE_UTILIZE_PHASE_MIN:-5}"
   fi
   if [[ "$AQE_PHASE_MIN" -gt "$MAX_MIN" ]]; then
@@ -60,21 +153,26 @@ if [[ "$RUN_AQE" == "1" ]]; then
   fi
   echo "=== tick_post: scoped AQE (${AQE_PHASE_MIN}m/phase; knob max=${MAX_MIN}m) ==="
   set +e
-  timeout "${AQE_PHASE_MIN}m" bash "$ROOT/scripts/one.sh" aqe quality assess --scope changed || echo "WARN: aqe quality failed"
-  timeout "${AQE_PHASE_MIN}m" bash "$ROOT/scripts/one.sh" aqe coverage analyze --paths src/ --threshold 80 || echo "WARN: aqe coverage failed"
+  timeout "${AQE_PHASE_MIN}m" bash "$ROOT/scripts/one.sh" aqe quality assess --scope changed
+  _tick_post_enforce_fail "aqe quality" $?
+  timeout "${AQE_PHASE_MIN}m" bash "$ROOT/scripts/one.sh" aqe coverage analyze --paths src/ --threshold 80
+  _tick_post_enforce_fail "aqe coverage" $?
   set -e
 else
   echo "SKIP AQE: pace=$PACE cycle policy deferred"
 fi
 
 if [[ "$RUN_UP" == "1" ]]; then
-  python3 "$ROOT/scripts/cicd/upstream_upgrade_engine.py" --dry-run || echo "WARN: upstream dry-run failed"
+  set +e
+  python3 "$ROOT/scripts/cicd/upstream_upgrade_engine.py" --dry-run
+  _tick_post_enforce_fail "upstream dry-run" $?
+  set -e
 else
   echo "SKIP upstream: cycle policy deferred"
 fi
 
 if [[ -x "$ROOT/scripts/cicd/pi_plan_sync.sh" ]]; then
-  SKIP_WSJF=1 bash "$ROOT/scripts/cicd/pi_plan_sync.sh" || true
+  SKIP_WSJF=1 bash "$ROOT/scripts/cicd/pi_plan_sync.sh" || echo "WARN: pi_plan_sync failed"
 fi
 
 if [[ "${HIRE_SYNC_EARNINGS:-0}" == "1" && -x "$ROOT/scripts/hire/sync_earnings_to_hire.py" ]]; then
@@ -82,4 +180,4 @@ if [[ "${HIRE_SYNC_EARNINGS:-0}" == "1" && -x "$ROOT/scripts/hire/sync_earnings_
   python3 "$ROOT/scripts/hire/sync_earnings_to_hire.py" || echo "WARN: hire earnings sync failed"
 fi
 
-exit 0
+exit "${TICK_POST_EXIT}"

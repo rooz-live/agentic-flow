@@ -85,12 +85,15 @@ def _write_dod_artifact(
     evidence_dir = project_root / ".goalie" / "evidence"
     evidence_dir.mkdir(parents=True, exist_ok=True)
     path = evidence_dir / f"upstream_engine_{run_id}.json"
+    total_duration = sum(r.get("duration_seconds", 0.0) for r in results)
+    throughput = 3600.0 / max(1.0, total_duration)
     doc = {
         "gate": "upstream-upgrade-engine",
         "run_id": run_id,
         "timestamp": timestamp,
         "git_head": _current_head(project_root),
         "status": status,
+        "throughput_deliveries_per_hour": round(throughput, 2),
         "coherence_check": {"ok": coherence_ok, "reason": coherence_reason},
         "repos": [
             {

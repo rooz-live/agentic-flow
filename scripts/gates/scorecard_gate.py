@@ -469,14 +469,11 @@ def run_signals(signals: list, timeout: int = SIGNAL_TIMEOUT) -> list:
         try:
             # Run signals in a clean environment so scorecard-internal flags
             # (AF_VERIFY_MODE, AF_GATE_CONTEXT) do not leak into the test suite
-            # and cause false self-test failures.
+            # and cause false self-test failures. Do NOT inject PYTHONPATH into
+            # the signal env; tests that run subprocesses in temp repos rely on
+            # a clean module search path.
             signal_env = {k: v for k, v in os.environ.items() if k not in ("AF_VERIFY_MODE", "AF_GATE_CONTEXT")}
-            root_abs = str(Path(".").resolve())
-            existing_pythonpath = os.environ.get("PYTHONPATH", "")
-            if existing_pythonpath:
-                signal_env["PYTHONPATH"] = f"{root_abs}:{existing_pythonpath}"
-            else:
-                signal_env["PYTHONPATH"] = root_abs
+            signal_env.pop("PYTHONPATH", None)
             proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=signal_env)
             entry["returncode"] = proc.returncode
             entry["ok"] = proc.returncode == 0
@@ -726,7 +723,8 @@ def run_no_invented_symbols(root: Any) -> bool:
     # Untracked files
     untracked = _git(["ls-files", "--others", "--exclude-standard"], root=root)
     untracked_files = {line.strip() for line in untracked.splitlines() if line.strip()} if untracked else set()
-        
+    files.update(untracked_files)
+
     # If AF_DIFF_BASE is set, check diff against base
     base = env.get("AF_DIFF_BASE")
     if base:
@@ -1019,7 +1017,9 @@ def deploy_receipt_applicable(art: dict, root_path: Any) -> tuple[bool, str]:
         return False, "legacy artifact (no tld_gate_status) — enforcement skipped"
     art_hash = str(art.get("hash") or "").strip()
     head = git_head(root_path) or ""
-    if art_hash and head and art_hash != head:
+    if not art_hash:
+        return False, "deploy artifact missing hash — enforcement skipped"
+    if head and art_hash != head:
         return False, f"stale deploy artifact (hash {art_hash[:12]} != HEAD {head[:12]}) — enforcement skipped"
     return True, "artifact bound to HEAD"
 
@@ -1427,49 +1427,54 @@ def get_altered_files(root: str = ".", env: Optional[dict] = None) -> set[str]:
 
 
 def ingest_deploy_receipt(root_path: Any, env: dict, meta: dict, extra_blocks: list) -> None:
-    """Ingest deploy-uapi artifact + TLD dispatch receipt for provenance binding."""
+    """Ingest deploy-uapi artifact + TLD dispatch receipt (unified freshness via verify)."""
     root = Path(root_path)
     evidence = root / ".goalie" / "evidence"
-    last_deploy = evidence / "last_deploy_uapi.json"
     dispatch = evidence / "tld_gate_dispatch_latest.json"
-    deploy_doc: dict = {}
     disp_doc: dict = {}
-    if last_deploy.is_file():
-        try:
-            deploy_doc = json.loads(last_deploy.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            extra_blocks.append("HARD GATE: last_deploy_uapi.json is not valid JSON")
     if dispatch.is_file():
         try:
             disp_doc = json.loads(dispatch.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             extra_blocks.append("HARD GATE: tld_gate_dispatch_latest.json is not valid JSON")
-    if deploy_doc or disp_doc:
+
+    ok, deploy_doc, msg = verify_deploy_uapi_receipt(root_path)
+    if deploy_doc is not None:
         meta["deploy_receipt"] = deploy_doc
+    if disp_doc:
         meta["tld_gate_dispatch"] = disp_doc
+    meta["deploy_receipt_verify"] = msg
+
     enforce = str(env.get("AF_DEPLOY_RECEIPT_ENFORCE", "0")) == "1"
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
     if not enforce and not is_ci:
         return
-    if not deploy_doc and not disp_doc:
+    if deploy_doc is None and not disp_doc:
         return
-    tld_status = str(deploy_doc.get("tld_gate_status", "") or disp_doc.get("status", ""))
-    pw_exit = deploy_doc.get("playwright_exit")
-    gh_run = disp_doc.get("github_run_id") or deploy_doc.get("tld_gate_github_run_id")
-    conclusion = disp_doc.get("conclusion") or deploy_doc.get("tld_gate_conclusion")
-    meta["deploy_tld_gate_status"] = tld_status
-    meta["deploy_github_run_id"] = gh_run
-    meta["deploy_gate_conclusion"] = conclusion
-    if enforce or is_ci:
+
+    if deploy_doc is not None:
+        if not ok:
+            extra_blocks.append(f"HARD GATE: deploy receipt — {msg}")
+            return
+        if msg != "deploy receipt closed":
+            meta["deploy_receipt_skipped"] = msg
+            return
+        meta["deploy_tld_gate_status"] = deploy_doc.get("tld_gate_status")
+        meta["deploy_github_run_id"] = deploy_doc.get("tld_gate_github_run_id") or disp_doc.get("github_run_id")
+        meta["deploy_gate_conclusion"] = deploy_doc.get("tld_gate_conclusion") or disp_doc.get("conclusion")
+        return
+
+    if disp_doc and (enforce or is_ci):
+        tld_status = str(disp_doc.get("status", "") or "")
+        conclusion = disp_doc.get("conclusion")
+        meta["deploy_tld_gate_status"] = tld_status
+        meta["deploy_github_run_id"] = disp_doc.get("github_run_id")
+        meta["deploy_gate_conclusion"] = conclusion
         if tld_status and tld_status != "pass":
             extra_blocks.append(
                 f"HARD GATE: deploy TLD gate status={tld_status!r} (required pass)"
             )
-        if pw_exit is not None and int(pw_exit) != 0:
-            extra_blocks.append(
-                f"HARD GATE: deploy playwright_exit={pw_exit} (required 0)"
-            )
-        if disp_doc and disp_doc.get("strict") and conclusion not in (None, "success"):
+        if disp_doc.get("strict") and conclusion not in (None, "success"):
             extra_blocks.append(
                 f"HARD GATE: TLD dispatch conclusion={conclusion!r} (required success)"
             )

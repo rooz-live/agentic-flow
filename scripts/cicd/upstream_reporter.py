@@ -281,6 +281,7 @@ def save_report_and_cache(
                 "skipped": res.get("skipped", False),
                 "failure_category": res.get("failure_category"),
                 "lane": res.get("lane"),
+                "app_store_readiness": res.get("app_store_readiness", "skipped"),
             },
         })
     # DoR/DoD acceptability metrics

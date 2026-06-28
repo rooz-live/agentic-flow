@@ -274,14 +274,55 @@ def run_edge_sync(
     reload_error = None
     if config_changed or any_sync_succeeded:
         print("  --> Reloading Caddy configuration on StarlingX...")
-        # Check if SSH alias 'stx' exists
-        ssh_check = subprocess.run(["ssh", "-o", "ConnectTimeout=2", "stx", "echo 'stx_connected'"], capture_output=True, text=True)
-        if ssh_check.returncode == 0:
-            cfg_file = project_root / "src" / "proxies" / "edge_gateway.cfg"
-            scp_cmd = ["scp", str(cfg_file), "stx:/tmp/edge_gateway.cfg"]
-            ok, log_scp = run_ssh_sync_command(scp_cmd)
+        import os
+        use_alias = False
+        try:
+            ssh_alias_check = subprocess.run(["ssh", "-o", "ConnectTimeout=2", "stx", "echo 'stx_connected'"], capture_output=True, text=True)
+            if ssh_alias_check.returncode == 0:
+                use_alias = True
+        except Exception:
+            pass
+
+        if use_alias:
+            host_str = "stx"
+            scp_args = ["scp", "-o", "ConnectTimeout=5", str(project_root / "src" / "proxies" / "edge_gateway.cfg"), "stx:/tmp/edge_gateway.cfg"]
+            ssh_base = ["ssh", "stx"]
+        else:
+            stx_host = os.environ.get("STX_HOST", "ubuntu@stx-aio-0.corp.interface.tag.ooo")
+            stx_key = os.environ.get("STX_KEY")
+            if not stx_key:
+                home = Path.home()
+                candidate_keys = [
+                    home / ".ssh" / "starlingx_key",
+                    home / "pem" / "rooz.pem",
+                ]
+                for ck in candidate_keys:
+                    if ck.exists():
+                        stx_key = str(ck)
+                        break
+            stx_port = os.environ.get("YOLIFE_CPANEL_PORTS", "2222")
+            
+            scp_args = ["scp", "-P", stx_port]
+            ssh_base = ["ssh", "-p", stx_port]
+            if stx_key:
+                scp_args.extend(["-i", stx_key])
+                ssh_base.extend(["-i", stx_key])
+            scp_args.extend(["-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=accept-new", str(project_root / "src" / "proxies" / "edge_gateway.cfg"), f"{stx_host}:/tmp/edge_gateway.cfg"])
+            ssh_base.extend(["-o", "ConnectTimeout=5", "-o", "StrictHostKeyChecking=accept-new", stx_host])
+            host_str = f"{stx_host} (port={stx_port})"
+
+        print(f"  --> Connecting to {host_str}...")
+        test_cmd = list(ssh_base)
+        test_cmd.append("echo 'connected'")
+        conn_check = subprocess.run(test_cmd, capture_output=True, text=True)
+        
+        if conn_check.returncode == 0:
+            print(f"  --> SCP-ing config to {host_str}...")
+            ok, log_scp = run_ssh_sync_command(scp_args)
             if ok:
-                reload_cmd = ["ssh", "stx", "sudo cp /tmp/edge_gateway.cfg /etc/caddy/Caddyfile && sudo systemctl reload caddy"]
+                reload_cmd = list(ssh_base)
+                reload_cmd.append("sudo cp /tmp/edge_gateway.cfg /etc/caddy/Caddyfile && sudo caddy validate --config /etc/caddy/Caddyfile && sudo systemctl reload caddy")
+                print("  --> Validating and reloading Caddy...")
                 ok_reload, log_reload = run_ssh_sync_command(reload_cmd)
                 if not ok_reload:
                     reload_failed = True
@@ -292,7 +333,7 @@ def run_edge_sync(
                 reload_failed = True
                 reload_error = f"[SCP Failed] {log_scp}"
         else:
-            reload_error = "Advisory: 'stx' target SSH alias offline. Configuration not pushed to live VM."
+            reload_error = f"Advisory: Target host {host_str} is offline or SSH connection failed."
 
     # 3. Flag errors in domains' results if reload fails
     if reload_error:

@@ -14,7 +14,15 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def load_policy(root: Path | None = None, *, pace: float) -> dict[str, Any]:
+def load_policy(
+    root: Path | None = None,
+    *,
+    pace: float,
+    blocker_pace: float | None = None,
+    shippable_lane_empty: bool = False,
+    blocker_lane_has_now: bool = False,
+    utilize_mode_hint: str | None = None,
+) -> dict[str, Any]:
     root = root or repo_root()
     sys_path = str(root / "scripts" / "cicd" / "lib")
     import sys
@@ -42,7 +50,12 @@ def load_policy(root: Path | None = None, *, pace: float) -> dict[str, Any]:
     aqe_scope = "changed"
     utilize_mode = "full" if pace >= 1.0 else "deferred"
 
-    if pace < 1.0 and utilize_deferrable:
+    if utilize_mode_hint == "blocker-remediation":
+        run_aqe = True
+        run_upstream = False
+        aqe_scope = "coherence"
+        utilize_mode = "blocker-remediation"
+    elif pace < 1.0 and utilize_deferrable:
         run_aqe = True
         run_upstream = False
         aqe_scope = "coherence"
@@ -50,7 +63,7 @@ def load_policy(root: Path | None = None, *, pace: float) -> dict[str, Any]:
         if knobs.get("sweet_spot_ticks", 3) <= 2:
             aqe_scope = "coherence-cap"
 
-    if knobs.get("sweet_spot_ticks", 3) <= 2 and pace < 1.5 and utilize_mode != "deferrable":
+    if knobs.get("sweet_spot_ticks", 3) <= 2 and pace < 1.5 and utilize_mode not in ("deferrable", "blocker-remediation"):
         run_upstream = False
 
     run_generate = (
@@ -63,6 +76,7 @@ def load_policy(root: Path | None = None, *, pace: float) -> dict[str, Any]:
 
     return {
         "pace_cod_weight": pace,
+        "blocker_pace_cod_weight": blocker_pace if blocker_pace is not None else 0.5,
         "max_minutes_per_tick": knobs["max_minutes_per_tick"],
         "sweet_spot_ticks": knobs["sweet_spot_ticks"],
         "run_aqe": run_aqe,
@@ -74,6 +88,8 @@ def load_policy(root: Path | None = None, *, pace: float) -> dict[str, Any]:
         "harness_utilization_pct": harness_util,
         "knobs": knobs,
         "cycle_vectors_fresh": bool(vectors),
+        "shippable_lane_empty": shippable_lane_empty,
+        "blocker_lane_has_now": blocker_lane_has_now,
     }
 
 

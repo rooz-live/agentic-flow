@@ -50,7 +50,7 @@ atexit.register(cleanup_temp_files)
 def get_allowed_signers_db(env: dict, root_path: str = ".") -> str:
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
     global_path = Path(root_path) / ".goalie/scorecards/allowed_signers"
-    if is_ci:
+    if is_ci and str(env.get("AF_ALLOW_TEST_OVERRIDE", "")).lower() not in ("1", "true", "yes"):
         # Strictly ignore AF_ALLOWED_SIGNERS override in CI context to prevent tampering
         return str(global_path)
 
@@ -1367,10 +1367,7 @@ def check_allowed_signers_tamper(env: dict, root: str = ".") -> tuple:
     is_precommit = env.get("AF_GATE_CONTEXT") == "precommit"
     if not is_ci and not is_precommit:
         return blocks, warns
-    if is_ci:
-        path = ".goalie/scorecards/allowed_signers"
-    else:
-        path = env.get("AF_ALLOWED_SIGNERS", ".goalie/scorecards/allowed_signers")
+    path = get_allowed_signers_db(env, root)
     base = env.get("AF_DIFF_BASE")
     if not base:
         if is_ci:

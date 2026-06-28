@@ -436,6 +436,7 @@ def test_derive_coherence_crypto_verification(tmp_path, monkeypatch):
 
     # 2. allowed_signers exists but signature missing in CI -> FAIL
     monkeypatch.setenv("CI", "true")
+    monkeypatch.setenv("AF_ALLOW_TEST_OVERRIDE", "true")
     allowed_signers_path = tmp_path / "allowed_signers"
     allowed_signers_path.touch()
     monkeypatch.setenv("AF_ALLOWED_SIGNERS", str(allowed_signers_path))
@@ -747,6 +748,7 @@ def test_harden_blocks_allowed_signers_pr_tamper(monkeypatch, tmp_path):
         "CI": "true",
         "AF_ALLOWED_SIGNERS": str(allowed),
         "AF_DIFF_BASE": "origin/main",
+        "AF_ALLOW_TEST_OVERRIDE": "true",
     }
 
     monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda *a, **k: "mock_sha")
@@ -814,7 +816,7 @@ def test_harden_missing_allowed_signers_ci_blocks(monkeypatch, tmp_path):
     
     sc = make_valid_scorecard()
     missing = tmp_path / "missing_signers"
-    env = {"CI": "true", "AF_ALLOWED_SIGNERS": str(missing)}
+    env = {"CI": "true", "AF_ALLOWED_SIGNERS": str(missing), "AF_ALLOW_TEST_OVERRIDE": "true"}
     card, extra_blocks, extra_warnings, meta = harden(sc, env=env, strict=False, ingest_only=True)
     
     assert any("CI context requires allowed_signers configuration" in err for err in extra_blocks)

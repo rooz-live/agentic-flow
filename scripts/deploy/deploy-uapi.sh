@@ -29,7 +29,7 @@ echo "🚀 DEPLOY-UAPI GATE"
 echo "====================================================================="
 
 # ── DoR Check 1: .env source ──────────────────────────────────────────────────
-if [[ -f "$ENV_FILE" ]]; then
+if [[ -f "$ENV_FILE" && -z "${DEPLOY_UAPI_TEST:-}" ]]; then
     echo "--> Sourcing $ENV_FILE..."
     set -a
     # shellcheck source=/dev/null
@@ -198,23 +198,69 @@ done
 
 echo "✅ UAPI file transfers complete ($DOMAINS_OK/$DOMAINS_ATTEMPTED domains fully clean)."
 
-# ── Post-deploy Playwright validation ────────────────────────────────────────
-PLAYWRIGHT_EXIT=0
-if [[ "$PLAYWRIGHT_AVAILABLE" == "true" ]]; then
-    echo "--> Running post-deploy E2E gate: tests/e2e/tld-deploy-gate.spec.ts..."
-    npx playwright test tests/e2e/tld-deploy-gate.spec.ts --reporter=list || PLAYWRIGHT_EXIT=$?
-    if [[ $PLAYWRIGHT_EXIT -eq 0 ]]; then
-        green "  Playwright: PASS"
+
+# ── tag.vote redirect policy (canonical config → WHM local or remote API) ───
+TAG_VOTE_REDIRECT_SCRIPT="$ROOT_DIR/scripts/infra/cpanel/tag-vote-redirects.sh"
+if [[ -f "$TAG_VOTE_REDIRECT_SCRIPT" ]]; then
+    echo "--> Enforcing tag.vote redirects (config/edge/tag_vote_redirect.yaml)..."
+    load_env() {
+        [[ -f "$ROOT_DIR/.env" ]] && set -a && source "$ROOT_DIR/.env" && set +a
+        [[ -f "$ROOT_DIR/credentials/.env.cpanel" ]] && set -a && source "$ROOT_DIR/credentials/.env.cpanel" && set +a
+        if [[ "${WHM_API_TOKEN:-}" == op://* ]] && command -v op &>/dev/null; then
+            WHM_API_TOKEN="$(op read "$WHM_API_TOKEN")"
+        fi
+    }
+    load_env
+    if command -v uapi &>/dev/null && [[ "${TAG_VOTE_REMOTE:-0}" != "1" ]]; then
+        bash "$TAG_VOTE_REDIRECT_SCRIPT" || yellow "  tag-vote-redirects.sh failed — manual WHM run required"
+    elif [[ -n "${WHM_API_TOKEN:-}" && -n "${CPANEL_HOST:-}" ]]; then
+        bash "$TAG_VOTE_REDIRECT_SCRIPT" || yellow "  tag-vote-redirects.sh (remote) failed"
     else
-        yellow "  Playwright: FAIL (exit $PLAYWRIGHT_EXIT) — recorded in DoD artifact"
+        yellow "  tag-vote-redirects: skipped (no uapi on host and no WHM_API_TOKEN+CPANEL_HOST)"
     fi
-else
+fi
+
+# ── DoD run id (used for artifact + CI dispatch) ─────────────────────────────
+RUN_ID=$(date +%s)
+
+# ── Post-deploy TLD gate (strict via GitHub Actions preferred) ───────────────
+PLAYWRIGHT_EXIT=0
+TLD_GATE_CI_EXIT=0
+export DEPLOY_RUN_ID="deploy_uapi_${RUN_ID:-unknown}"
+
+TLD_GATE_STATUS="skipped"
+if [[ "${AF_TRIGGER_TLD_GATE_CI:-1}" == "1" ]]; then
+    echo "--> Strict TLD gate via GitHub Actions (fail-closed, AF_TLD_GATE_WAIT=${AF_TLD_GATE_WAIT:-1})..."
+    export AF_TLD_GATE_REF="${AF_TLD_GATE_REF:-main}"
+    set +e
+    bash "$ROOT_DIR/scripts/deploy/trigger_tld_gate_ci.sh"
+    TLD_GATE_CI_EXIT=$?
+    set -e
+    if [[ $TLD_GATE_CI_EXIT -eq 0 ]]; then
+        TLD_GATE_STATUS="pass"
+        PLAYWRIGHT_EXIT=0
+        green "  TLD gate CI: PASS (strict run completed)"
+    elif [[ $TLD_GATE_CI_EXIT -eq 2 && "${AF_TLD_GATE_FAIL_OPEN:-0}" == "1" ]]; then
+        yellow "  TLD gate CI: gh unavailable — fail-open local lenient fallback"
+        TLD_GATE_STATUS="fail_open"
+    else
+        TLD_GATE_STATUS="fail"
+        PLAYWRIGHT_EXIT="${TLD_GATE_CI_EXIT:-1}"
+        red "  TLD gate CI: FAIL (exit $TLD_GATE_CI_EXIT) — DoD blocked"
+    fi
+fi
+
+if [[ "$TLD_GATE_STATUS" == "fail_open" && "${AF_UAPI_LOCAL_PLAYWRIGHT:-1}" == "1" && "$PLAYWRIGHT_AVAILABLE" == "true" ]]; then
+    echo "--> Local lenient fallback (AF_TLD_GATE_FAIL_OPEN=1 only)..."
+    npx playwright test tests/e2e/tld-deploy-gate.spec.ts --reporter=list || PLAYWRIGHT_EXIT=$?
+elif [[ "$TLD_GATE_STATUS" == "skipped" && "$PLAYWRIGHT_AVAILABLE" == "true" && "${AF_UAPI_LOCAL_PLAYWRIGHT:-0}" == "1" ]]; then
+    npx playwright test tests/e2e/tld-deploy-gate.spec.ts --reporter=list || PLAYWRIGHT_EXIT=$?
+elif [[ "$TLD_GATE_STATUS" == "skipped" && "$PLAYWRIGHT_AVAILABLE" != "true" ]]; then
     yellow "  Playwright: SKIPPED (npx not available)"
     PLAYWRIGHT_EXIT=99
 fi
 
 # ── DoD artifact ─────────────────────────────────────────────────────────────
-RUN_ID=$(date +%s)
 HASH=$(git rev-parse HEAD 2>/dev/null || echo "no-git")
 mkdir -p "$ARTIFACT_DIR"
 ARTIFACT_PATH="$ARTIFACT_DIR/deploy_uapi_${RUN_ID}.json"
@@ -227,7 +273,10 @@ cat > "$ARTIFACT_PATH" <<EOF
   "timestamp": "$(date -u +'%Y-%m-%dT%H:%M:%SZ')",
   "domains_attempted": $DOMAINS_ATTEMPTED,
   "domains_ok": $DOMAINS_OK,
-  "playwright_exit": $PLAYWRIGHT_EXIT
+  "playwright_exit": $PLAYWRIGHT_EXIT,
+  "tld_gate_ci_exit": $TLD_GATE_CI_EXIT,
+  "tld_gate_status": "$TLD_GATE_STATUS",
+  "tld_gate_dispatch": ".goalie/evidence/tld_gate_dispatch_latest.json"
 }
 EOF
 ln -sf "$(basename "$ARTIFACT_PATH")" "$ARTIFACT_DIR/last_deploy_uapi.json"

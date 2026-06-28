@@ -1,5 +1,22 @@
 import { test, expect } from '@playwright/test';
 
+import targetsDoc from './tld-targets.generated.json';
+
+type GeneratedTarget = {
+  tld: string;
+  url: string;
+  titlePattern: string;
+  flags?: string;
+  redirects?: boolean;
+};
+
+const TLD_TARGETS = (targetsDoc as { targets: GeneratedTarget[] }).targets.map((t) => ({
+  tld: t.tld,
+  url: t.url,
+  titlePattern: new RegExp(t.titlePattern, t.flags || 'i'),
+  ...(t.redirects ? { redirects: true } : {}),
+}));
+
 /** True DNS / name-resolution failures only (not Playwright expect timeouts). */
 function isUnresolvableHostError(message: string): boolean {
   return (
@@ -58,39 +75,7 @@ const ASSET_BASE_HINT =
     ? '/trading/'
     : process.env.TLD_GATE_ASSET_BASE_HINT;
 
-const TLD_TARGETS = [
-  { tld: 'summerjobswap.com', url: 'https://summerjobswap.com/', titlePattern: /SUMMERJOBSWAP/i },
-  { tld: 'nextwavenetwork.com', url: 'https://nextwavenetwork.com/', titlePattern: /NEXTWAVENETWORK/i },
-  { tld: 'interface.rooz.live', url: 'https://interface.rooz.live/', titlePattern: /rooz|agentic|trading|dashboard|Telegram|thriveplace/i, redirects: true },
-  { tld: 'law.rooz.live', url: 'https://law.rooz.live/', titlePattern: /rooz|agentic|trading|dashboard|Telegram|thriveplace/i, redirects: true },
-  { tld: 'yo.life', url: 'https://yo.life/', titlePattern: /yo\.life|flourishing|circle|rooz|admin|agentic|trading|dashboard/i },
-  { tld: 'hab.yo.life', url: 'https://hab.yo.life/', titlePattern: /hab\.yo\.life|agentic|dashboard|evidence/i },
-  { tld: 'pur.tag.vote', url: 'https://pur.tag.vote/', titlePattern: /pur\.tag\.vote|agentic|dashboard|gateway/i },
-  { tld: 'file.720.chat', url: 'https://file.720.chat/', titlePattern: /file\.720\.chat|agentic|dashboard|process/i },
-  // Observed prod (2026-04-13 gate run): root redirects to Discord — disclose in AT, not as dashboard title.
-  { tld: 'tag.ooo', url: 'https://tag.ooo/', titlePattern: /tag\.ooo|agentic|dashboard|Discord/i, redirects: true },
 
-  // Domains redirecting to Discord (checked for "Discord" title)
-  { tld: 'decisioncall.com', url: 'https://decisioncall.com/', titlePattern: /decisioncall|agentic|dashboard|Discord/i, redirects: true },
-  // Observed prod: Telegram interstitial (not Discord) — pattern encodes actual landing title.
-  { tld: 'epic.cab', url: 'https://epic.cab/', titlePattern: /epic\.cab|Premium Urban Mobility|Telegram|Mobility/i },
-  { tld: 'telegram.epic.cab', url: 'https://telegram.epic.cab/', titlePattern: /Telegram|EPIC|Join/i, redirects: true },
-  { tld: 'eudmusic.com', url: 'https://eudmusic.com/', titlePattern: /eudmusic|agentic|dashboard|Discord/i, redirects: true },
-  { tld: 'tag.vote', url: 'https://tag.vote/', titlePattern: /tag\.vote|agentic|dashboard|Discord|Cognitum/i, redirects: true },
-  // Observed prod: Apache directory index until app entry is deployed.
-  { tld: 'yoservice.com', url: 'https://yoservice.com/', titlePattern: /yoservice|service|agentic|Discord|Index of/i, redirects: true },
-  // ─── Billing Platform Infrastructure (bhopti.com origin: 23.92.79.2) ──────
-  // These are infrastructure FQDNs — not TLD dashboard deployments.
-  // Delegated 2026-06-19. Titles will vary by service type.
-  // billing.bhopti.com — HostBill portal (HTTP 200, portal login page)
-  { tld: 'billing.bhopti.com', url: 'https://billing.bhopti.com/', titlePattern: /HostBill|billing|admin|login|portal|Client/i },
-  // crm.bhopti.com — OroCommerce B2B storefront
-  { tld: 'crm.bhopti.com', url: 'https://crm.bhopti.com/', titlePattern: /Oro|CRM|commerce|bhopti|admin|login/i, redirects: true },
-  // shop.bhopti.com — OroCommerce self-service
-  { tld: 'shop.bhopti.com', url: 'https://shop.bhopti.com/', titlePattern: /Oro|shop|commerce|bhopti|login/i, redirects: true },
-  // mailadmin.bhopti.com — Mail admin portal
-  { tld: 'mailadmin.bhopti.com', url: 'https://mailadmin.bhopti.com/', titlePattern: /mail|admin|iRedMail|Roundcube|webmail|bhopti/i, redirects: true },
-];
 
 function timeoutsForTld(tld: string): { httpMs: number; manifestMs: number; gotoMs: number } {
   if (tld === 'interface.rooz.live') {
@@ -281,6 +266,37 @@ for (const { tld, url, titlePattern, redirects } of TLD_TARGETS) {
     }
   });
 }
+// ─── tag.vote redirect policy (apex Discord, /cog Cognitum affiliate) ───────
+test.describe('tag.vote redirect policy @tld-gate', () => {
+  test('tag.vote apex / forwards to Discord (not Cognitum)', async ({ request }) => {
+    const res = await request.get('https://tag.vote/', {
+      maxRedirects: 0,
+      timeout: 15_000,
+      failOnStatusCode: false,
+    });
+    const status = res.status();
+    const location = res.headers()['location'] ?? '';
+    expect(status, 'tag.vote apex should 301/302').toBeGreaterThanOrEqual(301);
+    expect(status, 'tag.vote apex should 301/302').toBeLessThanOrEqual(302);
+    expect(location.toLowerCase(), 'apex must not forward to Cognitum').not.toContain('cognitum');
+    expect(location.toLowerCase(), 'apex must forward to Discord').toContain('discord');
+  });
+
+  test('tag.vote/cog forwards to Cognitum affiliate ref=2rbzTT', async ({ request }) => {
+    const res = await request.get('https://tag.vote/cog', {
+      maxRedirects: 0,
+      timeout: 15_000,
+      failOnStatusCode: false,
+    });
+    const status = res.status();
+    const location = res.headers()['location'] ?? '';
+    expect(status, 'tag.vote/cog should 301/302').toBeGreaterThanOrEqual(301);
+    expect(status, 'tag.vote/cog should 301/302').toBeLessThanOrEqual(302);
+    expect(location.toLowerCase(), '/cog must forward to Cognitum').toContain('cognitum');
+    expect(location, '/cog must include affiliate ref').toContain('2rbzTT');
+  });
+});
+
 // ─── Billing Infrastructure: gRPC EventOps Health Gate ───────────────────────
 // api.interface.tag.ooo serves gRPC exclusively — root HTTP GET returns 502 by design.
 // This separate suite tests the actual gRPC health path.

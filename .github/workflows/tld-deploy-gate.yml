@@ -1,0 +1,80 @@
+name: TLD Deploy Gate (strict, post-deploy)
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_run_id:
+        description: 'Upstream deploy run id (from deploy-uapi artifact)'
+        required: false
+        default: ''
+      strict:
+        description: 'Run strict manifest + DNS gate'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+concurrency:
+  group: tld-deploy-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  registry-check:
+    name: Registry ↔ generated targets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Verify TLD targets match fqdn_registry.yaml (run pnpm run tld:targets:generate locally after registry edits)
+        run: pnpm run tld:targets:check
+
+      - name: Registry drift (enforce spec ⊆ registry)
+        run: python3 scripts/metrics/tld_registry_drift.py
+        env:
+          AF_TLD_REGISTRY_ENFORCE: "1"
+
+  strict-gate:
+    name: Playwright strict TLD gate
+    needs: registry-check
+    runs-on: ubuntu-latest
+    if: github.event.inputs.strict != 'false'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Enable pnpm
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile || pnpm install
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      - name: Run strict TLD deploy gate
+        run: pnpm run test:e2e:tld-gate:strict
+        env:
+          CI: true
+          TLD_GATE_STRICT_MANIFEST: "1"
+          TLD_GATE_STRICT_DNS: "1"
+          DEPLOY_RUN_ID: ${{ github.event.inputs.deploy_run_id }}

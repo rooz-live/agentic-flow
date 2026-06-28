@@ -420,6 +420,7 @@ def test_main_bad_json_returns_parse_error(tmp_path, monkeypatch):
 
 def test_main_precommit_soft_skip(tmp_path, monkeypatch):
     monkeypatch.setattr(gate, "DEFAULT_SCORECARD", str(tmp_path / "nope.json"))
+    monkeypatch.setattr(gate, "git_branch", lambda root=".": "feature-branch")
     monkeypatch.delenv("AF_REQUIRE_SCORECARD", raising=False)
     assert gate.main(["--precommit"]) == 0
 

@@ -3,6 +3,8 @@
 set -euo pipefail
 ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "$ROOT"
+# shellcheck source=scripts/cicd/lib/is_ci_env.sh
+source "$ROOT/scripts/cicd/lib/is_ci_env.sh"
 EVIDENCE_DIR="$ROOT/.goalie/evidence"
 mkdir -p "$EVIDENCE_DIR"
 TICK_POST_EVIDENCE="$EVIDENCE_DIR/tick_post_latest.json"
@@ -64,31 +66,26 @@ PY
 }
 
 
+_pace_bundle_json() {
+  python3 "$ROOT/scripts/cicd/lib/reconcile_tick_post_pace.py" "$ROOT" --bundle-json 2>/dev/null     || read_pace_bundle
+}
+
 _refresh_saved_pace_bundle() {
   local policy_file="$EVIDENCE_DIR/tick_cycle_policy_latest.json"
   [[ -f "$policy_file" ]] || return 0
-  python3 "$ROOT/scripts/cicd/lib/reconcile_tick_post_pace.py" "$ROOT" 2>/dev/null || true
-  if [[ -f "$TICK_POST_EVIDENCE" ]]; then
-    SAVED_PACE_BUNDLE="$(python3 -c "
-import json
-from pathlib import Path
-t = json.loads(Path('$TICK_POST_EVIDENCE').read_text(encoding='utf-8'))
-print(json.dumps({
-    'pace_cod_weight': t.get('pace_cod_weight'),
-    'pace_source': t.get('pace_source'),
-    'blocker_pace_cod_weight': t.get('blocker_pace_cod_weight'),
-    'utilize_mode_hint': t.get('utilize_mode_hint'),
-    'shippable_lane_empty': t.get('shippable_lane_empty'),
-    'blocker_lane_has_now': t.get('blocker_lane_has_now'),
-}))
-")"
-  fi
+  SAVED_PACE_BUNDLE="$(_pace_bundle_json)"
 }
 
 on_exit() {
-  _refresh_saved_pace_bundle
+  local policy_file="$EVIDENCE_DIR/tick_cycle_policy_latest.json"
   local bundle
-  bundle="${SAVED_PACE_BUNDLE:-$(read_pace_bundle)}"
+  if [[ -f "$policy_file" ]]; then
+    bundle="$(_pace_bundle_json)"
+    SAVED_PACE_BUNDLE="$bundle"
+  else
+    _refresh_saved_pace_bundle
+    bundle="${SAVED_PACE_BUNDLE:-$(read_pace_bundle)}"
+  fi
   write_tick_evidence "$bundle" || true
 }
 trap on_exit EXIT
@@ -218,7 +215,7 @@ fi
 
 if [[ -f "$ROOT/scripts/metrics/timescape_envelope.py" ]]; then
   _ts_enforce_default=0
-  if [[ "${CI:-}" == "1" || "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+  if is_ci_env; then
     _ts_enforce_default=1
   fi
   AF_TIMESCAPE_ENFORCE="${AF_TIMESCAPE_ENFORCE:-$_ts_enforce_default}" \
@@ -232,7 +229,7 @@ fi
 if [[ -x "$ROOT/scripts/cicd/receipt_chain.sh" ]]; then
   echo "=== tick_post: receipt_chain ==="
   _receipt_enforce_default=0
-  if [[ "${CI:-}" == "1" || "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+  if is_ci_env; then
     _receipt_enforce_default=1
   fi
 

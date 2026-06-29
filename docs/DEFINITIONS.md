@@ -168,6 +168,8 @@ Each `tick_post_hooks.sh` run follows this order; skipping or reordering breaks 
 | `AF_ROAM_REFRESH_TIMESTAMPS` | `0` | When enabled (set to `1`), refreshes `last_verified` (and `discovered` if uninitialized) in ROAM tracker files |
 | `AF_CORRELATE_ENFORCE` | `0` | If `1`, enforces strict correlation of timescape evidence |
 | `AF_TIMESCAPE_ENFORCE` | `0` (local); `1` in CI via `tick_post_hooks.sh` | Exit non-zero when `timescape_envelope` status is `BLOCK` |
+| `LOOP_ARTIFACT_OK` | `0` | Allow staging `.goalie/` and `reports/` when `1` (pre-commit) |
+| `AF_RECEIPT_CHAIN_MOCK_HIRE` | `0` | Contract tests: append mock hire JSONL via receipt_chain |
 | `AF_RECEIPT_CHAIN_ENFORCE` | `0` locally; `1` in CI tick_post | Fail-closed receipt chain; SKIP/BLOCK receipts fail tick when `1` |
 
 
@@ -269,9 +271,12 @@ Legacy artifacts (no `tld_gate_status`) or stale artifacts (`hash` ≠ `git HEAD
 
 | Env | Default | Meaning |
 |-----|---------|---------|
+| `LOOP_ARTIFACT_OK` | `0` | Allow staging `.goalie/` and `reports/` when `1` (pre-commit) |
+| `AF_RECEIPT_CHAIN_MOCK_HIRE` | `0` | Contract tests: append mock hire JSONL via receipt_chain |
 | `AF_RECEIPT_CHAIN_ENFORCE` | `0` local / `1` CI | `receipt_chain.sh` alone defaults `0`; `tick_post_hooks.sh` sets `1` when `CI` or `GITHUB_ACTIONS`. Block tick when any step fails. |
 | `HIRE_MCP_TOKEN` | unset | Bearer token for hire MCP; required for live hire sync |
 | `AF_RECEIPT_CHAIN_ALLOW_DRY_HIRE` | `0` | When `1`, runs `sync_earnings_to_hire.py --dry-run` (no `hire_receipts.jsonl` append) |
+| `AF_RECEIPT_CHAIN_MOCK_HIRE` | `0` | Contract tests only: append validated F9 hire receipt without MCP (not for production ticks) |
 
 ### `#.%` sentinel vs policy snapshot
 
@@ -346,3 +351,9 @@ graph TD
     style Ledger fill:#ffb,stroke:#333,stroke-width:2px
     style Profile fill:#bff,stroke:#333,stroke-width:2px
 ```
+
+### F4 pace authority (policy_snapshot)
+
+After `tick_cycle_policy_latest.json` is written, **`pace_cod_weight` and `pace_source` in `tick_post_latest.json` must come from policy**, not from the pre-policy `read_pace_bundle()` snapshot or a prior tick file. `reconcile_tick_post_pace.py` and the `EXIT` trap call `pace_bundle()` so `on_exit` cannot restore stale `pace_source`.
+
+`is_ci_env` (shell: `scripts/cicd/lib/is_ci_env.sh`, Python: `scorecard_gate.is_ci_env`) treats only truthy `CI` / `GITHUB_ACTIONS` values as CI — empty string is not CI.

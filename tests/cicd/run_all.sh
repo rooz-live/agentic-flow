@@ -19,15 +19,19 @@ FAST_TESTS=(
   test_receipt_chain_enforce.sh
   test_tick_post_timescape_order.sh
   test_tick_post_stale_enforce.sh
-  test_op_invert_bootstrap.sh
+  test_tick_post_trap_pace_order.sh
+  test_emit_ci_provenance_failclosed.sh
+  test_tick_post_trap_on_exit.sh
   test_update_lnnnl_integrity.sh
   test_roam_edge_contract.sh
   test_dor_dod_matrix.sh
+  test_auto_dor_contract.sh
   test_tick_rehydration_manifest.sh
   test_session_rehydration_reader.sh
 )
 
 SLOW_TESTS=(
+  test_op_invert_bootstrap.sh
   test_wave_autopilot_contract.sh
   test_deploy_happy_path_contract.sh
   test_deploy_receipt_behavior.sh

@@ -27,7 +27,7 @@ JSON
 
 export REPO_ROOT="$TMP"
 export AF_RECEIPT_CHAIN_ENFORCE=0
-export AF_RECEIPT_CHAIN_ALLOW_DRY_HIRE=1
+export AF_RECEIPT_CHAIN_MOCK_HIRE=1
 export AF_SKIP_OP_READ=1
 export AF_GATE_CONTEXT=review
 export AF_ALLOW_OWNED_LOCAL=1
@@ -46,20 +46,7 @@ STATUS="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['statu
 [[ "$STATUS" == "PASS" ]] || { echo "FAIL: expected PASS receipt, got $STATUS"; exit 1; }
 
 HIRE_LOG="$TMP/.goalie/evidence/hire_receipts.jsonl"
-mkdir -p "$(dirname "$HIRE_LOG")"
-python3 - "$HIRE_LOG" <<'PY'
-import json, sys, uuid
-from datetime import datetime, timezone
-from pathlib import Path
-log = Path(sys.argv[1])
-entry = {
-    "receipt_id": str(uuid.uuid4()),
-    "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "status_code": 200,
-    "endpoint": "earnings/sync",
-}
-log.write_text(json.dumps(entry) + "\n", encoding="utf-8")
-PY
+test -f "$HIRE_LOG" || { echo "FAIL: chain must append hire_receipts.jsonl (F9)"; exit 1; }
 REPO_ROOT="$TMP" python3 - "$HIRE_LOG" <<'PY'
 import json, sys
 from pathlib import Path
@@ -68,7 +55,7 @@ entry = json.loads(log.read_text(encoding="utf-8").strip().splitlines()[-1])
 for key in ("receipt_id", "timestamp", "status_code", "endpoint"):
     if key not in entry or not str(entry.get(key, "")).strip():
         raise SystemExit(f"missing or empty: {key}")
-print("OK hire receipt schema")
+print("OK hire receipt schema (chain)")
 PY
 
 unset REPO_ROOT

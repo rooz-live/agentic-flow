@@ -9,8 +9,15 @@ cd "$ROOT"
 PRINCIPAL="${AF_CI_SIGNING_PRINCIPAL:-ci@agentic-flow.github}"
 KEY_MATERIAL="${AF_CI_SIGNING_KEY:-}"
 
+# shellcheck source=scripts/cicd/lib/is_ci_env.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../cicd/lib" && pwd)/is_ci_env.sh"
+
 if [[ -z "$KEY_MATERIAL" ]]; then
-  echo "emit_ci_provenance: skip (AF_CI_SIGNING_KEY unset — gate_integrity requires AF_CI_PROVENANCE_SIGNATURE)"
+  if is_ci_env; then
+    echo "emit_ci_provenance: BLOCK — CI requires AF_CI_SIGNING_KEY for provenance" >&2
+    exit 1
+  fi
+  echo "emit_ci_provenance: skip (local — no AF_CI_SIGNING_KEY)"
   exit 0
 fi
 

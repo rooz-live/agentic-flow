@@ -1040,6 +1040,29 @@ def _coherence_artifact_usable(root_path: Any, env: Optional[dict] = None) -> bo
 
 
 
+
+
+def _coherence_artifact_signed_usable(root_path: Any, env: Optional[dict] = None) -> bool:
+    """True when HEAD-bound PASS coherence artifact is cryptographically signed."""
+    if not _coherence_artifact_usable(root_path, env):
+        return False
+    env = env or dict(os.environ)
+    artifact = Path(root_path) / ".goalie" / "evidence" / "coherence_results.json"
+    try:
+        data = json.loads(artifact.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError):
+        return False
+    sig = data.get("signature")
+    principal = data.get("principal")
+    gh = data.get("git_head")
+    if not sig or not principal or not gh:
+        return False
+    allowed_signers = get_allowed_signers_db(env, root_path)
+    if not os.path.exists(allowed_signers):
+        return False
+    return verify_ssh_signature(sig, principal, gh, allowed_signers)
+
+
 def deploy_receipt_applicable(art: dict, root_path: Any) -> tuple[bool, str]:
     """Only enforce receipt when artifact is post-hardening and bound to current HEAD."""
     if "tld_gate_status" not in art:
@@ -1598,6 +1621,10 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
     is_ci = is_ci_env(env)
     is_precommit = env.get("AF_GATE_CONTEXT") == "precommit"
     artifact_ok = _coherence_artifact_usable(".", env)
+    artifact_signed_ok = _coherence_artifact_signed_usable(".", env)
+    trust_ingest_path = (
+        ingest_only and not is_ci and is_precommit and artifact_signed_ok
+    )
     artifact_only = str(env.get("AF_COHERENCE_ARTIFACT_ONLY", "")).lower() in ("1", "true", "yes")
     prefer_artifact = (
         (ingest_only and not is_ci)
@@ -1605,7 +1632,7 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
         or (not is_ci and artifact_only and artifact_ok)
     )
     if prefer_artifact:
-        if is_precommit:
+        if is_precommit and not trust_ingest_path:
             unstaged_diff = _git(["diff", "--name-only"])
             if unstaged_diff:
                 scorecard_path = Path(DEFAULT_SCORECARD).as_posix()
@@ -1624,6 +1651,8 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
         coherence = derive_coherence(".", force_dynamic=False, env=env)
         meta["coherence_ingested"] = True
         meta["coherence_source"] = "artifact"
+        if trust_ingest_path:
+            meta["trust_ingest_path"] = True
     else:
         old_verify_mode = os.environ.get("AF_VERIFY_MODE")
         os.environ["AF_VERIFY_MODE"] = "1"
@@ -1717,7 +1746,7 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
     rd_proxy, rnotes = derive_reward_direction(proxies)
     meta["reward_direction_proxy"] = rd_proxy
     is_ci = is_ci_env(env)
-    enforce_rd = str(env.get("AF_RD_ENFORCE", "1" if (is_ci or is_precommit) else "0")) == "1"
+    enforce_rd = str(env.get("AF_RD_ENFORCE", "0" if trust_ingest_path else ("1" if (is_ci or is_precommit) else "0"))) == "1"
     meta["reward_direction_enforced"] = enforce_rd
     asserted = card.get("impact", {}).get("reward_direction")
     if enforce_rd:

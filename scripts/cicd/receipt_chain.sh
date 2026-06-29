@@ -131,6 +131,29 @@ _hire_receipt_lines() {
   [[ -f "$log" ]] && wc -l < "$log" | tr -d ' ' || echo 0
 }
 
+
+_mock_hire_append() {
+  local log="$1"
+  mkdir -p "$(dirname "$log")"
+  REPO_ROOT="$ROOT" python3 - "$log" <<'PY'
+import json, sys, uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+log = Path(sys.argv[1])
+entry = {
+    "receipt_id": str(uuid.uuid4()),
+    "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "status_code": 200,
+    "endpoint": "earnings/sync",
+    "mock": True,
+}
+log.parent.mkdir(parents=True, exist_ok=True)
+with log.open("a", encoding="utf-8") as fh:
+    fh.write(json.dumps(entry) + "\n")
+PY
+}
+
 _hire_can_sync() {
   # Match hire_mcp_client: HIRE_MCP_TOKEN or op read (not shell env pre-check only).
   REPO_ROOT="$ROOT" python3 -c "
@@ -181,6 +204,32 @@ PY
   then
     echo "receipt_chain: hire receipt invalid (missing receipt_id/timestamp/status_code)"
     _write_receipt "BLOCK" 1 "$SCORECARD" "$EARNINGS_HASH" '["hire_receipts.jsonl entry invalid"]'
+    if [[ "$ENFORCE" == "1" ]]; then exit 1; fi
+    exit 0
+  fi
+elif [[ "${AF_RECEIPT_CHAIN_MOCK_HIRE:-0}" == "1" ]]; then
+  HIRE_LINES_BEFORE="$(_hire_receipt_lines "$HIRE_RECEIPT_LOG")"
+  _mock_hire_append "$HIRE_RECEIPT_LOG"
+  HIRE_LINES_AFTER="$(_hire_receipt_lines "$HIRE_RECEIPT_LOG")"
+  if [[ "$HIRE_LINES_AFTER" -le "$HIRE_LINES_BEFORE" ]]; then
+    echo "receipt_chain: mock hire receipt missing"
+    _write_receipt "BLOCK" 1 "$SCORECARD" "$EARNINGS_HASH" '["mock hire_receipts.jsonl not appended"]'
+    if [[ "$ENFORCE" == "1" ]]; then exit 1; fi
+    exit 0
+  fi
+  if ! REPO_ROOT="$ROOT" python3 - "$HIRE_RECEIPT_LOG" <<'PY'
+import json, sys
+from pathlib import Path
+log = Path(sys.argv[1])
+line = log.read_text(encoding="utf-8").strip().splitlines()[-1]
+entry = json.loads(line)
+for key in ("receipt_id", "timestamp", "status_code", "endpoint"):
+    if key not in entry or not str(entry.get(key, "")).strip():
+        raise SystemExit(f"missing or empty: {key}")
+PY
+  then
+    echo "receipt_chain: mock hire receipt invalid (F9 fields)"
+    _write_receipt "BLOCK" 1 "$SCORECARD" "$EARNINGS_HASH" '["mock hire_receipts.jsonl entry invalid"]'
     if [[ "$ENFORCE" == "1" ]]; then exit 1; fi
     exit 0
   fi

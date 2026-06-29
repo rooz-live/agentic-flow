@@ -1,11 +1,11 @@
 # DDD/TDD/ADR Coherence Validation Report
-**Generated:** 2026-06-28 21:34:19
+**Generated:** 2026-06-28 21:39:44
 **Project:** `/Users/shahroozbhopti/Documents/code`
-**Files Scanned:** 375
+**Files Scanned:** 374
 **Automation Level:** Level 3 (With Review)
 
 ## ✅ Overall: PASS
-`███████████████████████████░░░` **92.5%** (743/803 checks)
+`███████████████████████████░░░` **92.6%** (742/801 checks)
 
 ## Layer Health
 
@@ -14,7 +14,7 @@
 | **PRD** | 🟡 76% | 11 | 5 | 11 PRD document(s) found |
 | **ADR** | 🟢 87% | 31 | 3 | 31 ADR document(s) found |
 | **DDD** | 🟢 95% | 37 | 0 | 37 domain file(s) found |
-| **TDD** | 🟢 93% | 296 | 23 | 296 test file(s) found |
+| **TDD** | 🟢 94% | 295 | 22 | 295 test file(s) found |
 
 ## Cross-Layer Coherence
 
@@ -26,7 +26,7 @@
 - ✅ **COH-010** (ddd→prd): 31/32 domain modules have DoR/DoD docstrings (97%)
 - ✅ **COH-006** (ddd→ddd): 41/42 Python packages have __init__.py (98%)
 - ✅ **COH-009** (ddd→ddd): 40/41 Rust domain structs derive Serialize (98%)
-- ✅ **COH-007** (tdd→tdd): 155/159 test files follow naming convention (97%)
+- ✅ **COH-007** (tdd→tdd): 156/160 test files follow naming convention (98%)
 - ✅ **COH-008** (prd→prd): 10/11 PRD documents have measurable success metrics (91%) [2 stray PRD-like file(s) outside docs/prd/]
 - ✅ **COH-011** (ddd→tdd): Found 1 MCP component(s) and 3 test harness(es)
 - ✅ **COH-012** (ddd→tdd): Found 19 vector source file(s) and 6 vector test harness(es)
@@ -370,10 +370,6 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.8 assertions/test (7 assertions, 4 tests) `tests/analysis/test_train_dt_model.py`
 - ✅ [INFO] Test file follows naming convention: Correct: ddd-boundaries.test.ts `tests/architecture/ddd-boundaries.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.5 assertions/test (12 assertions, 8 tests) `tests/architecture/ddd-boundaries.test.ts`
-- ✅ [INFO] Test file follows naming convention: Correct: test_beads.py `tests/beads/test_beads.py`
-- ❌ [WARNING] Test assertion density ≥ 1.0 per test: 0.0 assertions/test (0 assertions, 2 tests) `tests/beads/test_beads.py`
-- ✅ [INFO] Test file follows naming convention: Correct: test_coverage_boost.py `tests/beads/test_coverage_boost.py`
-- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (12 assertions, 4 tests) `tests/beads/test_coverage_boost.py`
 - ✅ [INFO] Test file follows naming convention: Correct: billing-platform-integration.e2e.spec.ts `tests/billing-platform-integration.e2e.spec.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.1 assertions/test (87 assertions, 17 tests) `tests/billing-platform-integration.e2e.spec.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: calculation-engine-tdd.e2e.spec.ts `tests/calculation-engine-tdd.e2e.spec.ts`
@@ -504,6 +500,8 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 3.0 assertions/test (6 assertions, 2 tests) `tests/metrics/test_inbox_pace_coherence.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_inbox_zero_anti_cvt.py `tests/metrics/test_inbox_zero_anti_cvt.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 5.0 assertions/test (5 assertions, 1 tests) `tests/metrics/test_inbox_zero_anti_cvt.py`
+- ✅ [INFO] Test file follows naming convention: Correct: test_op_invert_bootstrap.py `tests/metrics/test_op_invert_bootstrap.py`
+- ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.0 assertions/test (4 assertions, 2 tests) `tests/metrics/test_op_invert_bootstrap.py`
 - ✅ [INFO] Test file follows naming convention: Correct: test_tick_cycle_policy.py `tests/metrics/test_tick_cycle_policy.py`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 1.5 assertions/test (3 assertions, 2 tests) `tests/metrics/test_tick_cycle_policy.py`
 - ✅ [INFO] Test file follows naming convention: Correct: hierarchical-swarm-test.js `tests/parallel/hierarchical-swarm-test.js`
@@ -838,9 +836,9 @@
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (33 assertions, 15 tests) `tests/verification/strange-loops-detector.test.ts`
 - ✅ [INFO] Test file follows naming convention: Correct: verification-pipeline.test.ts `tests/verification/verification-pipeline.test.ts`
 - ✅ [WARNING] Test assertion density ≥ 1.0 per test: 2.2 assertions/test (28 assertions, 13 tests) `tests/verification/verification-pipeline.test.ts`
-- ✅ [CRITICAL] Unit tests present: 2883 test functions found
+- ✅ [CRITICAL] Unit tests present: 2879 test functions found
 - ✅ [WARNING] Integration tests present: 101 integration test file(s)
-- ✅ [INFO] Total assertion count reasonable: 8433 total assertions across 296 files
+- ✅ [INFO] Total assertion count reasonable: 8425 total assertions across 295 files
 
 ## Recommendations
 
@@ -858,10 +856,10 @@
 
 | Phase | Coherence Action |
 |:------|:-----------------|
-| **Observe** | Scanned 375 files across 4 layers |
-| **Orient** | Health: PRD=76%, ADR=87%, DDD=95%, TDD=93% |
-| **Decide** | Verdict: PASS at 92% |
+| **Observe** | Scanned 374 files across 4 layers |
+| **Orient** | Health: PRD=76%, ADR=87%, DDD=95%, TDD=94% |
+| **Decide** | Verdict: PASS at 93% |
 | **Act** | 9 recommendations to implement |
 
 ---
-*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-06-28 21:34:19*
+*Generated by DDD/TDD/ADR Coherence Validator v1.0 | 2026-06-28 21:39:44*

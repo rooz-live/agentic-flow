@@ -53,6 +53,13 @@ TRACKED_KEYS = tuple(sorted(set(DEP_KEY_MAP.values()) | {
 }))
 
 
+_VALUE_CACHE: dict[str, tuple[str | None, str]] = {}
+
+
+def clear_value_cache() -> None:
+    _VALUE_CACHE.clear()
+
+
 @dataclass(frozen=True)
 class KeyResolution:
     name: str
@@ -191,23 +198,33 @@ def _scan_op_vault_for_keys(keys: Iterable[str]) -> dict[str, KeyResolution]:
     return found
 
 
+
+
+def _cache_resolution(key: str, val: str | None, src: str) -> tuple[str | None, str]:
+    pair = (val, src)
+    _VALUE_CACHE[key] = pair
+    return pair
+
 def resolve_key_value(key: str, root: Path | None = None) -> tuple[str | None, str]:
     """Resolve one key's secret value and source label."""
     root = root or repo_root()
+    cached = _VALUE_CACHE.get(key)
+    if cached is not None:
+        return cached
 
     env_val = os.environ.get(key, "")
     if env_val and not _is_placeholder(env_val):
         if OP_REF_RE.match(env_val):
             resolved = op_read(env_val)
             if resolved:
-                return resolved, env_val
+                return _cache_resolution(key, resolved, env_val)
         else:
-            return env_val, "env"
+            return _cache_resolution(key, env_val, "env")
 
     for path in _env_files(root):
         val, src = _dotenv_value_for_key(path, key)
         if val:
-            return val, src
+            return _cache_resolution(key, val, src)
 
     if _vault_scan_enabled():
         hit = _scan_op_vault_for_keys([key]).get(key)
@@ -222,15 +239,15 @@ def resolve_key_value(key: str, root: Path | None = None) -> tuple[str | None, s
                     if m and m.group(1) == key:
                         val, _ = _resolve_value(m.group(2))
                         if val:
-                            return val, ref
+                            return _cache_resolution(key, val, ref)
                 if key == "GEMINI_API_KEY" and "AIza" in blob:
-                    return blob.strip(), ref
+                    return _cache_resolution(key, blob.strip(), ref)
                 if key == "ANTHROPIC_API_KEY" and "sk-ant" in blob:
-                    return blob.strip(), ref
+                    return _cache_resolution(key, blob.strip(), ref)
                 if key == "ZAI_API_KEY" and len(blob) > 12:
-                    return blob.strip(), ref
+                    return _cache_resolution(key, blob.strip(), ref)
 
-    return None, "absent"
+    return _cache_resolution(key, None, "absent")
 
 
 def resolve_keys(root: Path | None = None, *, keys: Iterable[str] | None = None) -> dict[str, KeyResolution]:
@@ -344,6 +361,20 @@ def sync_roam_cog_env_deps(
     return resolved_ids
 
 
+
+
+def tick_bootstrap(root: Path | None = None) -> tuple[str, list[str], list[str]]:
+    """Single-process tick env bootstrap: resolve once, forbid OP, sync ROAM, emit exports."""
+    root = root or repo_root()
+    clear_value_cache()
+    keys = resolve_keys(root)
+    os.environ["AF_SKIP_OP_READ"] = "1"
+    os.environ.pop("AF_ALLOW_OP_READ", None)
+    dep_ids = sync_roam_env_deps(root, keys=keys)
+    cog_ids = sync_roam_cog_env_deps(root, keys=keys)
+    exports = export_shell(root=root)
+    return exports, dep_ids, cog_ids
+
 def export_shell(keys: Iterable[str] | None = None, *, root: Path | None = None) -> str:
     """Emit export statements for resolved keys (never prints secret values to logs elsewhere)."""
     import shlex
@@ -368,15 +399,34 @@ def main() -> int:
     parser.add_argument("--sync-roam", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--export-shell", action="store_true", help="Print export statements for resolved keys")
+    parser.add_argument(
+        "--tick-bootstrap",
+        action="store_true",
+        help="One OP pass: resolve keys, sync ROAM (main+cog), emit export-shell (no second resolve)",
+    )
     args = parser.parse_args()
 
     root = repo_root()
+    if args.tick_bootstrap:
+        exports, dep_ids, cog_ids = tick_bootstrap(root)
+        sys.stderr.write(
+            f"tick_bootstrap: roam_deps={','.join(dep_ids) or 'none'} "
+            f"cog_deps={','.join(cog_ids) or 'none'}\n"
+        )
+        sys.stdout.write(exports)
+        return 0
     if args.export_shell:
         sys.stdout.write(export_shell(root=root))
         return 0
     if args.sync_roam:
-        keys = resolve_keys(root)
+        if os.environ.get("AF_SKIP_OP_READ") == "1":
+            keys = resolve_keys(root)
+        else:
+            clear_value_cache()
+            keys = resolve_keys(root)
+            os.environ["AF_SKIP_OP_READ"] = "1"
         ids = sync_roam_env_deps(root, dry_run=args.dry_run, keys=keys)
+        sync_roam_cog_env_deps(root, dry_run=args.dry_run, keys=keys)
         if args.json:
             print(json.dumps({"resolved": ids, "keys": {k: v.__dict__ for k, v in keys.items()}}, indent=2))
         else:

@@ -236,11 +236,15 @@ def build_timescape(root: Path | None = None, *, window_hours: float = DEFAULT_W
     open_upstream, closed_upstream = _count_upstream(root / ".goalie" / "UPSTREAM_ACTIONS.yaml")
     dlq_rows = _dlq_rows(root / "dlq.jsonl")
     tick_post = _load_tick_post(root)
+    tick_policy = _load_tick_policy(root)
     pace_source = tick_post.get("pace_source")
     shippable_lane_empty = bool(tick_post.get("shippable_lane_empty"))
     tick_pace = tick_post.get("pace_cod_weight")
+    policy_pace = tick_policy.get("pace_cod_weight")
     if tick_pace is not None:
         pace = float(tick_pace)
+    elif pace_source == "stale" and policy_pace is not None:
+        pace = float(policy_pace)
     else:
         pace = _pace_from_lnnnl(root / ".goalie" / "LNNNL.yaml")
 
@@ -250,18 +254,23 @@ def build_timescape(root: Path | None = None, *, window_hours: float = DEFAULT_W
     pct_closed = (closed_count / total * 100.0) if total > 0 else 100.0
     velocity = closed_count / window_hours if window_hours > 0 else 0.0
 
-    tick_policy = _load_tick_policy(root)
     policy = _policy_utilization(root, pace, tick_post=tick_post, tick_policy=tick_policy)
     anti = _anti_cvt_breakdown(root, policy)
     roi = _max_roi(root)
     velocity_fmt = f"{pct_closed:.1f}.{open_count}"
     if tick_post.get("pace_source") == "stale" and tick_post.get("pace_cod_weight") is None:
-        pace_fmt = "#.%"
+        if policy_pace is not None:
+            pace_fmt = f"{open_count}.{float(policy_pace):.1f}"
+            pace_source_out = "policy_snapshot"
+        else:
+            pace_fmt = "#.%"
+            pace_source_out = pace_source or "stale"
     elif shippable_lane_empty and tick_pace is None:
         pace_fmt = "#.%"
+        pace_source_out = pace_source or ("tick_post" if tick_post else "lnnnl")
     else:
         pace_fmt = f"{open_count}.{pace:.1f}"
-    pace_source_out = pace_source or ("tick_post" if tick_post else "lnnnl")
+        pace_source_out = pace_source or ("tick_post" if tick_post else "lnnnl")
 
     return {
         "schema_version": SCHEMA_VERSION,

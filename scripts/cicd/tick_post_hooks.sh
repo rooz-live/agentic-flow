@@ -70,16 +70,18 @@ on_exit() {
 }
 trap on_exit EXIT
 
-echo "=== tick_post: env key resolver (export-shell + sync-roam once) ==="
-ENV_EXPORTS="$(python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --export-shell 2>/dev/null || true)"
+echo "=== tick_post: env bootstrap (invert: forbid OP except one bootstrap pass) ==="
+export AF_SKIP_OP_READ=1
+ENV_EXPORTS="$(
+  AF_ALLOW_OP_READ=1 AF_SKIP_OP_READ=0     python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --tick-bootstrap 2>/dev/null || true
+)"
 if [[ -n "$ENV_EXPORTS" ]] && grep -qE '^export ' <<<"$ENV_EXPORTS"; then
   _source_exports "$ENV_EXPORTS"
-  export AF_SKIP_OP_READ=1
   ENV_EXPORT_OK=1
 else
-  echo "WARN: export-shell produced no exports; AF_SKIP_OP_READ not set"
+  echo "WARN: tick-bootstrap produced no exports (OP skipped or keys absent)"
 fi
-python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --sync-roam || echo "WARN: env_key_resolver sync-roam failed"
+export AF_SKIP_OP_READ=1
 
 echo "=== tick_post: WSJF (single owner; before relate/upstream) ==="
 set +e
@@ -140,9 +142,9 @@ if [[ "$RUN_AQE" == "1" ]]; then
     _source_exports "$LLM_EXPORTS"
   fi
   set +e
-  timeout "${AQE_PHASE_MIN}m" bash "$ROOT/scripts/one.sh" aqe quality assess --scope changed
+  timeout "${AQE_PHASE_MIN}m" bash "$ROOT/scripts/one.sh" aqe quality --gate
   _tick_post_enforce_fail "aqe quality" $?
-  timeout "${AQE_PHASE_MIN}m" bash "$ROOT/scripts/one.sh" aqe coverage analyze --paths src/ --threshold 80
+  timeout "${AQE_PHASE_MIN}m" bash "$ROOT/scripts/one.sh" aqe coverage src/ --threshold 80
   _tick_post_enforce_fail "aqe coverage" $?
   set -e
 else

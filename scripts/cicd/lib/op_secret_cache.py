@@ -10,6 +10,7 @@ OP_REF_RE = re.compile(r"^op://")
 PLACEHOLDER_RE = re.compile(r"(your_|placeholder|_here\b|changeme|xxx)", re.I)
 
 _CACHE: dict[str, tuple[str, float]] = {}
+_OP_READ_COUNT = 0
 
 
 def _is_placeholder(value: str) -> bool:
@@ -27,10 +28,20 @@ def clear_op_cache() -> None:
 
 
 def op_read(ref: str) -> str | None:
-    """Read op:// ref via CLI; cache hits avoid duplicate 1Password prompts."""
+    """Read op:// ref via CLI; cache hits avoid duplicate 1Password prompts.
+
+    Inverted default: when AF_SKIP_OP_READ=1, OP is blocked unless AF_ALLOW_OP_READ=1
+    (single bootstrap pass). AF_OP_READ_MAX caps reads per process.
+    """
+    global _OP_READ_COUNT
     if not OP_REF_RE.match(ref):
         return None
-    if os.environ.get("AF_SKIP_OP_READ") == "1":
+    skip = os.environ.get("AF_SKIP_OP_READ") == "1"
+    allow = os.environ.get("AF_ALLOW_OP_READ") == "1"
+    if skip and not allow:
+        return None
+    max_reads = int(os.environ.get("AF_OP_READ_MAX", "16"))
+    if _OP_READ_COUNT >= max_reads:
         return None
 
     now = time.monotonic()
@@ -49,6 +60,7 @@ def op_read(ref: str) -> str | None:
             timeout=int(os.environ.get("AF_OP_READ_TIMEOUT_SEC", "60")),
             check=False,
         )
+        _OP_READ_COUNT += 1
         if proc.returncode == 0:
             val = proc.stdout.strip()
             if val and not _is_placeholder(val):

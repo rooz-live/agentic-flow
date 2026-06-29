@@ -16,6 +16,11 @@ TESTS=(
   test_wsjf_canonical_owner.sh
   test_tld_targets_generator.sh
   test_lnnnl_dual_lane_contract.sh
+  test_receipt_chain.sh
+  test_receipt_chain_enforce.sh
+  test_tick_post_timescape_order.sh
+  test_tick_post_stale_enforce.sh
+  test_op_invert_bootstrap.sh
   test_roam_edge_contract.sh
   test_dor_dod_matrix.sh
   test_tick_rehydration_manifest.sh

@@ -6,10 +6,10 @@
 
 | Metric / Vector | Latest Value | Cumulative Total |
 | :--- | :---: | :---: |
-| 🤖 **Agent** | `5.0` | `40.0` |
-| ⚙️ **Engine** | `1.0` | `8.0` |
-| 🛠️ **Engineer** | `3.25` | `26.0` |
-| 💡 **Ingenuity** | `4.0` | `36.0` |
-| 💰 **Total Earnings** | **`13.25`** | **`110.0`** |
+| 🤖 **Agent** | `5.0` | `90.0` |
+| ⚙️ **Engine** | `1.0` | `18.0` |
+| 🛠️ **Engineer** | `2.0` | `49.0` |
+| 💡 **Ingenuity** | `0.0` | `36.0` |
+| 💰 **Total Earnings** | **`8.0`** | **`193.0`** |
 
-> **Last Verified Cycle**: `2026-06-28T23:08:57.626746Z` | **Commit**: `ed22f46e`
+> **Last Verified Cycle**: `2026-06-29T01:36:00.195716Z` | **Commit**: `c138eb5a`

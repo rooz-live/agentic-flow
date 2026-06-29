@@ -147,8 +147,8 @@ Each `tick_post_hooks.sh` run follows this order; skipping or reordering breaks 
 
 | Step | Command / owner | Notes |
 |------|-----------------|-------|
-| 1 Export | `env_key_resolver.py --export-shell` | TRACKED_KEYS only; lazy `op read`; fd-only `source <(printf …)` (not `eval`, not disk `mktemp`) |
-| 2 Sync ROAM | `--sync-roam` once | Set `AF_SKIP_OP_READ=1` only when exports present |
+| 1 Bootstrap | `env_key_resolver.py --tick-bootstrap` | **Inverted OP**: `AF_ALLOW_OP_READ=1` for one resolve pass; then `AF_SKIP_OP_READ=1`; sync ROAM main+cog; emit exports (no second Python/op pass) |
+| 2 Shell source | fd-only `source <(printf …)` | Rest of tick runs with `AF_SKIP_OP_READ=1` (OP forbidden) |
 | 3 Rank | `update_lnnnl.py` → `LNNNL.yaml` v1.1 | Single WSJF owner; `AF_SKIP_ROAM_SYNC=1` on second callers |
 | 4 Pace | `pace_from_lnnnl.py` → `tick_cycle_policy.py` | **Shippable lane only** (`lanes.shippable`); blockers visible but do not set pace |
 | 5 Verify | `scorecard_gate.py --verify` | CI forbids `--self-asserted`; requires `coherence_derived=PASS` to SHIP |
@@ -242,6 +242,35 @@ Lenient Playwright skips require **`TLD_GATE_LENIENT=1`**; `test:e2e:tld-gate:st
 
 Legacy artifacts (no `tld_gate_status`) or stale artifacts (`hash` ≠ `git HEAD`) are **skipped** by DoD and scorecard derive — not FAIL.
 
+
+
+### Tick earnings receipt chain closure (MPP)
+
+`scripts/cicd/receipt_chain.sh` runs **after** post-AQE timescape in `tick_post_hooks.sh`. Fail-closed order:
+
+| Step | Script | Closure signal |
+|------|--------|----------------|
+| 1 | `scorecard_resolver.py` | Canonical scorecard path (`current.json` → `latest.json`; rejects coherence-only artifacts) |
+| 2 | `earnings_engine.py --verify` | Ledger/scorecard coherence + gate integrity |
+| 3 | `earnings_export_json.py --require-verified` | Writes `.goalie/evidence/earnings_latest.json` from **verified** ledger rows only |
+| 4 | `compile_profile_readme.py` | Regenerates `profile_readme.md` from verified ledger |
+| 5 | `sync_earnings_to_hire.py` | MCP profile sync when `HIRE_MCP_TOKEN` is set |
+| 6 | `hire_mcp_client.py` | Appends one JSON line to `.goalie/evidence/hire_receipts.jsonl` per MCP call |
+| 7 | `receipt_chain.sh` | Writes `.goalie/evidence/receipts/tick_*.json` with `status=PASS` **last** |
+
+| Env | Default | Meaning |
+|-----|---------|---------|
+| `AF_RECEIPT_CHAIN_ENFORCE` | `1` | Block tick when any step fails or hire sync skipped without dry-run allowance |
+| `HIRE_MCP_TOKEN` | unset | Bearer token for hire MCP; required for live hire sync |
+| `AF_RECEIPT_CHAIN_ALLOW_DRY_HIRE` | `0` | When `1`, runs `sync_earnings_to_hire.py --dry-run` (no `hire_receipts.jsonl` append) |
+
+### `#.%` sentinel vs policy snapshot
+
+When `tick_post_latest.json` has `pace_source=stale` and `pace_cod_weight=null`, inbox timescape **prefers** `tick_cycle_policy_latest.json` (written post-AQE in the same tick) if it carries `pace_cod_weight`. Then `pace_fmt` uses `{open_count}.{pace}` and `pace_source=policy_snapshot`. Only when **both** tick_post pace is absent **and** policy snapshot is missing does `pace_fmt` emit the fail-closed sentinel `#.%`.
+
+### DoN `LOOP_ITEM` and blocker ID binding
+
+`LOOP_ITEM` for `/loop` must come from `lanes.shippable.now` (DoN). Blocker lane classification uses shared `BLOCKER_ID_RE` in `update_lnnnl.py` and `pace_from_lnnnl.py`: `^(DEP-|BLK-|B-|R04|R-)`. Keep both files aligned when extending blocker prefixes (e.g. `R-MAIL-03`).
 
 
 ---

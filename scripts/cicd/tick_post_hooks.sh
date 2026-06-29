@@ -12,6 +12,9 @@ LNNNL_EXIT=0
 ENV_EXPORT_OK=0
 TICK_POST_EXIT=0
 SAVED_PACE_BUNDLE=""
+# F4 guard: set to 1 after _refresh_saved_pace_bundle succeeds post-policy write.
+# on_exit must not clobber a committed reconcile with a fresh re-read (race).
+_PACE_RECONCILED=0
 
 _tick_post_enforce_fail() {
   local label="$1"
@@ -74,17 +77,28 @@ _refresh_saved_pace_bundle() {
   local policy_file="$EVIDENCE_DIR/tick_cycle_policy_latest.json"
   [[ -f "$policy_file" ]] || return 0
   SAVED_PACE_BUNDLE="$(_pace_bundle_json)"
+  # F4: mark that reconcile committed a refreshed bundle — on_exit must not clobber.
+  _PACE_RECONCILED=1
 }
 
 on_exit() {
   local policy_file="$EVIDENCE_DIR/tick_cycle_policy_latest.json"
   local bundle
-  if [[ -f "$policy_file" ]]; then
+  if [[ "$_PACE_RECONCILED" == "1" ]]; then
+    # F4 FIX: reconcile already committed a refreshed bundle post-policy write.
+    # Re-reading here would race against any intermediate LNNNL mutation.
+    # Use the already-captured SAVED_PACE_BUNDLE — it is the authoritative value.
+    bundle="$SAVED_PACE_BUNDLE"
+  elif [[ -f "$policy_file" ]]; then
+    # Policy exists but reconcile did not run (e.g. AQE/upstream path was skipped).
+    # Safe to re-read because no committed state would be clobbered.
     bundle="$(_pace_bundle_json)"
     SAVED_PACE_BUNDLE="$bundle"
   else
-    _refresh_saved_pace_bundle
-    bundle="${SAVED_PACE_BUNDLE:-$(read_pace_bundle)}"
+    # F4 FIX: Early exit before policy write — fail-closed to stale sentinel.
+    # The tick did not complete its policy cycle, so pace must be marked stale.
+    bundle='{"pace_source":"stale","pace_cod_weight":null}'
+    SAVED_PACE_BUNDLE="$bundle"
   fi
   write_tick_evidence "$bundle" || true
 }
@@ -113,6 +127,11 @@ else
   echo "WARN: tick-bootstrap produced no exports (OP skipped or keys absent)"
 fi
 export AF_SKIP_OP_READ=1
+
+echo "=== tick_post: exec WSJF ruflo PI backlog ==="
+if [[ -x "$ROOT/scripts/cicd/exec_wsjf_ruflo.sh" ]]; then
+  bash "$ROOT/scripts/cicd/exec_wsjf_ruflo.sh" || echo "WARN: exec_wsjf_ruflo failed"
+fi
 
 echo "=== tick_post: WSJF (single owner; before relate/upstream) ==="
 set +e
@@ -197,6 +216,11 @@ _refresh_saved_pace_bundle || echo "WARN: tick_post pace reconcile skipped"
 echo "=== tick_post: inbox_zero_timescape (post-policy/AQE) ==="
 bash "$ROOT/scripts/metrics/inbox_zero_timescape.sh" || _tick_post_enforce_fail "inbox_zero_timescape" $?
 
+if [[ -f "$ROOT/scripts/cicd/exit_artifact_inbox.py" ]]; then
+  echo "=== tick_post: exit artifact inbox zero ==="
+  python3 "$ROOT/scripts/cicd/exit_artifact_inbox.py" || echo "WARN: exit_artifact_inbox (non-zero open artifacts)"
+fi
+
 CORRELATE_EXIT=0
 if [[ -f "$ROOT/scripts/metrics/correlate_timescape_evidence.py" ]]; then
   set +e
@@ -241,6 +265,11 @@ if [[ -x "$ROOT/scripts/cicd/receipt_chain.sh" ]]; then
     fi
   fi
   AF_RECEIPT_CHAIN_ENFORCE="${AF_RECEIPT_CHAIN_ENFORCE:-$_receipt_enforce_default}" bash "$ROOT/scripts/cicd/receipt_chain.sh" || _tick_post_enforce_fail "receipt_chain" $?
+fi
+
+if [[ -x "$ROOT/scripts/ruflo/intel_pipeline_post_task.py" ]]; then
+  echo "=== tick_post: ruflo intel pipeline (provenance-gated) ==="
+  REPO_ROOT="$ROOT" python3 "$ROOT/scripts/ruflo/intel_pipeline_post_task.py" || _tick_post_enforce_fail "intel_pipeline" $?
 fi
 
 exit "${TICK_POST_EXIT}"

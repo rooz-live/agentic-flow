@@ -31,7 +31,7 @@ if lnnnl.is_file():
     payload["lnnnl_schedule"] = ldoc.get("schedule", {})
     payload["lnnnl_lanes"] = ldoc.get("lanes", {})
 
-for name in ("inbox_zero_latest.json", "agentic_time_latest.json", "timescape_correlation_latest.json"):
+for name in ("inbox_zero_latest.json", "agentic_time_latest.json", "timescape_correlation_latest.json", "ruflo_doctor_latest.json", "intel_pipeline_latest.json", "wsjf_ruflo_latest.json"):
     p = root / ".goalie/evidence" / name
     if p.is_file():
         payload[name.replace(".json", "")] = json.loads(p.read_text(encoding="utf-8"))
@@ -42,6 +42,21 @@ if fqdn.is_file():
     doc = yaml.safe_load(fqdn.read_text(encoding="utf-8")) or {}
     payload["pi_plan"] = doc.get("pi_plan", {})
 
+exit_path = root / ".goalie/evidence/ruflo_upgrade_exit_latest.json"
+inbox = payload.get("inbox_zero_latest") or {}
+payload["inbox_zero_pct"] = inbox.get("fa_free_closure_composite_pct") or inbox.get("composite_pct")
+payload["inbox_zero_open"] = inbox.get("open_count")
+doctor = payload.get("ruflo_doctor_latest") or {}
+payload["ruflo_blockers"] = len(doctor.get("blockers") or [])
+payload["inbox_zero_gate"] = doctor.get("inbox_zero_gate", payload.get("inbox_zero_pct", 0) == 100)
 out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-print(f"wrote {out}")
+exit_path.write_text(json.dumps({
+    "schema": "ruflo_upgrade_exit.v1",
+    "timestamp": payload["timestamp"],
+    "inbox_zero_gate": payload.get("inbox_zero_gate"),
+    "inbox_zero_pct": payload.get("inbox_zero_pct"),
+    "ruflo_blockers": payload.get("ruflo_blockers"),
+    "head_wsjf": (payload.get("wsjf_ruflo_latest") or {}).get("head_item", {}).get("id"),
+}, indent=2) + "\n", encoding="utf-8")
+print(f"wrote {out} and {exit_path}")
 PY

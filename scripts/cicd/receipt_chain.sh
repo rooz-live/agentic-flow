@@ -249,4 +249,7 @@ fi
 
 RECEIPT_OUT="$(_write_receipt "PASS" 0 "$SCORECARD" "$EARNINGS_HASH" "[]")"
 echo "receipt_chain: wrote $RECEIPT_OUT"
+if [[ -x "$CODE_ROOT/scripts/cicd/intel_pipeline_tick.sh" ]]; then
+  REPO_ROOT="$ROOT" bash "$CODE_ROOT/scripts/cicd/intel_pipeline_tick.sh" || echo "WARN: intel_pipeline post-receipt"
+fi
 exit 0

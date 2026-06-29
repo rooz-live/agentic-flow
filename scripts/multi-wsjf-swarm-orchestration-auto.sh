@@ -7,18 +7,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=scripts/ruflo/lib/ruflo_npx.sh
+source "$PROJECT_ROOT/scripts/ruflo/lib/ruflo_npx.sh"
 
 # Wrapper to accelerate npx ruflo commands
-npx() {
-    if [[ "$1" == "ruflo" || "$1" == "ruflo@latest" ]]; then
-        local pkg="ruflo"
-        shift
-        command npx --prefix "$PROJECT_ROOT/clean-ruflo-env" "$pkg" "$@"
-    else
-        command npx "$@"
-    fi
-}
-
 
 # Color output
 RED='\033[0;31m'
@@ -61,7 +53,7 @@ health_check() {
     
     case $component in
         "ruflo")
-            if npx ruflo@latest --version &>/dev/null; then
+            if ruflo_npx --version &>/dev/null; then
                 log_success "ruflo CLI available"
                 return 0
             else
@@ -70,7 +62,7 @@ health_check() {
             fi
             ;;
         "memory")
-            if npx ruflo memory list --namespace swarms &>/dev/null; then
+            if ruflo_npx memory list --namespace swarms &>/dev/null; then
                 log_success "Memory backend accessible"
                 return 0
             else
@@ -214,19 +206,19 @@ spawn_all_agents() {
 store_swarm_context() {
     log_checkpoint "Memory context storage phase started"
     
-    npx ruflo memory store \
+    ruflo_npx memory store \
         --key "legal-swarm-tasks" \
         --value "1) OCR arbitration order, 2) Confirm April 16 date, 3) Pre-arbitration form prep, 4) March 10 materials" \
         --namespace swarms 2>&1 | grep -q "stored successfully\|Stored" && \
         log_success "Legal context stored"
     
-    npx ruflo memory store \
+    ruflo_npx memory store \
         --key "income-swarm-tasks" \
         --value "1) Validation dashboard demo, 2) LinkedIn post, 3) 720.chat email, 4) Reverse recruiting automation" \
         --namespace swarms 2>&1 | grep -q "stored successfully\|Stored" && \
         log_success "Income context stored"
     
-    npx ruflo memory store \
+    ruflo_npx memory store \
         --key "tech-swarm-tasks" \
         --value "1) Validation dashboard build, 2) Feature flag implementation, 3) Integration tests, 4) Deploy to rooz.live" \
         --namespace swarms 2>&1 | grep -q "stored successfully\|Stored" && \
@@ -294,7 +286,7 @@ monitor_swarms() {
     
     echo ""
     echo "=== Memory Context ==="
-    npx ruflo memory search --query "swarm-tasks" --namespace swarms 2>&1 || log_warn "Memory search returned warnings"
+    ruflo_npx memory search --query "swarm-tasks" --namespace swarms 2>&1 || log_warn "Memory search returned warnings"
     
     log_checkpoint "Monitoring phase completed"
 }

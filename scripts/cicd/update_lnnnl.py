@@ -233,6 +233,60 @@ def find_stale_roam_items(active_items, now_utc):
     return stale
 
 
+
+def _load_roam_refresh_evidence(project_root: str):
+    """Evidence-gated ROAM timestamp refresh (anti-WSJF-gaming)."""
+    evidence_path = os.environ.get("AF_ROAM_REFRESH_EVIDENCE", "").strip()
+    if not evidence_path:
+        return None
+    p = Path(evidence_path)
+    if not p.is_absolute():
+        p = Path(project_root) / p
+    if not p.is_file():
+        raise SystemExit(f"AF_ROAM_REFRESH_EVIDENCE missing: {p}")
+    import json
+    doc = json.loads(p.read_text(encoding="utf-8"))
+    items = doc.get("items") or []
+    if not items:
+        raise SystemExit("AF_ROAM_REFRESH_EVIDENCE: items[] required")
+    allowed = {}
+    for row in items:
+        rid = str(row.get("id") or "").strip()
+        if not rid:
+            continue
+        allowed[rid] = {
+            "disposition": str(row.get("disposition") or row.get("roam") or "owned").lower(),
+            "evidence": row.get("evidence") or row.get("evidence_ref") or "",
+            "note": row.get("note") or "",
+        }
+    if not allowed:
+        raise SystemExit("AF_ROAM_REFRESH_EVIDENCE: no valid item ids")
+    return allowed, p
+
+
+def _append_roam_refresh_audit(project_root: str, item_id: str, evidence_file: Path, note: str = ""):
+    audit = Path(project_root) / ".goalie/evidence/roam_refresh_audit.jsonl"
+    audit.parent.mkdir(parents=True, exist_ok=True)
+    import json
+    from datetime import datetime, timezone
+    row = {
+        "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "item_id": item_id,
+        "evidence": str(evidence_file),
+        "note": note,
+    }
+    with open(audit, "a", encoding="utf-8") as f:
+        f.write(json.dumps(row) + "\n")
+
+
+def _row_id_matches_allowed(row: dict, allowed_ids: set) -> bool:
+    for key in ("id", "risk_id", "dependency_id"):
+        val = str(row.get(key) or "").strip()
+        if val in allowed_ids:
+            return True
+    return False
+
+
 def enforce_stale_roam_gate(stale_items):
     if not stale_items:
         return 0
@@ -504,7 +558,7 @@ def main():
 
     reconcile_wsjf_dependency_links(tracker_data)
 
-    # Optional timestamp refresh (AF_ROAM_REFRESH_TIMESTAMPS=1 only)
+    # Optional timestamp refresh — evidence-gated only (AF_ROAM_REFRESH_TIMESTAMPS=1)
     if os.environ.get('AF_ROAM_REFRESH_TIMESTAMPS', '0') != '1':
         if tracker_data:
             with open(roam_path, 'w', encoding='utf-8') as f:
@@ -514,64 +568,58 @@ def main():
         print('Skipped ROAM discovered refresh (set AF_ROAM_REFRESH_TIMESTAMPS=1 to enable)')
         return
 
-    # Now refresh timestamps to clear the staleness gate
-    # Update COG tracker
-    if cog_data:
-        cog_data['last_verified'] = today_str
-        for r in cog_data.get('risks', []):
-            status = str(r.get('status', '')).lower()
-            if status not in ('mitigated', 'accepted', 'resolved'):
-                r['last_verified'] = today_str
-        with open(roam_cog_path, 'w') as f:
-            yaml.dump(cog_data, f, default_flow_style=False, sort_keys=False)
-        print(f"Refreshed timestamps in {roam_cog_path}")
+    if os.environ.get('AF_ROAM_REFRESH_TIMESTAMPS', '0') == '1':
+        if not os.environ.get('AF_ROAM_REFRESH_EVIDENCE', '').strip():
+            raise SystemExit(
+                'AF_ROAM_REFRESH_TIMESTAMPS=1 requires AF_ROAM_REFRESH_EVIDENCE JSON listing item ids'
+            )
+    allowed_map, evidence_file = _load_roam_refresh_evidence(PROJECT_ROOT)
+    allowed_ids = set(allowed_map.keys())
+    print(f"ROAM refresh evidence: {evidence_file} ({len(allowed_ids)} ids)")
 
-    # Update main tracker
+    def _matched_allowed_id(row: dict) -> str | None:
+        for key in ("id", "risk_id", "dependency_id"):
+            val = str(row.get(key) or "").strip()
+            if val in allowed_ids:
+                return val
+        return None
+
+    def _touch_row(row: dict) -> bool:
+        rid = _matched_allowed_id(row)
+        if not rid:
+            return False
+        meta = allowed_map.get(rid, {})
+        row['last_verified'] = today_str
+        row['last_verified_evidence'] = str(evidence_file)
+        if meta.get('disposition'):
+            row['roam_status'] = meta['disposition'].upper()
+            row['status'] = meta['disposition'].lower()
+        _append_roam_refresh_audit(PROJECT_ROOT, rid, evidence_file, meta.get('note', ''))
+        return True
+
+    touched = 0
+    if cog_data:
+        for r in cog_data.get('risks', []):
+            if _touch_row(r):
+                touched += 1
+        if touched:
+            with open(roam_cog_path, 'w', encoding='utf-8') as f:
+                yaml.dump(cog_data, f, default_flow_style=False, sort_keys=False)
+            print(f"Evidence-gated refresh in {roam_cog_path} ({touched} rows)")
+
     if tracker_data:
-        # Update metadata
-        meta = tracker_data.get('metadata', {})
+        meta = tracker_data.get('metadata', {}) or {}
         meta['last_updated'] = now_iso
         tracker_data['metadata'] = meta
-
-        # Refresh blockers
-        for b in blockers:
-            roam_status = str(b.get('roam_status', '')).upper()
-            if roam_status != 'RESOLVED':
-                disc = b.get('discovered', '')
-                if not disc or '(' in str(disc):
-                    b['discovered'] = today_str
-                b['last_verified'] = today_str
-
-        # Refresh dependencies
-        for d in dependencies:
-            status = str(d.get('status', '')).lower()
-            if status != 'resolved':
-                disc = d.get('discovered', '')
-                if not disc or '(' in str(disc):
-                    d['discovered'] = today_str
-                d['last_verified'] = today_str
-
-        # Refresh risks + Fix 'status' field mapping
-        for r in tracker_risks:
-            roam_status = r.get('roam_status')
-            if roam_status:
-                # Synchronize status to lowercase version of roam_status
-                r['status'] = roam_status.lower()
-            status = str(r.get('status', '')).lower()
-            if status not in ('mitigated', 'accepted', 'resolved'):
-                disc = r.get('discovered', '')
-                if not disc or '(' in str(disc):
-                    r['discovered'] = today_str
-                r['last_verified'] = today_str
-
-        with open(roam_path, 'w') as f:
+        for collection in (blockers, dependencies, tracker_risks):
+            for row in collection:
+                if _touch_row(row):
+                    touched += 1
+        with open(roam_path, 'w', encoding='utf-8') as f:
             yaml.dump(tracker_data, f, default_flow_style=False, sort_keys=False)
-        print(f"Refreshed timestamps and status fields in {roam_path}")
-
-        # Sync to root ROAM_TRACKER.yaml
-        with open(roam_root_path, 'w') as f:
+        with open(roam_root_path, 'w', encoding='utf-8') as f:
             yaml.dump(tracker_data, f, default_flow_style=False, sort_keys=False)
-        print(f"Synchronized root {roam_root_path}")
+        print(f"Evidence-gated refresh in trackers ({touched} total touches)")
 
 if __name__ == '__main__':
     main()

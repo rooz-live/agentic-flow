@@ -118,8 +118,31 @@ if [[ $COMPILE_EXIT -ne 0 ]]; then
   exit 0
 fi
 
+_hire_receipt_lines() {
+  local log="$1"
+  [[ -f "$log" ]] && wc -l < "$log" | tr -d ' ' || echo 0
+}
+
+_hire_can_sync() {
+  # Match hire_mcp_client: HIRE_MCP_TOKEN or op read (not shell env pre-check only).
+  REPO_ROOT="$ROOT" python3 -c "
+import os, sys
+sys.path.insert(0, os.environ['REPO_ROOT'])
+try:
+    from scripts.hire.hire_mcp_client import _resolve_token
+    t = _resolve_token()
+    sys.exit(0 if t else 1)
+except Exception:
+    sys.exit(1)
+" 2>/dev/null
+}
+
+HIRE_RECEIPT_LOG="$ROOT/.goalie/evidence/hire_receipts.jsonl"
+REQUIRE_HIRE="${AF_RECEIPT_CHAIN_REQUIRE_HIRE:-0}"
+
 echo "=== receipt_chain: hire sync ==="
-if [[ -n "${HIRE_MCP_TOKEN:-}" ]]; then
+if _hire_can_sync; then
+  HIRE_LINES_BEFORE="$(_hire_receipt_lines "$HIRE_RECEIPT_LOG")"
   set +e
   python3 "$ROOT/scripts/hire/sync_earnings_to_hire.py"
   HIRE_EXIT=$?
@@ -130,6 +153,13 @@ if [[ -n "${HIRE_MCP_TOKEN:-}" ]]; then
     if [[ "$ENFORCE" == "1" ]]; then exit "$HIRE_EXIT"; fi
     exit 0
   fi
+  HIRE_LINES_AFTER="$(_hire_receipt_lines "$HIRE_RECEIPT_LOG")"
+  if [[ "$HIRE_LINES_AFTER" -le "$HIRE_LINES_BEFORE" ]]; then
+    echo "receipt_chain: hire receipt missing (hire_receipts.jsonl not appended)"
+    _write_receipt "BLOCK" 1 "$SCORECARD" "$EARNINGS_HASH" '["hire_receipts.jsonl not appended after sync"]'
+    if [[ "$ENFORCE" == "1" ]]; then exit 1; fi
+    exit 0
+  fi
 elif [[ "${AF_RECEIPT_CHAIN_ALLOW_DRY_HIRE:-0}" == "1" ]]; then
   set +e
   python3 "$ROOT/scripts/hire/sync_earnings_to_hire.py" --dry-run
@@ -137,9 +167,9 @@ elif [[ "${AF_RECEIPT_CHAIN_ALLOW_DRY_HIRE:-0}" == "1" ]]; then
   set -e
   [[ $HIRE_EXIT -ne 0 ]] && echo "WARN: hire dry-run failed"
 else
-  echo "receipt_chain: SKIP hire (no HIRE_MCP_TOKEN; set AF_RECEIPT_CHAIN_ALLOW_DRY_HIRE=1 to dry-run)"
-  if [[ "$ENFORCE" == "1" ]]; then
-    _write_receipt "BLOCK" 1 "$SCORECARD" "$EARNINGS_HASH" '["hire sync skipped: HIRE_MCP_TOKEN unset"]'
+  echo "receipt_chain: SKIP hire (no MCP token via env or op; set AF_RECEIPT_CHAIN_ALLOW_DRY_HIRE=1 to dry-run)"
+  if [[ "$REQUIRE_HIRE" == "1" && "$ENFORCE" == "1" ]]; then
+    _write_receipt "BLOCK" 1 "$SCORECARD" "$EARNINGS_HASH" '["hire sync required but no MCP token"]'
     exit 1
   fi
 fi

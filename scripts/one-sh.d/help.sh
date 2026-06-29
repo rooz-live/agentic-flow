@@ -27,5 +27,6 @@ Usage: ./scripts/one.sh <subcommand> [args...]
   ruflo|workflow    Ruflo v3.15.0: init, workflow, task, swarm, session, memory, hooks, ...
   harness           Dispatch to the upgraded AI Agent Harness: <doctor|evolve|evolve:dry|init>
   agenticow           Probe agenticow CLI/MCP pin (offline-safe)
+  weight-eft          Probe @metaharness/weight-eft gate (degraded_ok, probe-only)
   run-all             Fast/slow CI runner (AF_RUN_ALL_STRICT=1 default)
 HELP

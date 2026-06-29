@@ -32,6 +32,7 @@ FAST_TESTS=(
   test_auto_dor_contract.sh
   test_tick_rehydration_manifest.sh
   test_session_rehydration_reader.sh
+  test_doctor_shape_consistency.sh
 )
 
 SLOW_TESTS=(
@@ -49,6 +50,7 @@ SLOW_TESTS=(
   test_memory_graph_config.sh
   test_ruflo_plugins_installed.sh
   test_agenticow_mcp_smoke.sh
+  test_weight_eft_probe.sh
 )
 
 # AF_SLOW_SKIP_CONTRACTS: explicit, NAMED allowlist (slow tier only, comma-separated).

@@ -32,6 +32,23 @@ def count_pass_receipts(root: Path) -> int:
     return n
 
 
+def _weight_eft_available(root: Path) -> bool:
+    """Is @metaharness/weight-eft usable/integrated?
+
+    This is a degraded_ok dependency: NOT yet wired into any production path.
+    Returns False by default. Flip to True only via an explicit, tested opt-in
+    (AF_WEIGHT_EFT_AVAILABLE=1) once the package is published AND exercised —
+    mirroring the AF_REDBLUE_AVAILABLE=1 convention in test_redblue_mock_judge.sh.
+
+    We deliberately do NOT trust `npm view <pkg> version`: it resolves a version
+    string for scoped packages even when the CLI is not actually installable or
+    runnable, producing false-positive 'available' (confirmed for both
+    @metaharness/weight-eft=0.1.1 and @metaharness/redblue=0.1.4). 'available'
+    here means integrated + tested, not 'registry resolves a version'.
+    """
+    return os.environ.get("AF_WEIGHT_EFT_AVAILABLE", "0") == "1"
+
+
 def main() -> int:
     root = repo_root()
     out = root / ".goalie/evidence/weight_eft_gate_latest.json"
@@ -45,15 +62,20 @@ def main() -> int:
         except json.JSONDecodeError:
             pass
 
-    ready = pass_n >= PASS_RECEIPT_THRESHOLD and declared
+    available = _weight_eft_available(root)
+    ready = available and pass_n >= PASS_RECEIPT_THRESHOLD and declared
+    degraded = not available
     payload = {
         "schema": "weight_eft_gate.v1",
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "pass_receipt_count": pass_n,
         "threshold": PASS_RECEIPT_THRESHOLD,
         "package_declared": declared,
+        "package_available": available,
+        "degraded": degraded,
         "ready": ready,
         "action": "spike_deferred" if not ready else "ready_for_integration",
+        "note": "probe-only: @metaharness/weight-eft not yet published (degraded_ok)",
     }
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")

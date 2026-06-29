@@ -63,13 +63,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: "Provenance (forks: set AF_CI_SIGNING_KEY secret or job skips emit)"
+      # ── Provenance + gate context for the plugin job (Defect 7) ───────────────
+      # This job (`needs: ruflo-doctor-slow`) is a SEPARATE GitHub Actions job.
+      # $GITHUB_ENV written by the doctor job does NOT propagate across the `needs:`
+      # boundary (cross-job env requires `outputs:` or repository variables), so this
+      # job RE-EMITS its own AF_CI_PROVENANCE_* via emit_ci_provenance.sh, which writes
+      # AF_CI_PROVENANCE_SIGNATURE/PRINCIPAL to $GITHUB_ENV for the steps below in THIS
+      # job (doctor gate → plugin install → memory graph → evidence).
+      #
+      # AF_GATE_CONTEXT / AF_REQUIRE_SCORECARD must ALSO be set here (they do not cross
+      # needs:) so downstream steps in this job inherit the same gate context as job 1.
+      #
+      # FORK / WEEKLY-CRON OWNERS: provenance emit requires the AF_CI_SIGNING_KEY secret
+      # (private ed25519; public key in .goalie/scorecards/allowed_signers). Forks
+      # without it intentionally SKIP emit here (warn-only). By design the upstream
+      # `ruflo-doctor-slow` job is fail-closed — it exits 1 if the key is absent — so a
+      # fork cron that reaches THIS job must have set the secret; otherwise the run is
+      # already blocked upstream.
+      - name: "Provenance + gate context (re-emit per job; forks need AF_CI_SIGNING_KEY)"
         env:
           CI: true
           GITHUB_ACTIONS: true
           AF_CI_SIGNING_KEY: ${{ secrets.AF_CI_SIGNING_KEY }}
           AF_CI_SIGNING_PRINCIPAL: ci@agentic-flow.github
         run: |
+          echo "AF_GATE_CONTEXT=ci" >> "$GITHUB_ENV"
+          echo "AF_REQUIRE_SCORECARD=1" >> "$GITHUB_ENV"
           if [[ -n "${AF_CI_SIGNING_KEY:-}" ]]; then
             source scripts/gates/emit_ci_provenance.sh
           else

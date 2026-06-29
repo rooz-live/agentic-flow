@@ -7,9 +7,34 @@ from pathlib import Path
 
 def main() -> int:
     root = Path(os.environ.get("REPO_ROOT", Path(__file__).resolve().parents[2]))
+    out = root / ".goalie/evidence/memory_graph_apply_latest.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
+
+    # Honor the weekly-workflow flag (Defect 6 wiring). Canonical default is OFF,
+    # matching ruflo_wsjf_upgrade.sh (APPLY_MEMORY="${RUFLO_MEMORY_GRAPH_APPLY:-0}").
+    # The ruflo-upgrade-slow.yml "Memory graph apply" step opts in with
+    # RUFLO_MEMORY_GRAPH_APPLY=1. Without this guard the flag is dead config: the
+    # script would mutate .claude-flow/config.yaml whenever invoked directly.
+    #
+    # Tier vs runtime-flag note: config/ruflo/memory_graph.yaml tiers
+    # (hot/warm/quality/durable/graph) are DECLARATIVE backend+namespace ROUTING,
+    # recorded by the doctor (ruflo_doctor_roam.py sets memory_graph=schema). The
+    # runtime ENABLE toggles this script flips live in .claude-flow/config.yaml
+    # (enableHNSW, sonaMode, memoryGraph.enabled) — not a 1:1 tier mapping.
+    if os.environ.get("RUFLO_MEMORY_GRAPH_APPLY", "0") != "1":
+        payload = {
+            "schema": "memory_graph_apply.v1",
+            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "applied": False,
+            "reason": "RUFLO_MEMORY_GRAPH_APPLY!=1",
+            "flags": [],
+        }
+        out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps(payload))
+        return 0
+
     doctor_path = root / ".goalie/evidence/ruflo_doctor_latest.json"
     cfg_path = root / ".claude-flow/config.yaml"
-    out = root / ".goalie/evidence/memory_graph_apply_latest.json"
     doctor = json.loads(doctor_path.read_text(encoding="utf-8")) if doctor_path.is_file() else {}
     if doctor.get("blockers"):
         out.parent.mkdir(parents=True, exist_ok=True)

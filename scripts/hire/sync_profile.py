@@ -38,6 +38,7 @@ def main():
     synced_at = datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z"
     params = {
         "email": "s@rooz.live",
+        "bio": profile_content,
         "profile_markdown": profile_content,
         "synced_at": synced_at,
     }

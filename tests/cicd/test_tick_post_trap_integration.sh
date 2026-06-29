@@ -191,6 +191,7 @@ echo "--- phase 2: completed cycle (expect pace_source=policy_snapshot) ---"
 # update_lnnnl succeeds; heavy downstream steps stubbed to no-ops so the real
 # trap/pace path runs deterministically without side effects.
 stub_py "scripts/cicd/update_lnnnl.py" 0
+stub_py "scripts/cicd/version_portfolio_probe.py" 0
 stub_py "scripts/metrics/max_roi_cycles.py" 0
 stub_sh "scripts/metrics/inbox_zero_timescape.sh"
 stub_py "scripts/cicd/exit_artifact_inbox.py" 0
@@ -245,10 +246,6 @@ if [[ -f "$TICK" ]]; then
     pass "phase2 pace_source=policy_snapshot (policy-authoritative trap)"
   else
     fail "phase2 pace_source=$SRC want policy_snapshot"
-    echo "--- DEBUG policy file ---" >&2; cat "$POLICY" >&2 || true
-    echo "--- DEBUG tick file ---" >&2; cat "$TICK" >&2 || true
-    echo "--- DEBUG reconcile direct (ROOT=$ROOT) ---" >&2
-    python3 "$ROOT/scripts/cicd/lib/reconcile_tick_post_pace.py" "$ROOT" --bundle-json >&2 || true
   fi
 else
   fail "phase2 tick_post_latest.json missing (trap did not write evidence)"

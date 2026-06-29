@@ -24,6 +24,7 @@ FAST_TESTS=(
   test_tick_post_trap_on_exit.sh
   test_update_lnnnl_integrity.sh
   test_ruflo_upgrade_contract.sh
+  test_version_portfolio_probe.sh
   test_roam_edge_contract.sh
   test_dor_dod_matrix.sh
   test_auto_dor_contract.sh

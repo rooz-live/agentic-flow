@@ -1,0 +1,75 @@
+schema: version_portfolio.v1
+version: "1.0.0"
+description: Canonical pin + channel for one.sh portfolio (ruflo, AQE, MetaHarness, plugins).
+
+# action semantics (probe output only unless VERSION_PIN_APPLY=1 + {SA})
+actions:
+  observe: drift recorded; no file mutation
+  propose_sa: drift >= patch; write cycle_proposal hint; requires CYCLE_APPLY=1 to render pins
+  apply_fa: human [FA] commit only — never autonomous tick_post
+
+blockers:
+  - id: R-DISK-01
+    check: .goalie/evidence/ruflo_doctor_latest.json
+    field: inbox_zero_gate
+    expect: true
+  - id: AF_SKIP_NETWORK
+    env: AF_SKIP_NETWORK
+    expect: "0"
+  - id: COHERENCE
+    check: .goalie/evidence/coherence_results.json
+    field: coherence
+    expect: PASS
+
+packages:
+  - id: ruflo
+    npm: ruflo
+    channel: stable
+    pin:
+      type: env
+      file: config/ruflo/version.env
+      key: RUFLO_VERSION
+    consumers:
+      - scripts/ruflo/lib/ruflo_npx.sh
+      - scripts/one-sh.d/workflow.sh
+
+  - id: agentic-qe
+    npm: agentic-qe
+    channel: stable
+    pin:
+      type: regex
+      file: scripts/one-sh.d/aqe.sh
+      pattern: 'agentic-qe@([0-9]+\.[0-9]+\.[0-9]+)'
+    consumers:
+      - scripts/one-sh.d/aqe.sh
+
+  - id: metaharness-kernel
+    npm: "@metaharness/kernel"
+    channel: stable
+    pin:
+      type: json
+      file: apps/agent-harness/package.json
+      path: dependencies.@metaharness/kernel
+    consumers:
+      - apps/agent-harness/package.json
+
+  - id: metaharness-darwin
+    npm: "@metaharness/darwin"
+    channel: stable
+    pin:
+      type: json
+      file: apps/agent-harness/package.json
+      path: devDependencies.@metaharness/darwin
+
+plugins:
+  manifest: config/ruflo/plugins.yaml
+  install_via: scripts/cicd/ruflo_wsjf_upgrade.sh
+  pin_from: ruflo
+
+help_strings:
+  file: scripts/one-sh.d/help.sh
+  render_from: packages
+
+deprecated_probes:
+  - path: scripts/auto-update-upstream.sh
+    delegate_to: scripts/cicd/version_portfolio_probe.py

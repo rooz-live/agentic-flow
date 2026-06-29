@@ -41,7 +41,11 @@ read_pace_bundle() {
 }
 
 write_tick_evidence() {
-  local bundle="${1:-{}}"
+  # NOTE: do NOT write `local bundle="${1:-{}}"` — bash parses that as
+  # ${1:-{} (default "{") followed by a literal "}", appending a stray "}"
+  # to every bundle and corrupting the JSON (→ silent fallback to stale).
+  local bundle="${1:-}"
+  [[ -z "$bundle" ]] && bundle='{}'
   python3 - "$TICK_POST_EVIDENCE" "$ENV_EXPORT_OK" "$LNNNL_EXIT" "$bundle" <<'PY'
 import json, sys
 from datetime import datetime, timezone
@@ -156,6 +160,13 @@ fi
 
 SAVED_PACE_BUNDLE="$(read_pace_bundle)"
 PACE="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('pace_cod_weight') or 0.5)" <<<"$SAVED_PACE_BUNDLE")"
+echo "=== tick_post: version portfolio probe (read-only; after WSJF) ==="
+if [[ -f "$ROOT/scripts/cicd/version_portfolio_probe.py" ]]; then
+  set +e
+  python3 "$ROOT/scripts/cicd/version_portfolio_probe.py" || echo "WARN: version_portfolio_probe failed"
+  set -e
+fi
+
 echo "pace_cod_weight=$PACE pace_source=$(python3 -c "import json,sys; print(json.load(sys.stdin).get('pace_source','unknown'))" <<<"$SAVED_PACE_BUNDLE")"
 
 echo "=== tick_post: max_roi_cycles ==="
@@ -205,15 +216,17 @@ if [[ "$RUN_UP" == "1" ]]; then
   set +e
   # AF_UPSTREAM_FULL=1: run full upgrade (fetch + apply); default is dry-run for safety.
   # AF_UPSTREAM_PARALLEL=1: enable parallel repo execution when running full.
+  _UP_ARGS=()
+  [[ "${AF_NO_COHERENCE:-0}" == "1" ]] && _UP_ARGS+=("--no-coherence")
   if [[ "${AF_UPSTREAM_FULL:-0}" == "1" ]]; then
-    _UP_ARGS=("--print-receipt")
+    _UP_ARGS+=("--print-receipt")
     [[ "${AF_UPSTREAM_PARALLEL:-0}" == "1" ]] && _UP_ARGS+=("--parallel")
     echo "=== tick_post: upstream upgrade (full; parallel=${AF_UPSTREAM_PARALLEL:-0}) ==="
     python3 "$ROOT/scripts/cicd/upstream_upgrade_engine.py" "${_UP_ARGS[@]}"
     _tick_post_enforce_fail "upstream upgrade" $?
   else
     echo "=== tick_post: upstream upgrade (dry-run; set AF_UPSTREAM_FULL=1 for full) ==="
-    python3 "$ROOT/scripts/cicd/upstream_upgrade_engine.py" --dry-run
+    python3 "$ROOT/scripts/cicd/upstream_upgrade_engine.py" --dry-run "${_UP_ARGS[@]}"
     _tick_post_enforce_fail "upstream dry-run" $?
   fi
   set -e

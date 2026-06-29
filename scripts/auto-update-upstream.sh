@@ -15,6 +15,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
+# Delegates version detection to canonical portfolio probe (RCA: one query path).
+if [[ "${VERSION_PORTFOLIO_PROBE:-1}" == "1" && -f "$PROJECT_ROOT/scripts/cicd/version_portfolio_probe.py" ]]; then
+  echo "[auto-update-upstream] delegating check → version_portfolio_probe.py"
+  python3 "$PROJECT_ROOT/scripts/cicd/version_portfolio_probe.py" --json
+  exit $?
+fi
+
 # Colors
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'

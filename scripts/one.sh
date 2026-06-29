@@ -171,11 +171,18 @@ case "$CMD" in
         ;;
 
     harness)
-        # Dispatch to the upgraded agent harness.
+        # Dispatch to the upgraded MetaHarness agent harness (apps/agent-harness).
         shift
-        if [[ $# -eq 0 ]]; then
-            echo "Usage: ./scripts/one.sh harness <doctor|evolve|evolve:dry|init>"
-            exit 1
+        if [[ $# -eq 0 || "${1:-}" == "--help" || "${1:-}" == "-h" || "${1:-}" == "help" ]]; then
+            cat <<'HELP'
+Usage: ./scripts/one.sh harness <doctor|evolve|evolve:dry|init> [args...]
+
+  doctor      MetaHarness kernel + host adapter health (@metaharness/kernel)
+  evolve      Darwin evolution loop (real sandbox; @metaharness/darwin)
+  evolve:dry  Darwin evolution dry-run (mock sandbox)
+  init        Scaffold harness workspace
+HELP
+            [[ $# -eq 0 ]] && exit 1 || exit 0
         fi
         exec npm --prefix "$ROOT_DIR/apps/agent-harness" run "$@"
         ;;

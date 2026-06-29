@@ -22,6 +22,8 @@ def _load_utilization_signals(root: Path) -> dict[str, object]:
         "redblue_run_id": None,
         "ruflo_plugin_count": 0,
         "agenticow_degraded": None,
+        "ruflo_mcp_tool_count": 0,
+        "ruflo_mcp_degraded": None,
     }
     doctor = root / ".goalie/evidence/ruflo_doctor_latest.json"
     if doctor.is_file():
@@ -54,6 +56,15 @@ def _load_utilization_signals(root: Path) -> dict[str, object]:
     plugins_dir = root / ".claude-flow/plugins"
     if plugins_dir.is_dir():
         signals["ruflo_plugin_count"] = sum(1 for p in plugins_dir.iterdir() if p.is_dir() and not p.name.startswith("."))
+    mcp = root / ".goalie/evidence/ruflo_mcp_probe_latest.json"
+    if mcp.is_file():
+        try:
+            import json
+            doc = json.loads(mcp.read_text(encoding="utf-8"))
+            signals["ruflo_mcp_tool_count"] = int(doc.get("mcp_tool_count") or 0)
+            signals["ruflo_mcp_degraded"] = doc.get("degraded")
+        except (json.JSONDecodeError, OSError):
+            pass
     ac = root / ".goalie/evidence/agenticow_probe_latest.json"
     if ac.is_file():
         try:
@@ -145,6 +156,8 @@ def load_policy(
         harness_util = max(harness_util, 75.0)
     if int(util_signals.get("ruflo_plugin_count") or 0) > 0:
         harness_util = max(harness_util, 50.0)
+    if int(util_signals.get("ruflo_mcp_tool_count") or 0) > 0:
+        harness_util = max(harness_util, 60.0)
 
     return {
         "pace_cod_weight": pace,

@@ -50,6 +50,7 @@ SLOW_TESTS=(
   test_memory_graph_config.sh
   test_ruflo_plugins_installed.sh
   test_agenticow_mcp_smoke.sh
+  test_ruflo_mcp_smoke.sh
   test_weight_eft_probe.sh
 )
 

@@ -132,6 +132,11 @@ else
 fi
 export AF_SKIP_OP_READ=1
 
+# shellcheck source=scripts/cicd/lib/disk_steward_invoke.sh
+source "$ROOT/scripts/cicd/lib/disk_steward_invoke.sh"
+echo "=== tick_post: disk steward (R-DISK-01 runbook when low) ==="
+disk_steward_maybe "$ROOT" || echo "WARN: disk_steward (low disk — see disk_steward_latest.json runbook)"
+
 echo "=== tick_post: exec WSJF ruflo PI backlog ==="
 if [[ -x "$ROOT/scripts/cicd/exec_wsjf_ruflo.sh" ]]; then
   bash "$ROOT/scripts/cicd/exec_wsjf_ruflo.sh" || echo "WARN: exec_wsjf_ruflo failed"
@@ -183,9 +188,11 @@ fi
 
 echo "=== tick_post: harness doctor evidence ==="
 if [[ -f "$ROOT/scripts/cicd/harness_doctor_evidence.py" ]]; then
-  set +e
-  python3 "$ROOT/scripts/cicd/harness_doctor_evidence.py" || echo "WARN: harness_doctor_evidence failed"
-  set -e
+  _harness_enforce_default=0
+  if is_ci_env; then
+    _harness_enforce_default=1
+  fi
+  AF_HARNESS_DOCTOR_ENFORCE="${AF_HARNESS_DOCTOR_ENFORCE:-$_harness_enforce_default}"     python3 "$ROOT/scripts/cicd/harness_doctor_evidence.py" || _tick_post_enforce_fail "harness_doctor_evidence" $?
 fi
 
 UTILIZE_MODE_HINT="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('utilize_mode_hint','full'))" <<<"$SAVED_PACE_BUNDLE")"
@@ -288,7 +295,14 @@ if [[ -f "$ROOT/scripts/metrics/timescape_envelope.py" ]]; then
 fi
 
 if [[ -x "$ROOT/scripts/cicd/pi_plan_sync.sh" ]]; then
-  SKIP_WSJF=1 bash "$ROOT/scripts/cicd/pi_plan_sync.sh" || echo "WARN: pi_plan_sync failed"
+  echo "=== tick_post: pi_plan_sync ==="
+  _pi_enforce_default=0
+  _pi_committable_default=0
+  if is_ci_env; then
+    _pi_enforce_default=1
+    _pi_committable_default=1
+  fi
+  AF_PI_SYNC_ENFORCE="${AF_PI_SYNC_ENFORCE:-$_pi_enforce_default}"   AF_PI_SYNC_REQUIRE_COMMITTABLE="${AF_PI_SYNC_REQUIRE_COMMITTABLE:-$_pi_committable_default}"     SKIP_WSJF=1 bash "$ROOT/scripts/cicd/pi_plan_sync.sh" || _tick_post_enforce_fail "pi_plan_sync" $?
 fi
 
 if [[ -x "$ROOT/scripts/cicd/receipt_chain.sh" ]]; then

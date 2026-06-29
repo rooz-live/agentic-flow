@@ -32,6 +32,6 @@ out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 print(f"wrote {out} head={head.get('id', 'none')}")
 PY
 
-if [[ -x "$ROOT/scripts/cicd/disk_steward.sh" ]]; then
-  bash "$ROOT/scripts/cicd/disk_steward.sh" || true
-fi
+# shellcheck source=scripts/cicd/lib/disk_steward_invoke.sh
+source "$ROOT/scripts/cicd/lib/disk_steward_invoke.sh"
+disk_steward_maybe "$ROOT"

@@ -8,6 +8,10 @@ export AF_REQUIRE_SCORECARD=1
 source "$ROOT/scripts/gates/emit_ci_provenance.sh"
 
 _args=(--verify --strict --json --emit-evidence)
+# CI: required.json first (current.json stub must not shadow)
+if [[ -n "${GITHUB_ACTIONS:-}" ]] && [[ -f .goalie/scorecards/required.json ]]; then
+  exec python3 scripts/gates/scorecard_gate.py --file .goalie/scorecards/required.json "${_args[@]}"
+fi
 if [[ -f .goalie/scorecards/current.json ]]; then
   exec python3 scripts/gates/scorecard_gate.py --file .goalie/scorecards/current.json "${_args[@]}"
 fi

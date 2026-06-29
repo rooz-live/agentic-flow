@@ -5,6 +5,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts/cicd/lib"))
 
@@ -12,6 +14,8 @@ from env_key_resolver import _env_files, _parse_dotenv, resolve_keys, DEP_KEY_MA
 
 
 def test_env_glob_includes_config_dotenv():
+    if not (ROOT / "config/.env").is_file() and not (ROOT / ".env").is_file():
+        pytest.skip("no dotenv in checkout (CI-safe)")
     files = _env_files(ROOT)
     rel = {str(p.relative_to(ROOT)) for p in files}
     assert "config/.env" in rel or ".env" in rel
@@ -27,11 +31,12 @@ def test_parse_config_dotenv_finds_llm_keys(tmp_path):
 
 
 def test_resolve_keys_finds_gemini_or_anthropic():
+    if not (ROOT / "config/.env").is_file():
+        pytest.skip("config/.env absent in checkout (CI-safe)")
     os.environ.setdefault("AF_SKIP_OP_READ", "1")
     keys = resolve_keys(ROOT)
     assert DEP_KEY_MAP["DEP-008"] in keys
     assert DEP_KEY_MAP["DEP-009"] in keys
-    # At least one should be present in this repo (config/.env)
     assert keys["GEMINI_API_KEY"].present or keys["ANTHROPIC_API_KEY"].present
 
 

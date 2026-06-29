@@ -275,17 +275,13 @@ def test_derive_gate_integrity_ci(monkeypatch):
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
 
-    # Without AF_CI_SIGNING_KEY: exogenous GITHUB_ACTIONS fallback PASS
+    # Fail-closed: CI without provenance signature -> FAIL
     monkeypatch.delenv("AF_CI_SIGNING_KEY", raising=False)
-    assert str(derive_gate_integrity()) == "PASS"
-
-    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
-    assert str(derive_gate_integrity()) == "PASS"
-
-    # When signing secret is configured but emission failed -> FAIL
-    monkeypatch.setenv("AF_CI_SIGNING_KEY", "configured")
     monkeypatch.delenv("AF_CI_PROVENANCE_SIGNATURE", raising=False)
     monkeypatch.delenv("AF_CI_PROVENANCE_PRINCIPAL", raising=False)
+    assert str(derive_gate_integrity()) == "FAIL"
+
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
     assert str(derive_gate_integrity()) == "FAIL"
 
     # PASS only with cryptographic provenance
@@ -517,7 +513,8 @@ def test_verify_signoff_legacy_enabled_locally(monkeypatch):
 
 
 def test_derive_gate_integrity_ci_provenance(monkeypatch):
-    # 1. CI without signing secret -> GITHUB_ACTIONS fallback PASS
+    monkeypatch.setattr("os.path.exists", lambda p: True)
+    # 1. CI without provenance -> FAIL (no GITHUB_ACTIONS fallback)
     monkeypatch.setenv("CI", "true")
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
@@ -526,17 +523,16 @@ def test_derive_gate_integrity_ci_provenance(monkeypatch):
     monkeypatch.delenv("AF_CI_PROVENANCE_PRINCIPAL", raising=False)
 
     gi, reason = derive_gate_integrity()
-    assert gi == "PASS"
-    assert "exogenous" in reason
+    assert gi == "FAIL"
+    assert "provenance" in reason.lower()
 
-    # 1b. Signing secret configured but no emission -> FAIL
+    # 1b. Signing secret configured but no emission -> still FAIL
     monkeypatch.setenv("AF_CI_SIGNING_KEY", "configured")
     gi, reason = derive_gate_integrity()
     assert gi == "FAIL"
-    assert "provenance" in reason.lower() or "missing" in reason.lower()
+    assert "provenance" in reason.lower()
 
     # 2. CI with valid provenance signature -> PASS
-    monkeypatch.setattr("os.path.exists", lambda p: True)
     monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda: "mock_sha")
 
     monkeypatch.setenv("AF_CI_PROVENANCE_SIGNATURE", "valid_sig")

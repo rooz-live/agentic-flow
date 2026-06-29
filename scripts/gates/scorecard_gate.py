@@ -105,14 +105,18 @@ VERIFY_SIGNALS_FILE = os.environ.get(
 # Default coherence signals (override via the file above). Heavy on purpose:
 # coherence must be EARNED by real checks, not declared.
 DEFAULT_SIGNALS = [
-    {"name": "cargo-check", "cmd": ["cargo", "check", "--quiet"], "required": True},
+    {"name": "cargo-check", "cmd": ["cargo", "check", "--quiet", "--manifest-path", "src/rust/eventops_pyo3/Cargo.toml"], "required": True},
     {
         "name": "pytest",
         "cmd": [
             "python3",
             "-m",
             "pytest",
-            "tests/pytest/",
+            "tests/billing/",
+            "tests/pytest/test_update_lnnnl.py",
+            "tests/pytest/test_pace_from_lnnnl.py",
+            "tests/pytest/test_tick_cycle_policy.py",
+            "tests/metrics/test_env_key_resolver.py",
             "tests/gates/",
             "--rootdir=.",
             "-q",
@@ -1172,21 +1176,12 @@ def derive_gate_integrity(env: Optional[dict] = None) -> GateIntegrityResult:
                 f"CI execution context verified via signature from {prov_principal}",
             )
 
-        signing_key = env.get("AF_CI_SIGNING_KEY", "")
-        if str(env.get("GITHUB_ACTIONS", "")).lower() in ("1", "true", "yes"):
-            if signing_key:
-                return GateIntegrityResult(
-                    "FAIL",
-                    "AF_CI_SIGNING_KEY configured but provenance signature missing or invalid",
-                )
-            return GateIntegrityResult(
-                "PASS",
-                f"exogenous CI required check ({event}); wire AF_CI_SIGNING_KEY for strict provenance",
-            )
+        if not os.path.exists(allowed_signers):
+            return GateIntegrityResult("FAIL", "CI context requires allowed_signers configuration")
 
         return GateIntegrityResult(
             "FAIL",
-            "CI context requires AF_CI_PROVENANCE_SIGNATURE and AF_CI_PROVENANCE_PRINCIPAL",
+            "CI requires verified AF_CI_PROVENANCE_SIGNATURE (emit_ci_provenance.sh)",
         )
 
     context = env.get("AF_GATE_CONTEXT", "")

@@ -556,9 +556,9 @@ def test_derive_gate_integrity_ci_invalid_event():
 
 
 def test_derive_gate_integrity_context_token():
-    """AF_GATE_CONTEXT in {'ci','review','precommit'} → PASS without CI env."""
+    """AF_GATE_CONTEXT=review → OWNED without CI env (not PASS)."""
     verdict, _ = gate.derive_gate_integrity({"AF_GATE_CONTEXT": "review"})
-    assert verdict == "PASS"
+    assert verdict == "OWNED"
 
 
 def test_derive_gate_integrity_empty_env_fails():
@@ -670,7 +670,7 @@ def _verify_mocks(monkeypatch, signal_ok, head="abc123"):
     monkeypatch.setattr(gate, "current_diff_sha", lambda env: None)
     monkeypatch.setattr(gate, "collect_reward_proxies", lambda env: {})
     monkeypatch.setattr(gate, "_git", lambda *a, **k: None)
-    monkeypatch.setenv("AF_GATE_CONTEXT", "ci")
+    monkeypatch.setenv("AF_GATE_CONTEXT", "review")
 
 
 def test_main_verify_blocks_when_coherence_signal_fails(tmp_path, monkeypatch):

@@ -385,7 +385,8 @@ def main():
 
     # Map tracker risks
     for r in tracker_risks:
-        status = str(r.get('status', r.get('roam_status', ''))).lower()
+        # Use ROAM disposition first (authoritative), then status.
+        status = str(r.get('roam') or r.get('roam_status') or r.get('status', '')).lower()
         if status not in ('mitigated', 'accepted', 'resolved'):
             active_items.append({
                 'type': 'risk',

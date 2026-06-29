@@ -31,6 +31,8 @@ export AF_RECEIPT_CHAIN_ALLOW_DRY_HIRE=1
 export AF_SKIP_OP_READ=1
 export AF_GATE_CONTEXT=review
 export AF_ALLOW_OWNED_LOCAL=1
+export CI=false
+export GITHUB_ACTIONS=
 export AF_VERIFY_SIGNALS="$TMP/.goalie/scorecards/verify_signals.json"
 
 bash "$CHAIN"

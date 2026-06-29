@@ -36,7 +36,8 @@ def verify_scorecard(path: Path, root: Path) -> tuple[dict[str, Any], dict[str, 
 
     card = json.loads(path.read_text(encoding="utf-8"))
     env = dict(os.environ)
-    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    from scripts.gates.scorecard_gate import is_ci_env
+    is_ci = is_ci_env(env)
     strict = is_ci or env.get("AF_STRICT_SIGN_OFF", "0") == "1"
     hardened, extra_blocks, extra_warnings, meta = harden(
         card, env=env, strict=strict, ingest_only=False

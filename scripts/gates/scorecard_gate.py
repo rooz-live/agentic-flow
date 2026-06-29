@@ -48,7 +48,7 @@ atexit.register(cleanup_temp_files)
 
 
 def get_allowed_signers_db(env: dict, root_path: str = ".") -> str:
-    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    is_ci = is_ci_env(env)
     global_path = Path(root_path) / ".goalie/scorecards/allowed_signers"
     ci_path = Path(root_path) / ".goalie/scorecards/allowed_signers.ci"
     if is_ci and str(env.get("AF_ALLOW_TEST_OVERRIDE", "")).lower() not in ("1", "true", "yes"):
@@ -95,6 +95,13 @@ SHIP_THRESHOLD = float(os.environ.get("AF_SHIP_THRESHOLD", "2.0"))
 DEFAULT_SCORECARD = os.environ.get(
     "AF_SCORECARD_FILE", ".goalie/scorecards/current.json"
 )
+
+
+def is_ci_env(env: Optional[dict] = None) -> bool:
+    env = env if env is not None else dict(os.environ)
+    return str(env.get("CI", "")).lower() in ("1", "true", "yes") or str(
+        env.get("GITHUB_ACTIONS", "")
+    ).lower() in ("1", "true", "yes")
 
 DISPOSITION_EXIT = {"SHIP": 0, "SPIKE": 1, "DROP": 1, "BLOCK": 2}
 
@@ -339,7 +346,7 @@ def evaluate(card: dict, *, derive: bool = False, root_path: Any = ".", ingest_o
 
     # --- Hard-gate overrides ---
     env = dict(os.environ)
-    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    is_ci = is_ci_env(env)
     if is_ci:
         if gate_integrity != "PASS":
             errors.append("gate_integrity is not PASS")
@@ -409,7 +416,7 @@ def load_signals() -> list:
     """
     env = os.environ
 
-    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    is_ci = is_ci_env(env)
     is_precommit = env.get("AF_GATE_CONTEXT") == "precommit"
     verify_mode = is_ci or is_precommit or str(env.get("AF_VERIFY_MODE", "0")) == "1"
 
@@ -486,7 +493,11 @@ def run_signals(signals: list, timeout: int = SIGNAL_TIMEOUT) -> list:
             # Run signals in a clean environment so scorecard-internal flags
             # (AF_VERIFY_MODE, AF_GATE_CONTEXT) do not leak into the test suite
             # and cause false self-test failures.
-            signal_env = {k: v for k, v in os.environ.items() if k not in ("AF_VERIFY_MODE", "AF_GATE_CONTEXT")}
+            _drop_env = (
+                "AF_VERIFY_MODE", "AF_GATE_CONTEXT", "GITHUB_ACTIONS", "CI",
+                "AF_CI_SIGNING_KEY", "AF_CI_PROVENANCE_SIGNATURE", "AF_CI_PROVENANCE_PRINCIPAL",
+            )
+            signal_env = {k: v for k, v in os.environ.items() if k not in _drop_env}
             root_abs = str(Path(".").resolve())
             existing_pythonpath = os.environ.get("PYTHONPATH", "")
             if existing_pythonpath:
@@ -1101,7 +1112,7 @@ def derive_coherence(root_path_or_results: Any, force_dynamic: bool = False, ing
         if gh != current_head:
             return "FAIL"
             
-        is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+        is_ci = is_ci_env(env)
         is_precommit = env.get("AF_GATE_CONTEXT") == "precommit"
         allowed_signers = get_allowed_signers_db(env, root_path)
 
@@ -1160,7 +1171,7 @@ class GateIntegrityResult(str):
 def derive_gate_integrity(env: Optional[dict] = None) -> GateIntegrityResult:
     if env is None:
         env = dict(os.environ)
-    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    is_ci = is_ci_env(env)
     allowed_signers = get_allowed_signers_db(env, ".")
     if is_ci:
         event = env.get("GITHUB_EVENT_NAME", "")
@@ -1367,7 +1378,7 @@ def verify_signoff(card: dict, env: dict, actual_commit, actual_diff) -> tuple:
     Option 1: Cryptographic Signatures (SSH)
     """
     allowed_signers_path = get_allowed_signers_db(env, ".")
-    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    is_ci = is_ci_env(env)
     
     # Determine if this is a one-way door (REV0 x BR1.5)
     impact = card.get("impact", {}) or {}
@@ -1419,7 +1430,7 @@ def check_allowed_signers_tamper(env: dict, root: str = ".") -> tuple:
     """Block PR and local modifications to allowed_signers unless keys match base branch."""
     blocks: list = []
     warns: list = []
-    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    is_ci = is_ci_env(env)
     is_precommit = env.get("AF_GATE_CONTEXT") == "precommit"
     if not is_ci and not is_precommit:
         return blocks, warns
@@ -1512,7 +1523,7 @@ def ingest_deploy_receipt(root_path: Any, env: dict, meta: dict, extra_blocks: l
     meta["deploy_receipt_verify"] = msg
 
     enforce = str(env.get("AF_DEPLOY_RECEIPT_ENFORCE", "0")) == "1"
-    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    is_ci = is_ci_env(env)
     if not enforce and not is_ci:
         return
     if deploy_doc is None and not disp_doc:
@@ -1553,7 +1564,7 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
 
     # Enforce allowed_signers presence in CI context
     allowed_signers = get_allowed_signers_db(env, ".")
-    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    is_ci = is_ci_env(env)
     if is_ci and not os.path.exists(allowed_signers):
         extra_blocks.append("HARD GATE: CI context requires allowed_signers configuration")
     tamper_blocks, tamper_warns = check_allowed_signers_tamper(env)
@@ -1584,7 +1595,7 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
                     )
 
     # 1) coherence <- real signals (or ingest PASS artifact to avoid duplicate pytest)
-    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    is_ci = is_ci_env(env)
     is_precommit = env.get("AF_GATE_CONTEXT") == "precommit"
     artifact_ok = _coherence_artifact_usable(".", env)
     artifact_only = str(env.get("AF_COHERENCE_ARTIFACT_ONLY", "")).lower() in ("1", "true", "yes")
@@ -1705,7 +1716,7 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
     proxies = collect_reward_proxies(env)
     rd_proxy, rnotes = derive_reward_direction(proxies)
     meta["reward_direction_proxy"] = rd_proxy
-    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    is_ci = is_ci_env(env)
     enforce_rd = str(env.get("AF_RD_ENFORCE", "1" if (is_ci or is_precommit) else "0")) == "1"
     meta["reward_direction_enforced"] = enforce_rd
     asserted = card.get("impact", {}).get("reward_direction")
@@ -1865,7 +1876,7 @@ def main(argv: Optional[list] = None) -> int:
     env = dict(os.environ)
     if args.precommit:
         env["AF_GATE_CONTEXT"] = "precommit"
-    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    is_ci = is_ci_env(env)
     is_precommit = env.get("AF_GATE_CONTEXT") == "precommit" or args.precommit
     # Default is verified (hardened). Self-asserted is opt-in; CI/precommit always verify.
     verify_mode = (not args.self_asserted) or is_ci or is_precommit

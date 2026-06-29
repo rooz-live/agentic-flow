@@ -73,6 +73,11 @@ if ! SCORECARD="$(_resolve_scorecard)"; then
   exit 0
 fi
 
+if [[ -n "${GITHUB_ACTIONS:-}" ]] && [[ -f "$CODE_ROOT/scripts/gates/emit_ci_provenance.sh" ]]; then
+  # shellcheck source=scripts/gates/emit_ci_provenance.sh
+  source "$CODE_ROOT/scripts/gates/emit_ci_provenance.sh"
+fi
+
 echo "=== receipt_chain: verify earnings ($SCORECARD) ==="
 set +e
 AF_GATE_CONTEXT="${AF_GATE_CONTEXT:-review}" \

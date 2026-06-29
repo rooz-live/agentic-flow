@@ -181,6 +181,13 @@ if [[ "${CEREMONY_RAN:-0}" != "1" && -x "$ROOT/scripts/cicd/ceremony_tick.sh" ]]
   [[ $CER_EC -ne 0 ]] && echo "WARN: ceremony exited $CER_EC"
 fi
 
+echo "=== tick_post: harness doctor evidence ==="
+if [[ -f "$ROOT/scripts/cicd/harness_doctor_evidence.py" ]]; then
+  set +e
+  python3 "$ROOT/scripts/cicd/harness_doctor_evidence.py" || echo "WARN: harness_doctor_evidence failed"
+  set -e
+fi
+
 UTILIZE_MODE_HINT="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('utilize_mode_hint','full'))" <<<"$SAVED_PACE_BUNDLE")"
 POLICY="$(python3 "$ROOT/scripts/cicd/lib/tick_cycle_policy.py" --pace "$PACE" --json --utilize-mode-hint "$UTILIZE_MODE_HINT")"
 MAX_MIN="$(python3 -c "import json,sys; print(json.load(sys.stdin)['max_minutes_per_tick'])" <<<"$POLICY")"
@@ -242,7 +249,12 @@ bash "$ROOT/scripts/metrics/inbox_zero_timescape.sh" || _tick_post_enforce_fail 
 
 if [[ -f "$ROOT/scripts/cicd/exit_artifact_inbox.py" ]]; then
   echo "=== tick_post: exit artifact inbox zero ==="
-  python3 "$ROOT/scripts/cicd/exit_artifact_inbox.py" || echo "WARN: exit_artifact_inbox (non-zero open artifacts)"
+  _exit_enforce_default=0
+  if is_ci_env; then
+    _exit_enforce_default=1
+  fi
+  AF_EXIT_ARTIFACT_ENFORCE="${AF_EXIT_ARTIFACT_ENFORCE:-$_exit_enforce_default}" \
+    python3 "$ROOT/scripts/cicd/exit_artifact_inbox.py" || _tick_post_enforce_fail "exit_artifact_inbox" $?
 fi
 
 CORRELATE_EXIT=0
@@ -289,11 +301,6 @@ if [[ -x "$ROOT/scripts/cicd/receipt_chain.sh" ]]; then
     fi
   fi
   AF_RECEIPT_CHAIN_ENFORCE="${AF_RECEIPT_CHAIN_ENFORCE:-$_receipt_enforce_default}" bash "$ROOT/scripts/cicd/receipt_chain.sh" || _tick_post_enforce_fail "receipt_chain" $?
-fi
-
-if [[ -x "$ROOT/scripts/ruflo/intel_pipeline_post_task.py" ]]; then
-  echo "=== tick_post: ruflo intel pipeline (provenance-gated) ==="
-  REPO_ROOT="$ROOT" python3 "$ROOT/scripts/ruflo/intel_pipeline_post_task.py" || _tick_post_enforce_fail "intel_pipeline" $?
 fi
 
 exit "${TICK_POST_EXIT}"

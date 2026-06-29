@@ -26,4 +26,6 @@ Usage: ./scripts/one.sh <subcommand> [args...]
   aqe               Agentic QE v3.11.3: init, status, test, coverage, quality, workflow, ...
   ruflo|workflow    Ruflo v3.15.0: init, workflow, task, swarm, session, memory, hooks, ...
   harness           Dispatch to the upgraded AI Agent Harness: <doctor|evolve|evolve:dry|init>
+  agenticow           Probe agenticow CLI/MCP pin (offline-safe)
+  run-all             Fast/slow CI runner (AF_RUN_ALL_STRICT=1 default)
 HELP

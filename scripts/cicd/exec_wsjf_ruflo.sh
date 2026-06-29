@@ -31,3 +31,7 @@ payload = {
 out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 print(f"wrote {out} head={head.get('id', 'none')}")
 PY
+
+if [[ -x "$ROOT/scripts/cicd/disk_steward.sh" ]]; then
+  bash "$ROOT/scripts/cicd/disk_steward.sh" || true
+fi

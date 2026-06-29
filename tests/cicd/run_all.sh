@@ -46,17 +46,43 @@ SLOW_TESTS=(
   test_intel_pipeline_contract.sh
   test_exit_artifact_inbox.sh
   test_ruflo_plugins_manifest.sh
+  test_memory_graph_config.sh
+  test_ruflo_plugins_installed.sh
+  test_agenticow_mcp_smoke.sh
 )
+
+# AF_SLOW_SKIP_CONTRACTS: explicit, NAMED allowlist (slow tier only, comma-separated).
+# Replaces blanket `|| true` masking — skipped contracts are LOGGED, never silently
+# swallowed. An unlisted failing contract still aborts the tier (exit code propagates).
+_in_skip_list() {
+  local needle="$1" csv="$2"
+  [[ -z "$csv" ]] && return 1
+  local IFS=','
+  local entry
+  for entry in $csv; do
+    [[ "$entry" == "$needle" ]] && return 0
+  done
+  return 1
+}
 
 run_tier() {
   local label="$1"
   shift
   local tests=("$@")
+  local skipped=0
+  local skip_csv=""
+  # Named skip list applies only to the slow tier (honors the AF_SLOW_* name).
+  [[ "$label" == "slow" ]] && skip_csv="${AF_SLOW_SKIP_CONTRACTS:-}"
   for t in "${tests[@]}"; do
+    if _in_skip_list "$t" "$skip_csv"; then
+      echo "SKIP $t (AF_SLOW_SKIP_CONTRACTS)"
+      skipped=$((skipped + 1))
+      continue
+    fi
     echo "=== $t ==="
     bash "tests/cicd/$t"
   done
-  echo "PASS test:cicd:$label (${#tests[@]} contracts)"
+  echo "PASS test:cicd:$label (${#tests[@]} contracts, $skipped skipped)"
 }
 
 TIER="${1:-fast}"

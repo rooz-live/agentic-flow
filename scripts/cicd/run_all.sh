@@ -121,6 +121,7 @@ if [[ "$SLOW" == "1" ]]; then
   SLOW_EXIT=$?
   set -e
   [[ $SLOW_EXIT -ne 0 ]] && echo "SLOW TIER WARN: upstream (exit=$SLOW_EXIT)"
+  [[ "${AF_RUN_ALL_OPS_ENFORCE:-0}" == "1" && $SLOW_EXIT -ne 0 ]] && echo "SLOW TIER FAIL: upstream enforced"
 
   echo "--- edge gateway sync (dry-run unless AF_EDGE_SYNC_FULL=1) ---"
   set +e
@@ -151,6 +152,33 @@ if [[ "$SLOW" == "1" ]]; then
   fi
 fi
 
+CONTRACT_EXIT=0
+if [[ "$SLOW" == "1" ]]; then
+  echo "--- slow contracts (tests/cicd/run_all.sh) ---"
+  set +e
+  bash "$ROOT/tests/cicd/run_all.sh" slow
+  CONTRACT_EXIT=$?
+  set -e
+  if [[ $CONTRACT_EXIT -ne 0 ]]; then
+    SLOW_EXIT=$CONTRACT_EXIT
+    echo "SLOW TIER FAIL: contracts (exit=$CONTRACT_EXIT)"
+  elif [[ $SLOW_EXIT -eq 0 ]]; then
+    echo "SLOW TIER: PASS (contracts)"
+  fi
+fi
+
 # ─── SUMMARY ──────────────────────────────────────────────────────────────────
-echo "=== run_all: DONE  fast_exit=$FAST_EXIT slow_exit=$SLOW_EXIT ==="
+_STRICT=0
+if is_ci_env || [[ "${AF_RUN_ALL_STRICT:-0}" == "1" ]]; then
+  _STRICT=1
+fi
+if [[ $_STRICT -eq 1 ]]; then
+  _FINAL=$FAST_EXIT
+  if [[ "$SLOW" == "1" && $SLOW_EXIT -ne 0 ]]; then
+    _FINAL=$(( _FINAL != 0 ? _FINAL : SLOW_EXIT ))
+  fi
+  echo "=== run_all: STRICT exit $_FINAL (fast=$FAST_EXIT slow=$SLOW_EXIT contract=$CONTRACT_EXIT) ==="
+  exit "$_FINAL"
+fi
+echo "=== run_all: DONE  fast_exit=$FAST_EXIT slow_exit=$SLOW_EXIT (set AF_RUN_ALL_STRICT=1 for slow fail-closed) ==="
 exit "$FAST_EXIT"

@@ -6,8 +6,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 def _git_status(root: Path) -> list[dict]:
+    # Scan only paths that can contain exit artifacts to avoid full-repo status
+    # on large working trees (avoids lock contention and keeps runtime < 1s).
     try:
-        out = subprocess.check_output(["git", "-C", str(root), "status", "--porcelain"], text=True, timeout=30)
+        out = subprocess.check_output(
+            [
+                "git", "-C", str(root), "status", "--porcelain",
+                ".goalie/", "reports/", "profile_readme.md",
+            ],
+            text=True,
+            timeout=30,
+        )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
         return []
     return [{"code": line[:2], "path": line[3:].strip()} for line in out.splitlines() if len(line) >= 4]
@@ -21,15 +30,13 @@ def _is_exit_artifact(path: str) -> bool:
         return True
     return False
 
-def main() -> int:
-    root = Path(os.environ.get("REPO_ROOT", Path(__file__).resolve().parents[2]))
-    out = root / ".goalie/evidence/exit_artifact_inbox_latest.json"
+def build_payload(root: Path) -> dict:
     rows = _git_status(root)
     open_items = [r for r in rows if _is_exit_artifact(r["path"])]
     closed_items = [r for r in rows if not _is_exit_artifact(r["path"])]
     total = len(open_items) + len(closed_items)
     pct = (len(closed_items) / total * 100.0) if total else 100.0
-    payload = {
+    return {
         "schema": "exit_artifact_inbox.v1",
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "open_count": len(open_items),
@@ -40,9 +47,16 @@ def main() -> int:
         "velocity_fmt": f"{pct:.1f}.{len(open_items)}",
         "pace_fmt": "0.0" if not open_items else f"{len(open_items)}.0",
     }
+
+def main() -> int:
+    root = Path(os.environ.get("REPO_ROOT", Path(__file__).resolve().parents[2]))
+    out = root / ".goalie/evidence/exit_artifact_inbox_latest.json"
+    payload = build_payload(root)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    print(json.dumps({"path": str(out), "open": len(open_items)}))
+    print(json.dumps({"path": str(out), "open": payload["open_count"]}))
+    if os.environ.get("AF_EXIT_ARTIFACT_ENFORCE", "0") == "1" and payload["open_count"] > 0:
+        return 1
     return 0
 
 if __name__ == "__main__":

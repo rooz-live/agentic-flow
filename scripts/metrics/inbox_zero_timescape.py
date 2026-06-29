@@ -232,6 +232,16 @@ def _max_roi(root: Path) -> dict:
 
 
 
+def _load_utilization_signals(root: Path) -> dict:
+    try:
+        import sys
+        sys.path.insert(0, str(root / "scripts" / "cicd" / "lib"))
+        from tick_cycle_policy import _load_utilization_signals as _lus
+        return _lus(root)
+    except Exception:
+        return {}
+
+
 def _exit_artifacts(root: Path) -> dict:
     try:
         import sys
@@ -332,6 +342,7 @@ def build_timescape(root: Path | None = None, *, window_hours: float = DEFAULT_W
         "head_sha": _git_head(root),
         "emergent_time_source": EMERGENT_TIME_SOURCE,
         "exit_artifacts": _exit_artifacts(root),
+        "utilization_signals": policy.get("utilization_signals") or _load_utilization_signals(root),
         "details": {
             "open_roam": open_roam,
             "closed_roam": closed_roam,

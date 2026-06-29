@@ -92,21 +92,32 @@ def _hints_from_checks(checks: list[dict], disk_pct: float | None) -> tuple[list
     return blockers, warnings
 
 
-def _ruflo_version(root: Path) -> str:
+def _ruflo_version(root: Path) -> str | None:
+    """RUFLO_VERSION sourced from config/ruflo/version.env (canonical) then env var.
+
+    Returns None when unresolvable — never fabricates a hardcoded version (drift
+    guard). The previous ``3.15.0`` fallback silently diverged from the canonical pin.
+    """
     vf = root / "config/ruflo/version.env"
     if vf.is_file():
         for line in vf.read_text(encoding="utf-8").splitlines():
             if line.startswith("RUFLO_VERSION="):
                 return line.split("=", 1)[1].strip()
-    return "3.15.0"
+    return os.environ.get("RUFLO_VERSION")
 
 
 def run_doctor(root: Path) -> tuple[int, str]:
     if os.environ.get("AF_SKIP_NETWORK", "0") == "1":
         return 0, "AF_SKIP_NETWORK=1 — doctor skipped (offline contract mode)"
+    ver = _ruflo_version(root)
+    if ver is None:
+        # Fail-closed drift guard: refuse to fabricate a version. The canonical pin
+        # lives in config/ruflo/version.env; an unresolvable version must not silently
+        # fall back to a stale hardcoded literal (false-green npx invocation).
+        return 1, "FATAL: RUFLO_VERSION unset and config/ruflo/version.env missing (drift guard)"
     try:
         proc = subprocess.run(
-            ["npx", "-y", f"ruflo@{_ruflo_version(root)}", "doctor"],
+            ["npx", "-y", f"ruflo@{ver}", "doctor"],
             cwd=str(root),
             capture_output=True,
             text=True,

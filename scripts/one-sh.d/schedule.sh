@@ -16,3 +16,6 @@ fi
 
 echo "--> WSJF Schedule update..."
 exec python3 "$ROOT_DIR/scripts/cicd/update_lnnnl.py" "$@"
+
+# WSJF exec evidence
+bash "$ROOT/scripts/cicd/exec_wsjf_ruflo.sh" 2>/dev/null || true

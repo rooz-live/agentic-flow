@@ -95,6 +95,36 @@ test_aqe_agentic_flow_root() {
 }
 
 
+test_agenticow_probe() {
+  echo ""
+  echo "P9: agenticow portfolio pin + probe (offline degraded ok)"
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if grep -q 'id: agenticow' "$ROOT_DIR/config/versions/portfolio.yaml"; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "\033[32m✓\033[0m  portfolio.yaml declares agenticow"
+  else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo -e "\033[31m✗\033[0m  portfolio.yaml missing agenticow"
+  fi
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if grep -q '^AGENTICOW_VERSION=' "$ROOT_DIR/config/ruflo/version.env"; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "\033[32m✓\033[0m  version.env has AGENTICOW_VERSION"
+  else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo -e "\033[31m✗\033[0m  version.env missing AGENTICOW_VERSION"
+  fi
+  TESTS_RUN=$((TESTS_RUN + 1))
+  AF_SKIP_NETWORK=1 REPO_ROOT="$ROOT_DIR" python3 "$ROOT_DIR/scripts/ruflo/agenticow_probe.py" > "$TMPROOT/agenticow.json" 2>&1
+  if python3 -c "import json; d=json.load(open('$TMPROOT/agenticow.json')); assert d.get('schema')=='agenticow_probe.v1'" 2>/dev/null; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "\033[32m✓\033[0m  agenticow_probe emits v1 schema"
+  else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo -e "\033[31m✗\033[0m  agenticow_probe failed"
+  fi
+}
+
 test_redblue_manifest_link() {
   echo ""
   echo "P8: @metaharness/redblue mock-judge ↔ harness manifest"
@@ -234,6 +264,8 @@ main() {
   test_one_sh_portfolio_subcommand
   test_harness_doctor_smoke
   test_workflow_alias_matches_ruflo
+  test_agenticow_probe
+  test_redblue_manifest_link
   print_test_summary
 }
 

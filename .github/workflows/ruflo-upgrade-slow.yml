@@ -63,6 +63,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: "Provenance (forks: set AF_CI_SIGNING_KEY secret or job skips emit)"
+        env:
+          CI: true
+          GITHUB_ACTIONS: true
+          AF_CI_SIGNING_KEY: ${{ secrets.AF_CI_SIGNING_KEY }}
+          AF_CI_SIGNING_PRINCIPAL: ci@agentic-flow.github
+        run: |
+          if [[ -n "${AF_CI_SIGNING_KEY:-}" ]]; then
+            source scripts/gates/emit_ci_provenance.sh
+          else
+            echo "WARN: AF_CI_SIGNING_KEY unset — provenance emit skipped (fork weekly cron)"
+          fi
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -88,7 +101,17 @@ jobs:
         env:
           AF_SKIP_OP_READ: "1"
           RUFLO_PLUGIN_INSTALL: "1"
+          AF_PLUGIN_INSTALL_VERIFY: "1"
+          AF_PLUGIN_INSTALL_ENFORCE: "1"
         run: bash scripts/cicd/ruflo_wsjf_upgrade.sh --install-plugins
+
+      - name: Memory graph apply (doctor-green gate)
+        env:
+          RUFLO_MEMORY_GRAPH_APPLY: "1"
+          AF_SKIP_OP_READ: "1"
+        run: |
+          PYTHONPATH="$PWD" python3 scripts/cicd/ruflo_doctor_roam.py
+          python3 scripts/ruflo/apply_memory_graph.py
 
       - name: Write upgrade evidence
         run: python3 scripts/cicd/ruflo_upgrade_evidence.py

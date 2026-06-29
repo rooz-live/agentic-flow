@@ -268,6 +268,19 @@ fi
 RECEIPT_OUT="$(_write_receipt "PASS" 0 "$SCORECARD" "$EARNINGS_HASH" "[]")"
 echo "receipt_chain: wrote $RECEIPT_OUT"
 if [[ -x "$CODE_ROOT/scripts/cicd/intel_pipeline_tick.sh" ]]; then
-  REPO_ROOT="$ROOT" bash "$CODE_ROOT/scripts/cicd/intel_pipeline_tick.sh" || echo "WARN: intel_pipeline post-receipt"
+  _intel_enforce="${AF_INTEL_PIPELINE_ENFORCE:-0}"
+  if [[ "$ENFORCE" == "1" ]]; then
+    _intel_enforce=1
+  fi
+  AF_INTEL_PIPELINE_ENFORCE="$_intel_enforce" REPO_ROOT="$ROOT" bash "$CODE_ROOT/scripts/cicd/intel_pipeline_tick.sh" || {
+    echo "BLOCK: intel_pipeline post-receipt failed"
+    if [[ "$_intel_enforce" == "1" ]]; then exit 1; fi
+  }
+fi
+if [[ -f "$CODE_ROOT/scripts/cicd/weight_eft_gate.py" ]]; then
+  REPO_ROOT="$ROOT" python3 "$CODE_ROOT/scripts/cicd/weight_eft_gate.py" || {
+    echo "BLOCK: weight_eft_gate failed"
+    [[ "${AF_WEIGHT_EFT_ENFORCE:-0}" == "1" ]] && exit 1
+  }
 fi
 exit 0

@@ -2,8 +2,9 @@
 # Contract tests for intel_pipeline_post_task.py.
 # Tests:
 #   T1: dry-run produces schema=intel_pipeline.v1 with judge + retrieve keys
-#   T2: enforce=1 + no receipt → exits 1 (enforce path is NOT dead weight)
-#   T3: enforce=0 + no receipt → exits 0 (default safe)
+#   T2: no dry-run + no receipt → exits 1 (fail-closed default; enforcement LIVE)
+#   T3: --dry-run + no receipt → exits 0 (explicit escape hatch)
+#   T4: non-PASS receipt → exits 1 (judge rejects FAIL receipt)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
@@ -30,33 +31,46 @@ print("PASS T1 intel pipeline dry-run schema")
 PY
 PASS_COUNT=$((PASS_COUNT+1))
 
-# ── T2: enforce=1 + no receipt → exit 1 ──────────────────────────────────────
-# Run in a tmp evidence dir with no receipts so receipt=None path fires.
-TMPDIR_EVIDENCE="$(mktemp -d)"
+# ── T2: no dry-run + no receipt → exit 1 (fail-closed default) ───────────────
+# Real JUDGE run (no AF_INTEL_PIPELINE_DRY) with no PASS receipt must FAIL. This
+# inverts the old default-off `enforce` (dead-code branch → false green).
 FAKE_ROOT="$(mktemp -d)"
 mkdir -p "$FAKE_ROOT/.goalie/evidence/receipts"
-# No tick_*.json files → _latest_receipt returns None → enforce=1 must exit 1
+# No tick_*.json files → _latest_receipt returns None → must exit 1.
 set +e
-REPO_ROOT="$FAKE_ROOT" AF_INTEL_PIPELINE_ENFORCE=1 \
+REPO_ROOT="$FAKE_ROOT" \
   python3 "$ROOT/scripts/ruflo/intel_pipeline_post_task.py" >/dev/null 2>&1
 T2_EXIT=$?
 set -e
 if [[ $T2_EXIT -eq 1 ]]; then
-  _pass "T2 enforce=1 no-receipt exits 1 (enforce path live)"
+  _pass "T2 no-receipt real run exits 1 (fail-closed default; enforcement live)"
 else
-  _fail "T2 enforce=1 no-receipt should exit 1 but got $T2_EXIT (enforce is dead weight!)"
+  _fail "T2 no-receipt real run should exit 1 but got $T2_EXIT (false-green theater!)"
 fi
 
-# ── T3: enforce=0 + no receipt → exit 0 (default safe) ───────────────────────
+# ── T3: --dry-run + no receipt → exit 0 (explicit escape hatch) ──────────────
 set +e
-REPO_ROOT="$FAKE_ROOT" AF_INTEL_PIPELINE_ENFORCE=0 \
+REPO_ROOT="$FAKE_ROOT" AF_INTEL_PIPELINE_DRY=1 \
   python3 "$ROOT/scripts/ruflo/intel_pipeline_post_task.py" >/dev/null 2>&1
 T3_EXIT=$?
 set -e
 if [[ $T3_EXIT -eq 0 ]]; then
-  _pass "T3 enforce=0 no-receipt exits 0 (default safe)"
+  _pass "T3 dry-run no-receipt exits 0 (explicit dry-run escape)"
 else
-  _fail "T3 enforce=0 no-receipt should exit 0 but got $T3_EXIT"
+  _fail "T3 dry-run no-receipt should exit 0 but got $T3_EXIT"
+fi
+
+# ── T4: non-PASS receipt (status=FAIL) → exit 1 (judge rejects it) ───────────
+printf '{"status":"FAIL"}' > "$FAKE_ROOT/.goalie/evidence/receipts/tick_fail.json"
+set +e
+REPO_ROOT="$FAKE_ROOT" \
+  python3 "$ROOT/scripts/ruflo/intel_pipeline_post_task.py" >/dev/null 2>&1
+T4_EXIT=$?
+set -e
+if [[ $T4_EXIT -eq 1 ]]; then
+  _pass "T4 non-PASS receipt exits 1 (judge rejects FAIL receipt)"
+else
+  _fail "T4 non-PASS receipt should exit 1 but got $T4_EXIT"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────

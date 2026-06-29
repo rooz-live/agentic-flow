@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+CODE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="${REPO_ROOT:-$CODE_ROOT}"
 cd "$ROOT"
 DRY_RUN=0
 JUDGE_ONLY=0
@@ -35,4 +36,8 @@ PY
   exit 0
 fi
 
-REPO_ROOT="$ROOT" python3 "$ROOT/scripts/ruflo/intel_pipeline_post_task.py"
+if [[ ! -f "$CODE_ROOT/scripts/ruflo/intel_pipeline_post_task.py" ]]; then
+  echo "SKIP intel_pipeline: post_task not in repo"
+  exit 0
+fi
+REPO_ROOT="$ROOT" python3 "$CODE_ROOT/scripts/ruflo/intel_pipeline_post_task.py"

@@ -40,7 +40,7 @@ if [[ "$DEGRADED" == "false" && -f "$RB_CLI" ]]; then
   [[ -f "$OUT" ]] || { echo "FAIL: redblue report not written"; exit 1; }
 
   python3 - "$MANIFEST" "$OUT" "$EVIDENCE" <<'PY'
-import json, hashlib, sys
+import json, hashlib, sys, uuid
 from datetime import datetime, timezone
 from pathlib import Path
 manifest_p, report_p, evidence_p = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
@@ -51,6 +51,7 @@ payload = {
     "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "manifest": str(manifest_p),
     "manifest_sha256_prefix": sha,
+    "run_id": str(uuid.uuid4()),
     "mock_judge": True,
     "degraded": False,
     "tests_run": rep.get("summary", {}).get("tests_run"),
@@ -68,7 +69,7 @@ fi
 # ── Degraded path (@metaharness/redblue not on npm yet) ──────────────────────
 echo "INFO: @metaharness/redblue unavailable — writing degraded evidence (ROAM: R-REDBLUE-01)"
 python3 - "$MANIFEST" "$EVIDENCE" <<'PY'
-import json, hashlib, sys
+import json, hashlib, sys, uuid
 from datetime import datetime, timezone
 from pathlib import Path
 manifest_p = Path(sys.argv[1]) if sys.argv[1] else None

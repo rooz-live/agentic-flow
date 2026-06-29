@@ -58,5 +58,16 @@ exit_path.write_text(json.dumps({
     "ruflo_blockers": payload.get("ruflo_blockers"),
     "head_wsjf": (payload.get("wsjf_ruflo_latest") or {}).get("head_item", {}).get("id"),
 }, indent=2) + "\n", encoding="utf-8")
+enforce = __import__("os").environ.get("AF_PI_SYNC_ENFORCE", "0") == "1"
+if enforce:
+    exit_art = root / ".goalie/evidence/exit_artifact_inbox_latest.json"
+    if exit_art.is_file():
+        ex = json.loads(exit_art.read_text(encoding="utf-8"))
+        if ex.get("open_count", 0) > 0:
+            print(f"BLOCK: exit artifacts open={ex.get('open_count')}", file=__import__("sys").stderr)
+            raise SystemExit(1)
+    if payload.get("ruflo_blockers", 0) > 0:
+        print(f"BLOCK: ruflo_blockers={payload.get('ruflo_blockers')}", file=__import__("sys").stderr)
+        raise SystemExit(1)
 print(f"wrote {out} and {exit_path}")
 PY

@@ -12,7 +12,9 @@ def main() -> int:
         p = root / ".goalie/evidence" / name
         if p.is_file():
             evidence[name.replace(".json", "")] = json.loads(p.read_text(encoding="utf-8"))
-    ver = "3.15.0"
+    # Source from canonical config/ruflo/version.env (or RUFLO_VERSION env). None
+    # when unresolvable — never fabricate a hardcoded literal (drift guard).
+    ver = os.environ.get("RUFLO_VERSION")
     vf = root / "config/ruflo/version.env"
     if vf.is_file():
         for line in vf.read_text(encoding="utf-8").splitlines():

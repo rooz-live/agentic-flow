@@ -32,8 +32,6 @@ if [[ "$CMD" == "probe-only" ]]; then
 fi
 
 # update | audit | * → fall through to legacy upstream update logic
-log() { echo "[auto-update] $*"; }
-
 
 # Colors
 GREEN='\033[0;32m'
@@ -48,7 +46,7 @@ error() { echo -e "${RED}✗${NC} $*"; }
 warn() { echo -e "${YELLOW}⚠${NC} $*"; }
 
 # Configuration
-UPDATE_MODE="${1:-check}"  # check, update, force
+UPDATE_MODE="${CMD:-check}"  # check, update, force (CMD parsed at top)
 UPDATE_LOG="/tmp/upstream-updates-$(date +%Y%m%d).log"
 
 ################################################################################

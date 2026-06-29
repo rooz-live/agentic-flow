@@ -1,3 +1,58 @@
+# Apple Developer Credentials — How to Locate Required Values
+
+## 1. Apple Developer Team ID (10-char alphanumeric)
+
+**URL:** <https://developer.apple.com/account#MembershipDetailsCard>
+
+1. Sign in with your Apple ID at <https://developer.apple.com>
+2. Navigate to **Account** → **Membership**
+3. Your **Team ID** is displayed under "Membership Details"
+   (e.g., `ABCDE12345` — exactly 10 alphanumeric characters)
+4. This goes into: `SUMMERJOBSWAP_IOS_TEAM_ID` GitHub secret + `team_id()` in Appfile
+
+> If you see multiple teams, use the one for your individual/company developer account.
+
+## 2. Apple ID Email
+
+**URL:** <https://appleid.apple.com>
+
+1. Sign in at <https://appleid.apple.com>
+2. The email you signed in with **is** your Apple ID
+3. This goes into: `apple_id()` in the fastlane Appfile
+
+> Ensure this Apple ID is enrolled in the Apple Developer Program ($99/yr at <https://developer.apple.com/programs/>)
+
+## 3. App Store Connect / iTunes Connect Team ID (numeric)
+
+**URL:** <https://appstoreconnect.apple.com>
+
+1. Sign in at <https://appstoreconnect.apple.com>
+2. Click your name (top-right) → **Account Settings**
+3. Under **Team**, your **Team ID** is a numeric value (e.g., `123456789`)
+4. This goes into: `itc_team_id()` in the fastlane Appfile
+
+> This is DIFFERENT from the Developer Team ID (step 1). The ITC Team ID is numeric; the Developer Team ID is alphanumeric.
+
+## Quick Reference Table
+
+| Value | Where to Find | Example | GitHub Secret / Appfile |
+|-------|--------------|---------|------------------------|
+| Developer Team ID | developer.apple.com → Membership | `ABCDE12345` | `SUMMERJOBSWAP_IOS_TEAM_ID` + `team_id()` |
+| Apple ID Email | appleid.apple.com | `you@email.com` | `apple_id()` |
+| ITC Team ID | appstoreconnect.apple.com → Settings | `123456789` | `itc_team_id()` |
+| Bundle ID | Your Capacitor config | `com.sovereign.summerjobswap` | `SUMMERJOBSWAP_IOS_BUNDLE_ID` + `app_identifier()` |
+
+## Setting GitHub Secrets (once you have the values)
+
+```bash
+gh secret set SUMMERJOBSWAP_IOS_TEAM_ID --body "ABCDE12345" --repo rooz-live/agentic-flow
+gh secret set SUMMERJOBSWAP_IOS_BUNDLE_ID --body "com.sovereign.summerjobswap" --repo rooz-live/agentic-flow
+```
+
+Or via GitHub UI: <https://github.com/rooz-live/agentic-flow/settings/secrets/actions>
+
+---
+
 # Release Readiness Protocol — SummerJobSwap MVP Launch
 
 **Status:** In Progress
@@ -7,6 +62,7 @@
 ## 1. iOS Build Configuration Assessment
 
 ### Current State
+
 | Component | Status | Detail |
 |-----------|--------|--------|
 | Capacitor config | ✅ Valid | `appId: com.sovereign.summerjobswap`, `webDir: dist` |
@@ -16,6 +72,7 @@
 | iOS simulator selection | ✅ Fixed | Pure-shell grep approach with iPhone 15 Pro fallback |
 
 ### iOS Prerequisites to Trigger Launch
+
 1. **Apple Developer Account** — enroll at developer.apple.com ($99/yr)
 2. **Register App ID** — `com.sovereign.summerjobswap` in Apple Developer portal
 3. **Provisioning Profile** — create App Store distribution profile
@@ -24,14 +81,17 @@
    - `SUMMERJOBSWAP_IOS_TEAM_ID` — Apple Developer Team ID
    - `SUMMERJOBSWAP_IOS_BUNDLE_ID` — `com.sovereign.summerjobswap`
 6. **Uncomment fastlane Appfile:**
+
    ```ruby
    apple_id("your-apple-id@email.com")
    itc_team_id("your-itc-team-id")
    team_id("your-dev-team-id")
    ```
+
 7. **Trigger:** Tag `release/mobile-*` → mobile-build.yml → iOS archive job runs
 
 ### iOS Launch Trigger
+
 ```bash
 git tag release/mobile-v1.0.0
 git push origin release/mobile-v1.0.0
@@ -41,6 +101,7 @@ git push origin release/mobile-v1.0.0
 ## 2. Android Keystore Configuration
 
 ### Required GitHub Secrets (4)
+
 | Secret | Purpose | How to Generate |
 |--------|---------|-----------------|
 | `SUMMERJOBSWAP_RELEASE_STORE_FILE` | Base64-encoded keystore file | `keytool -genkey -v -keystore release.keystore -alias summerjobswap -keyalg RSA -keysize 2048 -validity 10000` then base64 encode |
@@ -49,10 +110,12 @@ git push origin release/mobile-v1.0.0
 | `SUMMERJOBSWAP_RELEASE_KEY_PASSWORD` | Key password | Set during keytool generation |
 
 ### Additional Android Requirements
+
 1. **Google Play Console Account** — $25 one-time fee
 2. **Service Account JSON** — for `fastlane supply` automated upload
 3. **Set `GOOGLE_PLAY_JSON` secret** — base64-encoded service account key
 4. **Android signing config** — add to `apps/summerjobswap/android/app/build.gradle`:
+
    ```gradle
    signingConfigs {
        release {
@@ -65,6 +128,7 @@ git push origin release/mobile-v1.0.0
    ```
 
 ### Android URLs Required
+
 - Google Play Console: `https://play.google.com/console`
 - Google Cloud IAM: `https://console.cloud.google.com/iam-admin/serviceaccounts`
 - Fastlane supply docs: `https://docs.fastlane.tools/actions/supply/`
@@ -72,6 +136,7 @@ git push origin release/mobile-v1.0.0
 ## 3. Stripe Billing Integration Assessment
 
 ### Current State
+
 | Component | Status | Detail |
 |-----------|--------|--------|
 | Webhook verification | ✅ Solid | [`stripe_gateway.rs`](src/gateways/stripe_gateway.rs:1) — HMAC-SHA256, crypto-enforced |
@@ -81,6 +146,7 @@ git push origin release/mobile-v1.0.0
 | Stripe SDK (web) | ❌ Missing | No `@stripe/stripe-js` integration |
 
 ### Stripe Roadmap (Step-by-Step)
+
 1. **Create Stripe Account** → dashboard.stripe.com → get API keys
 2. **Set Environment Secrets:**
    - `STRIPE_SECRET_KEY` — `sk_live_...` or `sk_test_...`
@@ -98,6 +164,7 @@ git push origin release/mobile-v1.0.0
 ## 4. Whop Billing Integration Assessment
 
 ### Current State
+
 | Component | Status | Detail |
 |-----------|--------|--------|
 | Affiliate worker | ✅ Exists | [`whop_affiliate_worker.ts`](src/integrations/whop_affiliate_worker.ts:1) — rev-share registration |
@@ -107,6 +174,7 @@ git push origin release/mobile-v1.0.0
 | Per-domain branding | ❌ Missing | Affiliate tracking not branded per TLD |
 
 ### Whop Roadmap (Step-by-Step)
+
 1. **Whop Dashboard** → whop.com → create company + products
 2. **Set Environment Secret:** `WHOP_DEV_API_KEY` — from Whop developer settings
 3. **Create Products** — map to domain-specific pricing tiers
@@ -136,6 +204,7 @@ git push origin release/mobile-v1.0.0
 ## 6. Deployment Gate Integration
 
 R-CLS-03 and R-MAIL-03 remain in the LNNNL blockers lane:
+
 - **R-MAIL-03** (now): Stalwart mail — needed for email receipts/notifications
 - **R-CLS-03** (next): Trust artifact ↔ HEAD coupling — affects release pipeline integrity
 - **R-SPOF-01**: Accepted/Deferred per ADR-0042 (not critical for MVP)

@@ -49,8 +49,11 @@ def _data_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+RECEIPT_LOG = _data_root() / ".goalie" / "evidence" / "hire_receipts.jsonl"
+
+
 def _receipt_log() -> Path:
-    return _data_root() / ".goalie" / "evidence" / "hire_receipts.jsonl"
+    return Path(RECEIPT_LOG)
 
 
 MCP_ENDPOINT = "https://hire.agentics.org/api/mcp"

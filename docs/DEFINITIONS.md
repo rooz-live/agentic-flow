@@ -352,6 +352,27 @@ graph TD
     style Profile fill:#bff,stroke:#333,stroke-width:2px
 ```
 
+
+### Ruflo upgrade harness (PI 2026-Q2-RUFLO-01)
+
+| Artifact | Path |
+|----------|------|
+| PI backlog | `config/cicd/ruflo_pi_backlog.yaml` |
+| Monorepo roots | `config/monorepo/roots.yaml` |
+| Doctor + ROAM | `.goalie/evidence/ruflo_doctor_latest.json` |
+| Ceremony sync | `.goalie/evidence/ruflo_ceremony_latest.json` |
+| WSJF head | `.goalie/evidence/wsjf_ruflo_latest.json` |
+| Intel pipeline | `.goalie/evidence/intel_pipeline_latest.json` |
+| Inbox-zero exit gate | `.goalie/evidence/ruflo_upgrade_exit_latest.json` |
+
+**Invert:** enable HNSW/graph only after doctor `inbox_zero_gate` (no disk blockers). Intelligence `pattern_stored` requires receipt `PASS` + provenance when `AF_CI_PROVENANCE_HEAD` is set.
+
+```bash
+npm run ruflo:doctor
+npm run ruflo:wsjf
+npm run ruflo:ceremony -- standup
+```
+
 ### F4 pace authority (policy_snapshot)
 
 After `tick_cycle_policy_latest.json` is written, **`pace_cod_weight` and `pace_source` in `tick_post_latest.json` must come from policy**, not from the pre-policy `read_pace_bundle()` snapshot or a prior tick file. `reconcile_tick_post_pace.py` and the `EXIT` trap call `pace_bundle()` so `on_exit` cannot restore stale `pace_source`.

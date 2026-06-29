@@ -86,7 +86,23 @@ case "$CMD" in
 
     cycle)
         shift
-        exec bash "$ROOT_DIR/scripts/cicd/cycle_tick.sh" "$@"
+        # --upstream-full: pass AF_UPSTREAM_FULL=1 to enable full upstream upgrade in tick_post.
+        # --upstream-parallel: also enables AF_UPSTREAM_PARALLEL=1 for concurrent repo execution.
+        _CYCLE_ARGS=()
+        for _arg in "$@"; do
+          case "$_arg" in
+            --upstream-full)    export AF_UPSTREAM_FULL=1 ;;
+            --upstream-parallel) export AF_UPSTREAM_PARALLEL=1 ;;
+            *) _CYCLE_ARGS+=("$_arg") ;;
+          esac
+        done
+        exec bash "$ROOT_DIR/scripts/cicd/cycle_tick.sh" "${_CYCLE_ARGS[@]}"
+        ;;
+
+    run-all)
+        # Two-tier runner: --fast-only (default), --slow, --slow-only
+        shift
+        exec bash "$ROOT_DIR/scripts/cicd/run_all.sh" "$@"
         ;;
 
     goal)

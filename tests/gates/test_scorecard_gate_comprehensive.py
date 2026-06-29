@@ -323,6 +323,7 @@ def test_derive_coherence_signature_enforced_in_ci_and_precommit(tmp_path, monke
 def test_harden_blocks_unstaged_modifications_in_precommit(monkeypatch):
     sc = get_base()
     monkeypatch.setattr(gate, "_coherence_artifact_usable", lambda *a, **kw: True)
+    monkeypatch.setattr(gate, "_coherence_artifact_signed_usable", lambda *a, **kw: False)
     monkeypatch.setattr(gate, "_git", lambda args, **kw: "some_file.py" if args == ["diff", "--name-only"] else "")
     monkeypatch.setattr(gate, "derive_coherence", lambda *a, **kw: "PASS")
     monkeypatch.setattr(gate, "derive_gate_integrity", lambda *a, **kw: ("PASS", ""))

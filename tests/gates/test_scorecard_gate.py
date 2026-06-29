@@ -1040,3 +1040,102 @@ def test_roam_tracker_update_unregistered_untracked_files(monkeypatch, tmp_path)
     hardened, blocks, warns, meta = gate.harden(sc, env={}, strict=False, ingest_only=True)
     assert not any("ROAM_TRACKER.yaml was updated, but the following newly added untracked files are not registered" in err for err in blocks)
 
+
+def test_p1_trust_01_precommit_ingest_only_enforces_reward_direction_without_hack(monkeypatch, tmp_path):
+    """P1-TRUST-01: --precommit --ingest-only with signed coherence artifact should SHIP 
+    without AF_RD_ENFORCE=0 hack when coherence matches HEAD."""
+    sc = base()
+    
+    # Mock precommit environment with ingest_only and signed coherence artifact
+    env = {
+        "AF_GATE_CONTEXT": "precommit",
+        "AF_VERIFY_MODE": "1"
+    }
+    
+    # Mock functions to simulate signed coherence artifact matching HEAD
+    monkeypatch.setattr(gate, "git_head", lambda *a, **k: "mock_head_sha")
+    monkeypatch.setattr(gate, "current_diff_sha", lambda *a, **k: "mock_diff_sha")
+    monkeypatch.setattr(gate, "run_signals", lambda *a, **k: [])
+    monkeypatch.setattr(gate, "derive_coherence", lambda *a, **k: "PASS")
+    monkeypatch.setattr(gate, "derive_gate_integrity", lambda *a, **k: ("PASS", "mock_reason"))
+    monkeypatch.setattr(gate, "verify_signoff", lambda *a, **k: (True, "mock_reason"))
+    
+    # Mock _coherence_artifact_signed_usable to return True (signed artifact available)
+    def mock_coherence_artifact_signed_usable(*a, **k):
+        return True
+    monkeypatch.setattr(gate, "_coherence_artifact_signed_usable", mock_coherence_artifact_signed_usable)
+    
+    # Mock git to return no unstaged changes (required for ingest_only path)
+    def mock_git(args, **kwargs):
+        if "diff" in args and "--name-only" in args:
+            return ""  # No unstaged changes
+        return ""
+    monkeypatch.setattr(gate, "_git", mock_git)
+    
+    # Test with ingest_only=True and precommit context
+    hardened, blocks, warns, meta = gate.harden(
+        sc, env=env, strict=False, ingest_only=True, skip_roam_check=True
+    )
+    
+    # Verify that trust_ingest_path is set in meta
+    assert meta.get("trust_ingest_path") is True
+    
+    # Verify that coherence_derived is PASS (from signed artifact)
+    assert meta.get("coherence_derived") == "PASS"
+    
+    # Verify that reward_direction_enforced is True (no AF_RD_ENFORCE=0 hack needed)
+    assert meta.get("reward_direction_enforced") is True
+    
+    # Verify no blocks are present
+    assert not blocks
+    
+    # Verify the card ships
+    result = gate.evaluate(hardened)
+    assert result["disposition"] == "SHIP"
+
+
+def test_p1_trust_01_precommit_ingest_only_blocks_without_signed_artifact(monkeypatch, tmp_path):
+    """P1-TRUST-01: --precommit --ingest-only without signed artifact should block."""
+    sc = base()
+    
+    # Mock precommit environment with ingest_only but NO signed coherence artifact
+    env = {
+        "AF_GATE_CONTEXT": "precommit",
+        "AF_VERIFY_MODE": "1"
+    }
+    
+    # Mock functions
+    monkeypatch.setattr(gate, "git_head", lambda *a, **k: "mock_head_sha")
+    monkeypatch.setattr(gate, "current_diff_sha", lambda *a, **k: "mock_diff_sha")
+    monkeypatch.setattr(gate, "run_signals", lambda *a, **k: [])
+    monkeypatch.setattr(gate, "derive_coherence", lambda *a, **k: "FAIL")  # Coherence fails
+    monkeypatch.setattr(gate, "derive_gate_integrity", lambda *a, **k: ("PASS", "mock_reason"))
+    monkeypatch.setattr(gate, "verify_signoff", lambda *a, **k: (True, "mock_reason"))
+    
+    # Mock _coherence_artifact_signed_usable to return False (no signed artifact)
+    def mock_coherence_artifact_signed_usable(*a, **k):
+        return False
+    monkeypatch.setattr(gate, "_coherence_artifact_signed_usable", mock_coherence_artifact_signed_usable)
+    
+    # Mock git to return no unstaged changes
+    def mock_git(args, **kwargs):
+        if "diff" in args and "--name-only" in args:
+            return ""
+        return ""
+    monkeypatch.setattr(gate, "_git", mock_git)
+    
+    # Test with ingest_only=True and precommit context but no signed artifact
+    hardened, blocks, warns, meta = gate.harden(
+        sc, env=env, strict=False, ingest_only=True, skip_roam_check=True
+    )
+    
+    # Verify that trust_ingest_path is False
+    assert meta.get("trust_ingest_path") is not True
+    
+    # Verify that coherence_derived is FAIL
+    assert meta.get("coherence_derived") == "FAIL"
+    
+    # Verify the card does NOT ship (blocks due to coherence FAIL)
+    result = gate.evaluate(hardened)
+    assert result["disposition"] == "BLOCK"
+

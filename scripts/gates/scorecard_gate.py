@@ -1746,7 +1746,13 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
     rd_proxy, rnotes = derive_reward_direction(proxies)
     meta["reward_direction_proxy"] = rd_proxy
     is_ci = is_ci_env(env)
-    enforce_rd = str(env.get("AF_RD_ENFORCE", "0" if trust_ingest_path else ("1" if (is_ci or is_precommit) else "0"))) == "1"
+    # When using --precommit --ingest-only with a signed coherence artifact that matches HEAD,
+    # we can safely enforce reward_direction without hacks (P1-TRUST-01 hardening)
+    default_enforce = "1" if (is_ci or is_precommit) else "0"
+    if trust_ingest_path and meta.get("coherence_derived") == "PASS":
+        # Signed coherence artifact matches HEAD - safe to enforce without AF_RD_ENFORCE=0 hack
+        default_enforce = "1"
+    enforce_rd = str(env.get("AF_RD_ENFORCE", default_enforce)) == "1"
     meta["reward_direction_enforced"] = enforce_rd
     asserted = card.get("impact", {}).get("reward_direction")
     if enforce_rd:

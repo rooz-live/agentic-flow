@@ -203,8 +203,19 @@ fi
 
 if [[ "$RUN_UP" == "1" ]]; then
   set +e
-  python3 "$ROOT/scripts/cicd/upstream_upgrade_engine.py" --dry-run
-  _tick_post_enforce_fail "upstream dry-run" $?
+  # AF_UPSTREAM_FULL=1: run full upgrade (fetch + apply); default is dry-run for safety.
+  # AF_UPSTREAM_PARALLEL=1: enable parallel repo execution when running full.
+  if [[ "${AF_UPSTREAM_FULL:-0}" == "1" ]]; then
+    _UP_ARGS=("--print-receipt")
+    [[ "${AF_UPSTREAM_PARALLEL:-0}" == "1" ]] && _UP_ARGS+=("--parallel")
+    echo "=== tick_post: upstream upgrade (full; parallel=${AF_UPSTREAM_PARALLEL:-0}) ==="
+    python3 "$ROOT/scripts/cicd/upstream_upgrade_engine.py" "${_UP_ARGS[@]}"
+    _tick_post_enforce_fail "upstream upgrade" $?
+  else
+    echo "=== tick_post: upstream upgrade (dry-run; set AF_UPSTREAM_FULL=1 for full) ==="
+    python3 "$ROOT/scripts/cicd/upstream_upgrade_engine.py" --dry-run
+    _tick_post_enforce_fail "upstream dry-run" $?
+  fi
   set -e
 else
   echo "SKIP upstream: cycle policy deferred"

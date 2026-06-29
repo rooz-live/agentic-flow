@@ -1201,6 +1201,8 @@ ARTIFACT_PATH_EXACT = frozenset({
     ".goalie/scorecards/current.json",
     ".goalie/trust_cache.json",
     ".goalie/ROAM_TRACKER_COG.yaml",
+    ".goalie/LNNNL.yaml",
+    "profile_readme.md",
 })
 
 

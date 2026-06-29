@@ -19,13 +19,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - run: corepack enable
       - run: pip install pyyaml
       - name: Generated targets must match fqdn_registry.yaml
-        run: pnpm run tld:targets:check
+        run: python3 scripts/metrics/generate_tld_targets.py --check
   scorecard-gate:
     name: Originality/Impact Scorecard Verification
     runs-on: ubuntu-latest
@@ -38,23 +34,15 @@ jobs:
           python-version: '3.12'
 
       - name: "Install Rust toolchain"
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: "Run Scorecard Gate with --verify"
-        run: |
-          # Derive coherence from real signals (cargo check + pytest + git ls-files)
-          # This closes the trust gap - no self-asserted coherence/gate_integrity allowed
-          if [ -f .goalie/scorecards/current.json ]; then
-            python3 scripts/gates/scorecard_gate.py --file .goalie/scorecards/current.json --verify --json --emit-evidence
-          elif [ -f .goalie/scorecards/required.json ]; then
-            python3 scripts/gates/scorecard_gate.py --file .goalie/scorecards/required.json --verify --json --emit-evidence
-          else
-            echo "⚠️  No scorecard found. Running in --precommit mode (soft skip if missing)..."
-            python3 scripts/gates/scorecard_gate.py --precommit --verify --json --emit-evidence || true
-          fi
+      - name: "Run Scorecard Gate with --verify (fail-closed)"
+        run: bash scripts/gates/run_scorecard_verify_ci.sh
         env:
           CI: true
+          GITHUB_ACTIONS: true
           GITHUB_EVENT_NAME: ${{ github.event_name }}
+          PR_BODY: ${{ github.event.pull_request.body || github.event.head_commit.message }}
           AF_REQUIRE_SCORECARD: "1"
 
       - name: Upload Scorecard Evidence
@@ -77,7 +65,12 @@ jobs:
           bash --version | head -1
 
       - name: "Install Python test deps"
-        run: pip install pytest
+        run: pip install pyyaml python-dateutil pytest
+
+      - name: "Git identity for gate contract tests"
+        run: |
+          git config --global user.email "ci@agentic-flow.local"
+          git config --global user.name "agentic-flow-ci"
 
       - name: "Run shell gate tests"
         run: |

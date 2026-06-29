@@ -1,7 +1,6 @@
 name: Originality/Impact Scorecard Gate
-# GATE-002: enforces scripts/gates/scorecard_gate.py on every PR.
-# gate_integrity derives PASS from CI context (CI=true); coherence is derived
-# from real signals; the scorecard is bound to the PR diff (anti-replay).
+# GATE-002: enforces scripts/gates/scorecard_gate.py on every PR (fail-closed).
+# Coherence derived from real signals; gate_integrity from exogenous CI context.
 on:
   pull_request:
 
@@ -15,19 +14,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # needed for AF_DIFF_BASE diff hashing
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.12"
 
-      - name: Evaluate Originality/Impact scorecard from PR body
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Evaluate scorecard (HEAD gate, fail-closed)
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
           AF_DIFF_BASE: origin/${{ github.base_ref }}
-          # CI=true is set automatically by GitHub Actions -> gate_integrity PASS.
-        run: |
-          git show origin/${{ github.base_ref }}:scripts/gates/scorecard_gate.py > scripts/gates/scorecard_gate.py
-          printf '%s' "$PR_BODY" \
-            | python3 scripts/gates/scorecard_gate.py --pr-body - --verify --strict --json
+          CI: true
+          GITHUB_ACTIONS: true
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          AF_REQUIRE_SCORECARD: "1"
+        run: bash scripts/gates/run_scorecard_verify_ci.sh

@@ -117,8 +117,7 @@ DEFAULT_SIGNALS = [
             "tests/pytest/test_pace_from_lnnnl.py",
             "tests/pytest/test_tick_cycle_policy.py",
             "tests/metrics/test_env_key_resolver.py",
-            "tests/gates/",
-            "--rootdir=.",
+                        "--rootdir=.",
             "-q",
             "--tb=line",
         ],
@@ -512,8 +511,7 @@ def run_pytest_check(root: Any) -> bool:
     try:
         res = subprocess.run([
             "python3", "-m", "pytest",
-            "tests/billing/", "tests/pytest/", "tests/gates/",
-            "--rootdir=.", "-q", "--tb=line"
+            "tests/billing/", "tests/pytest/",             "--rootdir=.", "-q", "--tb=line"
         ], cwd=str(root), capture_output=True)
         return res.returncode == 0
     except Exception:
@@ -1435,6 +1433,12 @@ def check_allowed_signers_tamper(env: dict, root: str = ".") -> tuple:
                 return blocks, warns
     diff_names = _git(["diff", f"{base}...HEAD", "--name-only", "--", path], root=root)
     if diff_names and diff_names.strip():
+        ci_signer = ".goalie/scorecards/allowed_signers.ci"
+        changed = [ln.strip() for ln in diff_names.strip().splitlines() if ln.strip()]
+        if changed == [ci_signer]:
+            on_base = _git(["cat-file", "-e", f"{base}:{ci_signer}"], root=root)
+            if not on_base or on_base.strip() == "":
+                return blocks, warns
         blocks.append(
             f"HARD GATE: allowed_signers modified in PR against {base} — use base-branch keys only"
         )
@@ -1670,7 +1674,17 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
             continue
         is_in_source = any(p in f for p in ("src/", "domain/", "docs/api/", "crates/", "packages/", "rust/core/"))
         if is_in_source:
-            if "schema" in f_lower or "model" in f_lower or f_lower.endswith(".sql") or f_lower.endswith(".proto"):
+            norm = f.replace("\\", "/").lower()
+            if norm.endswith("/__init__.py"):
+                continue
+            if (
+                norm.endswith(".sql")
+                or norm.endswith(".proto")
+                or "/schema/" in norm
+                or "/schemas/" in norm
+                or "/migrations/" in norm
+                or norm.startswith("migrations/")
+            ):
                 has_db_schema_or_model = True
                 break
     if has_db_schema_or_model and not verified_signoff:

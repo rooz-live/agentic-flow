@@ -33,7 +33,7 @@ def test_dry_run_prints_payload(monkeypatch, capsys, mod):
     data = json.loads(out)
     assert data["email"] == "x@y.com"
     assert data["payload"]["method"] == "earnings/sync"
-    assert data["payload"]["earnings"]["earnings"]["agent"] == 1.0
+    assert data["payload"]["earnings"]["agent"] == 1.0
 
 
 def test_main_returns_1_on_rpc_error(monkeypatch, mod, tmp_path):

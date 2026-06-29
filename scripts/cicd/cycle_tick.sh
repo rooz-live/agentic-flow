@@ -226,6 +226,7 @@ python3 "$REPO_ROOT/scripts/cicd/lib/cycle_knob_engine.py" receipt "$MODE" || tr
 export AF_LNNNL_ENFORCE="${AF_LNNNL_ENFORCE:-1}"
 export AF_TICK_POST_ENFORCE="${AF_TICK_POST_ENFORCE:-1}"
 export AF_LNNNL_STALE_ENFORCE="${AF_LNNNL_STALE_ENFORCE:-1}"
+export AF_ALLOW_OP_READ="${AF_ALLOW_OP_READ:-1}"
 
 if [[ -x "$REPO_ROOT/scripts/cicd/tick_post_hooks.sh" ]]; then
   set +e

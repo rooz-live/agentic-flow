@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 HOOK="$ROOT/scripts/cicd/tick_post_hooks.sh"
 
 grep -q '\-\-tick-bootstrap' "$HOOK" || { echo "FAIL: tick_post must use --tick-bootstrap"; exit 1; }
-grep -q 'AF_ALLOW_OP_READ=1' "$HOOK" || { echo "FAIL: bootstrap must opt-in to OP once"; exit 1; }
+grep -q 'AF_ALLOW_OP_READ' "$HOOK" || { echo "FAIL: bootstrap must gate OP on AF_ALLOW_OP_READ"; exit 1; }
 grep -q 'AF_SKIP_OP_READ=1' "$HOOK" || { echo "FAIL: tick must forbid OP after bootstrap"; exit 1; }
 
 bootstrap_line="$(grep -n '\-\-tick-bootstrap' "$HOOK" | head -1 | cut -d: -f1)"

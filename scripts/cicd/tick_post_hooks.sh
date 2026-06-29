@@ -70,11 +70,15 @@ on_exit() {
 }
 trap on_exit EXIT
 
-echo "=== tick_post: env bootstrap (invert: forbid OP except one bootstrap pass) ==="
+echo "=== tick_post: env bootstrap (invert: OP forbidden unless AF_ALLOW_OP_READ=1) ==="
 export AF_SKIP_OP_READ=1
-ENV_EXPORTS="$(
-  AF_ALLOW_OP_READ=1 AF_SKIP_OP_READ=0     python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --tick-bootstrap 2>/dev/null || true
-)"
+if [[ "${AF_ALLOW_OP_READ:-0}" == "1" ]]; then
+  ENV_EXPORTS="$(
+    AF_ALLOW_OP_READ=1 AF_SKIP_OP_READ=0       python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --tick-bootstrap 2>/dev/null || true
+  )"
+else
+  ENV_EXPORTS="$(python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --tick-bootstrap 2>/dev/null || true)"
+fi
 if [[ -n "$ENV_EXPORTS" ]] && grep -qE '^export ' <<<"$ENV_EXPORTS"; then
   _source_exports "$ENV_EXPORTS"
   ENV_EXPORT_OK=1

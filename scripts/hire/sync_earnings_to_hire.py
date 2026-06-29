@@ -57,7 +57,10 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    payload = {"method": "earnings/sync", "earnings": [export.get("earnings", {})]}
+    earnings_data = export.get("earnings", {})
+    if isinstance(earnings_data, dict):
+        earnings_data = [earnings_data]
+    payload = {"method": "earnings/sync", "earnings": earnings_data}
 
     if args.dry_run:
         print(json.dumps({"email": args.email, "payload": payload}, indent=2))

@@ -24,7 +24,7 @@ lnnnl_line="$(grep -n 'update_lnnnl.py' "$HOOK" | head -1 | cut -d: -f1)"
 
 grep -q 'AF_SKIP_ROAM_SYNC=1' "$HOOK" || { echo "FAIL: update_lnnnl must set AF_SKIP_ROAM_SYNC=1"; exit 1; }
 grep -q 'AF_SKIP_OP_READ=1' "$HOOK" || { echo "FAIL: must forbid OP reads after bootstrap"; exit 1; }
-grep -q 'AF_ALLOW_OP_READ=1' "$HOOK" || { echo "FAIL: must opt-in to single OP bootstrap pass"; exit 1; }
+grep -q 'AF_ALLOW_OP_READ' "$HOOK" || { echo "FAIL: must gate OP bootstrap on AF_ALLOW_OP_READ"; exit 1; }
 
 echo "PASS tick_post_env_contract"
 

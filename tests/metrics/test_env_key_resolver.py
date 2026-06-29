@@ -96,14 +96,16 @@ def test_resolve_key_value_skips_unrelated_dotenv_op_refs(tmp_path, monkeypatch)
         return "zai-key" if "Z.ai" in ref else None
 
     monkeypatch.setattr("env_key_resolver.op_read", fake_op_read)
+    monkeypatch.delenv("AF_SKIP_OP_READ", raising=False)
     monkeypatch.delenv("ZAI_API_KEY", raising=False)
     (tmp_path / ".env").write_text(
         "CPANEL_PASSWORD=op://Personal/WHM/pass\n"
         "ZAI_API_KEY=op://Personal/Z.ai/Devin\n",
         encoding="utf-8",
     )
-    from env_key_resolver import resolve_key_value
+    from env_key_resolver import resolve_key_value, clear_value_cache
 
+    clear_value_cache()
     val, src = resolve_key_value("ZAI_API_KEY", tmp_path)
     assert val == "zai-key"
     assert calls == ["op://Personal/Z.ai/Devin"]

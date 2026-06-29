@@ -4,16 +4,26 @@ on:
   schedule:
     - cron: "0 12 * * 0"
   workflow_dispatch:
+    inputs:
+      install_plugins:
+        description: "Live plugin install (weekly default on schedule)"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
 
 jobs:
-  ruflo-upgrade-slow:
-    name: Ruflo WSJF upgrade (slow tier, no plugin install on PR)
+  ruflo-doctor-slow:
+    name: Ruflo doctor + slow contracts (offline)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
 
       - name: Install dependencies
         run: |
@@ -21,9 +31,53 @@ jobs:
           sudo apt-get install -y bash python3 python3-pip jq
           pip install pyyaml
 
-      - name: Run Ruflo WSJF upgrade (ci-slow)
+      - name: Ruflo npm smoke
+        run: |
+          source config/ruflo/version.env
+          npm install --no-save "ruflo@${RUFLO_VERSION}"
+          ./node_modules/.bin/ruflo --version
+
+      - name: Doctor + slow contracts (no network)
         env:
           AF_SKIP_OP_READ: "1"
           AF_SKIP_NETWORK: "1"
           RUFLO_PLUGIN_INSTALL: "0"
         run: bash scripts/cicd/ruflo_wsjf_upgrade.sh --ci-slow
+
+  ruflo-plugin-install:
+    name: Live Ruflo plugin install (weekly; network required)
+    runs-on: ubuntu-latest
+    needs: ruflo-doctor-slow
+    if: github.event_name == 'schedule' || github.event.inputs.install_plugins == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y bash python3 python3-pip jq
+          pip install pyyaml
+          source config/ruflo/version.env
+          npm install --no-save "ruflo@${RUFLO_VERSION}"
+
+      - name: Doctor gate (must pass before plugin install)
+        env:
+          AF_SKIP_OP_READ: "1"
+          AF_SKIP_NETWORK: "1"
+        run: |
+          PYTHONPATH="$PWD" python3 scripts/cicd/ruflo_doctor_roam.py
+          python3 scripts/ruflo/sync_doctor_roam_risks.py
+
+      - name: Live plugin install (WSJF order)
+        env:
+          AF_SKIP_OP_READ: "1"
+          RUFLO_PLUGIN_INSTALL: "1"
+        run: bash scripts/cicd/ruflo_wsjf_upgrade.sh --install-plugins
+
+      - name: Write upgrade evidence
+        run: python3 scripts/cicd/ruflo_upgrade_evidence.py

@@ -137,3 +137,23 @@ def test_workflow_alias_matches_ruflo_help():
     assert ruflo.returncode == 0 and workflow.returncode == 0
     assert ruflo.stdout == workflow.stdout
 
+
+
+def test_one_sh_portfolio_probe_dry_run():
+    """one.sh portfolio --dry-run must emit version_portfolio.v1 JSON."""
+    root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        ["bash", str(root / "scripts" / "one.sh"), "portfolio", "--dry-run", "--json"],
+        capture_output=True,
+        text=True,
+        cwd=str(root),
+        env={**__import__("os").environ, "AF_SKIP_NETWORK": "1"},
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    import json
+    doc = json.loads(result.stdout)
+    assert doc.get("schema") == "version_portfolio.v1"
+    ids = {p["id"] for p in doc.get("packages", [])}
+    assert "ruflo" in ids
+    assert "metaharness-kernel" in ids

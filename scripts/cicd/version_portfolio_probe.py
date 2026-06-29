@@ -50,6 +50,19 @@ def _read_pin(pkg: dict[str, Any], root: Path) -> str | None:
     elif ptype == "regex":
         m = re.search(pin.get("pattern", ""), text)
         return m.group(1) if m else None
+    elif ptype == "json_optional":
+        if not fpath.is_file():
+            return None
+        doc = json.loads(fpath.read_text(encoding="utf-8"))
+        path = pin.get("path", "")
+        cur: Any = doc
+        for part in path.split("."):
+            if not isinstance(cur, dict):
+                return None
+            cur = cur.get(part)
+        if isinstance(cur, str):
+            return cur.lstrip("^~>=< ")
+        return None
     elif ptype == "json":
         doc = json.loads(text)
         path = pin.get("path", "")

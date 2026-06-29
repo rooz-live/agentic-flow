@@ -92,6 +92,28 @@ test_aqe_agentic_flow_root() {
   fi
 }
 
+
+test_redblue_manifest_link() {
+  echo ""
+  echo "P8: @metaharness/redblue mock-judge ↔ harness manifest"
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if [[ -f "$ROOT_DIR/apps/agent-harness/.harness/manifest.json" ]]; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "\033[32m✓\033[0m  harness manifest present"
+  else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo -e "\033[31m✗\033[0m  harness manifest missing"
+  fi
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if grep -q '@metaharness/redblue' "$HARNESS_PKG"; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "\033[32m✓\033[0m  harness declares @metaharness/redblue"
+  else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo -e "\033[31m✗\033[0m  harness missing redblue dep"
+  fi
+}
+
 test_ruflo_portfolio_wiring() {
   echo ""
   echo "P4: ruflo portfolio — pinned CLI + plugins manifest"
@@ -180,8 +202,34 @@ main() {
   test_help_lists_portfolio_subcommands
   test_harness_metaharness_wiring
   test_aqe_agentic_flow_root
+
+
+test_one_sh_portfolio_subcommand() {
+  echo ""
+  echo "P5: one.sh portfolio → version_portfolio_probe"
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if grep -qE 'portfolio\|versions\)' "$ONE_SH"; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "\033[32m✓\033[0m  one.sh routes portfolio → version_portfolio_probe"
+  else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo -e "\033[31m✗\033[0m  one.sh missing portfolio subcommand"
+  fi
+  TESTS_RUN=$((TESTS_RUN + 1))
+  AF_SKIP_NETWORK=1 bash "$ONE_SH" portfolio --dry-run --json > "$TMPROOT/portfolio.json" 2>&1
+  if python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert d.get('schema')=='version_portfolio.v1'" "$TMPROOT/portfolio.json" 2>/dev/null; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "\033[32m✓\033[0m  one.sh portfolio --dry-run emits v1 schema"
+  else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo -e "\033[31m✗\033[0m  one.sh portfolio probe failed"
+  fi
+}
   test_ruflo_portfolio_wiring
+  test_agenticow_and_portfolio_one_sh
+  test_one_sh_portfolio_subcommand
   test_harness_doctor_smoke
+  test_redblue_manifest_link
   test_workflow_alias_matches_ruflo
   print_test_summary
 }

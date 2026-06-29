@@ -20,6 +20,7 @@
 #   edge-sync        → scripts/cicd/edge_gateway_sync_engine.py [--dry-run|--force|--json]
 #   aqe              → scripts/one-sh.d/aqe.sh [init|status|<aqe-cmd>]
 #   ruflo|workflow   → scripts/one-sh.d/workflow.sh [init|status|<ruflo-cmd>]
+#   portfolio        → scripts/cicd/version_portfolio_probe.py [--json|--dry-run]
 #   harness          → apps/agent-harness npm run <doctor|evolve|evolve:dry|init>
 set -euo pipefail
 
@@ -168,6 +169,10 @@ case "$CMD" in
 
     ruflo|workflow)
         exec bash "$ROOT_DIR/scripts/one-sh.d/workflow.sh" "${@:2}"
+        ;;
+
+    portfolio|versions)
+        exec python3 "$ROOT_DIR/scripts/cicd/version_portfolio_probe.py" "${@:2}"
         ;;
 
     harness)

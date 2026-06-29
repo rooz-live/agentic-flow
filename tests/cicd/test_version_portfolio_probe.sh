@@ -11,7 +11,9 @@ doc = json.loads(Path("/tmp/vp_probe.json").read_text())
 assert doc.get("schema") == "version_portfolio.v1"
 assert len(doc.get("packages", [])) >= 3
 for p in doc["packages"]:
-    assert p.get("id") and p.get("pinned"), p
+    assert p.get("id"), p
+    if p.get("channel") != "optional":
+        assert p.get("pinned"), p
 assert "blockers_active" in doc
 print("PASS version_portfolio_probe contract")
 PY

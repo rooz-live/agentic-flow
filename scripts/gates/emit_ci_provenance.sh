@@ -10,7 +10,7 @@ PRINCIPAL="${AF_CI_SIGNING_PRINCIPAL:-ci@agentic-flow.github}"
 KEY_MATERIAL="${AF_CI_SIGNING_KEY:-}"
 
 if [[ -z "$KEY_MATERIAL" ]]; then
-  echo "emit_ci_provenance: skip (AF_CI_SIGNING_KEY unset — using GITHUB_ACTIONS fallback)"
+  echo "emit_ci_provenance: skip (AF_CI_SIGNING_KEY unset — gate_integrity requires AF_CI_PROVENANCE_SIGNATURE)"
   exit 0
 fi
 

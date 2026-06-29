@@ -259,6 +259,44 @@ PY
 }
 
 # ── P4: Standard cicd.receipt.v1 artifact is emitted and validated ──────────
+
+# ── P5: fetch_run_report queries edge receipts by context ─────────────────────
+test_fetch_run_report_edge_context() {
+    echo ""
+    echo "P5: fetch_run_report --context edge"
+    local proj="$TMPROOT/p5"
+    make_fake_project "$proj"
+    cat > "$proj/src/proxies/edge_gateway.cfg" <<'CFG'
+billing.bhopti.com {
+    reverse_proxy 23.92.79.2:80
+}
+CFG
+    cat > "$proj/config/fqdn_registry.yaml" <<'YAML'
+domains:
+  - fqdn: billing.bhopti.com
+    origin: "23.92.79.2"
+    health_path: /
+YAML
+    mkdir -p "$proj/.goalie/evidence/edge_gateway"
+    echo '{"billing.bhopti.com": "23.92.79.2"}' > "$proj/.goalie/evidence/edge_gateway/last_known_state.json"
+    cat > "$proj/scripts/cicd/edge_fetcher.py" <<'PY'
+def fetch_edge_status(project_root):
+    fqdns = ["billing.bhopti.com"]
+    registry = {"billing.bhopti.com": "23.92.79.2"}
+    live = {"billing.bhopti.com": "23.92.79.2"}
+    cache = {"billing.bhopti.com": "23.92.79.2"}
+    to_sync = []
+    meta = {"billing.bhopti.com": {"origin": "23.92.79.2", "health_path": "/", "sync_timeout_s": 5, "roam_risk_id": None, "notify_on_fail": False}}
+    return fqdns, registry, live, cache, to_sync, meta
+PY
+    cat > "$proj/scripts/cicd/edge_runner.py" <<'PY'
+def run_edge_sync(*args, **kwargs): return []
+PY
+    run_assert_rc 0 "$TMPROOT/p5.out" run_engine "$proj" --no-coherence
+    run_assert_rc 0 "$TMPROOT/p5fetch.out" bash -c "cd '$proj' && python3 '$ROOT_DIR/scripts/cicd/fetch_run_report.py' --context edge --summary"
+    assert_contains "$(cat "$TMPROOT/p5fetch.out")" "edge"
+}
+
 test_receipt_artifact_emitted() {
     echo ""
     echo "P4: standard receipt artefact emitted"
@@ -609,6 +647,7 @@ main() {
     test_json_stdout
     test_dlq_notify_on_fail
     test_receipt_artifact_emitted
+    test_fetch_run_report_edge_context
     test_one_sh_edge_sync_routes
     test_coherence_gate_blocks
     print_test_summary

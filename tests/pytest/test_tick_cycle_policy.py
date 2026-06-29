@@ -57,3 +57,19 @@ def test_blocker_remediation_deferrable_ran_without_shippable_util():
     assert policy["aqe_utilization_pct"] == 0.0
     assert policy["aqe_deferrable_ran"] is True
     assert policy["aqe_scope_utilization_pct"] == 50.0
+
+
+def test_utilization_split_metrics():
+    policy = load_policy(pace=1.5, blocker_pace=1.0)
+    assert policy["shippable_utilization_pct"] == 100.0
+    assert policy["blocker_lane_active"] is False
+
+    policy_b = load_policy(
+        pace=0.5,
+        blocker_pace=1.0,
+        shippable_lane_empty=True,
+        blocker_lane_has_now=True,
+        utilize_mode_hint="blocker-remediation",
+    )
+    assert policy_b["shippable_utilization_pct"] == 0.0
+    assert policy_b["blocker_lane_active"] is True

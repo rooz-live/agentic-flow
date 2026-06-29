@@ -81,6 +81,8 @@ def load_policy(
         else (50.0 if aqe_deferrable_ran else 0.0)
     )
     harness_util = 100.0 if run_upstream else (25.0 if utilize_deferrable and pace < 1.0 else 0.0)
+    shippable_utilization_pct = aqe_util if pace >= 1.0 and utilize_mode == "full" else 0.0
+    blocker_lane_active = bool(blocker_lane_has_now and (shippable_lane_empty or pace < 1.0))
 
     return {
         "pace_cod_weight": pace,
@@ -93,6 +95,8 @@ def load_policy(
         "aqe_scope": aqe_scope,
         "utilize_mode": utilize_mode,
         "aqe_utilization_pct": aqe_util,
+        "shippable_utilization_pct": shippable_utilization_pct,
+        "blocker_lane_active": blocker_lane_active,
         "aqe_deferrable_ran": aqe_deferrable_ran,
         "aqe_scope_utilization_pct": aqe_scope_util,
         "harness_utilization_pct": harness_util,

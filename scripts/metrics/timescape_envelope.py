@@ -118,6 +118,19 @@ def build_envelope(root: Path | None = None) -> dict:
     }
 
 
+
+def enforce_exit(envelope: dict) -> int:
+    """Fail-closed when AF_TIMESCAPE_ENFORCE=1 and envelope_status is BLOCK."""
+    import os
+    import sys
+    if os.environ.get("AF_TIMESCAPE_ENFORCE", "0") != "1":
+        return 0
+    if envelope.get("envelope_status") == "BLOCK":
+        print("timescape_envelope: BLOCK enforced (AF_TIMESCAPE_ENFORCE=1)", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main() -> int:
     import argparse
     parser = argparse.ArgumentParser()
@@ -130,13 +143,13 @@ def main() -> int:
     
     if args.dry_run:
         print(json.dumps(out, indent=2))
-        return 0
+        return enforce_exit(out)
         
     path = root / ".goalie" / "evidence" / "timescape_latest.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
     print(f"timescape_envelope: {out['envelope_status']} -> {path}")
-    return 0
+    return enforce_exit(out)
 
 
 if __name__ == "__main__":

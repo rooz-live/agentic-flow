@@ -300,13 +300,20 @@ def enforce_stale_roam_gate(stale_items):
     return 0
 
 
+
+
+def _require_roam_refresh_evidence_when_enabled() -> None:
+    """Single guard for AF_ROAM_REFRESH_TIMESTAMPS=1 (no duplicate blocks)."""
+    if os.environ.get("AF_ROAM_REFRESH_TIMESTAMPS", "0") != "1":
+        return
+    if not os.environ.get("AF_ROAM_REFRESH_EVIDENCE", "").strip():
+        raise SystemExit(
+            "AF_ROAM_REFRESH_TIMESTAMPS=1 requires AF_ROAM_REFRESH_EVIDENCE JSON listing item ids"
+        )
+
+
 def main():
-    # Fast-fail for evidence-gated timestamp refresh before expensive work.
-    if os.environ.get('AF_ROAM_REFRESH_TIMESTAMPS', '0') == '1':
-        if not os.environ.get('AF_ROAM_REFRESH_EVIDENCE', '').strip():
-            raise SystemExit(
-                'AF_ROAM_REFRESH_TIMESTAMPS=1 requires AF_ROAM_REFRESH_EVIDENCE JSON listing item ids'
-            )
+    _require_roam_refresh_evidence_when_enabled()
     roam_cog_path = os.path.join(PROJECT_ROOT, ".goalie/ROAM_TRACKER_COG.yaml")
     roam_path = os.path.join(PROJECT_ROOT, ".goalie/ROAM_TRACKER.yaml")
     lnnnl_path = os.path.join(PROJECT_ROOT, ".goalie/LNNNL.yaml")
@@ -579,11 +586,7 @@ def main():
         print('Skipped ROAM discovered refresh (set AF_ROAM_REFRESH_TIMESTAMPS=1 to enable)')
         return
 
-    if os.environ.get('AF_ROAM_REFRESH_TIMESTAMPS', '0') == '1':
-        if not os.environ.get('AF_ROAM_REFRESH_EVIDENCE', '').strip():
-            raise SystemExit(
-                'AF_ROAM_REFRESH_TIMESTAMPS=1 requires AF_ROAM_REFRESH_EVIDENCE JSON listing item ids'
-            )
+    _require_roam_refresh_evidence_when_enabled()
     allowed_map, evidence_file = _load_roam_refresh_evidence(PROJECT_ROOT)
     allowed_ids = set(allowed_map.keys())
     print(f"ROAM refresh evidence: {evidence_file} ({len(allowed_ids)} ids)")

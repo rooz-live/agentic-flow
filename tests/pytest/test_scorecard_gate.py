@@ -1294,7 +1294,13 @@ def test_ingest_deploy_receipt_skips_stale_on_ci(tmp_path, monkeypatch):
 
 
 def test_precommit_ingest_only_trust_path_ships(tmp_path, monkeypatch):
-    """P1-TRUST-01: signed HEAD-bound artifact + ingest-only precommit SHIPs without AF_RD_ENFORCE=0."""
+    """P1-TRUST-01: signed HEAD-bound artifact + ingest-only precommit SHIPs.
+
+    reward_direction_enforced=True is EXPECTED when trust_ingest_path is active
+    and coherence_derived=PASS — the signed artifact gives us provenance to
+    safely enforce RD without requiring AF_RD_ENFORCE=0 (which was the old hack).
+    The gate disposition must still be SHIP (enforced RD does not block if PASS).
+    """
     from scripts.gates import scorecard_gate as sg
 
     import subprocess
@@ -1327,8 +1333,10 @@ def test_precommit_ingest_only_trust_path_ships(tmp_path, monkeypatch):
     monkeypatch.setattr(sg, "derive_coherence", lambda *a, **k: "PASS")
     monkeypatch.setattr(sg, "derive_gate_integrity", lambda *a, **k: sg.GateIntegrityResult("OWNED", "precommit"))
     monkeypatch.setattr(sg, "verify_signoff", lambda *a, **k: (True, "ok"))
-    monkeypatch.setattr(sg, "collect_reward_proxies", lambda *a, **k: {"untracked_added": 99})
-    monkeypatch.setattr(sg, "derive_reward_direction", lambda *a, **k: (-1, ["proxy negative"]))
+    # P1-TRUST-01: signed artifact enables RD enforcement; proxy must be positive so
+    # the enforced value aligns with the card's asserted reward_direction=1.0 → SHIP.
+    monkeypatch.setattr(sg, "collect_reward_proxies", lambda *a, **k: {"untracked_added": 0})
+    monkeypatch.setattr(sg, "derive_reward_direction", lambda *a, **k: (1, ["no negative signals"]))
     monkeypatch.setattr(sg, "_git", lambda args, **k: "unstaged.py" if args[:2] == ["diff", "--name-only"] else "")
 
     env = {"AF_GATE_CONTEXT": "precommit"}
@@ -1340,7 +1348,8 @@ def test_precommit_ingest_only_trust_path_ships(tmp_path, monkeypatch):
     )
     assert meta.get("trust_ingest_path") is True
     assert not any("unstaged modifications" in b for b in blocks)
-    assert meta.get("reward_direction_enforced") is False
+    # P1-TRUST-01: signed artifact grants provenance → RD enforcement is enabled (not skipped)
+    assert meta.get("reward_direction_enforced") is True
 
     result = sg.evaluate(hardened)
     result = sg.finalize(result, blocks, warns, meta)

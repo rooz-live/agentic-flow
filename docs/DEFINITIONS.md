@@ -167,6 +167,7 @@ Each `tick_post_hooks.sh` run follows this order; skipping or reordering breaks 
 | `AF_TICK_POST_ENFORCE` | `1` | Propagates sub-hook failures (exit code) to the final script exit status (propagates to production loops) |
 | `AF_ROAM_REFRESH_TIMESTAMPS` | `0` | When enabled (set to `1`), refreshes `last_verified` (and `discovered` if uninitialized) in ROAM tracker files |
 | `AF_CORRELATE_ENFORCE` | `0` | If `1`, enforces strict correlation of timescape evidence |
+| `AF_TIMESCAPE_ENFORCE` | `0` (local); `1` in CI via `tick_post_hooks.sh` | Exit non-zero when `timescape_envelope` status is `BLOCK` |
 | `AF_RECEIPT_CHAIN_ENFORCE` | `0` locally; `1` in CI tick_post | Fail-closed receipt chain; SKIP/BLOCK receipts fail tick when `1` |
 
 
@@ -211,7 +212,9 @@ Canonical compact gauges for inbox-zero / goal snapshots. **Read order is type-t
 
 | Field | Meaning |
 |-------|---------|
-| `aqe_utilization_pct` | Shippable lane only: **0** or **100** (100 when `pace_cod_weight >= 1.0` and `utilize_mode=full`). |
+| `aqe_utilization_pct` | Shippable lane only: **0** or **100** (100 when `pace_cod_weight >= 1.0` and `utilize_mode=full`). Alias of `shippable_utilization_pct` at full pace. |
+| `shippable_utilization_pct` | `tick_cycle_policy.py` | Shippable-only utilization (0 or 100); never inflated by blocker-remediation runs. |
+| `blocker_lane_active` | `tick_cycle_policy.py` | `true` when blocker lane has NOW work while shippable pace is deferred/empty. |
 | `aqe_deferrable_ran` | True when AQE ran under `deferrable` or `blocker-remediation` (pace below shippable head). |
 | `aqe_scope_utilization_pct` | Scoped run intensity: 100 for full shippable, 50 for deferrable/blocker-remediation, else 0. |
 
@@ -266,13 +269,17 @@ Legacy artifacts (no `tld_gate_status`) or stale artifacts (`hash` ≠ `git HEAD
 
 | Env | Default | Meaning |
 |-----|---------|---------|
-| `AF_RECEIPT_CHAIN_ENFORCE` | `1` | Block tick when any step fails or hire sync skipped without dry-run allowance |
+| `AF_RECEIPT_CHAIN_ENFORCE` | `0` local / `1` CI | `receipt_chain.sh` alone defaults `0`; `tick_post_hooks.sh` sets `1` when `CI` or `GITHUB_ACTIONS`. Block tick when any step fails. |
 | `HIRE_MCP_TOKEN` | unset | Bearer token for hire MCP; required for live hire sync |
 | `AF_RECEIPT_CHAIN_ALLOW_DRY_HIRE` | `0` | When `1`, runs `sync_earnings_to_hire.py --dry-run` (no `hire_receipts.jsonl` append) |
 
 ### `#.%` sentinel vs policy snapshot
 
 When `tick_post_latest.json` has `pace_source=stale` and `pace_cod_weight=null`, inbox timescape **prefers** `tick_cycle_policy_latest.json` (written post-AQE in the same tick) if it carries `pace_cod_weight`. Then `pace_fmt` uses `{open_count}.{pace}` and `pace_source=policy_snapshot`. Only when **both** tick_post pace is absent **and** policy snapshot is missing does `pace_fmt` emit the fail-closed sentinel `#.%`.
+
+### P1-LOOP-AUTO-01 (auto-merge loop, hard gates only)
+
+Backlog item: merge `chore/swarm-p1-*` loop branches when **only** hard gates pass (scorecard provenance, coherence, receipt chain, timescape enforce) — no DNS/SPOF (R-SPOF-01) work. Prompt lives in `config/cicd/loop_prompts.yaml`.
 
 ### DoN `LOOP_ITEM` and blocker ID binding
 

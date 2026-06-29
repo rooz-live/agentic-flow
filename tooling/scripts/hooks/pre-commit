@@ -45,6 +45,28 @@ if ! echo "$STAGED_STAT" | grep -qE "[0-9]+ (file|insertion|deletion)"; then
 fi
 green "[pre-commit] staged: $STAGED_STAT"
 
+
+# ── 1b. Reject ephemeral artifact noise (.goalie/cron_state, evidence, reports/) ─
+NOISE=$(git -C "$PROJECT_ROOT" diff --cached --name-only | grep -E '^\.goalie/cron_state/|^\.goalie/evidence/|^reports/|^\.goalie/trust_cache\.json' || true)
+if [[ -n "$NOISE" ]]; then
+    red "[pre-commit] FAIL: ephemeral artifacts must not be committed:"
+    echo "$NOISE" >&2
+    red "  Unstage generated .goalie/evidence, cron_state, reports/, trust_cache.json"
+    exit 1
+fi
+
+# ── 1c. Scorecard --verify when a scorecard artifact is staged ─────────────────
+STAGED_SC=$(git -C "$PROJECT_ROOT" diff --cached --name-only | grep -E '^\.goalie/scorecards/(current|required)\.json$' | head -1 || true)
+if [[ -n "$STAGED_SC" ]]; then
+    echo -n "[pre-commit] scorecard --verify ($STAGED_SC)... "
+    if (cd "$PROJECT_ROOT" && AF_GATE_CONTEXT=precommit python3 scripts/gates/scorecard_gate.py --file "$STAGED_SC" --verify --precommit >/dev/null 2>&1); then
+        green "pass"
+    else
+        red "[pre-commit] FAIL: staged scorecard did not verify"
+        exit 1
+    fi
+fi
+
 # ── 2. pytest must pass on billing + unit suites ─────────────────────────────
 echo -n "[pre-commit] Running pytest (billing + unit)... "
 PYTEST_OUT=$(cd "$PROJECT_ROOT" && python3 -m pytest tests/billing/ tests/unit/ -q --tb=line --no-header 2>&1 | tail -3 || true)

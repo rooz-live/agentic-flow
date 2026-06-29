@@ -16,6 +16,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+CICD_LIB="$ROOT_DIR/scripts/cicd"
 source "$SCRIPT_DIR/../helpers/assertions.sh"
 
 UPGRADER_SRC="$ROOT_DIR/scripts/cicd/local_upgrader.py"
@@ -23,9 +24,9 @@ TMPROOT=$(mktemp -d)
 trap 'rm -rf "$TMPROOT"' EXIT
 
 run_python() {
-    (cd "$TMPROOT" && python3 - "$@" <<'PY'
-import sys, json
-sys.path.insert(0, "/Users/shahroozbhopti/Documents/code/scripts/cicd")
+    (cd "$TMPROOT" && CICD_LIB="$CICD_LIB" python3 - "$@" <<PY
+import os, sys, json
+sys.path.insert(0, os.environ["CICD_LIB"])
 import local_upgrader as lu
 
 # Read command file path from stdin... no, just execute the script passed as argv[1]
@@ -43,9 +44,10 @@ test_scan_repositories() {
     mkdir -p "$TMPROOT/s1/repo_b/.git"
     mkdir -p "$TMPROOT/s1/repo_b/node_modules/.git"  # Should be ignored
     mkdir -p "$TMPROOT/s1/clean-ruflo-env/repo_c/.git"  # Should be ignored
-    (cd "$TMPROOT" && python3 - <<'PY') > "$TMPROOT/s1.out"
+    (cd "$TMPROOT" && CICD_LIB="$CICD_LIB" python3 - <<PY) > "$TMPROOT/s1.out"
 import sys
-sys.path.insert(0, "/Users/shahroozbhopti/Documents/code/scripts/cicd")
+import os
+sys.path.insert(0, os.environ["CICD_LIB"])
 import local_upgrader as lu
 repos = lu.scan_repositories(["s1"])
 print("\n".join(str(r) for r in repos))
@@ -80,9 +82,10 @@ test_manifest_hash_consistent() {
     mkdir -p "$TMPROOT/s2/repo"
     echo '{"name":"test"}' > "$TMPROOT/s2/repo/package.json"
     echo '{"lock":true}' > "$TMPROOT/s2/repo/package-lock.json"
-    (cd "$TMPROOT" && python3 - <<'PY') > "$TMPROOT/s2.out"
+    (cd "$TMPROOT" && CICD_LIB="$CICD_LIB" python3 - <<PY) > "$TMPROOT/s2.out"
 import sys
-sys.path.insert(0, "/Users/shahroozbhopti/Documents/code/scripts/cicd")
+import os
+sys.path.insert(0, os.environ["CICD_LIB"])
 import local_upgrader as lu
 from pathlib import Path
 h1 = lu.calculate_manifest_hash(Path("s2/repo"))
@@ -103,15 +106,16 @@ test_cache_hit_skipped() {
     (cd "$TMPROOT/s3/repo" && git init -q && git add . && git -c user.name=t -c user.email=t@t commit -q -m init)
     sha=$(cd "$TMPROOT/s3/repo" && git rev-parse HEAD)
     resolved_repo=$(python3 -c "import pathlib; print(pathlib.Path('$TMPROOT/s3/repo').resolve())")
-    manifest_hash=$(python3 -c "import sys; sys.path.insert(0,'/Users/shahroozbhopti/Documents/code/scripts/cicd'); import local_upgrader as lu; from pathlib import Path; print(lu.calculate_manifest_hash(Path('$resolved_repo')))")
+    manifest_hash=$(CICD_LIB="$CICD_LIB" python3 -c 'import os,sys; sys.path.insert(0,os.environ["CICD_LIB"]); import local_upgrader as lu; from pathlib import Path; print(lu.calculate_manifest_hash(Path(sys.argv[1])))' "$resolved_repo")
     mkdir -p "$TMPROOT/s3/.goalie/evidence/upgrades"
     cache_file="$TMPROOT/s3/.goalie/evidence/upgrades/local_upgrades_cache.json"
     python3 -c "import json; d={'$resolved_repo': {'git_commit':'$sha','manifest_hash':'$manifest_hash','timestamp':'x'}}; json.dump(d, open('$cache_file','w'))"
 
-    (cd "$TMPROOT/s3" && python3 - <<PY) > "$TMPROOT/s3.out"
+    (cd "$TMPROOT/s3" && CICD_LIB="$CICD_LIB" python3 - <<PY) > "$TMPROOT/s3.out"
 import sys, json
 from pathlib import Path
-sys.path.insert(0, "/Users/shahroozbhopti/Documents/code/scripts/cicd")
+import os
+sys.path.insert(0, os.environ["CICD_LIB"])
 import local_upgrader as lu
 lu.CACHE_FILE_REL = Path("$cache_file")
 results, upgraded, failed = lu.run_local_sweep(
@@ -136,10 +140,11 @@ test_sandbox_cleanup() {
     echo "v2" > "$TMPROOT/s4/repo/readme.txt"
     (cd "$TMPROOT/s4/repo" && git add . && git -c user.name=t -c user.email=t@t commit -q -m v2)
 
-    (cd "$TMPROOT/s4" && python3 - <<PY) > "$TMPROOT/s4.out"
+    (cd "$TMPROOT/s4" && CICD_LIB="$CICD_LIB" python3 - <<PY) > "$TMPROOT/s4.out"
 import sys, json
 from pathlib import Path
-sys.path.insert(0, "/Users/shahroozbhopti/Documents/code/scripts/cicd")
+import os
+sys.path.insert(0, os.environ["CICD_LIB"])
 import local_upgrader as lu
 lu.CACHE_FILE_REL = Path(".goalie/evidence/upgrades/local_upgrades_cache.json")
 results, upgraded, failed = lu.run_local_sweep(
@@ -175,10 +180,11 @@ test_dry_run_all_pass() {
     echo '{"name":"test"}' > "$TMPROOT/s5/repo/package.json"
     (cd "$TMPROOT/s5/repo" && git init -q && git add . && git -c user.name=t -c user.email=t@t commit -q -m init)
 
-    (cd "$TMPROOT/s5" && python3 - <<PY) > "$TMPROOT/s5.out"
+    (cd "$TMPROOT/s5" && CICD_LIB="$CICD_LIB" python3 - <<PY) > "$TMPROOT/s5.out"
 import sys, json
 from pathlib import Path
-sys.path.insert(0, "/Users/shahroozbhopti/Documents/code/scripts/cicd")
+import os
+sys.path.insert(0, os.environ["CICD_LIB"])
 import local_upgrader as lu
 lu.CACHE_FILE_REL = Path(".goalie/evidence/upgrades/local_upgrades_cache.json")
 results, upgraded, failed = lu.run_local_sweep(
@@ -201,10 +207,11 @@ test_upgrade_failure() {
     echo '{"name":"test","scripts":{"test":"exit 0"}}' > "$TMPROOT/s6/repo/package.json"
     (cd "$TMPROOT/s6/repo" && git init -q && git add . && git -c user.name=t -c user.email=t@t commit -q -m init)
 
-    (cd "$TMPROOT/s6" && python3 - <<PY) > "$TMPROOT/s6.out" 2>&1
+    (cd "$TMPROOT/s6" && CICD_LIB="$CICD_LIB" python3 - <<PY) > "$TMPROOT/s6.out" 2>&1
 import sys, json
 from pathlib import Path
-sys.path.insert(0, "/Users/shahroozbhopti/Documents/code/scripts/cicd")
+import os
+sys.path.insert(0, os.environ["CICD_LIB"])
 import local_upgrader as lu
 lu.CACHE_FILE_REL = Path(".goalie/evidence/upgrades/local_upgrades_cache.json")
 results, upgraded, failed = lu.run_local_sweep(
@@ -227,10 +234,11 @@ test_dod_artefact() {
     echo '{"name":"test"}' > "$TMPROOT/s7/repo/package.json"
     (cd "$TMPROOT/s7/repo" && git init -q && git add . && git -c user.name=t -c user.email=t@t commit -q -m init)
 
-    (cd "$TMPROOT/s7" && python3 - <<PY) > "$TMPROOT/s7.out"
+    (cd "$TMPROOT/s7" && CICD_LIB="$CICD_LIB" python3 - <<PY) > "$TMPROOT/s7.out"
 import sys, json, os
 from pathlib import Path
-sys.path.insert(0, "/Users/shahroozbhopti/Documents/code/scripts/cicd")
+import os
+sys.path.insert(0, os.environ["CICD_LIB"])
 import local_upgrader as lu
 lu.CACHE_FILE_REL = Path(".goalie/evidence/upgrades/local_upgrades_cache.json")
 results, upgraded, failed = lu.run_local_sweep(
@@ -252,10 +260,11 @@ test_json_output() {
     echo '{"name":"test"}' > "$TMPROOT/s8/repo/package.json"
     (cd "$TMPROOT/s8/repo" && git init -q && git add . && git -c user.name=t -c user.email=t@t commit -q -m init)
 
-    (cd "$TMPROOT/s8" && python3 - <<PY) > "$TMPROOT/s8.json" 2>&1
+    (cd "$TMPROOT/s8" && CICD_LIB="$CICD_LIB" python3 - <<PY) > "$TMPROOT/s8.json" 2>&1
 import sys, json
 from pathlib import Path
-sys.path.insert(0, "/Users/shahroozbhopti/Documents/code/scripts/cicd")
+import os
+sys.path.insert(0, os.environ["CICD_LIB"])
 import local_upgrader as lu
 lu.CACHE_FILE_REL = Path(".goalie/evidence/upgrades/local_upgrades_cache.json")
 results, upgraded, failed = lu.run_local_sweep(
@@ -292,10 +301,11 @@ test_duration_metrics() {
     echo '{"name":"test"}' > "$TMPROOT/s9/repo/package.json"
     (cd "$TMPROOT/s9/repo" && git init -q && git add . && git -c user.name=t -c user.email=t@t commit -q -m init)
 
-    (cd "$TMPROOT/s9" && python3 - <<PY) > "$TMPROOT/s9.out"
+    (cd "$TMPROOT/s9" && CICD_LIB="$CICD_LIB" python3 - <<PY) > "$TMPROOT/s9.out"
 import sys, json
 from pathlib import Path
-sys.path.insert(0, "/Users/shahroozbhopti/Documents/code/scripts/cicd")
+import os
+sys.path.insert(0, os.environ["CICD_LIB"])
 import local_upgrader as lu
 lu.CACHE_FILE_REL = Path(".goalie/evidence/upgrades/local_upgrades_cache.json")
 results, upgraded, failed = lu.run_local_sweep(
@@ -322,10 +332,11 @@ test_lockfiles_synced() {
     echo '{"lock":true}' > "$TMPROOT/s10/repo/package-lock.json"
     (cd "$TMPROOT/s10/repo" && git init -q && git add . && git -c user.name=t -c user.email=t@t commit -q -m init)
 
-    (cd "$TMPROOT/s10" && python3 - <<PY) > "$TMPROOT/s10.out" 2>&1
+    (cd "$TMPROOT/s10" && CICD_LIB="$CICD_LIB" python3 - <<PY) > "$TMPROOT/s10.out" 2>&1
 import sys, json, os
 from pathlib import Path
-sys.path.insert(0, "/Users/shahroozbhopti/Documents/code/scripts/cicd")
+import os
+sys.path.insert(0, os.environ["CICD_LIB"])
 import local_upgrader as lu
 lu.CACHE_FILE_REL = Path(".goalie/evidence/upgrades/local_upgrades_cache.json")
 results, upgraded, failed = lu.run_local_sweep(

@@ -272,20 +272,32 @@ def test_extract_multiple_blocks():
 # 7. Coherence and Gate Integrity Derivation Tests
 def test_derive_gate_integrity_ci(monkeypatch):
     monkeypatch.setenv("CI", "true")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
-    
-    # In CI, allowed_signers is required, and signature must be verified
+
+    # Exogenous required-check: PASS without provenance when not wired
+    assert str(derive_gate_integrity()) == "PASS"
+
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    assert str(derive_gate_integrity()) == "PASS"
+
+    # Strict path when cryptographic provenance is wired
     monkeypatch.setattr("os.path.exists", lambda p: True)
     monkeypatch.setenv("AF_CI_PROVENANCE_SIGNATURE", "mock_sig")
     monkeypatch.setenv("AF_CI_PROVENANCE_PRINCIPAL", "mock_signer")
     monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda: "mock_sha")
-    monkeypatch.setattr("scripts.gates.scorecard_gate.verify_ssh_signature", lambda s, p, m, a: True)
+    monkeypatch.setattr(
+        "scripts.gates.scorecard_gate.verify_ssh_signature",
+        lambda s, p, m, a: True,
+    )
     assert str(derive_gate_integrity()) == "PASS"
 
     monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request_review")
     assert str(derive_gate_integrity()) == "PASS"
 
     monkeypatch.setenv("GITHUB_EVENT_NAME", "other")
+    monkeypatch.delenv("AF_CI_PROVENANCE_SIGNATURE", raising=False)
+    monkeypatch.delenv("AF_CI_PROVENANCE_PRINCIPAL", raising=False)
     assert str(derive_gate_integrity()) == "FAIL"
 
 
@@ -325,12 +337,14 @@ def test_gate_integrity_owned_locally_vs_ci(monkeypatch):
 
 
 def test_derive_gate_integrity_af_context(monkeypatch):
-    """AF_GATE_CONTEXT in valid set → PASS without CI."""
+    """Local AF_GATE_CONTEXT: review/precommit → OWNED; ci without CI → FAIL."""
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
-    for ctx in ("ci", "review", "precommit"):
+    for ctx in ("review", "precommit"):
         monkeypatch.setenv("AF_GATE_CONTEXT", ctx)
-        assert str(derive_gate_integrity()) == "PASS", f"context={ctx!r} should PASS"
+        assert str(derive_gate_integrity()) == "OWNED", f"context={ctx!r} should OWNED"
+    monkeypatch.setenv("AF_GATE_CONTEXT", "ci")
+    assert str(derive_gate_integrity()) == "FAIL", "context=ci without CI should FAIL"
 
 
 def test_derive_coherence_artifact_ingestion(tmp_path, monkeypatch):

@@ -1177,8 +1177,10 @@ def derive_gate_integrity(env: Optional[dict] = None) -> GateIntegrityResult:
         )
 
     context = env.get("AF_GATE_CONTEXT", "")
-    if context in GATE_CONTEXTS:
-        return GateIntegrityResult("PASS", f"valid context: {context}")
+    if context == "ci":
+        return GateIntegrityResult("FAIL", "AF_GATE_CONTEXT=ci without CI provenance")
+    if context in ("review", "precommit"):
+        return GateIntegrityResult("OWNED", f"local context: {context} (not CI provenance)")
     if str(env.get("AF_ALLOW_OWNED_LOCAL", "")).lower() in ("1", "true", "yes"):
         return GateIntegrityResult("OWNED", "local fallback allowed by AF_ALLOW_OWNED_LOCAL")
     return GateIntegrityResult("FAIL", "no valid execution context (set AF_GATE_CONTEXT or AF_ALLOW_OWNED_LOCAL=1)")

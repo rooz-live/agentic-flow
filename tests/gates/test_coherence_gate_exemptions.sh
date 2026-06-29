@@ -45,11 +45,11 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 # T1: Modified tracked docs/ and scripts/one-sh.d/ files are exempt.
 FAKE_REPO="$TMPROOT/repo_t1"
 mkdir -p "$FAKE_REPO/.git"
-(cd "$FAKE_REPO" && git init -q)
+(cd "$FAKE_REPO" && git init -q && git config user.email "test@test.local" && git config user.name "test")
 mkdir -p "$FAKE_REPO/docs" "$FAKE_REPO/scripts/one-sh.d"
 touch "$FAKE_REPO/docs/DEFINITIONS.md"
 touch "$FAKE_REPO/scripts/one-sh.d/ci.sh"
-(cd "$FAKE_REPO" && git add -A && git commit -q -m "init")
+(cd "$FAKE_REPO" && git add -A && git -c user.email=test@test.local -c user.name=test commit -q -m "init")
 echo "x" >> "$FAKE_REPO/docs/DEFINITIONS.md"
 echo "x" >> "$FAKE_REPO/scripts/one-sh.d/ci.sh"
 
@@ -71,7 +71,7 @@ fi
 # T2: A staged deletion in src/ is NOT exempt (file is in diff but not in index).
 mkdir -p "$FAKE_REPO/src"
 touch "$FAKE_REPO/src/new_invented.py"
-(cd "$FAKE_REPO" && git add src/new_invented.py && git commit -q -m "add src")
+(cd "$FAKE_REPO" && git add src/new_invented.py && git -c user.email=test@test.local -c user.name=test commit -q -m "add src")
 (cd "$FAKE_REPO" && git rm -q src/new_invented.py)
 set +e
 run_check "$FAKE_REPO" > "$TMPROOT/t2.out" 2>&1

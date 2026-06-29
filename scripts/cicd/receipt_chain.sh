@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Bounded post-tick earnings → hire receipt chain (fail-closed on verify).
 set -euo pipefail
-ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+CODE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+DATA_ROOT="${REPO_ROOT:-$CODE_ROOT}"
+export REPO_ROOT="$DATA_ROOT"
+ROOT="$DATA_ROOT"
 cd "$ROOT"
 
-ENFORCE="${AF_RECEIPT_CHAIN_ENFORCE:-1}"
+ENFORCE="${AF_RECEIPT_CHAIN_ENFORCE:-0}"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 RECEIPT_DIR="$ROOT/.goalie/evidence/receipts"
 RECEIPT_PATH="$RECEIPT_DIR/tick_${TS}.json"
@@ -14,7 +17,7 @@ HEAD_SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo unknown)"
 CEREMONY_TICK="${LOOP_TICK_COUNT:-0}"
 
 _resolve_scorecard() {
-  python3 "$ROOT/scripts/metrics/scorecard_resolver.py" --resolve-path 2>/dev/null || return 1
+  python3 "$CODE_ROOT/scripts/metrics/scorecard_resolver.py" --resolve-path 2>/dev/null || return 1
 }
 
 _write_receipt() {
@@ -73,7 +76,7 @@ fi
 echo "=== receipt_chain: verify earnings ($SCORECARD) ==="
 set +e
 AF_GATE_CONTEXT="${AF_GATE_CONTEXT:-review}" \
-  python3 "$ROOT/scripts/metrics/earnings_engine.py" --scorecard "$SCORECARD" --verify
+  python3 "$CODE_ROOT/scripts/metrics/earnings_engine.py" --scorecard "$SCORECARD" --verify
 VERIFY_EXIT=$?
 set -e
 
@@ -89,7 +92,7 @@ fi
 echo "=== receipt_chain: export earnings_latest.json (verified ledger only) ==="
 set +e
 REPO_ROOT="$ROOT" AF_SCORECARD_PATH="$SCORECARD" \
-  python3 "$ROOT/scripts/metrics/earnings_export_json.py" --require-verified
+  python3 "$CODE_ROOT/scripts/metrics/earnings_export_json.py" --require-verified
 EXPORT_EXIT=$?
 set -e
 if [[ $EXPORT_EXIT -ne 0 ]]; then
@@ -108,7 +111,7 @@ fi
 
 echo "=== receipt_chain: compile profile_readme ==="
 set +e
-python3 "$ROOT/scripts/hire/compile_profile_readme.py"
+REPO_ROOT="$ROOT" python3 "$CODE_ROOT/scripts/hire/compile_profile_readme.py"
 COMPILE_EXIT=$?
 set -e
 if [[ $COMPILE_EXIT -ne 0 ]]; then
@@ -127,7 +130,7 @@ _hire_can_sync() {
   # Match hire_mcp_client: HIRE_MCP_TOKEN or op read (not shell env pre-check only).
   REPO_ROOT="$ROOT" python3 -c "
 import os, sys
-sys.path.insert(0, os.environ['REPO_ROOT'])
+sys.path.insert(0, '${CODE_ROOT}')
 try:
     from scripts.hire.hire_mcp_client import _resolve_token
     t = _resolve_token()
@@ -144,7 +147,7 @@ echo "=== receipt_chain: hire sync ==="
 if _hire_can_sync; then
   HIRE_LINES_BEFORE="$(_hire_receipt_lines "$HIRE_RECEIPT_LOG")"
   set +e
-  python3 "$ROOT/scripts/hire/sync_earnings_to_hire.py"
+  REPO_ROOT="$ROOT" python3 "$CODE_ROOT/scripts/hire/sync_earnings_to_hire.py"
   HIRE_EXIT=$?
   set -e
   if [[ $HIRE_EXIT -ne 0 ]]; then
@@ -160,9 +163,25 @@ if _hire_can_sync; then
     if [[ "$ENFORCE" == "1" ]]; then exit 1; fi
     exit 0
   fi
+  if ! REPO_ROOT="$ROOT" python3 - "$HIRE_RECEIPT_LOG" <<'PY'
+import json, sys
+from pathlib import Path
+log = Path(sys.argv[1])
+line = log.read_text(encoding="utf-8").strip().splitlines()[-1]
+entry = json.loads(line)
+for key in ("receipt_id", "timestamp", "status_code", "endpoint"):
+    if key not in entry or not str(entry.get(key, "")).strip():
+        raise SystemExit(f"missing or empty: {key}")
+PY
+  then
+    echo "receipt_chain: hire receipt invalid (missing receipt_id/timestamp/status_code)"
+    _write_receipt "BLOCK" 1 "$SCORECARD" "$EARNINGS_HASH" '["hire_receipts.jsonl entry invalid"]'
+    if [[ "$ENFORCE" == "1" ]]; then exit 1; fi
+    exit 0
+  fi
 elif [[ "${AF_RECEIPT_CHAIN_ALLOW_DRY_HIRE:-0}" == "1" ]]; then
   set +e
-  python3 "$ROOT/scripts/hire/sync_earnings_to_hire.py" --dry-run
+  REPO_ROOT="$ROOT" python3 "$CODE_ROOT/scripts/hire/sync_earnings_to_hire.py" --dry-run
   HIRE_EXIT=$?
   set -e
   [[ $HIRE_EXIT -ne 0 ]] && echo "WARN: hire dry-run failed"

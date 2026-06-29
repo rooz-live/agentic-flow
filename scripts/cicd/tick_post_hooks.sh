@@ -63,7 +63,30 @@ open(path, "w", encoding="utf-8").write(json.dumps(payload, indent=2) + "\n")
 PY
 }
 
+
+_refresh_saved_pace_bundle() {
+  local policy_file="$EVIDENCE_DIR/tick_cycle_policy_latest.json"
+  [[ -f "$policy_file" ]] || return 0
+  python3 "$ROOT/scripts/cicd/lib/reconcile_tick_post_pace.py" "$ROOT" 2>/dev/null || true
+  if [[ -f "$TICK_POST_EVIDENCE" ]]; then
+    SAVED_PACE_BUNDLE="$(python3 -c "
+import json
+from pathlib import Path
+t = json.loads(Path('$TICK_POST_EVIDENCE').read_text(encoding='utf-8'))
+print(json.dumps({
+    'pace_cod_weight': t.get('pace_cod_weight'),
+    'pace_source': t.get('pace_source'),
+    'blocker_pace_cod_weight': t.get('blocker_pace_cod_weight'),
+    'utilize_mode_hint': t.get('utilize_mode_hint'),
+    'shippable_lane_empty': t.get('shippable_lane_empty'),
+    'blocker_lane_has_now': t.get('blocker_lane_has_now'),
+}))
+")"
+  fi
+}
+
 on_exit() {
+  _refresh_saved_pace_bundle
   local bundle
   bundle="${SAVED_PACE_BUNDLE:-$(read_pace_bundle)}"
   write_tick_evidence "$bundle" || true
@@ -72,12 +95,19 @@ trap on_exit EXIT
 
 echo "=== tick_post: env bootstrap (invert: OP forbidden unless AF_ALLOW_OP_READ=1) ==="
 export AF_SKIP_OP_READ=1
+BOOTSTRAP_LOG="$EVIDENCE_DIR/tick_bootstrap_latest.log"
+: >"$BOOTSTRAP_LOG"
 if [[ "${AF_ALLOW_OP_READ:-0}" == "1" ]]; then
   ENV_EXPORTS="$(
-    AF_ALLOW_OP_READ=1 AF_SKIP_OP_READ=0       python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --tick-bootstrap 2>/dev/null || true
+    AF_ALLOW_OP_READ=1 AF_SKIP_OP_READ=0       python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --tick-bootstrap 2>>"$BOOTSTRAP_LOG" || true
   )"
 else
-  ENV_EXPORTS="$(python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --tick-bootstrap 2>/dev/null || true)"
+  ENV_EXPORTS="$(
+    python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --tick-bootstrap 2>>"$BOOTSTRAP_LOG" || true
+  )"
+fi
+if [[ "${AF_QUIET:-0}" != "1" ]] && [[ -s "$BOOTSTRAP_LOG" ]]; then
+  tail -5 "$BOOTSTRAP_LOG" >&2 || true
 fi
 if [[ -n "$ENV_EXPORTS" ]] && grep -qE '^export ' <<<"$ENV_EXPORTS"; then
   _source_exports "$ENV_EXPORTS"
@@ -165,6 +195,7 @@ else
 fi
 
 echo "$POLICY" > "$EVIDENCE_DIR/tick_cycle_policy_latest.json"
+_refresh_saved_pace_bundle || echo "WARN: tick_post pace reconcile skipped"
 
 echo "=== tick_post: inbox_zero_timescape (post-policy/AQE) ==="
 bash "$ROOT/scripts/metrics/inbox_zero_timescape.sh" || _tick_post_enforce_fail "inbox_zero_timescape" $?
@@ -186,7 +217,12 @@ if [[ -f "$ROOT/scripts/metrics/correlate_timescape_evidence.py" ]]; then
 fi
 
 if [[ -f "$ROOT/scripts/metrics/timescape_envelope.py" ]]; then
-  python3 "$ROOT/scripts/metrics/timescape_envelope.py" || echo "WARN: timescape_envelope failed"
+  _ts_enforce_default=0
+  if [[ "${CI:-}" == "1" || "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    _ts_enforce_default=1
+  fi
+  AF_TIMESCAPE_ENFORCE="${AF_TIMESCAPE_ENFORCE:-$_ts_enforce_default}" \
+    python3 "$ROOT/scripts/metrics/timescape_envelope.py" || _tick_post_enforce_fail "timescape_envelope" $?
 fi
 
 if [[ -x "$ROOT/scripts/cicd/pi_plan_sync.sh" ]]; then
@@ -195,7 +231,19 @@ fi
 
 if [[ -x "$ROOT/scripts/cicd/receipt_chain.sh" ]]; then
   echo "=== tick_post: receipt_chain ==="
-  AF_RECEIPT_CHAIN_ENFORCE="${AF_RECEIPT_CHAIN_ENFORCE:-1}" bash "$ROOT/scripts/cicd/receipt_chain.sh" || _tick_post_enforce_fail "receipt_chain" $?
+  _receipt_enforce_default=0
+  if [[ "${CI:-}" == "1" || "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    _receipt_enforce_default=1
+  fi
+
+  # CI fail-closed: ensure canonical scorecard exists before receipt enforce (SKIP → exit 1).
+  if ! python3 "$ROOT/scripts/metrics/scorecard_resolver.py" --resolve-path >/dev/null 2>&1; then
+    if [[ -f "$ROOT/.goalie/scorecards/required.json" ]]; then
+      cp "$ROOT/.goalie/scorecards/required.json" "$ROOT/.goalie/scorecards/current.json"
+      echo "tick_post: scorecard bootstrap from required.json (CI receipt enforce)"
+    fi
+  fi
+  AF_RECEIPT_CHAIN_ENFORCE="${AF_RECEIPT_CHAIN_ENFORCE:-$_receipt_enforce_default}" bash "$ROOT/scripts/cicd/receipt_chain.sh" || _tick_post_enforce_fail "receipt_chain" $?
 fi
 
 exit "${TICK_POST_EXIT}"

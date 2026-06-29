@@ -65,6 +65,11 @@ def _resolve_token() -> str:
     if token:
         return token
 
+    if os.environ.get("AF_SKIP_OP_READ") == "1":
+        raise RuntimeError(
+            "HIRE_MCP_TOKEN required when AF_SKIP_OP_READ=1 (no op read in receipt chain)"
+        )
+
     # Try 1Password CLI
     if _op_available():
         try:

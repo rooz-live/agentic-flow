@@ -158,7 +158,8 @@ Each `tick_post_hooks.sh` run follows this order; skipping or reordering breaks 
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `AF_SKIP_OP_READ` | unset | After successful export-shell, skip further `op read` in child Python |
+| `AF_ALLOW_OP_READ` | `0` | **Inverted OP**: when `0`, tick-bootstrap never calls `op read`; set `1` for one bootstrap pass only |
+| `AF_SKIP_OP_READ` | `1` in tick_post | After bootstrap, forbid `op read` in child Python (hire, roam sync, registry) |
 | `AF_SKIP_ROAM_SYNC` | `0` | Skip duplicate `sync_roam_env_deps` in `update_lnnnl` |
 | `AF_OP_VAULT_SCAN` | `0` | Scan Antigravity vault blobs (expensive; off in tick) |
 | `AF_LNNNL_ENFORCE` | `1` | Fail tick when `update_lnnnl.py` exits non-zero |
@@ -166,7 +167,12 @@ Each `tick_post_hooks.sh` run follows this order; skipping or reordering breaks 
 | `AF_TICK_POST_ENFORCE` | `1` | Propagates sub-hook failures (exit code) to the final script exit status (propagates to production loops) |
 | `AF_ROAM_REFRESH_TIMESTAMPS` | `0` | When enabled (set to `1`), refreshes `last_verified` (and `discovered` if uninitialized) in ROAM tracker files |
 | `AF_CORRELATE_ENFORCE` | `0` | If `1`, enforces strict correlation of timescape evidence |
-| `AF_RECEIPT_CHAIN_ENFORCE` | `1` | If `1`, enforces receipt chain validation |
+| `AF_RECEIPT_CHAIN_ENFORCE` | `0` locally; `1` in CI tick_post | Fail-closed receipt chain; SKIP/BLOCK receipts fail tick when `1` |
+
+
+### Tick-post pace reconcile (F4)
+
+`reconcile_tick_post_pace.py` runs after `tick_cycle_policy_latest.json` is written. `on_exit` calls `_refresh_saved_pace_bundle` so the EXIT trap cannot clobber `pace_source=policy_snapshot` with the early LNNNL pace read.
 
 Evidence: `.goalie/evidence/tick_post_latest.json` records `env_export_ok`, `lnnnl_exit`, `pace_cod_weight`.
 

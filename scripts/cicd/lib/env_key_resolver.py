@@ -202,7 +202,8 @@ def _scan_op_vault_for_keys(keys: Iterable[str]) -> dict[str, KeyResolution]:
 
 def _cache_resolution(key: str, val: str | None, src: str) -> tuple[str | None, str]:
     pair = (val, src)
-    _VALUE_CACHE[key] = pair
+    if val is not None:
+        _VALUE_CACHE[key] = pair
     return pair
 
 def resolve_key_value(key: str, root: Path | None = None) -> tuple[str | None, str]:

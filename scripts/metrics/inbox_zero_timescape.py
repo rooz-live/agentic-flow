@@ -187,14 +187,17 @@ def _anti_cvt_unorchestrated(root: Path) -> int:
         return 1
 
 
-def _anti_cvt_breakdown(root: Path, policy: dict) -> dict:
+def _anti_cvt_breakdown(root: Path, policy: dict, *, shippable_pace_live: bool = True) -> dict:
     untracked = _anti_cvt_untracked(root)
     unobservable = _anti_cvt_unobservable(root)
     unorchestrated = _anti_cvt_unorchestrated(root)
-    effective_util = max(
-        float(policy.get("aqe_utilization_pct", 0)),
-        float(policy.get("aqe_scope_utilization_pct", 0)),
-    )
+    if shippable_pace_live:
+        effective_util = max(
+            float(policy.get("aqe_utilization_pct", 0)),
+            float(policy.get("aqe_scope_utilization_pct", 0)),
+        )
+    else:
+        effective_util = float(policy.get("aqe_scope_utilization_pct", 0))
     unutilized = min(100, max(0, int(100.0 - effective_util)))
     total = untracked + unobservable + unorchestrated + unutilized
     return {
@@ -255,7 +258,6 @@ def build_timescape(root: Path | None = None, *, window_hours: float = DEFAULT_W
     velocity = closed_count / window_hours if window_hours > 0 else 0.0
 
     policy = _policy_utilization(root, pace, tick_post=tick_post, tick_policy=tick_policy)
-    anti = _anti_cvt_breakdown(root, policy)
     roi = _max_roi(root)
     velocity_fmt = f"{pct_closed:.1f}.{open_count}"
     if tick_post.get("pace_source") == "stale" and tick_post.get("pace_cod_weight") is None:
@@ -271,6 +273,12 @@ def build_timescape(root: Path | None = None, *, window_hours: float = DEFAULT_W
     else:
         pace_fmt = f"{open_count}.{pace:.1f}"
         pace_source_out = pace_source or ("tick_post" if tick_post else "lnnnl")
+
+    shippable_pace_live = tick_post.get("pace_source") == "live" or tick_pace is not None
+    if pace_source_out == "policy_snapshot":
+        shippable_pace_live = False
+    aqe_util_out = float(policy.get("aqe_utilization_pct", 0)) if shippable_pace_live else 0.0
+    anti = _anti_cvt_breakdown(root, policy, shippable_pace_live=shippable_pace_live)
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -296,7 +304,9 @@ def build_timescape(root: Path | None = None, *, window_hours: float = DEFAULT_W
         "pace_source": pace_source_out,
         "shippable_lane_empty": shippable_lane_empty,
         "anti_cvt": anti,
-        "aqe_utilization_pct": policy.get("aqe_utilization_pct", 0),
+        "aqe_utilization_pct": aqe_util_out,
+        "shippable_utilization_pct": float(policy.get("shippable_utilization_pct", aqe_util_out)),
+        "blocker_lane_active": bool(policy.get("blocker_lane_active", tick_post.get("blocker_lane_has_now", False))),
         "harness_utilization_pct": policy.get("harness_utilization_pct", 0),
         "utilize_mode": policy.get("utilize_mode", "unknown"),
         "aqe_scope_utilization_pct": policy.get("aqe_scope_utilization_pct", 0),

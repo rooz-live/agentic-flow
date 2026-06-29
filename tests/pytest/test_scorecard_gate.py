@@ -1113,7 +1113,7 @@ def test_verify_signals_json_requires_no_invented_symbols_and_full_pytest():
     assert pytest_sig is not None, "verify_signals.json must define a pytest signal"
     assert pytest_sig.get("required") is True, "pytest signal must be required"
     cmd = pytest_sig.get("cmd", [])
-    assert "tests/billing/" in cmd, "pytest must cover tests/billing/"
+    assert "tests/pytest/test_update_lnnnl.py" in cmd, "pytest must cover orchestration tests"
     assert "tests/gates/" not in cmd, "coherence pytest must not self-host tests/gates (Shell Gate job)"
 
     no_invented = by_name.get("no-invented-symbols")

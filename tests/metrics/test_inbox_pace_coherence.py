@@ -53,7 +53,8 @@ def test_stale_tick_post_uses_policy_snapshot_pace(tmp_path: Path):
     assert snap["pace"] == 1.5
     assert snap["pace_fmt"].endswith(".1.5")
     assert snap["pace_source"] == "policy_snapshot"
-    assert snap["aqe_utilization_pct"] == 100.0
+    assert snap["aqe_scope_utilization_pct"] == 100.0
+    assert snap["aqe_utilization_pct"] == 0.0
 
 
 def test_stale_tick_post_without_policy_emits_sentinel(tmp_path: Path):

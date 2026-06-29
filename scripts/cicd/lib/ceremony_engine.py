@@ -188,7 +188,7 @@ def run_ceremony(name: str, root: Path, unit: dict) -> dict[str, Any]:
         if os.environ.get("CEREMONY_OFFLINE", "0") == "1":
             result["actions"].append({"label": "roam_skipped", "reason": "offline"})
         else:
-            sh(["python3", str(root / "scripts/cicd/lib/env_key_resolver.py"), "--sync-roam"], "env sync")
+            sh(["env", "AF_SKIP_OP_READ=1", "python3", str(root / "scripts/cicd/lib/env_key_resolver.py"), "--sync-roam"], "env sync")
             sh(
                 ["python3", str(root / "scripts/cicd/update_lnnnl.py")],
                 "roam wsjf",

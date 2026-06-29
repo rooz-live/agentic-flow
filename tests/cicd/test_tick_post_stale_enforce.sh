@@ -29,3 +29,8 @@ EC=$?
 set -e
 [[ "$EC" -eq 2 ]] || { echo "FAIL: expected exit 2 from stale enforce path, got $EC"; exit 1; }
 echo "PASS tick_post_stale_enforce (exit=$EC)"
+
+# Evidence: trap should record lnnnl_exit=2 when hook exits early (best-effort)
+if [[ -f "$ROOT/.goalie/evidence/tick_post_latest.json" ]]; then
+  python3 -c "import json,sys; d=json.load(open(sys.argv[1])); sys.exit(0 if d.get('lnnnl_exit')==2 else 1)"     "$ROOT/.goalie/evidence/tick_post_latest.json" || echo "WARN: tick_post evidence lnnnl_exit!=2 (trap ordering)"
+fi

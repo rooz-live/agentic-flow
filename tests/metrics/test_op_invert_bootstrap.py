@@ -45,3 +45,18 @@ def test_tick_bootstrap_caches_values_no_second_op_pass(tmp_path, monkeypatch):
     assert os.environ.get("AF_SKIP_OP_READ") == "1"
     # env-first: no op reads needed for plain .env key
     assert op_calls == []
+
+
+def test_resolve_token_refuses_op_when_skip(monkeypatch):
+    monkeypatch.delenv("HIRE_MCP_TOKEN", raising=False)
+    monkeypatch.setenv("AF_SKIP_OP_READ", "1")
+    sys.path.insert(0, str(ROOT / "scripts" / "hire"))
+    import hire_mcp_client as hc  # noqa: E402
+
+    try:
+        hc._resolve_token()
+        raised = False
+    except RuntimeError as exc:
+        raised = True
+        assert "AF_SKIP_OP_READ" in str(exc)
+    assert raised

@@ -7,6 +7,8 @@ _REPO_ROOT="$(cd "$_LIB_DIR/../../.." && pwd)"
 source "${RUFLO_VERSION_FILE:-$_REPO_ROOT/config/ruflo/version.env}"
 : "${RUFLO_VERSION:?RUFLO_VERSION unset}"
 
+ruflo_version() { echo "${RUFLO_VERSION}"; }
+
 ruflo_npx() {
   npx --yes "ruflo@${RUFLO_VERSION}" "$@"
 }

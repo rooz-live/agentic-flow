@@ -257,6 +257,11 @@ if [[ -f "$ROOT/scripts/cicd/exit_artifact_inbox.py" ]]; then
     python3 "$ROOT/scripts/cicd/exit_artifact_inbox.py" || _tick_post_enforce_fail "exit_artifact_inbox" $?
 fi
 
+if [[ -f "$ROOT/scripts/cicd/emit_slice_backlog_snapshot.py" ]]; then
+  echo "=== tick_post: slice backlog inbox-zero snapshot ==="
+  REPO_ROOT="$ROOT" python3 "$ROOT/scripts/cicd/emit_slice_backlog_snapshot.py" || echo "WARN: slice backlog snapshot"
+fi
+
 CORRELATE_EXIT=0
 if [[ -f "$ROOT/scripts/metrics/correlate_timescape_evidence.py" ]]; then
   set +e

@@ -5,7 +5,14 @@ ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "$ROOT"
 
 if [[ "${SKIP_WSJF:-0}" != "1" ]]; then
-  python3 "$ROOT/scripts/cicd/update_lnnnl.py" 2>/dev/null || true
+  set +e
+  python3 "$ROOT/scripts/cicd/update_lnnnl.py"
+  _LNNNL_RC=$?
+  set -e
+  if [[ "$_LNNNL_RC" -eq 2 ]] && [[ "${AF_LNNNL_STALE_ENFORCE:-1}" == "1" ]]; then
+    echo "BLOCK: LNNNL stale (update_lnnnl exit 2)" >&2
+    exit 2
+  fi
 fi
 
 python3 - <<'PY'
@@ -58,6 +65,14 @@ exit_path.write_text(json.dumps({
     "ruflo_blockers": payload.get("ruflo_blockers"),
     "head_wsjf": (payload.get("wsjf_ruflo_latest") or {}).get("head_item", {}).get("id"),
 }, indent=2) + "\n", encoding="utf-8")
+# committable hint: staged head unit present
+import subprocess as _sp
+_staged = _sp.run(["git", "diff", "--cached", "--quiet"], cwd=str(root), check=False).returncode != 0
+_lanes = payload.get("lnnnl_lanes") or {}
+_current = (_lanes.get("now") or [{}])[0] if isinstance(_lanes.get("now"), list) else {}
+payload["lnnnl_committable_hint"] = bool(_staged and _current)
+payload["lnnnl_head_unit"] = _current.get("id") if isinstance(_current, dict) else None
+
 enforce = __import__("os").environ.get("AF_PI_SYNC_ENFORCE", "0") == "1"
 if enforce:
     exit_art = root / ".goalie/evidence/exit_artifact_inbox_latest.json"
@@ -66,6 +81,9 @@ if enforce:
         if ex.get("open_count", 0) > 0:
             print(f"BLOCK: exit artifacts open={ex.get('open_count')}", file=__import__("sys").stderr)
             raise SystemExit(1)
+    if enforce and not payload.get("lnnnl_committable_hint") and __import__("os").environ.get("AF_PI_SYNC_REQUIRE_COMMITTABLE", "0") == "1":
+        print("BLOCK: LNNNL head not committable (no staged unit)", file=__import__("sys").stderr)
+        raise SystemExit(1)
     if payload.get("ruflo_blockers", 0) > 0:
         print(f"BLOCK: ruflo_blockers={payload.get('ruflo_blockers')}", file=__import__("sys").stderr)
         raise SystemExit(1)

@@ -174,7 +174,7 @@ case "$CMD" in
 
     portfolio|versions)
         exec python3 "$ROOT_DIR/scripts/cicd/version_portfolio_probe.py" "${@:2}"
-        ;
+        ;;
 
     agenticow)
         shift

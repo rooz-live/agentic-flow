@@ -3,8 +3,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SCRIPT="$ROOT/scripts/ruflo/doctor_remediate.sh"
 test -x "$SCRIPT"
+set +e
 REPO_ROOT="$ROOT" AF_SKIP_OP_READ=1 AF_SKIP_NETWORK=1 bash "$SCRIPT"
 DOC_EXIT=$?
+set -e
 test -f "$ROOT/.goalie/evidence/ruflo_doctor_latest.json"
 python3 -c "
 import json, sys

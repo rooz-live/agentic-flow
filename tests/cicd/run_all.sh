@@ -21,6 +21,7 @@ FAST_TESTS=(
   test_tick_post_stale_enforce.sh
   test_tick_post_trap_pace_order.sh
   test_emit_ci_provenance_failclosed.sh
+  test_provenance.sh
   test_tick_post_trap_on_exit.sh
   test_update_lnnnl_integrity.sh
   test_ruflo_upgrade_contract.sh

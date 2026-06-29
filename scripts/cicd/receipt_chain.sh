@@ -27,18 +27,36 @@ _write_receipt() {
   local earnings_hash="${4:-}"
   local errors_json="${5:-[]}"
   python3 - "$RECEIPT_PATH" "$status" "$exit_code" "$HEAD_SHA" "$earnings_hash" "$CEREMONY_TICK" "$scorecard" "$errors_json" <<'PY'
-import json, sys, uuid
+import json, os, sys, uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 out, status, exit_code, head, earnings_hash, ceremony_tick, scorecard, errors_json = sys.argv[1:9]
 errors = json.loads(errors_json) if errors_json else []
+
+# Provenance: distinguish a cryptographically verified CI receipt from a local
+# convenience receipt. A present AF_CI_PROVENANCE_SIGNATURE => ci_signed; local
+# contexts (review/precommit or AF_ALLOW_OWNED_LOCAL) => local; else none.
+def _provenance_value():
+    if (os.environ.get("AF_CI_PROVENANCE_SIGNATURE") or "").strip():
+        return "ci_signed"
+    ctx = (os.environ.get("AF_GATE_CONTEXT") or "").strip().lower()
+    if ctx in ("review", "precommit"):
+        return "local"
+    if (os.environ.get("AF_ALLOW_OWNED_LOCAL") or "").lower() in ("1", "true", "yes"):
+        return "local"
+    return "none"
+
+_provenance = _provenance_value()
+_gate_integrity = {"ci_signed": "PASS", "local": "OWNED", "none": "FAIL"}[_provenance]
 payload = {
     "receipt_id": str(uuid.uuid4()),
     "schema": "cicd.receipt.v1",
     "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "context": "scorecard",
     "status": status,
+    "provenance": _provenance,
+    "gate_integrity": _gate_integrity,
     "run": {
         "command": "scripts/cicd/receipt_chain.sh",
         "exit_code": int(exit_code),

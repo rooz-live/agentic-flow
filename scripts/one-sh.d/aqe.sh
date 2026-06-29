@@ -25,7 +25,7 @@ CMD="${1:-status}"
 if [[ "$CMD" == "init" ]]; then
     shift
     echo "--> Initializing AQE fleet..."
-    npx --yes agentic-qe@3.11.1 fleet init \
+    npx --yes agentic-qe@3.11.3 fleet init \
         --topology hierarchical-mesh \
         --max-agents "${AQE_MAX_AGENTS:-15}" \
         --domains "${AQE_DOMAINS:-all}" \
@@ -34,11 +34,11 @@ if [[ "$CMD" == "init" ]]; then
         --skip-code-scan \
         "$@"
     echo "--> Spawning default AQE agents..."
-    npx --yes agentic-qe@3.11.1 fleet spawn \
+    npx --yes agentic-qe@3.11.3 fleet spawn \
         --domains "${AQE_DEFAULT_DOMAINS:-test-generation,coverage-analysis,quality-assessment}" \
         --count "${AQE_SPAWN_COUNT:-1}"
     echo "--> AQE fleet ready."
     exit 0
 fi
 
-exec npx --yes agentic-qe@3.11.1 "$@"
+exec npx --yes agentic-qe@3.11.3 "$@"

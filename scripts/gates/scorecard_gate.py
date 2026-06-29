@@ -62,9 +62,9 @@ def get_allowed_signers_db(env: dict, root_path: str = ".") -> str:
     override = env.get("AF_ALLOWED_SIGNERS")
     if override:
         return override
-    
+
     local_path = Path(root_path) / ".goalie/scorecards/allowed_signers.local"
-    
+
     if global_path.exists() and local_path.exists():
         try:
             with tempfile.NamedTemporaryFile(mode="w", delete=False, prefix="allowed_signers_", suffix=".db") as tf:
@@ -76,7 +76,7 @@ def get_allowed_signers_db(env: dict, root_path: str = ".") -> str:
             return temp_path
         except Exception:
             return str(global_path)
-            
+
     if local_path.exists():
         return str(local_path)
     return str(global_path)
@@ -166,7 +166,7 @@ def extract_from_text(text: str) -> Optional[dict]:
         re.DOTALL | re.IGNORECASE,
     )
     raw_blocks = list(fenced) + list(commented)
-    
+
     scorecard_blocks = []
     for blob in raw_blocks:
         try:
@@ -218,12 +218,12 @@ def _coerce_new_relationship(val: Any) -> tuple:
         lower = s.lower()
         if lower in ("true", "false", "yes", "no", "1", "0"):
             return False, "new_relationship string must be a meaningful phrase, not a boolean literal"
-        
+
         # Check for negation words
         import re
         negation_pattern = re.compile(r"\b(no|not|false|none|never|without|reject|non)\b", re.IGNORECASE)
         positive_pattern = re.compile(r"\bnew\b", re.IGNORECASE)
-        
+
         if negation_pattern.search(lower):
             return False, "new_relationship contains negation words"
         if positive_pattern.search(lower):
@@ -258,7 +258,7 @@ def evaluate(card: dict, *, derive: bool = False, root_path: Any = ".", ingest_o
     reward_direction = _num(impact.get("reward_direction"))
     blast_radius = _num(impact.get("blast_radius"))
     cod_weight = _num(impact.get("cod_weight"))
-    
+
     reversibility = _num(impact.get("reversibility"))
     if reversibility is None:
         warnings.append("reversibility is missing; assuming 2 (fully reversible)")
@@ -301,7 +301,7 @@ def evaluate(card: dict, *, derive: bool = False, root_path: Any = ".", ingest_o
     # --- Originality ---
     improbability = _num(orig.get("improbability"))
     resonance = _num(orig.get("resonance"))
-    
+
     new_rel_val = orig.get("new_relationship", False)
     new_relationship, nr_warn = _coerce_new_relationship(new_rel_val)
     if nr_warn:
@@ -330,7 +330,7 @@ def evaluate(card: dict, *, derive: bool = False, root_path: Any = ".", ingest_o
             if disp_clean not in ROAM_PENALTY:
                 errors.append("untagged tail risk present")
                 continue
-            
+
             if tail.get("penalty") is not None:
                 tail_penalty += float(tail.get("penalty"))
             else:
@@ -339,7 +339,7 @@ def evaluate(card: dict, *, derive: bool = False, root_path: Any = ".", ingest_o
                     errors.append(f"tail '{name}': severity must be a number")
                     severity = 0.0
                 tail_penalty += severity * ROAM_PENALTY[disp_clean]
-                
+
     tail_penalty *= br
 
     impact_net = (baseline_val + reward_dir - tail_penalty) * cw
@@ -355,7 +355,7 @@ def evaluate(card: dict, *, derive: bool = False, root_path: Any = ".", ingest_o
             errors.append("gate_integrity is not PASS")
     if reward_direction is not None and reward_direction < 0:
         errors.append("reward_direction is negative")
-        
+
     sign_off = card.get("sign_off", impact.get("sign_off", False))
     if reversibility == 0 and br == 1.5 and sign_off is not True:
         errors.append("one-way door (REV0 x BR1.5) requires sign_off")
@@ -559,20 +559,20 @@ def _resolve_python_module(root: Any, module_name: str, tracked_files: set) -> b
 def _dynamic_import_call_ok(node: ast.Call, root: Any, tracked_files: set) -> bool:
     """Reject dynamic imports of invented in-repo modules (importlib / __import__)."""
     func = node.func
-    
+
     is_import_module = False
     is_dunder_import = False
-    
+
     if isinstance(func, ast.Attribute) and func.attr == "import_module":
         base = func.value
         if isinstance(base, ast.Name) and base.id == "importlib":
             is_import_module = True
     elif isinstance(func, ast.Name) and func.id == "__import__":
         is_dunder_import = True
-        
+
     if not (is_import_module or is_dunder_import):
         return True
-        
+
     module_name = None
     if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
         module_name = node.args[0].value
@@ -581,10 +581,10 @@ def _dynamic_import_call_ok(node: ast.Call, root: Any, tracked_files: set) -> bo
             if kw.arg == "name" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str):
                 module_name = kw.value.value
                 break
-                
+
     if module_name is not None:
         return _resolve_python_module(root, module_name, tracked_files)
-        
+
     return True
 
 
@@ -691,21 +691,21 @@ def audit_pytest_imports(root: str) -> bool:
     allowed_py = get_allowed_python_packages(root)
     allowed_node = get_allowed_node_packages(root)
     allowed_all = allowed_py | allowed_node | set(NATIVE_MODULE_ALIASES.keys())
-    
+
     import sys
     std_lib = set(getattr(sys, "stdlib_module_names", [])) | set(sys.builtin_module_names) | {"__future__", "sys", "os"}
-    
+
     pytest_dir = Path(root) / "tests" / "pytest"
     if not pytest_dir.is_dir():
         return True
-        
+
     for p in pytest_dir.rglob("*.py"):
         try:
             content = p.read_text(encoding="utf-8")
             tree = ast.parse(content)
         except Exception:
             continue
-            
+
         for node in ast.walk(tree):
             modules = []
             if isinstance(node, ast.Import):
@@ -715,7 +715,7 @@ def audit_pytest_imports(root: str) -> bool:
                 if node.level > 0:
                     continue
                 modules.append(node.module.split(".")[0])
-                
+
             for mod in modules:
                 mod_norm = mod.lower().replace("-", "_")
                 alias = PACKAGE_ALIASES.get(mod_norm)
@@ -725,7 +725,7 @@ def audit_pytest_imports(root: str) -> bool:
                     continue
                 if mod_norm in allowed_all or (alias and alias in allowed_all):
                     continue
-                
+
                 print(f"🛑 Import audit violation in {p.relative_to(root)}: untracked dependency '{mod}'", file=sys.stderr)
                 return False
     return True
@@ -738,17 +738,17 @@ def run_no_invented_symbols(root: Any) -> bool:
     # 1. Get the list of modified/added/untracked files
     env = dict(os.environ)
     files = set()
-    
+
     # Staged files
     staged = _git(["diff", "--cached", "--name-only"], root=root)
     if staged:
         files.update(staged.splitlines())
-        
+
     # Unstaged files
     unstaged = _git(["diff", "--name-only"], root=root)
     if unstaged:
         files.update(unstaged.splitlines())
-        
+
     # Untracked files
     untracked = _git(["ls-files", "--others", "--exclude-standard"], root=root)
     untracked_files = {line.strip() for line in untracked.splitlines() if line.strip()} if untracked else set()
@@ -1134,7 +1134,7 @@ def derive_coherence(root_path_or_results: Any, force_dynamic: bool = False, ing
         current_head = git_head(root_path)
         if gh != current_head:
             return "FAIL"
-            
+
         is_ci = is_ci_env(env)
         is_precommit = env.get("AF_GATE_CONTEXT") == "precommit"
         allowed_signers = get_allowed_signers_db(env, root_path)
@@ -1175,9 +1175,13 @@ def derive_coherence(root_path_or_results: Any, force_dynamic: bool = False, ing
 
 
 class GateIntegrityResult(str):
-    def __new__(cls, val, reason=""):
+    # provenance: "ci_signed" (cryptographic CI receipt), "local" (OWNED local
+    # context), or "none" (FAIL/no provenance). Lets consumers distinguish a
+    # verified CI receipt from a local convenience receipt in the audit trail.
+    def __new__(cls, val, reason="", provenance="none"):
         obj = super().__new__(cls, val)
         obj.reason = reason
+        obj.provenance = provenance
         return obj
 
     def __iter__(self):
@@ -1200,7 +1204,7 @@ def derive_gate_integrity(env: Optional[dict] = None) -> GateIntegrityResult:
         event = env.get("GITHUB_EVENT_NAME", "")
         valid_events = ("pull_request", "pull_request_review", "push")
         if event not in valid_events:
-            return GateIntegrityResult("FAIL", f"invalid CI event: {event!r}")
+            return GateIntegrityResult("FAIL", f"invalid CI event: {event!r}", "none")
 
         prov_sig = env.get("AF_CI_PROVENANCE_SIGNATURE")
         prov_principal = env.get("AF_CI_PROVENANCE_PRINCIPAL")
@@ -1209,28 +1213,30 @@ def derive_gate_integrity(env: Optional[dict] = None) -> GateIntegrityResult:
             if not actual_commit or not verify_ssh_signature(
                 prov_sig, prov_principal, actual_commit, allowed_signers
             ):
-                return GateIntegrityResult("FAIL", "CI provenance signature verification failed")
+                return GateIntegrityResult("FAIL", "CI provenance signature verification failed", "none")
             return GateIntegrityResult(
                 "PASS",
                 f"CI execution context verified via signature from {prov_principal}",
+                "ci_signed",
             )
 
         if not os.path.exists(allowed_signers):
-            return GateIntegrityResult("FAIL", "CI context requires allowed_signers configuration")
+            return GateIntegrityResult("FAIL", "CI context requires allowed_signers configuration", "none")
 
         return GateIntegrityResult(
             "FAIL",
             "CI requires verified AF_CI_PROVENANCE_SIGNATURE (emit_ci_provenance.sh)",
+            "none",
         )
 
     context = env.get("AF_GATE_CONTEXT", "")
     if context == "ci":
-        return GateIntegrityResult("FAIL", "AF_GATE_CONTEXT=ci without CI provenance")
+        return GateIntegrityResult("FAIL", "AF_GATE_CONTEXT=ci without CI provenance", "none")
     if context in ("review", "precommit"):
-        return GateIntegrityResult("OWNED", f"local context: {context} (not CI provenance)")
+        return GateIntegrityResult("OWNED", f"local context: {context} (not CI provenance)", "local")
     if str(env.get("AF_ALLOW_OWNED_LOCAL", "")).lower() in ("1", "true", "yes"):
-        return GateIntegrityResult("OWNED", "local fallback allowed by AF_ALLOW_OWNED_LOCAL")
-    return GateIntegrityResult("FAIL", "no valid execution context (set AF_GATE_CONTEXT or AF_ALLOW_OWNED_LOCAL=1)")
+        return GateIntegrityResult("OWNED", "local fallback allowed by AF_ALLOW_OWNED_LOCAL", "local")
+    return GateIntegrityResult("FAIL", "no valid execution context (set AF_GATE_CONTEXT or AF_ALLOW_OWNED_LOCAL=1)", "none")
 
 
 def _git(args: list, timeout: int = 30, root: Any = ".") -> Optional[str]:
@@ -1332,7 +1338,7 @@ def collect_reward_proxies(env: dict) -> dict:
                 1 for line in out.splitlines() if line.startswith(f"{target}/")
             )
     proxies["untracked_added"] = untracked_count
-    
+
     # Check if ROAM_TRACKER.yaml is modified or staged
     roam_status = _git(["status", "--porcelain", "ROAM_TRACKER.yaml"])
     proxies["roam_updated"] = bool(roam_status and roam_status.strip())
@@ -1345,7 +1351,7 @@ def derive_reward_direction(proxies: dict) -> tuple:
     rd = 1
     untracked = proxies.get("untracked_added", 0)
     roam_updated = proxies.get("roam_updated", False)
-    
+
     if untracked > 0:
         if roam_updated:
             # Updating ROAM reduces the penalty but does not invert it into a bonus.
@@ -1402,15 +1408,15 @@ def verify_signoff(card: dict, env: dict, actual_commit, actual_diff) -> tuple:
     """
     allowed_signers_path = get_allowed_signers_db(env, ".")
     is_ci = is_ci_env(env)
-    
+
     # Determine if this is a one-way door (REV0 x BR1.5)
     impact = card.get("impact", {}) or {}
     reversibility = _num(impact.get("reversibility"))
     blast_radius = _num(impact.get("blast_radius"))
     is_one_way_door = (reversibility == 0 and blast_radius == 1.5)
-    
+
     is_enforcing = is_ci or str(env.get("AF_STRICT_SIGN_OFF", "0")) == "1" or is_one_way_door
-    
+
     # Check if cryptographic signing is enabled/enforced
     if os.path.exists(allowed_signers_path) or is_enforcing:
         if not os.path.exists(allowed_signers_path):
@@ -1419,13 +1425,13 @@ def verify_signoff(card: dict, env: dict, actual_commit, actual_diff) -> tuple:
         signature = card.get("sign_off_signature") or card.get("impact", {}).get("sign_off_signature")
         if not principal or not signature:
             return False, "allowed_signers exists but no sign_off_principal or sign_off_signature provided"
-            
+
         if actual_commit and verify_ssh_signature(signature, principal, actual_commit, allowed_signers_path):
             return True, f"cryptographically verified sign-off for commit by {principal}"
-            
+
         if actual_diff and verify_ssh_signature(signature, principal, actual_diff, allowed_signers_path):
             return True, f"cryptographically verified sign-off for diff by {principal}"
-            
+
         return False, f"cryptographic signature verification failed for principal {principal}"
 
     # Legacy bypass: explicit opt-in only (AF_LEGACY_SIGNOFF=1); never in CI/enforcing mode
@@ -1689,6 +1695,7 @@ def _harden_internal(card: dict, *, env: dict, strict: bool, ingest_only: bool =
     card["gates"]["gate_integrity"] = gi
     meta["gate_integrity_derived"] = gi
     meta["gate_integrity_reason"] = reason
+    meta["provenance"] = getattr(gi, "provenance", "none")
 
     # 3) anti-replay binding <- git
     actual_commit = git_head()

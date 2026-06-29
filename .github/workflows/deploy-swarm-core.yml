@@ -4,21 +4,21 @@ on:
   push:
     branches: [main, staging]
     paths:
-      - 'swarm-core-app/**'
-      - '.github/workflows/deploy-swarm-core.yml'
+      - "swarm-core-app/**"
+      - ".github/workflows/deploy-swarm-core.yml"
   workflow_dispatch:
     inputs:
       target:
-        description: 'Deploy target (all | tagvote | tag | rooz | ogov | c720)'
+        description: "Deploy target (all | tagvote | tag | rooz | ogov | c720)"
         required: false
-        default: 'all'
+        default: "all"
 
 concurrency:
   group: deploy-swarm-core-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: "20"
   APP_DIR: swarm-core-app
 
 jobs:
@@ -27,6 +27,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: "Provenance verification (fail-closed: blocks CI without signed receipt)"
+        env:
+          CI: true
+          GITHUB_ACTIONS: true
+          AF_CI_SIGNING_KEY: ${{ secrets.AF_CI_SIGNING_KEY }}
+          AF_CI_SIGNING_PRINCIPAL: ci@agentic-flow.github
+        run: |
+          source scripts/gates/emit_ci_provenance.sh
+          echo "AF_GATE_CONTEXT=ci" >> "$GITHUB_ENV"
+          echo "AF_REQUIRE_SCORECARD=1" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v4
         with:
@@ -38,7 +49,7 @@ jobs:
 
       - name: Lint
         working-directory: ${{ env.APP_DIR }}
-        run: npm run lint || true  # Advisory — don't block deploy on lint warnings
+        run: npm run lint || true # Advisory — don't block deploy on lint warnings
 
       - name: Build
         working-directory: ${{ env.APP_DIR }}

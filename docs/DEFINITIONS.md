@@ -376,6 +376,53 @@ npm run ruflo:wsjf
 npm run ruflo:ceremony -- standup
 ```
 
+---
+
+## 7. Agile Ceremony Cadence
+
+All ceremonies are bounded, time-boxed, and produce a committable artifact or an explicit ROAM disposition. "Meeting without artifact" is anti-CVT theater.
+
+### Ceremony Matrix
+
+| Ceremony | Cadence | Owner script | Output artifact | DoN gate |
+|----------|---------|-------------|-----------------|----------|
+| **Standup** | Every tick (sub-hourly) | `one.sh ruflo ceremony standup` → `.goalie/evidence/ruflo_ceremony_latest.json` | `standup` field in ceremony JSON | LNNNL head shippable or explicit blocker |
+| **Review** | Per PR / loop cycle | `one.sh scorecard` → `.goalie/scorecards/current.json` | Signed scorecard SHIP/HOLD | `coherence_derived=PASS` |
+| **Retro** | Per wave (after ≥10 ticks) | `one.sh ruflo ceremony retro` | ROAM dispositions updated in `ROAM_TRACKER.yaml` | All open tail risks have disposition |
+| **Replenish** | Per sprint boundary | `one.sh schedule` + `update_lnnnl.py` | `LNNNL.yaml` v1.1 head updated | WSJF re-ranked; no stale items |
+| **Refine** | Mid-sprint (wave midpoint) | LNNNL `wsjf_now_items` re-ranked | `ruflo_pi_backlog.yaml` updated | Next wave items are DoR-ready |
+| **PI Prep** | Before PI Planning session | Review `config/cicd/ruflo_pi_backlog.yaml` + ROAM | PI backlog pruned + prioritized | All blockers have ROAM disposition |
+| **PI Planning** | Per Program Increment (~6 waves) | PI sync ceremony | `ruflo_pi_backlog.yaml` + AGENTS.md WSJF table updated | DoD proof for prior PI delivered |
+| **PI Sync** | Mid-PI (wave 3 of 6) | `one.sh goal` snapshot + PI delta review | `inbox_zero_latest.json` velocity delta | `%/.#` pace reads shippable lane |
+
+### Ceremony Anti-CVT Rules
+
+1. **No ceremony without artifact.** Every ceremony call must write to `.goalie/evidence/` or update a tracked YAML. No-op JSON notes (`{}`) are blocked when `AF_CEREMONY_ENFORCE=1`.
+2. **Standup ≠ status theater.** If LNNNL head is not shippable, standup output must name the blocker and its ROAM ID. Generic "in progress" is rejected.
+3. **Retro closes tails.** A retro that produces zero ROAM disposition updates is an anti-CVT signal. At minimum one item must be moved from IDENTIFIED → OWNED/MITIGATED.
+4. **PI Planning ≠ slide deck.** PI Planning output is a committed `ruflo_pi_backlog.yaml` diff, not a document. The diff is the artifact.
+5. **Replenish governs WIP.** After replenish, `lanes.shippable.now` must have ≤ `pace_cod_weight × 3` items. Over-WIP is a ROAM risk.
+
+### Ceremony Velocity Metrics
+
+```
+%.# = (closed_items / total_items) × (pace_cod_weight)   — shippable velocity
+#.% = open_count / expected_throughput                    — WIP pressure
+anti_cvt = untracked + unobservable + unorchestrated + unutilized items
+```
+
+Emit via: `python3 scripts/metrics/inbox_zero_timescape.py --json → .goalie/evidence/inbox_zero_latest.json`
+
+### PI Planning / Prep / Sync — Bounded Artifacts
+
+| Phase | Entry gate (DoR) | Exit gate (DoD) | Artifact path |
+|-------|-----------------|-----------------|---------------|
+| **PI Prep** | ROAM risk register reviewed; all B-* blockers have disposition | Backlog pruned to ≤2 waves of DoR-ready items | `config/cicd/ruflo_pi_backlog.yaml` |
+| **PI Planning** | PI Prep artifact committed; all P1-* items have acceptance criteria | Sprint goals committed; WSJF AGENTS.md table updated | `AGENTS.md` WSJF + `ruflo_pi_backlog.yaml` |
+| **PI Sync** | PI Planning committed; ≥3 waves delivered | Velocity delta reviewed; ROAM risks triaged | `inbox_zero_latest.json` + `ROAM_TRACKER.yaml` |
+
+---
+
 ### F4 pace authority (policy_snapshot)
 
 After `tick_cycle_policy_latest.json` is written, **`pace_cod_weight` and `pace_source` in `tick_post_latest.json` must come from policy**, not from the pre-policy `read_pace_bundle()` snapshot or a prior tick file. `reconcile_tick_post_pace.py` and the `EXIT` trap call `pace_bundle()` so `on_exit` cannot restore stale `pace_source`.

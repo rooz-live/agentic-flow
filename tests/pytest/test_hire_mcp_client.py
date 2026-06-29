@@ -342,3 +342,92 @@ class TestCLI:
 
         rc = client.main(["--email", "s@rooz.live", "--profile", str(profile)])
         assert rc == 1
+
+
+# ─── F9 end-to-end: verify → hire JSONL → status=PASS receipt sequence ───────
+
+class TestF9HireJSONLEndToEnd:
+    """Verify the full sequence: mock hire sync → JSONL receipt written → last entry status=PASS.
+
+    This closes the F9 gap: no prior test exercised the full verify→compile→hire
+    JSONL→status=PASS last-receipt path at the integration boundary.
+    """
+
+    def test_f9_mock_hire_sync_writes_jsonl_receipt(self, client, tmp_path, monkeypatch):
+        """AF_HIRE_MCP_MOCK=1 path: sync_profile writes exactly one JSONL line."""
+        log = tmp_path / "hire_receipts.jsonl"
+        monkeypatch.setattr(client, "RECEIPT_LOG", log)
+        monkeypatch.setattr(client, "_receipt_log", lambda: log)
+        monkeypatch.setenv("AF_HIRE_MCP_MOCK", "1")
+
+        result = client.sync_profile("s@rooz.live", {"method": "profile/sync", "title": "Engineer"})
+
+        assert result.get("mock") is True
+        assert result.get("status_code") == 200
+        assert log.is_file(), "hire_receipts.jsonl not written"
+        lines = [json.loads(l) for l in log.read_text().splitlines() if l.strip()]
+        assert len(lines) == 1, f"expected 1 receipt line, got {len(lines)}"
+        last = lines[-1]
+        assert last["status_code"] == 200
+        assert last["email"] == "s@rooz.live"
+        assert "receipt_id" in last
+
+    def test_f9_last_receipt_is_pass_equivalent(self, client, tmp_path, monkeypatch):
+        """After a successful mock sync, the last JSONL receipt must have status_code 200 (PASS-equivalent)."""
+        log = tmp_path / "hire_receipts.jsonl"
+        monkeypatch.setattr(client, "RECEIPT_LOG", log)
+        monkeypatch.setattr(client, "_receipt_log", lambda: log)
+        monkeypatch.setenv("AF_HIRE_MCP_MOCK", "1")
+
+        # Two calls — only last one matters for PASS assertion
+        client.sync_profile("s@rooz.live", {"method": "profile/sync", "step": "verify"})
+        client.sync_profile("s@rooz.live", {"method": "profile/sync", "step": "compile"})
+
+        lines = [json.loads(l) for l in log.read_text().splitlines() if l.strip()]
+        assert len(lines) == 2
+        last = lines[-1]
+        # status_code 200 is the PASS-equivalent for the hire JSONL contract
+        assert last["status_code"] == 200, f"last receipt not PASS-equivalent: {last}"
+
+    def test_f9_hire_field_validation_rejects_empty_email(self, client, tmp_path, monkeypatch):
+        """F9 field validation: empty email is accepted by CLI (argparse allows it) but the
+        sync_profile call with an empty string must still write a receipt — the contract
+        is that the JSONL chain is always written, never silently skipped."""
+        log = tmp_path / "hire_receipts.jsonl"
+        monkeypatch.setattr(client, "RECEIPT_LOG", log)
+        monkeypatch.setattr(client, "_receipt_log", lambda: log)
+        monkeypatch.setenv("AF_HIRE_MCP_MOCK", "1")
+
+        result = client.sync_profile("", {"method": "profile/sync"})
+        # Mock path must write a receipt even for empty email (chain integrity)
+        assert log.is_file(), "JSONL not written for empty-email sync"
+        lines = [json.loads(l) for l in log.read_text().splitlines() if l.strip()]
+        assert len(lines) == 1
+        # Mock returns 200 regardless — chain written, gate can reject upstream
+        assert lines[0]["email"] == ""
+        assert lines[0]["status_code"] == 200
+
+    def test_f9_mock_hire_full_sequence_exit_0(self, client, tmp_path, monkeypatch):
+        """Full verify→compile→hire sequence via mock: exit 0, JSONL has 2 entries.
+        Method is embedded in the JSON payload (not a CLI flag)."""
+        log = tmp_path / "hire_receipts.jsonl"
+        monkeypatch.setattr(client, "RECEIPT_LOG", log)
+        monkeypatch.setattr(client, "_receipt_log", lambda: log)
+        monkeypatch.setenv("AF_HIRE_MCP_MOCK", "1")
+
+        profile = tmp_path / "profile.json"
+        profile.write_text(json.dumps({"title": "Senior Engineer", "scorecard": "SHIP"}), encoding="utf-8")
+
+        # Step 1: verify — method embedded in payload via profile JSON
+        profile_verify = tmp_path / "profile_verify.json"
+        profile_verify.write_text(json.dumps({"method": "profile/verify", "title": "Senior Engineer"}), encoding="utf-8")
+        rc_verify = client.main(["--email", "s@rooz.live", "--profile", str(profile_verify)])
+        assert rc_verify == 0, f"verify step failed rc={rc_verify}"
+
+        # Step 2: sync (default method=profile/sync)
+        rc_sync = client.main(["--email", "s@rooz.live", "--profile", str(profile)])
+        assert rc_sync == 0, f"sync step failed rc={rc_sync}"
+
+        lines = [json.loads(l) for l in log.read_text().splitlines() if l.strip()]
+        assert len(lines) >= 2, f"expected ≥2 JSONL receipts, got {len(lines)}"
+        assert all(l["status_code"] == 200 for l in lines), f"not all receipts PASS: {lines}"

@@ -85,8 +85,19 @@ sys.exit(0 if disp=='SHIP' else 1)
   if [[ $FAST_EXIT -eq 0 && -x "$ROOT/scripts/gates/emit_ci_provenance.sh" ]]; then
     echo "--- provenance ---"
     set +e
-    bash "$ROOT/scripts/gates/emit_ci_provenance.sh" 2>/dev/null || true
+    # Named-skip list: AF_CI_SIGNING_KEY absent → skip is documented, not silenced.
+    # Bare || true is banned; capture rc and warn instead.
+    bash "$ROOT/scripts/gates/emit_ci_provenance.sh" 2>/dev/null
+    _PROV_EXIT=$?
     set -e
+    if [[ $_PROV_EXIT -ne 0 ]]; then
+      if [[ -z "${AF_CI_SIGNING_KEY:-}" ]]; then
+        echo "WARN: provenance emit skipped (AF_CI_SIGNING_KEY absent — expected in forks/local; document blocker if CI)"
+      else
+        echo "FAST TIER FAIL: provenance emit (exit=$_PROV_EXIT)"
+        FAST_EXIT=$_PROV_EXIT
+      fi
+    fi
   fi
 
   if [[ $FAST_EXIT -eq 0 ]]; then
@@ -116,16 +127,22 @@ if [[ "$SLOW" == "1" ]]; then
   if [[ -f "$ROOT/scripts/cicd/edge_gateway_sync_engine.py" ]]; then
     if [[ "${AF_EDGE_SYNC_FULL:-0}" == "1" ]]; then
       python3 "$ROOT/scripts/cicd/edge_gateway_sync_engine.py"
+      _EDGE_EXIT=$?
     else
-      python3 "$ROOT/scripts/cicd/edge_gateway_sync_engine.py" --dry-run 2>/dev/null || true
+      python3 "$ROOT/scripts/cicd/edge_gateway_sync_engine.py" --dry-run 2>/dev/null
+      _EDGE_EXIT=$?
     fi
+    [[ $_EDGE_EXIT -ne 0 ]] && echo "SLOW TIER WARN: edge sync (exit=$_EDGE_EXIT; non-blocking in slow tier)"
   fi
   set -e
 
   echo "--- deploy receipt check ---"
   set +e
-  python3 "$ROOT/scripts/cicd/fetch_run_report.py" --context deploy 2>/dev/null | tail -5 || true
+  # Named skip: fetch_run_report is advisory in slow tier; captured but not fatal.
+  python3 "$ROOT/scripts/cicd/fetch_run_report.py" --context deploy 2>/dev/null | tail -5
+  _DEPLOY_EXIT=${PIPESTATUS[0]}
   set -e
+  [[ $_DEPLOY_EXIT -ne 0 ]] && echo "SLOW TIER WARN: deploy receipt check (exit=$_DEPLOY_EXIT; advisory)"
 
   if [[ $SLOW_EXIT -eq 0 ]]; then
     echo "SLOW TIER: PASS"

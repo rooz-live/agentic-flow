@@ -61,16 +61,15 @@ jobs:
         id: sim
         run: |
           set -e
-          device=$(xcrun simctl list devices available -j | python3 -c '
-          import json, sys
-          d = json.load(sys.stdin)
-          for rkey in sorted(d.get("devices", {}).keys(), reverse=True):
-              for dev in d["devices"][rkey]:
-                  if dev.get("availability") == "(available)" and "iPhone" in dev["name"] and "Pro" in dev["name"]:
-                      print(f"platform=iOS Simulator,name={dev[\"name\"]}")
-                      sys.exit(0)
-          ')
-          echo "destination=${device:-platform=iOS Simulator,name=iPhone 15 Pro}" >> "$GITHUB_OUTPUT"
+          device="platform=iOS Simulator,name=iPhone 15 Pro"
+          avail=$(xcrun simctl list devices available 2>/dev/null | grep -m1 "iPhone.*Pro" | head -1 || true)
+          if [ -n "$avail" ]; then
+            name=$(echo "$avail" | sed 's/(.*//' | sed 's/^ *//' | sed 's/ *$//')
+            if [ -n "$name" ]; then
+              device="platform=iOS Simulator,name=$name"
+            fi
+          fi
+          echo "destination=$device" >> "$GITHUB_OUTPUT"
       - name: Build iOS release archive
         env:
           SUMMERJOBSWAP_IOS_TEAM_ID: ${{ secrets.SUMMERJOBSWAP_IOS_TEAM_ID }}

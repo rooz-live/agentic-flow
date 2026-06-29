@@ -1,4 +1,4 @@
-# AGENTS.md — Honest Baseline (2026-05-26, updated wave-5 — 2026-06-19)
+# AGENTS.md — Honest Baseline (2026-05-26, updated wave-9 — 2026-06-29)
 
 ## Ground Truth (verified by filesystem + git)
 
@@ -199,6 +199,19 @@ New relationship: `harness_type` field in every runner result — enables groupi
 | W8-4 | `harness_hint` field added to all 13 registry entries (self-documents expected harness) | 7.5 | ✅ DONE |
 | W8-5 | `tests/gates/test_upstream_engine.sh` expanded: 15→20 tests (R6–R12 harness, G1–G3 registry) | 8.0 | ✅ DONE |
 | W8-6 | Scorecard gate already hardened (sign_off strict bool, pytest.approx) — 38/38 pass confirmed | 7.0 | ✅ CONFIRMED |
+
+### DONE (Wave 9 — anti-CVT theater + F9 hire JSONL + ceremony cadence, 2026-06-29)
+Scorecard: **SHIP** | 399 pytest collected | 4/4 F9 hire JSONL green | 3/3 intel pipeline contract green
+Key: redblue/weight-eft confirmed not-on-npm; agenticow→agentic-flow corrected; ceremony cadence defined.
+
+| # | Item | WSJF | Status |
+|---|------|------|--------|
+| W9-1 | `run_all.sh`: drop bare `\|\| true` on provenance/edge-sync/deploy-receipt; named-skip pattern with captured exit + warn | 8.8 | ✅ DONE |
+| W9-2 | `test_intel_pipeline_contract.sh`: T2 proves enforce=1+no-receipt→exit 1 (path NOT dead weight); T3 default-safe | 8.5 | ✅ DONE |
+| W9-3 | `test_redblue_mock_judge.sh`: @metaharness/redblue not-on-npm → degraded=true probe; ROAM R-REDBLUE-01 documented | 8.3 | ✅ DONE |
+| W9-4 | `portfolio.yaml`: agenticow.npm corrected agenticow→agentic-flow; redblue+weight-eft channel→optional+degraded_ok:true | 8.0 | ✅ DONE |
+| W9-5 | `TestF9HireJSONLEndToEnd` (4 tests): verify→sync two-step, ≥2 JSONL receipts all 200, empty-email chain integrity | 8.5 | ✅ DONE |
+| W9-6 | `docs/DEFINITIONS.md` §7: Agile Ceremony Cadence with 8-ceremony matrix, anti-CVT rules, PI Planning artifact table | 7.5 | ✅ DONE |
 
 ### NEXT
 | # | Item | WSJF | Status |

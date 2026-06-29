@@ -230,6 +230,17 @@ def _max_roi(root: Path) -> dict:
         return {}
 
 
+
+
+def _exit_artifacts(root: Path) -> dict:
+    try:
+        import sys
+        sys.path.insert(0, str(root / "scripts" / "metrics"))
+        from exit_artifact_inbox import build_exit_artifacts
+        return build_exit_artifacts(root)
+    except Exception:
+        return {}
+
 def build_timescape(root: Path | None = None, *, window_hours: float = DEFAULT_WINDOW_HOURS) -> dict:
     root = root or PROJECT_ROOT
     open_roam, closed_roam = _count_roam(root / ".goalie" / "ROAM_TRACKER.yaml")
@@ -320,6 +331,7 @@ def build_timescape(root: Path | None = None, *, window_hours: float = DEFAULT_W
         "window_hours": window_hours,
         "head_sha": _git_head(root),
         "emergent_time_source": EMERGENT_TIME_SOURCE,
+        "exit_artifacts": _exit_artifacts(root),
         "details": {
             "open_roam": open_roam,
             "closed_roam": closed_roam,

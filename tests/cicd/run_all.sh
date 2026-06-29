@@ -23,6 +23,7 @@ FAST_TESTS=(
   test_emit_ci_provenance_failclosed.sh
   test_tick_post_trap_on_exit.sh
   test_update_lnnnl_integrity.sh
+  test_ruflo_upgrade_contract.sh
   test_roam_edge_contract.sh
   test_dor_dod_matrix.sh
   test_auto_dor_contract.sh
@@ -31,10 +32,15 @@ FAST_TESTS=(
 )
 
 SLOW_TESTS=(
+  test_ruflo_doctor_remediate.sh
+  test_redblue_mock.sh
+  test_wsjf_ruflo_exec.sh
   test_op_invert_bootstrap.sh
   test_wave_autopilot_contract.sh
   test_deploy_happy_path_contract.sh
   test_deploy_receipt_behavior.sh
+  test_intel_pipeline_contract.sh
+  test_exit_artifact_inbox.sh
 )
 
 run_tier() {

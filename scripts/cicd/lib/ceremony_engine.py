@@ -147,6 +147,26 @@ def _timeout_sec() -> int:
     return int(os.environ.get("CEREMONY_TIMEOUT_SEC", "120"))
 
 
+
+def _ruflo_ceremony_sync(root: Path, name: str, result: dict) -> None:
+    sync = root / "scripts/ruflo/ceremony_ruflo_sync.sh"
+    if not sync.is_file():
+        return
+    ruflo_name = name.replace("retro_replenish", "retro")
+    try:
+        subprocess.run(
+            ["bash", str(sync), ruflo_name],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=90,
+            check=False,
+        )
+        result["actions"].append({"label": f"ruflo_{ruflo_name}", "path": str(sync.relative_to(root))})
+    except (OSError, subprocess.TimeoutExpired) as e:
+        result["actions"].append({"label": f"ruflo_{ruflo_name}", "error": str(e)})
+
+
 def run_ceremony(name: str, root: Path, unit: dict) -> dict[str, Any]:
     result: dict[str, Any] = {"ceremony": name, "ok": True, "actions": []}
     env = {**os.environ, "REPO_ROOT": str(root), "LOOP_ITEM": unit.get("current", "")}
@@ -167,7 +187,8 @@ def run_ceremony(name: str, root: Path, unit: dict) -> dict[str, Any]:
             result["ok"] = False
 
     if name == "standup":
-        pass
+        sh(["bash", str(root / "scripts/cicd/ruflo_wsjf_upgrade.sh"), "--doctor-only"], "ruflo doctor")
+        sh(["bash", str(root / "scripts/metrics/inbox_zero_timescape.sh")], "inbox zero timescape")
     elif name == "review":
         sh(["bash", str(root / "scripts/dod-gate.sh"), "--perceive"], "dod-gate perceive")
     elif name == "retro_replenish":
@@ -178,6 +199,7 @@ def run_ceremony(name: str, root: Path, unit: dict) -> dict[str, Any]:
             encoding="utf-8",
         )
         result["actions"].append({"label": "retro_note", "path": str(retro.relative_to(root))})
+        sh(["bash", str(root / "scripts/cicd/intel_pipeline_tick.sh"), "--judge-only"], "intel pipeline judge")
     elif name == "wsjf_refine":
         sh(
             ["python3", str(root / "scripts/cicd/update_lnnnl.py")],
@@ -185,6 +207,12 @@ def run_ceremony(name: str, root: Path, unit: dict) -> dict[str, Any]:
             extra_env={"AF_SKIP_ROAM_SYNC": "1"},
         )
     elif name == "roam_risks":
+        doc = root / "scripts/ruflo/doctor_remediate.sh"
+        if doc.is_file():
+            sh(["bash", str(doc)], "ruflo doctor blockers")
+            roam_py = root / "scripts/ruflo/sync_doctor_roam_risks.py"
+            if roam_py.is_file():
+                sh(["python3", str(roam_py)], "doctor roam risks")
         if os.environ.get("CEREMONY_OFFLINE", "0") == "1":
             result["actions"].append({"label": "roam_skipped", "reason": "offline"})
         else:
@@ -208,6 +236,8 @@ def run_ceremony(name: str, root: Path, unit: dict) -> dict[str, Any]:
             bounded.parent.mkdir(parents=True, exist_ok=True)
             bounded.write_text(json.dumps({"units": unit, "bounded": True}, indent=2) + "\n")
             result["actions"].append({"label": "pi_sync_bounded", "path": str(bounded.relative_to(root))})
+    if name in ("standup", "review", "retro_replenish", "pi_prep", "pi_sync"):
+        _ruflo_ceremony_sync(root, name, result)
     return result
 
 

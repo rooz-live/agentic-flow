@@ -343,10 +343,12 @@ def main():
 
     # Map COG risks
     for r in cog_risks:
+        # Treat as closed if either ROAM disposition or status is terminal.
         status = str(r.get('status', '')).lower()
-        # Active if not mitigated/accepted/resolved
-        if status not in ('mitigated', 'accepted', 'resolved'):
-            active_items.append({
+        roam = str(r.get('roam') or r.get('roam_status') or '').lower()
+        if status in ('mitigated', 'accepted', 'resolved') or roam in ('mitigated', 'accepted', 'resolved'):
+            continue
+        active_items.append({
                 'type': 'risk_cog',
                 'id': r.get('id'),
                 'title': r.get('description') or r.get('title') or r.get('id'),
@@ -385,10 +387,12 @@ def main():
 
     # Map tracker risks
     for r in tracker_risks:
-        # Use ROAM disposition first (authoritative), then status.
-        status = str(r.get('roam') or r.get('roam_status') or r.get('status', '')).lower()
-        if status not in ('mitigated', 'accepted', 'resolved'):
-            active_items.append({
+        # Treat as closed if either ROAM disposition or status is terminal.
+        status = str(r.get('status', '')).lower()
+        roam = str(r.get('roam') or r.get('roam_status') or '').lower()
+        if status in ('mitigated', 'accepted', 'resolved') or roam in ('mitigated', 'accepted', 'resolved'):
+            continue
+        active_items.append({
                 'type': 'risk',
                 'id': r.get('id'),
                 'title': r.get('title') or r.get('description') or r.get('id'),

@@ -50,8 +50,13 @@ atexit.register(cleanup_temp_files)
 def get_allowed_signers_db(env: dict, root_path: str = ".") -> str:
     is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
     global_path = Path(root_path) / ".goalie/scorecards/allowed_signers"
+    ci_path = Path(root_path) / ".goalie/scorecards/allowed_signers.ci"
     if is_ci and str(env.get("AF_ALLOW_TEST_OVERRIDE", "")).lower() not in ("1", "true", "yes"):
         # Strictly ignore AF_ALLOWED_SIGNERS override in CI context to prevent tampering
+        if global_path.exists():
+            return str(global_path)
+        if ci_path.exists():
+            return str(ci_path)
         return str(global_path)
 
     override = env.get("AF_ALLOWED_SIGNERS")
@@ -1167,13 +1172,21 @@ def derive_gate_integrity(env: Optional[dict] = None) -> GateIntegrityResult:
                 f"CI execution context verified via signature from {prov_principal}",
             )
 
-        # Exogenous required-check context until AF_CI_PROVENANCE_* is wired in workflows.
+        signing_key = env.get("AF_CI_SIGNING_KEY", "")
         if str(env.get("GITHUB_ACTIONS", "")).lower() in ("1", "true", "yes"):
-            return GateIntegrityResult("PASS", f"exogenous CI required check ({event})")
+            if signing_key:
+                return GateIntegrityResult(
+                    "FAIL",
+                    "AF_CI_SIGNING_KEY configured but provenance signature missing or invalid",
+                )
+            return GateIntegrityResult(
+                "PASS",
+                f"exogenous CI required check ({event}); wire AF_CI_SIGNING_KEY for strict provenance",
+            )
 
         return GateIntegrityResult(
             "FAIL",
-            "CI context requires allowed_signers configuration or GitHub Actions provenance signature",
+            "CI context requires AF_CI_PROVENANCE_SIGNATURE and AF_CI_PROVENANCE_PRINCIPAL",
         )
 
     context = env.get("AF_GATE_CONTEXT", "")

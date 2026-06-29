@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "$ROOT"
 export AF_REQUIRE_SCORECARD=1
+source "$ROOT/scripts/gates/emit_ci_provenance.sh"
 
 _args=(--verify --strict --json --emit-evidence)
 if [[ -f .goalie/scorecards/current.json ]]; then

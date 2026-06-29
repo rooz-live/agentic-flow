@@ -362,6 +362,9 @@ graph TD
 | Doctor + ROAM | `.goalie/evidence/ruflo_doctor_latest.json` |
 | Ceremony sync | `.goalie/evidence/ruflo_ceremony_latest.json` |
 | WSJF head | `.goalie/evidence/wsjf_ruflo_latest.json` |
+| Version portfolio manifest | `config/versions/portfolio.yaml` |
+| Version probe (read-only) | `.goalie/evidence/version_portfolio_latest.json` |
+| Pin render ({SA}/[FA]) | `.goalie/evidence/version_pin_render_latest.json` |
 | Intel pipeline | `.goalie/evidence/intel_pipeline_latest.json` |
 | Inbox-zero exit gate | `.goalie/evidence/ruflo_upgrade_exit_latest.json` |
 

@@ -301,6 +301,12 @@ def enforce_stale_roam_gate(stale_items):
 
 
 def main():
+    # Fast-fail for evidence-gated timestamp refresh before expensive work.
+    if os.environ.get('AF_ROAM_REFRESH_TIMESTAMPS', '0') == '1':
+        if not os.environ.get('AF_ROAM_REFRESH_EVIDENCE', '').strip():
+            raise SystemExit(
+                'AF_ROAM_REFRESH_TIMESTAMPS=1 requires AF_ROAM_REFRESH_EVIDENCE JSON listing item ids'
+            )
     roam_cog_path = os.path.join(PROJECT_ROOT, ".goalie/ROAM_TRACKER_COG.yaml")
     roam_path = os.path.join(PROJECT_ROOT, ".goalie/ROAM_TRACKER.yaml")
     lnnnl_path = os.path.join(PROJECT_ROOT, ".goalie/LNNNL.yaml")

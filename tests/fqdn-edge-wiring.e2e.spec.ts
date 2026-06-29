@@ -27,7 +27,8 @@ test.describe('[hostbill-fqdn-contract]', () => {
   });
 
   test('addMeteredUsage API call string present in Rust bridge', () => {
-    const content = readFile(RUST_LIB);
+    const hostbillGw = 'src/gateways/hostbill_gateway.rs';
+    const content = readFile(hostbillGw);
     expect(content).toContain('addMeteredUsage');
   });
 

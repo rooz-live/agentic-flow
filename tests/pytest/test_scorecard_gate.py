@@ -1291,3 +1291,57 @@ def test_ingest_deploy_receipt_skips_stale_on_ci(tmp_path, monkeypatch):
     assert not blocks
     assert "stale" in meta.get("deploy_receipt_verify", "").lower()
 
+
+
+def test_precommit_ingest_only_trust_path_ships(tmp_path, monkeypatch):
+    """P1-TRUST-01: signed HEAD-bound artifact + ingest-only precommit SHIPs without AF_RD_ENFORCE=0."""
+    from scripts.gates import scorecard_gate as sg
+
+    import subprocess
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=tmp_path, check=True, capture_output=True)
+    (tmp_path / "README.md").write_text("init\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tmp_path, text=True).strip()
+
+    evidence = tmp_path / ".goalie" / "evidence"
+    evidence.mkdir(parents=True)
+    (evidence / "coherence_results.json").write_text(
+        json.dumps({
+            "coherence": "PASS",
+            "git_head": head,
+            "signature": "sig",
+            "principal": "workspace@local",
+        }),
+        encoding="utf-8",
+    )
+    (tmp_path / ".goalie" / "scorecards").mkdir(parents=True)
+    card = make_valid_scorecard()
+    card["impact"]["reward_direction"] = 1.0
+    (tmp_path / ".goalie" / "scorecards" / "current.json").write_text(json.dumps(card), encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sg, "_coherence_artifact_signed_usable", lambda *a, **k: True)
+    monkeypatch.setattr(sg, "derive_coherence", lambda *a, **k: "PASS")
+    monkeypatch.setattr(sg, "derive_gate_integrity", lambda *a, **k: sg.GateIntegrityResult("OWNED", "precommit"))
+    monkeypatch.setattr(sg, "verify_signoff", lambda *a, **k: (True, "ok"))
+    monkeypatch.setattr(sg, "collect_reward_proxies", lambda *a, **k: {"untracked_added": 99})
+    monkeypatch.setattr(sg, "derive_reward_direction", lambda *a, **k: (-1, ["proxy negative"]))
+    monkeypatch.setattr(sg, "_git", lambda args, **k: "unstaged.py" if args[:2] == ["diff", "--name-only"] else "")
+
+    env = {"AF_GATE_CONTEXT": "precommit"}
+    hardened, blocks, warns, meta = sg.harden(
+        json.loads((tmp_path / ".goalie/scorecards/current.json").read_text()),
+        env=env,
+        strict=False,
+        ingest_only=True,
+    )
+    assert meta.get("trust_ingest_path") is True
+    assert not any("unstaged modifications" in b for b in blocks)
+    assert meta.get("reward_direction_enforced") is False
+
+    result = sg.evaluate(hardened)
+    result = sg.finalize(result, blocks, warns, meta)
+    assert result["disposition"] == "SHIP"

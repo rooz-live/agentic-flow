@@ -334,19 +334,19 @@ validate_email() {
   fi
 
   # CSQBM Governance Constraint: Enforce payload token sizes before memory expansion
-  local file_size_bytes max_bytes=16000 domain_name="General"
+  local file_size_bytes max_bytes=32000 domain_name="General"
   file_size_bytes=$(wc -c < "$email_file" | tr -d ' ')
   if [[ "$email_file" == *"BHOPTI-LEGAL"* ]] || [[ "$email_file" == *"COURT-FILINGS"* ]]; then
-      max_bytes=32000; domain_name="Legal"
+      max_bytes=64000; domain_name="Legal"
   elif [[ "$email_file" == *"utilities"* ]] || [[ "$email_file" == *"movers"* ]]; then
-      max_bytes=8000; domain_name="Utilities"
+      max_bytes=16000; domain_name="Utilities"
   elif [[ "$email_file" == *"income"* ]] || [[ "$email_file" == *"job"* ]]; then
-      max_bytes=12000; domain_name="Income"
+      max_bytes=24000; domain_name="Income"
   fi
 
   if [[ "$file_size_bytes" -gt "$max_bytes" ]]; then
       log "🚫 BLOCKER: Payload size ($file_size_bytes bytes) exceeds $domain_name domain ceiling ($max_bytes bytes)."
-      log "   Constraint (ADR-005): Payloads must fit within the 4000 DBOS Pydantic token ceiling. Shrink unstructured sprawl prior to processing."
+      log "   Constraint (ADR-005): Payloads must fit within the 8000 DBOS Pydantic token ceiling (~$max_bytes bytes). Shrink unstructured sprawl prior to processing."
       exit ${EXIT_SCHEMA_VALIDATION_FAILED:-100}
   fi
 

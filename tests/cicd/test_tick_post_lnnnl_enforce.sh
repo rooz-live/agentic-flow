@@ -26,7 +26,7 @@ cp "$MOCK_BIN/update_lnnnl.py" "$REAL"
 trap 'cp "$BAK" "$REAL"; rm -rf "$MOCK_BIN"' EXIT
 
 set +e
-bash "$ROOT/scripts/cicd/tick_post_hooks.sh" >/dev/null 2>&1
+AF_SKIP_DISK_STEWARD=1 bash "$ROOT/scripts/cicd/tick_post_hooks.sh" >/dev/null 2>&1
 EC=$?
 set -e
 [[ "$EC" -ne 0 ]] || { echo "FAIL: expected non-zero exit from enforce path, got $EC"; exit 1; }

@@ -3,6 +3,8 @@
 set -euo pipefail
 ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 cd "$ROOT"
+# shellcheck source=scripts/cicd/lib/is_ci_env.sh
+source "$ROOT/scripts/cicd/lib/is_ci_env.sh"
 EVIDENCE_DIR="$ROOT/.goalie/evidence"
 mkdir -p "$EVIDENCE_DIR"
 TICK_POST_EVIDENCE="$EVIDENCE_DIR/tick_post_latest.json"
@@ -10,6 +12,9 @@ LNNNL_EXIT=0
 ENV_EXPORT_OK=0
 TICK_POST_EXIT=0
 SAVED_PACE_BUNDLE=""
+# F4 guard: set to 1 after _refresh_saved_pace_bundle succeeds post-policy write.
+# on_exit must not clobber a committed reconcile with a fresh re-read (race).
+_PACE_RECONCILED=0
 
 _tick_post_enforce_fail() {
   local label="$1"
@@ -36,7 +41,11 @@ read_pace_bundle() {
 }
 
 write_tick_evidence() {
-  local bundle="${1:-{}}"
+  # NOTE: do NOT write `local bundle="${1:-{}}"` — bash parses that as
+  # ${1:-{} (default "{") followed by a literal "}", appending a stray "}"
+  # to every bundle and corrupting the JSON (→ silent fallback to stale).
+  local bundle="${1:-}"
+  [[ -z "$bundle" ]] && bundle='{}'
   python3 - "$TICK_POST_EVIDENCE" "$ENV_EXPORT_OK" "$LNNNL_EXIT" "$bundle" <<'PY'
 import json, sys
 from datetime import datetime, timezone
@@ -63,23 +72,104 @@ open(path, "w", encoding="utf-8").write(json.dumps(payload, indent=2) + "\n")
 PY
 }
 
+
+_pace_bundle_json() {
+  python3 "$ROOT/scripts/cicd/lib/reconcile_tick_post_pace.py" "$ROOT" --bundle-json 2>/dev/null     || read_pace_bundle
+}
+
+_refresh_saved_pace_bundle() {
+  local policy_file="$EVIDENCE_DIR/tick_cycle_policy_latest.json"
+  [[ -f "$policy_file" ]] || return 0
+  SAVED_PACE_BUNDLE="$(_pace_bundle_json)"
+  # F4: mark that reconcile committed a refreshed bundle — on_exit must not clobber.
+  _PACE_RECONCILED=1
+}
+
 on_exit() {
+  local policy_file="$EVIDENCE_DIR/tick_cycle_policy_latest.json"
   local bundle
-  bundle="${SAVED_PACE_BUNDLE:-$(read_pace_bundle)}"
-  write_tick_evidence "$bundle" || true
+  if [[ "$_PACE_RECONCILED" == "1" ]]; then
+    # F4 FIX: reconcile already committed a refreshed bundle post-policy write.
+    # Re-reading here would race against any intermediate LNNNL mutation.
+    # Use the already-captured SAVED_PACE_BUNDLE — it is the authoritative value.
+    bundle="$SAVED_PACE_BUNDLE"
+  elif [[ -f "$policy_file" ]]; then
+    # Policy exists but reconcile did not run (e.g. AQE/upstream path was skipped).
+    # Safe to re-read because no committed state would be clobbered.
+    bundle="$(_pace_bundle_json)"
+    SAVED_PACE_BUNDLE="$bundle"
+  else
+    # F4 FIX: Early exit before policy write — fail-closed to stale sentinel.
+    # The tick did not complete its policy cycle, so pace must be marked stale.
+    bundle='{"pace_source":"stale","pace_cod_weight":null}'
+    SAVED_PACE_BUNDLE="$bundle"
+  fi
+  if ! write_tick_evidence "$bundle"; then
+    if is_ci_env || [[ "${AF_TICK_POST_ENFORCE:-${AF_LNNNL_ENFORCE:-1}}" == "1" ]]; then
+      TICK_POST_EXIT=1
+    fi
+  fi
 }
 trap on_exit EXIT
 
-echo "=== tick_post: env key resolver (export-shell + sync-roam once) ==="
-ENV_EXPORTS="$(python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --export-shell 2>/dev/null || true)"
+echo "=== tick_post: env bootstrap (invert: OP forbidden unless AF_ALLOW_OP_READ=1) ==="
+export AF_SKIP_OP_READ=1
+BOOTSTRAP_LOG="$EVIDENCE_DIR/tick_bootstrap_latest.log"
+: >"$BOOTSTRAP_LOG"
+if [[ "${AF_ALLOW_OP_READ:-0}" == "1" ]]; then
+  ENV_EXPORTS="$(
+    AF_ALLOW_OP_READ=1 AF_SKIP_OP_READ=0       python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --tick-bootstrap 2>>"$BOOTSTRAP_LOG" || true
+  )"
+else
+  ENV_EXPORTS="$(
+    python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --tick-bootstrap 2>>"$BOOTSTRAP_LOG" || true
+  )"
+fi
+if [[ "${AF_QUIET:-0}" != "1" ]] && [[ -s "$BOOTSTRAP_LOG" ]]; then
+  tail -5 "$BOOTSTRAP_LOG" >&2 || true
+fi
 if [[ -n "$ENV_EXPORTS" ]] && grep -qE '^export ' <<<"$ENV_EXPORTS"; then
   _source_exports "$ENV_EXPORTS"
-  export AF_SKIP_OP_READ=1
   ENV_EXPORT_OK=1
 else
-  echo "WARN: export-shell produced no exports; AF_SKIP_OP_READ not set"
+  echo "WARN: tick-bootstrap produced no exports (OP skipped or keys absent)"
 fi
-python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --sync-roam || echo "WARN: env_key_resolver sync-roam failed"
+export AF_SKIP_OP_READ=1
+
+# shellcheck source=scripts/cicd/lib/disk_steward_invoke.sh
+source "$ROOT/scripts/cicd/lib/disk_steward_invoke.sh"
+echo "=== tick_post: disk steward (R-DISK-01 runbook when low) ==="
+_disk_enforce_default=0
+if is_ci_env; then
+  _disk_enforce_default=1
+fi
+AF_DISK_STEWARD_ENFORCE="${AF_DISK_STEWARD_ENFORCE:-$_disk_enforce_default}"
+set +e
+disk_steward_maybe "$ROOT"
+_disk_rc=$?
+set -e
+if [[ "$_disk_rc" -ne 0 ]]; then
+  echo "WARN: disk_steward (low disk — see disk_steward_latest.json runbook)"
+  _tick_post_enforce_fail "disk_steward" "$_disk_rc"
+fi
+
+echo "=== tick_post: exec WSJF ruflo PI backlog ==="
+_wsjf_enforce_default=0
+if is_ci_env; then
+  _wsjf_enforce_default=1
+fi
+if [[ -x "$ROOT/scripts/cicd/exec_wsjf_ruflo.sh" ]]; then
+  set +e
+  bash "$ROOT/scripts/cicd/exec_wsjf_ruflo.sh"
+  _wsjf_rc=$?
+  set -e
+  if [[ "$_wsjf_rc" -ne 0 ]]; then
+    echo "WARN: exec_wsjf_ruflo failed (exit=$_wsjf_rc)"
+    if [[ "${AF_WSJF_POST_ENFORCE:-$_wsjf_enforce_default}" == "1" ]]; then
+      _tick_post_enforce_fail "exec_wsjf_ruflo" "$_wsjf_rc"
+    fi
+  fi
+fi
 
 echo "=== tick_post: WSJF (single owner; before relate/upstream) ==="
 set +e
@@ -104,35 +194,34 @@ fi
 
 SAVED_PACE_BUNDLE="$(read_pace_bundle)"
 PACE="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('pace_cod_weight') or 0.5)" <<<"$SAVED_PACE_BUNDLE")"
-echo "pace_cod_weight=$PACE pace_source=$(python3 -c "import json,sys; print(json.load(sys.stdin).get('pace_source','unknown'))" <<<"$SAVED_PACE_BUNDLE")"
-
-echo "=== tick_post: inbox_zero_timescape ==="
-bash "$ROOT/scripts/metrics/inbox_zero_timescape.sh" || _tick_post_enforce_fail "inbox_zero_timescape" $?
-
-CORRELATE_EXIT=0
-if [[ -f "$ROOT/scripts/metrics/correlate_timescape_evidence.py" ]]; then
+echo "=== tick_post: version portfolio probe (read-only; after WSJF) ==="
+if [[ -f "$ROOT/scripts/cicd/version_portfolio_probe.py" ]]; then
   set +e
-  python3 "$ROOT/scripts/metrics/correlate_timescape_evidence.py"
-  CORRELATE_EXIT=$?
+  python3 "$ROOT/scripts/cicd/version_portfolio_probe.py" || echo "WARN: version_portfolio_probe failed"
   set -e
-  if [[ $CORRELATE_EXIT -ne 0 ]]; then
-    if [[ "${AF_CORRELATE_ENFORCE:-0}" == "1" ]]; then
-      echo "CORRELATE BLOCK enforced (AF_CORRELATE_ENFORCE=1)"
-      _tick_post_enforce_fail "correlate" "$CORRELATE_EXIT"
-    else
-      echo "WARN: correlate BLOCK (set AF_CORRELATE_ENFORCE=1 to hard-fail tick)"
-    fi
-  fi
 fi
 
-if [[ "${CEREMONY_RAN:-0}" != "1" && -f "$ROOT/scripts/cicd/lib/ceremony_engine.py" ]]; then
+echo "pace_cod_weight=$PACE pace_source=$(python3 -c "import json,sys; print(json.load(sys.stdin).get('pace_source','unknown'))" <<<"$SAVED_PACE_BUNDLE")"
+
+echo "=== tick_post: max_roi_cycles ==="
+python3 "$ROOT/scripts/metrics/max_roi_cycles.py" --write-evidence || echo "WARN: max_roi_cycles calculation failed"
+
+if [[ "${CEREMONY_RAN:-0}" != "1" && -x "$ROOT/scripts/cicd/ceremony_tick.sh" ]]; then
   echo "=== tick_post: bounded ceremony (CEREMONY_RAN!=1) ==="
   set +e
-  timeout "${CEREMONY_MAX_MINUTES:-5}m" python3 "$ROOT/scripts/cicd/lib/ceremony_engine.py" --tick "${LOOP_TICK_COUNT:-0}" --json \
-    > "$EVIDENCE_DIR/ceremony_unit_latest.json" 2>/dev/null
+  timeout "${CEREMONY_MAX_MINUTES:-5}m" bash "$ROOT/scripts/cicd/ceremony_tick.sh" > "$EVIDENCE_DIR/ceremony_unit_latest.json" 2>/dev/null
   CER_EC=$?
   set -e
   [[ $CER_EC -ne 0 ]] && echo "WARN: ceremony exited $CER_EC"
+fi
+
+echo "=== tick_post: harness doctor evidence ==="
+if [[ -f "$ROOT/scripts/cicd/harness_doctor_evidence.py" ]]; then
+  _harness_enforce_default=0
+  if is_ci_env; then
+    _harness_enforce_default=1
+  fi
+  AF_HARNESS_DOCTOR_ENFORCE="${AF_HARNESS_DOCTOR_ENFORCE:-$_harness_enforce_default}"     python3 "$ROOT/scripts/cicd/harness_doctor_evidence.py" || _tick_post_enforce_fail "harness_doctor_evidence" $?
 fi
 
 UTILIZE_MODE_HINT="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('utilize_mode_hint','full'))" <<<"$SAVED_PACE_BUNDLE")"
@@ -152,10 +241,14 @@ if [[ "$RUN_AQE" == "1" ]]; then
     AQE_PHASE_MIN="$MAX_MIN"
   fi
   echo "=== tick_post: scoped AQE (${AQE_PHASE_MIN}m/phase; knob max=${MAX_MIN}m) ==="
+  LLM_EXPORTS="$(python3 "$ROOT/scripts/cicd/lib/llm_model_registry.py" --export-shell 2>/dev/null || true)"
+  if [[ -n "$LLM_EXPORTS" ]] && grep -qE '^export ' <<<"$LLM_EXPORTS"; then
+    _source_exports "$LLM_EXPORTS"
+  fi
   set +e
-  timeout "${AQE_PHASE_MIN}m" bash "$ROOT/scripts/one.sh" aqe quality assess --scope changed
+  timeout "${AQE_PHASE_MIN}m" bash "$ROOT/scripts/one.sh" aqe quality --gate
   _tick_post_enforce_fail "aqe quality" $?
-  timeout "${AQE_PHASE_MIN}m" bash "$ROOT/scripts/one.sh" aqe coverage analyze --paths src/ --threshold 80
+  timeout "${AQE_PHASE_MIN}m" bash "$ROOT/scripts/one.sh" aqe coverage src/ --threshold 80
   _tick_post_enforce_fail "aqe coverage" $?
   set -e
 else
@@ -164,20 +257,105 @@ fi
 
 if [[ "$RUN_UP" == "1" ]]; then
   set +e
-  python3 "$ROOT/scripts/cicd/upstream_upgrade_engine.py" --dry-run
-  _tick_post_enforce_fail "upstream dry-run" $?
+  # AF_UPSTREAM_FULL=1: run full upgrade (fetch + apply); default is dry-run for safety.
+  # AF_UPSTREAM_PARALLEL=1: enable parallel repo execution when running full.
+  _UP_ARGS=()
+  [[ "${AF_NO_COHERENCE:-0}" == "1" ]] && _UP_ARGS+=("--no-coherence")
+  if [[ "${AF_UPSTREAM_FULL:-0}" == "1" ]]; then
+    _UP_ARGS+=("--print-receipt")
+    [[ "${AF_UPSTREAM_PARALLEL:-0}" == "1" ]] && _UP_ARGS+=("--parallel")
+    echo "=== tick_post: upstream upgrade (full; parallel=${AF_UPSTREAM_PARALLEL:-0}) ==="
+    python3 "$ROOT/scripts/cicd/upstream_upgrade_engine.py" "${_UP_ARGS[@]}"
+    _tick_post_enforce_fail "upstream upgrade" $?
+  else
+    echo "=== tick_post: upstream upgrade (dry-run; set AF_UPSTREAM_FULL=1 for full) ==="
+    python3 "$ROOT/scripts/cicd/upstream_upgrade_engine.py" --dry-run "${_UP_ARGS[@]}"
+    _tick_post_enforce_fail "upstream dry-run" $?
+  fi
   set -e
 else
   echo "SKIP upstream: cycle policy deferred"
 fi
 
-if [[ -x "$ROOT/scripts/cicd/pi_plan_sync.sh" ]]; then
-  SKIP_WSJF=1 bash "$ROOT/scripts/cicd/pi_plan_sync.sh" || echo "WARN: pi_plan_sync failed"
+echo "$POLICY" > "$EVIDENCE_DIR/tick_cycle_policy_latest.json"
+_refresh_saved_pace_bundle || echo "WARN: tick_post pace reconcile skipped"
+
+echo "=== tick_post: inbox_zero_timescape (post-policy/AQE) ==="
+bash "$ROOT/scripts/metrics/inbox_zero_timescape.sh" || _tick_post_enforce_fail "inbox_zero_timescape" $?
+
+if [[ -f "$ROOT/scripts/cicd/exit_artifact_inbox.py" ]]; then
+  echo "=== tick_post: exit artifact inbox zero ==="
+  _exit_enforce_default=0
+  if is_ci_env; then
+    _exit_enforce_default=1
+  fi
+  AF_EXIT_ARTIFACT_ENFORCE="${AF_EXIT_ARTIFACT_ENFORCE:-$_exit_enforce_default}" \
+    python3 "$ROOT/scripts/cicd/exit_artifact_inbox.py" || _tick_post_enforce_fail "exit_artifact_inbox" $?
 fi
 
-if [[ "${HIRE_SYNC_EARNINGS:-0}" == "1" && -x "$ROOT/scripts/hire/sync_earnings_to_hire.py" ]]; then
-  echo "=== tick_post: earnings → hire.agentics.org sync ==="
-  python3 "$ROOT/scripts/hire/sync_earnings_to_hire.py" || echo "WARN: hire earnings sync failed"
+if [[ -f "$ROOT/scripts/cicd/emit_slice_backlog_snapshot.py" ]]; then
+  echo "=== tick_post: slice backlog inbox-zero snapshot ==="
+  REPO_ROOT="$ROOT" python3 "$ROOT/scripts/cicd/emit_slice_backlog_snapshot.py" || echo "WARN: slice backlog snapshot"
+fi
+
+CORRELATE_EXIT=0
+if [[ -f "$ROOT/scripts/metrics/correlate_timescape_evidence.py" ]]; then
+  set +e
+  python3 "$ROOT/scripts/metrics/correlate_timescape_evidence.py"
+  CORRELATE_EXIT=$?
+  set -e
+  if [[ $CORRELATE_EXIT -ne 0 ]]; then
+    if [[ "${AF_CORRELATE_ENFORCE:-0}" == "1" ]]; then
+      echo "CORRELATE BLOCK enforced (AF_CORRELATE_ENFORCE=1)"
+      _tick_post_enforce_fail "correlate" "$CORRELATE_EXIT"
+    else
+      echo "WARN: correlate BLOCK (set AF_CORRELATE_ENFORCE=1 to hard-fail tick)"
+    fi
+  fi
+fi
+
+if [[ -f "$ROOT/scripts/metrics/timescape_envelope.py" ]]; then
+  _ts_enforce_default=0
+  if is_ci_env; then
+    _ts_enforce_default=1
+  fi
+  AF_TIMESCAPE_ENFORCE="${AF_TIMESCAPE_ENFORCE:-$_ts_enforce_default}" \
+    python3 "$ROOT/scripts/metrics/timescape_envelope.py" || _tick_post_enforce_fail "timescape_envelope" $?
+fi
+
+if [[ -x "$ROOT/scripts/cicd/pi_plan_sync.sh" ]]; then
+  echo "=== tick_post: pi_plan_sync ==="
+  _pi_enforce_default=0
+  _pi_committable_default=0
+  if is_ci_env; then
+    _pi_enforce_default=1
+    _pi_committable_default=1
+  fi
+  AF_PI_SYNC_ENFORCE="${AF_PI_SYNC_ENFORCE:-$_pi_enforce_default}"   AF_PI_SYNC_REQUIRE_COMMITTABLE="${AF_PI_SYNC_REQUIRE_COMMITTABLE:-$_pi_committable_default}"     SKIP_WSJF=1 bash "$ROOT/scripts/cicd/pi_plan_sync.sh" || _tick_post_enforce_fail "pi_plan_sync" $?
+fi
+
+if [[ -x "$ROOT/scripts/cicd/receipt_chain.sh" ]]; then
+  echo "=== tick_post: receipt_chain ==="
+  _receipt_enforce_default=0
+  if is_ci_env; then
+    _receipt_enforce_default=1
+  fi
+
+  # CI fail-closed: materialize scorecard before receipt_chain (no SKIP theater).
+  if ! python3 "$ROOT/scripts/metrics/scorecard_resolver.py" --resolve-path >/dev/null 2>&1; then
+    if [[ -f "$ROOT/.goalie/scorecards/required.json" ]]; then
+      mkdir -p "$ROOT/.goalie/scorecards"
+      cp "$ROOT/.goalie/scorecards/required.json" "$ROOT/.goalie/scorecards/current.json"
+      echo "tick_post: scorecard bootstrap from required.json (CI receipt enforce)"
+    fi
+    if ! python3 "$ROOT/scripts/metrics/scorecard_resolver.py" --resolve-path >/dev/null 2>&1; then
+      if [[ "${AF_RECEIPT_CHAIN_ENFORCE:-$_receipt_enforce_default}" == "1" ]]; then
+        echo "BLOCK: no scorecard on disk before receipt_chain (fail-closed)" >&2
+        _tick_post_enforce_fail "receipt_chain_precheck" 1
+      fi
+    fi
+  fi
+  AF_RECEIPT_CHAIN_ENFORCE="${AF_RECEIPT_CHAIN_ENFORCE:-$_receipt_enforce_default}" bash "$ROOT/scripts/cicd/receipt_chain.sh" || _tick_post_enforce_fail "receipt_chain" $?
 fi
 
 exit "${TICK_POST_EXIT}"

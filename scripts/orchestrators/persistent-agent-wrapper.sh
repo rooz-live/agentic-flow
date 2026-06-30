@@ -12,6 +12,8 @@ WORK_QUEUE_DIR="${3:-$HOME/.claude-flow/task-queue}"
 LOG_DIR="$HOME/Library/Logs"
 LOG_FILE="$LOG_DIR/agent-${AGENT_NAME}.log"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=scripts/ruflo/lib/ruflo_npx.sh
+source "$PROJECT_ROOT/scripts/ruflo/lib/ruflo_npx.sh"
 BACKUP_DIR="${PROJECT_ROOT}/.rca-backups"
 
 mkdir -p "$WORK_QUEUE_DIR"
@@ -146,7 +148,7 @@ process_task() {
     log "🚀 Creating task: $task_name (type: $ruflo_task_type)"
     
     # Use correct ruflo task create syntax with required flags
-    echo "y" | npx ruflo@latest task create \
+    echo "y" | ruflo_npx task create \
         --type "$ruflo_task_type" \
         --description "$task_content" \
         --agent "$AGENT_NAME" \

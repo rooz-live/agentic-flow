@@ -130,3 +130,30 @@ def test_blocker_remediation_hint_when_shippable_empty(tmp_path, monkeypatch):
     assert bundle["shippable_lane_empty"] is True
     assert bundle["blocker_lane_has_now"] is True
     assert bundle["utilize_mode_hint"] == "blocker-remediation"
+
+
+def test_is_blocker_work_detects_r_mail_style_ids():
+    assert is_blocker_work("[R-MAIL-03] Stalwart theater — payload")
+    assert is_blocker_work("[R-SPOF-01] nameserver risk")
+    assert is_blocker_work("[R04] legacy numeric id")
+    assert is_blocker_work("[DEP-008] API key missing")
+    assert not is_blocker_work("[P1-INDEX-02] substrate slice")
+
+
+def test_blocker_remediation_hint_for_r_mail_fixture(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    fixture_text = """
+version: '1.1'
+lanes:
+  shippable:
+    now: No pending task.
+    near: No pending task.
+  blockers:
+    now: '[R-MAIL-03] Stalwart theater'
+    near: No pending task.
+"""
+    fixture = tmp_path / "lnnnl.yaml"
+    fixture.write_text(fixture_text, encoding="utf-8")
+    bundle = resolve_pace_bundle(lnnnl_path=fixture, lnnnl_exit=0)
+    assert bundle["blocker_lane_has_now"] is True
+    assert bundle["utilize_mode_hint"] == "blocker-remediation"

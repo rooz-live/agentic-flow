@@ -272,20 +272,35 @@ def test_extract_multiple_blocks():
 # 7. Coherence and Gate Integrity Derivation Tests
 def test_derive_gate_integrity_ci(monkeypatch):
     monkeypatch.setenv("CI", "true")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
-    
-    # In CI, allowed_signers is required, and signature must be verified
+
+    # Fail-closed: CI without provenance signature -> FAIL
+    monkeypatch.delenv("AF_CI_SIGNING_KEY", raising=False)
+    monkeypatch.delenv("AF_CI_PROVENANCE_SIGNATURE", raising=False)
+    monkeypatch.delenv("AF_CI_PROVENANCE_PRINCIPAL", raising=False)
+    assert str(derive_gate_integrity()) == "FAIL"
+
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "push")
+    assert str(derive_gate_integrity()) == "FAIL"
+
+    # PASS only with cryptographic provenance
     monkeypatch.setattr("os.path.exists", lambda p: True)
     monkeypatch.setenv("AF_CI_PROVENANCE_SIGNATURE", "mock_sig")
     monkeypatch.setenv("AF_CI_PROVENANCE_PRINCIPAL", "mock_signer")
     monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda: "mock_sha")
-    monkeypatch.setattr("scripts.gates.scorecard_gate.verify_ssh_signature", lambda s, p, m, a: True)
+    monkeypatch.setattr(
+        "scripts.gates.scorecard_gate.verify_ssh_signature",
+        lambda s, p, m, a: True,
+    )
     assert str(derive_gate_integrity()) == "PASS"
 
     monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request_review")
     assert str(derive_gate_integrity()) == "PASS"
 
     monkeypatch.setenv("GITHUB_EVENT_NAME", "other")
+    monkeypatch.delenv("AF_CI_PROVENANCE_SIGNATURE", raising=False)
+    monkeypatch.delenv("AF_CI_PROVENANCE_PRINCIPAL", raising=False)
     assert str(derive_gate_integrity()) == "FAIL"
 
 
@@ -325,12 +340,14 @@ def test_gate_integrity_owned_locally_vs_ci(monkeypatch):
 
 
 def test_derive_gate_integrity_af_context(monkeypatch):
-    """AF_GATE_CONTEXT in valid set → PASS without CI."""
+    """Local AF_GATE_CONTEXT: review/precommit → OWNED; ci without CI → FAIL."""
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
-    for ctx in ("ci", "review", "precommit"):
+    for ctx in ("review", "precommit"):
         monkeypatch.setenv("AF_GATE_CONTEXT", ctx)
-        assert str(derive_gate_integrity()) == "PASS", f"context={ctx!r} should PASS"
+        assert str(derive_gate_integrity()) == "OWNED", f"context={ctx!r} should OWNED"
+    monkeypatch.setenv("AF_GATE_CONTEXT", "ci")
+    assert str(derive_gate_integrity()) == "FAIL", "context=ci without CI should FAIL"
 
 
 def test_derive_coherence_artifact_ingestion(tmp_path, monkeypatch):
@@ -418,6 +435,7 @@ def test_derive_coherence_crypto_verification(tmp_path, monkeypatch):
 
     # Mock git_head and isolate from any globally set signer env
     monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda r: "mock_sha")
+    monkeypatch.setattr("scripts.gates.scorecard_gate.get_allowed_signers_db", lambda env, root_path=".": str(tmp_path / "allowed_signers"))
     monkeypatch.delenv("AF_ALLOWED_SIGNERS", raising=False)
     monkeypatch.delenv("AF_GATE_CONTEXT", raising=False)
     monkeypatch.delenv("CI", raising=False)
@@ -435,6 +453,7 @@ def test_derive_coherence_crypto_verification(tmp_path, monkeypatch):
 
     # 2. allowed_signers exists but signature missing in CI -> FAIL
     monkeypatch.setenv("CI", "true")
+    monkeypatch.setenv("AF_ALLOW_TEST_OVERRIDE", "true")
     allowed_signers_path = tmp_path / "allowed_signers"
     allowed_signers_path.touch()
     monkeypatch.setenv("AF_ALLOWED_SIGNERS", str(allowed_signers_path))
@@ -494,19 +513,28 @@ def test_verify_signoff_legacy_enabled_locally(monkeypatch):
 
 
 def test_derive_gate_integrity_ci_provenance(monkeypatch):
-    # 1. CI with allowed_signers but no provenance -> FAIL
-    monkeypatch.setenv("CI", "true")
-    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
-    
-    # Mock allowed_signers to exist
     monkeypatch.setattr("os.path.exists", lambda p: True)
-    monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda: "mock_sha")
+    # 1. CI without provenance -> FAIL (no GITHUB_ACTIONS fallback)
+    monkeypatch.setenv("CI", "true")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setenv("GITHUB_EVENT_NAME", "pull_request")
+    monkeypatch.delenv("AF_CI_SIGNING_KEY", raising=False)
+    monkeypatch.delenv("AF_CI_PROVENANCE_SIGNATURE", raising=False)
+    monkeypatch.delenv("AF_CI_PROVENANCE_PRINCIPAL", raising=False)
 
     gi, reason = derive_gate_integrity()
     assert gi == "FAIL"
-    assert "provenance" in reason
+    assert "provenance" in reason.lower()
 
-    # 2. CI with allowed_signers and valid provenance signature -> PASS
+    # 1b. Signing secret configured but no emission -> still FAIL
+    monkeypatch.setenv("AF_CI_SIGNING_KEY", "configured")
+    gi, reason = derive_gate_integrity()
+    assert gi == "FAIL"
+    assert "provenance" in reason.lower()
+
+    # 2. CI with valid provenance signature -> PASS
+    monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda: "mock_sha")
+
     monkeypatch.setenv("AF_CI_PROVENANCE_SIGNATURE", "valid_sig")
     monkeypatch.setenv("AF_CI_PROVENANCE_PRINCIPAL", "ci_signer")
     monkeypatch.setattr("scripts.gates.scorecard_gate.verify_ssh_signature", lambda s, p, m, a: True)
@@ -746,6 +774,7 @@ def test_harden_blocks_allowed_signers_pr_tamper(monkeypatch, tmp_path):
         "CI": "true",
         "AF_ALLOWED_SIGNERS": str(allowed),
         "AF_DIFF_BASE": "origin/main",
+        "AF_ALLOW_TEST_OVERRIDE": "true",
     }
 
     monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda *a, **k: "mock_sha")
@@ -756,8 +785,8 @@ def test_harden_blocks_allowed_signers_pr_tamper(monkeypatch, tmp_path):
     monkeypatch.setattr("scripts.gates.scorecard_gate.derive_coherence", lambda r: "PASS")
 
     def fake_git(args, timeout=30, root="."):
-        if "--" in args and str(allowed) in " ".join(args):
-            return str(allowed)
+        if "--" in args and (".goalie/scorecards/allowed_signers" in " ".join(args) or str(allowed) in " ".join(args)):
+            return ".goalie/scorecards/allowed_signers"
         return None
 
     monkeypatch.setattr("scripts.gates.scorecard_gate._git", fake_git)
@@ -797,6 +826,7 @@ def test_harden_missing_allowed_signers_ci_blocks(monkeypatch, tmp_path):
     
     # Mock other functions called inside harden to prevent extraneous blocks
     monkeypatch.setattr("scripts.gates.scorecard_gate.git_head", lambda *a, **k: "mock_sha")
+    monkeypatch.setattr("scripts.gates.scorecard_gate.get_allowed_signers_db", lambda env, root_path=".": str(tmp_path / "missing_signers"))
     monkeypatch.setattr("scripts.gates.scorecard_gate.current_diff_sha", lambda *a, **k: "mock_diff")
     monkeypatch.setattr("scripts.gates.scorecard_gate.verify_signoff", lambda *a, **k: (True, "mock"))
     monkeypatch.setattr("scripts.gates.scorecard_gate.check_binding", lambda *a, **k: ([], []))
@@ -812,7 +842,7 @@ def test_harden_missing_allowed_signers_ci_blocks(monkeypatch, tmp_path):
     
     sc = make_valid_scorecard()
     missing = tmp_path / "missing_signers"
-    env = {"CI": "true", "AF_ALLOWED_SIGNERS": str(missing)}
+    env = {"CI": "true", "AF_ALLOWED_SIGNERS": str(missing), "AF_ALLOW_TEST_OVERRIDE": "true"}
     card, extra_blocks, extra_warnings, meta = harden(sc, env=env, strict=False, ingest_only=True)
     
     assert any("CI context requires allowed_signers configuration" in err for err in extra_blocks)
@@ -1065,6 +1095,35 @@ def test_load_signals_rejects_unsigned_changes_locally(monkeypatch, tmp_path):
     assert sg.load_signals() == sg.DEFAULT_SIGNALS
 
 
+def test_verify_signals_json_requires_no_invented_symbols_and_full_pytest():
+    """The checked-in verify_signals.json must not be weaker than DEFAULT_SIGNALS.
+
+    This prevents the placeholder no-invented-paths probe from silently weakening
+    the coherence gate in CI/precommit once the file is committed and unmodified.
+    """
+    from scripts.gates import scorecard_gate as sg
+
+    signals_file = Path(sg.VERIFY_SIGNALS_FILE)
+    assert signals_file.exists(), f"{signals_file} must exist"
+    data = json.loads(signals_file.read_text(encoding="utf-8"))
+    signals = data.get("signals", [])
+    by_name = {s["name"]: s for s in signals}
+
+    pytest_sig = by_name.get("pytest")
+    assert pytest_sig is not None, "verify_signals.json must define a pytest signal"
+    assert pytest_sig.get("required") is True, "pytest signal must be required"
+    cmd = pytest_sig.get("cmd", [])
+    assert "tests/pytest/test_update_lnnnl.py" in cmd, "pytest must cover orchestration tests"
+    assert "tests/gates/" not in cmd, "coherence pytest must not self-host tests/gates (Shell Gate job)"
+
+    no_invented = by_name.get("no-invented-symbols")
+    assert no_invented is not None, "verify_signals.json must define no-invented-symbols"
+    assert no_invented.get("required") is True, "no-invented-symbols must be required"
+    assert "run_no_invented_symbols" in str(no_invented.get("cmd", [])), "no-invented-symbols must invoke run_no_invented_symbols"
+
+    assert "no-invented-paths" not in by_name, "placeholder no-invented-paths signal must be removed"
+
+
 def test_collect_reward_proxies_scans_all_directories(monkeypatch):
     from scripts.gates import scorecard_gate as sg
     
@@ -1232,3 +1291,66 @@ def test_ingest_deploy_receipt_skips_stale_on_ci(tmp_path, monkeypatch):
     assert not blocks
     assert "stale" in meta.get("deploy_receipt_verify", "").lower()
 
+
+
+def test_precommit_ingest_only_trust_path_ships(tmp_path, monkeypatch):
+    """P1-TRUST-01: signed HEAD-bound artifact + ingest-only precommit SHIPs.
+
+    reward_direction_enforced=True is EXPECTED when trust_ingest_path is active
+    and coherence_derived=PASS — the signed artifact gives us provenance to
+    safely enforce RD without requiring AF_RD_ENFORCE=0 (which was the old hack).
+    The gate disposition must still be SHIP (enforced RD does not block if PASS).
+    """
+    from scripts.gates import scorecard_gate as sg
+
+    import subprocess
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=tmp_path, check=True, capture_output=True)
+    (tmp_path / "README.md").write_text("init\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True)
+    head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tmp_path, text=True).strip()
+
+    evidence = tmp_path / ".goalie" / "evidence"
+    evidence.mkdir(parents=True)
+    (evidence / "coherence_results.json").write_text(
+        json.dumps({
+            "coherence": "PASS",
+            "git_head": head,
+            "signature": "sig",
+            "principal": "workspace@local",
+        }),
+        encoding="utf-8",
+    )
+    (tmp_path / ".goalie" / "scorecards").mkdir(parents=True)
+    card = make_valid_scorecard()
+    card["impact"]["reward_direction"] = 1.0
+    (tmp_path / ".goalie" / "scorecards" / "current.json").write_text(json.dumps(card), encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sg, "_coherence_artifact_signed_usable", lambda *a, **k: True)
+    monkeypatch.setattr(sg, "derive_coherence", lambda *a, **k: "PASS")
+    monkeypatch.setattr(sg, "derive_gate_integrity", lambda *a, **k: sg.GateIntegrityResult("OWNED", "precommit"))
+    monkeypatch.setattr(sg, "verify_signoff", lambda *a, **k: (True, "ok"))
+    # P1-TRUST-01: signed artifact enables RD enforcement; proxy must be positive so
+    # the enforced value aligns with the card's asserted reward_direction=1.0 → SHIP.
+    monkeypatch.setattr(sg, "collect_reward_proxies", lambda *a, **k: {"untracked_added": 0})
+    monkeypatch.setattr(sg, "derive_reward_direction", lambda *a, **k: (1, ["no negative signals"]))
+    monkeypatch.setattr(sg, "_git", lambda args, **k: "unstaged.py" if args[:2] == ["diff", "--name-only"] else "")
+
+    env = {"AF_GATE_CONTEXT": "precommit"}
+    hardened, blocks, warns, meta = sg.harden(
+        json.loads((tmp_path / ".goalie/scorecards/current.json").read_text()),
+        env=env,
+        strict=False,
+        ingest_only=True,
+    )
+    assert meta.get("trust_ingest_path") is True
+    assert not any("unstaged modifications" in b for b in blocks)
+    # P1-TRUST-01: signed artifact grants provenance → RD enforcement is enabled (not skipped)
+    assert meta.get("reward_direction_enforced") is True
+
+    result = sg.evaluate(hardened)
+    result = sg.finalize(result, blocks, warns, meta)
+    assert result["disposition"] == "SHIP"

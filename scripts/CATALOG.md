@@ -1619,7 +1619,6 @@
 | `superproject-gates/mcp-health-types.ts` | `.ts` | /** |
 | `superproject-gates/mcp-ide-bridge.ts` | `.ts` | /** |
 | `superproject-gates/mcp-integration.ts` | `.ts` | /** |
-| `superproject-gates/mcp_dynamic_context_loader.py` | `.py` | Configure logging |
 | `superproject-gates/mcp_pi_sync.py` | `.py` | """ |
 | `superproject-gates/menu-builder.ts` | `.ts` | /** |
 | `superproject-gates/merge-time-coherence-check.sh` | `.sh` | Merge-Time Coherence Check Script |

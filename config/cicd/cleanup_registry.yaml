@@ -1,0 +1,54 @@
+# Disk stewardship action registry (R-DISK-01) — consumed by disk_steward_core.py
+schema: cleanup_registry.v1
+
+preconditions:
+  git-fsck-connectivity-ok:
+    description: "git fsck --connectivity-only exit code 0"
+  git-fsck-tag-errors:
+    description: "fsck reports tag refs that do not point to valid objects"
+  git-fsck-pack-errors:
+    description: "fsck reports corrupt or truncated packfiles"
+  git-gc-ok:
+    description: "git gc succeeded in this run, or gc was not attempted"
+  git-pack-quarantine-applied:
+    description: "corrupt pack trio quarantined this session when pack errors present"
+
+actions:
+  - id: npm-cache
+    tier: SAFE
+    wsjf: 8.5
+    command: "npm cache clean --force"
+  - id: goalie-cron-prune
+    tier: SAFE
+    wsjf: 7.0
+  - id: ephemeral-evidence-prune
+    tier: SAFE
+    wsjf: 6.5
+  - id: tm_disk_guardian
+    tier: SAFE
+    wsjf: 6.0
+    env_gate: AF_DISK_STEWARD_DEEP_CLEAN
+  - id: broken-tag-delete
+    tier: REPAIR
+    wsjf: 9.2
+    env_gate: AF_DISK_STEWARD_REPAIR
+    when_precondition: git-fsck-tag-errors
+  - id: git-pack-quarantine
+    tier: REPAIR
+    wsjf: 9.1
+    env_gate: AF_DISK_STEWARD_REPAIR
+    when_precondition: git-fsck-pack-errors
+  - id: git-fetch-restore
+    tier: REPAIR
+    wsjf: 8.0
+    env_gate: AF_DISK_STEWARD_REPAIR
+  - id: git-gc
+    tier: COMPACT
+    wsjf: 9.0
+    requires:
+      - git-fsck-connectivity-ok
+  - id: git-repack-Ad
+    tier: COMPACT
+    wsjf: 8.8
+    requires:
+      - git-fsck-connectivity-ok

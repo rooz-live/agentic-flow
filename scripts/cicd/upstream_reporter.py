@@ -279,6 +279,9 @@ def save_report_and_cache(
             "details": {
                 "status": res["integration_status"],
                 "skipped": res.get("skipped", False),
+                "harness_type": res.get("harness_type", "unknown"),
+                "harness_family": res.get("harness_family", "unknown"),
+                "http_status_class": res.get("http_status_class", "0xx"),
                 "failure_category": res.get("failure_category"),
                 "lane": res.get("lane"),
                 "app_store_readiness": res.get("app_store_readiness", "skipped"),

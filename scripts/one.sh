@@ -14,12 +14,15 @@
 #   run-safely       → (inline: git stash checkpoint + rollback on failure)
 #   mail-wave-close  → scripts/mail/mail-wave-close.sh
 #   schedule|wsjf    → scripts/one-sh.d/schedule.sh → scripts/cicd/update_lnnnl.py
+#   disk-steward     → scripts/cicd/disk_steward.sh (R-DISK-01; AF_DISK_STEWARD_ENFORCE=1, AF_DISK_GIT_FSCK_FULL=1, AF_DISK_STEWARD_DEEP_CLEAN=1)
 #   dod-gate         → scripts/dod-gate.sh [--pre-task|--post-task|--full]
 #   scorecard        → scripts/gates/scorecard_gate.py [--verify|--file PATH|--json]
 #   upstream         → scripts/cicd/upstream_upgrade_engine.py [--dry-run|--force|--parallel|--json]
 #   edge-sync        → scripts/cicd/edge_gateway_sync_engine.py [--dry-run|--force|--json]
 #   aqe              → scripts/one-sh.d/aqe.sh [init|status|<aqe-cmd>]
 #   ruflo|workflow   → scripts/one-sh.d/workflow.sh [init|status|<ruflo-cmd>]
+#   portfolio        → scripts/cicd/version_portfolio_probe.py [--json|--dry-run]
+#   weight-eft       → scripts/one-sh.d/weight-eft.sh [probe|--status] (degraded_ok; AF_WEIGHT_EFT_ENFORCE=1)
 #   harness          → apps/agent-harness npm run <doctor|evolve|evolve:dry|init>
 set -euo pipefail
 
@@ -85,8 +88,14 @@ case "$CMD" in
         ;;
 
     cycle)
+        exec bash "$ROOT_DIR/scripts/one-sh.d/cycle.sh" "$@"
+        ;;
+
+    run-all)
+        # Two-tier runner: --fast-only (default), --slow, --slow-only (strict by default)
         shift
-        exec bash "$ROOT_DIR/scripts/cicd/cycle_tick.sh" "$@"
+        export AF_RUN_ALL_STRICT="${AF_RUN_ALL_STRICT:-1}"
+        exec bash "$ROOT_DIR/scripts/cicd/run_all.sh" "$@"
         ;;
 
     goal)
@@ -107,6 +116,25 @@ case "$CMD" in
 
     schedule|wsjf)
         exec bash "$ROOT_DIR/scripts/one-sh.d/schedule.sh" "${@:2}"
+        ;;
+
+    disk-steward)
+        # WSJF-ranked disk stewardship — R-DISK-01 evidence + optional auto-remediate.
+        # Env: AF_DISK_LOW_PCT (probe threshold), AF_DISK_APPLY_PCT,
+        #      AF_DISK_STEWARD_APPLY=1 (force remediate), AF_DISK_STEWARD_AUTO_APPLY,
+        #      AF_DISK_STEWARD_ENFORCE=1 (exit 2 when disk is critical),
+        #      AF_DISK_STEWARD_REPAIR=1 (REPAIR tier: tags, pack quarantine, fetch),
+        #      AF_DISK_FSCK_TIMEOUT_SEC (full fsck timeout; default 600, connectivity 60),
+        #      AF_DISK_GIT_FSCK_FULL=1 (full git fsck), AF_DISK_STEWARD_DEEP_CLEAN=1.
+        exec bash "$ROOT_DIR/scripts/cicd/disk_steward.sh" "${@:2}"
+        ;;
+
+    hygiene-daily)
+        exec bash "$ROOT_DIR/scripts/cicd/disk_hygiene_daily.sh" "${@:2}"
+        ;;
+
+    hygiene-weekly)
+        exec bash "$ROOT_DIR/scripts/cicd/disk_hygiene_weekly.sh" "${@:2}"
         ;;
 
     dod-gate)
@@ -154,14 +182,23 @@ case "$CMD" in
         exec bash "$ROOT_DIR/scripts/one-sh.d/workflow.sh" "${@:2}"
         ;;
 
+    portfolio|versions)
+        exec python3 "$ROOT_DIR/scripts/cicd/version_portfolio_probe.py" "${@:2}"
+        ;;
+
+    agenticow)
+        exec bash "$ROOT_DIR/scripts/one-sh.d/agenticow.sh" "$@"
+        ;;
+
+    weight-eft|weight_eft)
+        # Weight-EFT gate probe — writes .goalie/evidence/weight_eft_gate_latest.json.
+        # Also invoked post-receipt in receipt_chain.sh; inert until AF_WEIGHT_EFT_AVAILABLE=1
+        # and @metaharness/weight-eft ships on npm. Env: AF_WEIGHT_EFT_ENFORCE=1.
+        exec bash "$ROOT_DIR/scripts/one-sh.d/weight-eft.sh" "$@"
+        ;;
+
     harness)
-        # Dispatch to the upgraded agent harness.
-        shift
-        if [[ $# -eq 0 ]]; then
-            echo "Usage: ./scripts/one.sh harness <doctor|evolve|evolve:dry|init>"
-            exit 1
-        fi
-        exec npm --prefix "$ROOT_DIR/apps/agent-harness" run "$@"
+        exec bash "$ROOT_DIR/scripts/one-sh.d/harness.sh" "$@"
         ;;
 
     help|--help|-h)

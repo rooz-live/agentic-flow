@@ -42,8 +42,20 @@ _mcp_jsonrpc_spec.loader.exec_module(mcp_jsonrpc)
 # Paths
 # ---------------------------------------------------------------------------
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-RECEIPT_LOG = PROJECT_ROOT / ".goalie" / "evidence" / "hire_receipts.jsonl"
+def _data_root() -> Path:
+    env = os.environ.get("REPO_ROOT")
+    if env:
+        return Path(env)
+    return Path(__file__).resolve().parents[2]
+
+
+RECEIPT_LOG = _data_root() / ".goalie" / "evidence" / "hire_receipts.jsonl"
+
+
+def _receipt_log() -> Path:
+    return Path(RECEIPT_LOG)
+
+
 MCP_ENDPOINT = "https://hire.agentics.org/api/mcp"
 
 
@@ -64,6 +76,11 @@ def _resolve_token() -> str:
     token = os.environ.get("HIRE_MCP_TOKEN", "").strip()
     if token:
         return token
+
+    if os.environ.get("AF_SKIP_OP_READ") == "1":
+        raise RuntimeError(
+            "HIRE_MCP_TOKEN required when AF_SKIP_OP_READ=1 (no op read in receipt chain)"
+        )
 
     # Try 1Password CLI
     if _op_available():
@@ -114,7 +131,7 @@ def _write_receipt(
     receipt_id: str,
 ) -> None:
     """Append a single JSON line to the receipt log file."""
-    RECEIPT_LOG.parent.mkdir(parents=True, exist_ok=True)
+    _receipt_log().parent.mkdir(parents=True, exist_ok=True)
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "email": email,
@@ -123,7 +140,7 @@ def _write_receipt(
         "response_summary": response_summary,
         "receipt_id": receipt_id,
     }
-    with open(RECEIPT_LOG, "a", encoding="utf-8") as fh:
+    with open(_receipt_log(), "a", encoding="utf-8") as fh:
         fh.write(json.dumps(entry) + "\n")
 
 
@@ -155,9 +172,22 @@ def sync_profile(email: str, payload: dict[str, Any]) -> dict[str, Any]:
     Raises:
         RuntimeError: if the token cannot be resolved.
     """
-    token = _resolve_token()
     receipt_id = str(uuid.uuid4())
 
+    if os.environ.get("AF_HIRE_MCP_MOCK", "").strip() == "1":
+        method = payload.get("method", "profile/sync")
+        status_code = 200
+        result = {"status_code": status_code, "mock": True, "method": method}
+        _write_receipt(
+            email=email,
+            endpoint=method,
+            status_code=status_code,
+            response_summary="mock hire sync",
+            receipt_id=receipt_id,
+        )
+        return result
+
+    token = _resolve_token()
     method = payload.pop("method", "profile/sync")
     envelope = mcp_jsonrpc.request(method, {"email": email, **payload}, request_id=receipt_id)
     encoded = json.dumps(envelope).encode("utf-8")

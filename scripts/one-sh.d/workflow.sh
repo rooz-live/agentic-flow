@@ -2,6 +2,8 @@
 # workflow.sh — /workflows logic runner dispatch
 set -euo pipefail
 ROOT_DIR="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+# shellcheck source=scripts/ruflo/lib/ruflo_npx.sh
+source "$ROOT_DIR/scripts/ruflo/lib/ruflo_npx.sh"
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" || "${1:-}" == "help" ]]; then
     cat <<'HELP'
@@ -19,11 +21,11 @@ CMD="${1:-status}"
 if [[ "$CMD" == "init" ]]; then
     shift
     echo "--> Initializing Ruflo..."
-    npx --yes ruflo@3.14.1 init --minimal --start-daemon "$@"
+    ruflo_npx init --minimal --start-daemon "$@"
     echo "--> Ensuring Ruflo daemon is running..."
-    npx --yes ruflo@3.14.1 start --daemon || true
+    ruflo_npx start --daemon || true
     echo "--> Ruflo runtime ready."
     exit 0
 fi
 
-exec npx --yes ruflo@3.14.1 "$@"
+exec ruflo_npx "$@"

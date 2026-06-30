@@ -31,6 +31,21 @@ graph TD
 
 ---
 
+### Disk stewardship registry (R-DISK-01)
+
+`config/cicd/cleanup_registry.yaml` lists WSJF-ranked actions in tiers **SAFE** (npm cache, ephemeral prune), **REPAIR** (broken tag delete, pack quarantine, `git fetch`), and **COMPACT** (`git gc`, repack). COMPACT runs only when connectivity `git fsck` passes and REPAIR left no unresolved failures.
+
+| Env | Role |
+|-----|------|
+| `AF_DISK_STEWARD_APPLY=1` | Force SAFE+tiers per DAG |
+| `AF_DISK_STEWARD_REPAIR=1` | Enable REPAIR tier (default off) |
+| `AF_DISK_FSCK_TIMEOUT_SEC` | Full-fsck timeout seconds (default 600; connectivity check 60s) |
+| `AF_DISK_STEWARD_ENFORCE=1` | Exit 2 when disk ≥ low threshold |
+
+Evidence schema `disk_steward.v1.1` adds `actions[]` with per-step `tier`/`status`, `blockers`, `next_recommended`, and `volume` (mount for `disk_used_pct`).
+
+---
+
 ## 🚦 2. Definition of Readiness (DoR)
 
 **Definition of Readiness (DoR)** specifies the entry criteria that must be satisfied before any agent or engineer can execute a task. It ensures the environment is clean, stable, and secure to prevent polluting the codebase.
@@ -68,6 +83,7 @@ graph TD
   - `pytest` suite passes 100% with no regressions or un-mocked side-effects.
   - `playwright` E2E spec list is discoverable and passes.
 - [ ] **Cryptographic Sign-off**: A valid scorecard file must be generated at `.goalie/scorecards/current.json` containing verified `coherence_results.json` signals, signed by an allowed workspace key.
+- [ ] **Receipt chain scorecard**: A canonical scorecard must resolve for `receipt_chain.sh` (see **Receipt chain scorecard (DoD)**); missing scorecard exits **1** even when `AF_RECEIPT_CHAIN_ENFORCE=0`.
 - [ ] **Anti-CVT Enforcement**: All code changes are staged, tracked via `git status`, and committed to git (or staged for review) with zero untracked side-effects.
 - [ ] **Public Edge Proof**: Endpoint health probes (like `public_synthetic_check.sh`) must pass or have explicitly logged blockers in `.goalie/evidence/public-edge/`.
 
@@ -147,8 +163,8 @@ Each `tick_post_hooks.sh` run follows this order; skipping or reordering breaks 
 
 | Step | Command / owner | Notes |
 |------|-----------------|-------|
-| 1 Export | `env_key_resolver.py --export-shell` | TRACKED_KEYS only; lazy `op read`; fd-only `source <(printf …)` (not `eval`, not disk `mktemp`) |
-| 2 Sync ROAM | `--sync-roam` once | Set `AF_SKIP_OP_READ=1` only when exports present |
+| 1 Bootstrap | `env_key_resolver.py --tick-bootstrap` | **Inverted OP**: `AF_ALLOW_OP_READ=1` for one resolve pass; then `AF_SKIP_OP_READ=1`; sync ROAM main+cog; emit exports (no second Python/op pass) |
+| 2 Shell source | fd-only `source <(printf …)` | Rest of tick runs with `AF_SKIP_OP_READ=1` (OP forbidden) |
 | 3 Rank | `update_lnnnl.py` → `LNNNL.yaml` v1.1 | Single WSJF owner; `AF_SKIP_ROAM_SYNC=1` on second callers |
 | 4 Pace | `pace_from_lnnnl.py` → `tick_cycle_policy.py` | **Shippable lane only** (`lanes.shippable`); blockers visible but do not set pace |
 | 5 Verify | `scorecard_gate.py --verify` | CI forbids `--self-asserted`; requires `coherence_derived=PASS` to SHIP |
@@ -158,11 +174,24 @@ Each `tick_post_hooks.sh` run follows this order; skipping or reordering breaks 
 
 | Flag | Default | Meaning |
 |------|---------|---------|
-| `AF_SKIP_OP_READ` | unset | After successful export-shell, skip further `op read` in child Python |
+| `AF_ALLOW_OP_READ` | `0` | **Inverted OP**: when `0`, tick-bootstrap never calls `op read`; set `1` for one bootstrap pass only |
+| `AF_SKIP_OP_READ` | `1` in tick_post | After bootstrap, forbid `op read` in child Python (hire, roam sync, registry) |
 | `AF_SKIP_ROAM_SYNC` | `0` | Skip duplicate `sync_roam_env_deps` in `update_lnnnl` |
 | `AF_OP_VAULT_SCAN` | `0` | Scan Antigravity vault blobs (expensive; off in tick) |
-| `AF_LNNNL_ENFORCE` | `1` in `loop_timer_engine.sh`, `run_loop_tick.sh`, `cycle_tick.sh` (`0` opt-out) | Fail tick when `update_lnnnl.py` exits non-zero |
-| `AF_ROAM_REFRESH_TIMESTAMPS` | `0` | Do not reset ROAM `discovered` on every tick |
+| `AF_LNNNL_ENFORCE` | `1` | Fail tick when `update_lnnnl.py` exits non-zero |
+| `AF_LNNNL_STALE_ENFORCE` | `1` | Fail tick when `update_lnnnl.py` exits with 2 (stale ROAM gate) |
+| `AF_TICK_POST_ENFORCE` | `1` | Propagates sub-hook failures (exit code) to the final script exit status (propagates to production loops) |
+| `AF_ROAM_REFRESH_TIMESTAMPS` | `0` | When enabled (set to `1`), refreshes `last_verified` (and `discovered` if uninitialized) in ROAM tracker files |
+| `AF_CORRELATE_ENFORCE` | `0` | If `1`, enforces strict correlation of timescape evidence |
+| `AF_TIMESCAPE_ENFORCE` | `0` (local); `1` in CI via `tick_post_hooks.sh` | Exit non-zero when `timescape_envelope` status is `BLOCK` |
+| `LOOP_ARTIFACT_OK` | `0` | Allow staging `.goalie/` and `reports/` when `1` (pre-commit) |
+| `AF_RECEIPT_CHAIN_MOCK_HIRE` | `0` | Contract tests: append mock hire JSONL via receipt_chain |
+| `AF_RECEIPT_CHAIN_ENFORCE` | `0` locally; `1` in CI tick_post | Fail-closed receipt chain; SKIP/BLOCK receipts fail tick when `1` |
+
+
+### Tick-post pace reconcile (F4)
+
+`reconcile_tick_post_pace.py` runs after `tick_cycle_policy_latest.json` is written. `on_exit` calls `_refresh_saved_pace_bundle` so the EXIT trap cannot clobber `pace_source=policy_snapshot` with the early LNNNL pace read.
 
 Evidence: `.goalie/evidence/tick_post_latest.json` records `env_export_ok`, `lnnnl_exit`, `pace_cod_weight`.
 
@@ -186,6 +215,28 @@ Canonical compact gauges for inbox-zero / goal snapshots. **Read order is type-t
 | `pace_source` | `tick_post_latest.json` | n/a | `live` \| `last_good` \| `stale` — fail-closed when `AF_PACE_FAIL_CLOSED=1`. |
 
 **Anti-CVT breakdown** (`anti_cvt` in inbox snapshot): `untracked` + `unobservable` + `unorchestrated` + `unutilized` → `anti_cvt_score` / `total`. Blocker-only WSJF wins improve `%` / `#` and may raise `blocker_pace_cod_weight`, but **#.% shippable pace** stays flat until a `P1-*` / `NNEAR-*` item leads `lanes.shippable.now`.
+
+
+### AQE utilization honesty (shippable vs deferrable)
+
+`tick_cycle_policy.py` splits utilization so deferrable/blocker-remediation runs never inflate shippable `#.%` pace. The execution mode is governed by `utilize_mode`:
+
+| Mode | Condition | Meaning |
+|------|-----------|---------|
+| `full` | Shippable pace $\ge 1.0$ | Full shippable lane execution. Runs AQE and upstream upgrades. |
+| `deferred` | Shippable pace $< 1.0$ | Skips AQE and upstream checks. |
+| `deferrable` | Shippable pace $< 1.0$ & `AQE_UTILIZE_DEFERRABLE=1` | Runs scoped AQE checks. |
+| `blocker-remediation` | Shippable empty + blocker NOW | Scoped AQE coherence without upstream upgrades. |
+
+| Field | Meaning |
+|-------|---------|
+| `aqe_utilization_pct` | Shippable lane only: **0** or **100** (100 when `pace_cod_weight >= 1.0` and `utilize_mode=full`). Alias of `shippable_utilization_pct` at full pace. |
+| `shippable_utilization_pct` | `tick_cycle_policy.py` | Shippable-only utilization (0 or 100); never inflated by blocker-remediation runs. |
+| `blocker_lane_active` | `tick_cycle_policy.py` | `true` when blocker lane has NOW work while shippable pace is deferred/empty. |
+| `aqe_deferrable_ran` | True when AQE ran under `deferrable` or `blocker-remediation` (pace below shippable head). |
+| `aqe_scope_utilization_pct` | Scoped run intensity: 100 for full shippable, 50 for deferrable/blocker-remediation, else 0. |
+
+`cycle_tick.sh` defaults `AF_AQE_ENFORCE=1` when shippable pace ≥ 1.0 (from `pace_from_lnnnl.py`); keeps `AF_AQE_ENFORCE=0` when pace < 1.0 or `AQE_UTILIZE_DEFERRABLE=1`.
 
 ### Dual-lane pace vs blocker WSJF
 
@@ -219,8 +270,201 @@ Lenient Playwright skips require **`TLD_GATE_LENIENT=1`**; `test:e2e:tld-gate:st
 Legacy artifacts (no `tld_gate_status`) or stale artifacts (`hash` ≠ `git HEAD`) are **skipped** by DoD and scorecard derive — not FAIL.
 
 
-| `1` in production loops | Propagate AQE/upstream/ceremony/receipt failures (not unconditional exit 0) |
 
-| `0` | When refresh enabled, do not rewrite `discovered` (only `last_verified`) |
+### Tick earnings receipt chain closure (MPP)
 
-| `blocker-remediation` when shippable empty + blocker NOW | Scoped AQE coherence without upstream |
+`scripts/cicd/receipt_chain.sh` runs **after** post-AQE timescape in `tick_post_hooks.sh`. Fail-closed order:
+
+| Step | Script | Closure signal |
+|------|--------|----------------|
+| 1 | `scorecard_resolver.py` | Canonical scorecard path (`current.json` → `latest.json`; rejects coherence-only artifacts) |
+| 2 | `earnings_engine.py --verify` | Ledger/scorecard coherence + gate integrity |
+| 3 | `earnings_export_json.py --require-verified` | Writes `.goalie/evidence/earnings_latest.json` from **verified** ledger rows only |
+| 4 | `compile_profile_readme.py` | Regenerates `profile_readme.md` from verified ledger |
+| 5 | `sync_earnings_to_hire.py` | MCP profile sync when `HIRE_MCP_TOKEN` is set |
+| 6 | `hire_mcp_client.py` | Appends one JSON line to `.goalie/evidence/hire_receipts.jsonl` per MCP call |
+| 7 | `receipt_chain.sh` | Writes `.goalie/evidence/receipts/tick_*.json` with `status=PASS` **last** |
+**DoD (receipt chain scorecard):** A tick may not claim receipt-chain closure unless `scorecard_resolver.py` resolves a canonical scorecard at `.goalie/scorecards/current.json` (fallback: `.goalie/scorecards/latest.json`; coherence-only artifacts are rejected). Missing scorecard must fail with non-zero exit even when `AF_RECEIPT_CHAIN_ENFORCE=0`; enforcement only hardens downstream verify/hire/intel steps.
+
+
+| Env | Default | Meaning |
+|-----|---------|---------|
+| `LOOP_ARTIFACT_OK` | `0` | Allow staging `.goalie/` and `reports/` when `1` (pre-commit) |
+| `AF_RECEIPT_CHAIN_MOCK_HIRE` | `0` | Contract tests: append mock hire JSONL via receipt_chain |
+| `AF_RECEIPT_CHAIN_ENFORCE` | `0` local / `1` CI | `receipt_chain.sh` alone defaults `0`; `tick_post_hooks.sh` sets `1` when `CI` or `GITHUB_ACTIONS`. Block tick when any step fails. |
+| `HIRE_MCP_TOKEN` | unset | Bearer token for hire MCP; required for live hire sync |
+| `AF_RECEIPT_CHAIN_ALLOW_DRY_HIRE` | `0` | When `1`, runs `sync_earnings_to_hire.py --dry-run` (no `hire_receipts.jsonl` append) |
+| `AF_RECEIPT_CHAIN_MOCK_HIRE` | `0` | Contract tests only: append validated F9 hire receipt without MCP (not for production ticks) |
+
+### Receipt chain scorecard (DoD)
+
+Tick **DoD** for the closed MPP receipt chain requires a **canonical scorecard** resolvable by `scorecard_resolver.py` (typically `.goalie/scorecards/current.json` or `latest.json`). Coherence-only artifacts (for example `coherence_results.json`) do **not** satisfy this gate.
+
+- Missing or unresolvable scorecard: `receipt_chain.sh` exits **1** and writes a tick receipt with `status=FAIL` — **independent of** `AF_RECEIPT_CHAIN_ENFORCE` (fail-closed baseline).
+- With `AF_RECEIPT_CHAIN_ENFORCE=1` (CI / `tick_post_hooks.sh`): downstream steps and non-`PASS` tick receipts also block the tick.
+- Contract coverage: `tests/cicd/test_receipt_chain_enforce.sh`, `tests/cicd/test_receipt_chain_intel_enforce.sh`.
+
+### `#.%` sentinel vs policy snapshot
+
+When `tick_post_latest.json` has `pace_source=stale` and `pace_cod_weight=null`, inbox timescape **prefers** `tick_cycle_policy_latest.json` (written post-AQE in the same tick) if it carries `pace_cod_weight`. Then `pace_fmt` uses `{open_count}.{pace}` and `pace_source=policy_snapshot`. Only when **both** tick_post pace is absent **and** policy snapshot is missing does `pace_fmt` emit the fail-closed sentinel `#.%`.
+
+### P1-LOOP-AUTO-01 (auto-merge loop, hard gates only)
+
+Backlog item: merge `chore/swarm-p1-*` loop branches when **only** hard gates pass (scorecard provenance, coherence, receipt chain, timescape enforce) — no DNS/SPOF (R-SPOF-01) work. Prompt lives in `config/cicd/loop_prompts.yaml`.
+
+### DoN `LOOP_ITEM` and blocker ID binding
+
+`LOOP_ITEM` for `/loop` must come from `lanes.shippable.now` (DoN). Blocker lane classification uses shared `BLOCKER_ID_RE` in `update_lnnnl.py` and `pace_from_lnnnl.py`: `^(DEP-|BLK-|B-|R04|R-)`. Keep both files aligned when extending blocker prefixes (e.g. `R-MAIL-03`).
+
+
+---
+
+## 🪙 7. ROAM Cost, Theater Risks, & Closed MPP Receipt Chains
+
+### ROAM Cost & Theater Risks
+
+Autonomy and execution metrics can easily fall prey to **under-utilization theater**. This occurs when the head of the shippable lane (`lanes.shippable`) is blocked or empty, but loop cycles continue to burn wall-clock compute executing non-head, deferrable, or minor blocker tasks.
+
+- **Under-Utilization Theater**: Compute metrics appear active (e.g. running loops, committing minor fixes), but the shippable pace remains at `0` because no high-value `P1-*` or `NNEAR-*` items are being delivered.
+- **Compute spent vs. Shippable pace**: Running tests and loops is cheap, but it is extremely expensive when it masks behavioral regressions or delays resolving critical-path blockers.
+- **Enforcement**: Setting `AF_LNNNL_STALE_ENFORCE=1` blocks loop execution if the ROAM tracker or WSJF inputs are stale, forcing manual or automated remediation of aging risks before consuming more compute.
+
+### Closed MPP Receipt Chain
+
+To prevent contract drift between the local agent ledger and public web platforms, the platform enforces a **Closed MPP (Model-Processor-Protocol) Receipt Chain**.
+
+- **Earning-to-Profile Sync**: Every time an agent completes a cycle and generates signed scorecard evidence, its verified earnings (Earning's Per Agent, Engine, Engineer, and Ingenuity) are appended to a local ledger (`earnings_ledger.jsonl`).
+- **JSON-RPC MCP Client**: Rather than using isolated scripts, the sync hook (`sync_earnings_to_hire.py`) leverages a JSON-RPC request over the Model Context Protocol (MCP) to securely push earnings vectors and update the public profile (`rooz.live` / `hire.agentics.org`).
+- **Verification**: The public `profile_readme.md` is derived dynamically from these ledger vectors, creating a cryptographically and locally verifiable audit trail from tick execution to public presence.
+
+### Causal System Diagram
+
+```mermaid
+graph TD
+    subgraph Planning & Prioritization
+        G[/goal/] -->|Rank opportunities & compute ROI| S[/schedule/]
+        S -->|Update LNNNL.yaml & WSJF| DL{Dual-Lane Check}
+    end
+
+    subgraph Dual-Lane Routing
+        DL -->|Shippable Lane: P1/NNEAR| SL[lanes.shippable.now]
+        DL -->|Blocker Lane: DEP/BLK/R| BL[lanes.blockers]
+    end
+
+    subgraph Execution Loop
+        SL -->|Pace >= 1.0 / Loop Tick| L[/loop/]
+        BL -->|Remediation / Deferrable| L
+        L -->|Execute atomic unit| W[/workflows/]
+    end
+
+    subgraph Verification & Gates
+        W -->|Emit code & tests| CoherenceGate{Coherence Gate}
+        CoherenceGate -->|FAIL| Rollback[Rollback / Triage]
+        CoherenceGate -->|PASS| Scorecard[Sign Scorecard & current.json]
+        Scorecard -->|Verify signature| Deploy[Deploy / TLD Gate]
+    end
+
+    subgraph closed_mpp_receipt_chain [Closed MPP Receipt Chain]
+        Deploy -->|Deploy Receipt| Ledger[(earnings_ledger.jsonl)]
+        Ledger -->|JSON-RPC MCP Sync| Profile[rooz.live Profile Update]
+        Profile --> G
+    end
+
+    style G fill:#f9f,stroke:#333,stroke-width:2px
+    style S fill:#bbf,stroke:#333,stroke-width:2px
+    style L fill:#bfb,stroke:#333,stroke-width:2px
+    style W fill:#fbf,stroke:#333,stroke-width:2px
+    style Ledger fill:#ffb,stroke:#333,stroke-width:2px
+    style Profile fill:#bff,stroke:#333,stroke-width:2px
+```
+
+
+### Ruflo upgrade harness (PI 2026-Q2-RUFLO-01)
+
+| Artifact | Path |
+|----------|------|
+| PI backlog | `config/cicd/ruflo_pi_backlog.yaml` |
+| Monorepo roots | `config/monorepo/roots.yaml` |
+| Doctor + ROAM | `.goalie/evidence/ruflo_doctor_latest.json` |
+| Ceremony sync | `.goalie/evidence/ruflo_ceremony_latest.json` |
+| WSJF head | `.goalie/evidence/wsjf_ruflo_latest.json` |
+| Version portfolio manifest | `config/versions/portfolio.yaml` |
+| Version probe (read-only) | `.goalie/evidence/version_portfolio_latest.json` |
+| Pin render ({SA}/[FA]) | `.goalie/evidence/version_pin_render_latest.json` |
+| Intel pipeline | `.goalie/evidence/intel_pipeline_latest.json` |
+| Inbox-zero exit gate | `.goalie/evidence/ruflo_upgrade_exit_latest.json` |
+
+**Invert:** enable HNSW/graph only after doctor `inbox_zero_gate` (no disk blockers). Intelligence `pattern_stored` requires receipt `PASS` + provenance when `AF_CI_PROVENANCE_HEAD` is set.
+
+```bash
+npm run ruflo:doctor
+npm run ruflo:wsjf
+npm run ruflo:ceremony -- standup
+```
+
+---
+
+## 7. Agile Ceremony Cadence
+
+All ceremonies are bounded, time-boxed, and produce a committable artifact or an explicit ROAM disposition. "Meeting without artifact" is anti-CVT theater.
+
+### Ceremony Matrix
+
+| Ceremony | Cadence | Owner script | Output artifact | DoN gate |
+|----------|---------|-------------|-----------------|----------|
+| **Standup** | Every tick (sub-hourly) | `one.sh ruflo ceremony standup` → `.goalie/evidence/ruflo_ceremony_latest.json` | `standup` field in ceremony JSON | LNNNL head shippable or explicit blocker |
+| **Review** | Per PR / loop cycle | `one.sh scorecard` → `.goalie/scorecards/current.json` | Signed scorecard SHIP/HOLD | `coherence_derived=PASS` |
+| **Retro** | Per wave (after ≥10 ticks) | `one.sh ruflo ceremony retro` | ROAM dispositions updated in `ROAM_TRACKER.yaml` | All open tail risks have disposition |
+| **Replenish** | Per sprint boundary | `one.sh schedule` + `update_lnnnl.py` | `LNNNL.yaml` v1.1 head updated | WSJF re-ranked; no stale items |
+| **Refine** | Mid-sprint (wave midpoint) | LNNNL `wsjf_now_items` re-ranked | `ruflo_pi_backlog.yaml` updated | Next wave items are DoR-ready |
+| **PI Prep** | Before PI Planning session | Review `config/cicd/ruflo_pi_backlog.yaml` + ROAM | PI backlog pruned + prioritized | All blockers have ROAM disposition |
+| **PI Planning** | Per Program Increment (~6 waves) | PI sync ceremony | `ruflo_pi_backlog.yaml` + AGENTS.md WSJF table updated | DoD proof for prior PI delivered |
+| **PI Sync** | Mid-PI (wave 3 of 6) | `one.sh goal` snapshot + PI delta review | `inbox_zero_latest.json` velocity delta | `%/.#` pace reads shippable lane |
+
+### Ceremony Anti-CVT Rules
+
+1. **No ceremony without artifact.** Every ceremony call must write to `.goalie/evidence/` or update a tracked YAML. No-op JSON notes (`{}`) are blocked when `AF_CEREMONY_ENFORCE=1`.
+2. **Standup ≠ status theater.** If LNNNL head is not shippable, standup output must name the blocker and its ROAM ID. Generic "in progress" is rejected.
+3. **Retro closes tails.** A retro that produces zero ROAM disposition updates is an anti-CVT signal. At minimum one item must be moved from IDENTIFIED → OWNED/MITIGATED.
+4. **PI Planning ≠ slide deck.** PI Planning output is a committed `ruflo_pi_backlog.yaml` diff, not a document. The diff is the artifact.
+5. **Replenish governs WIP.** After replenish, `lanes.shippable.now` must have ≤ `pace_cod_weight × 3` items. Over-WIP is a ROAM risk.
+
+### Ceremony Velocity Metrics
+
+```
+%.# = (closed_items / total_items) × (pace_cod_weight)   — shippable velocity
+#.% = open_count / expected_throughput                    — WIP pressure
+anti_cvt = untracked + unobservable + unorchestrated + unutilized items
+```
+
+Emit via: `python3 scripts/metrics/inbox_zero_timescape.py --json → .goalie/evidence/inbox_zero_latest.json`
+
+### PI Planning / Prep / Sync — Bounded Artifacts
+
+| Phase | Entry gate (DoR) | Exit gate (DoD) | Artifact path |
+|-------|-----------------|-----------------|---------------|
+| **PI Prep** | ROAM risk register reviewed; all B-* blockers have disposition | Backlog pruned to ≤2 waves of DoR-ready items | `config/cicd/ruflo_pi_backlog.yaml` |
+| **PI Planning** | PI Prep artifact committed; all P1-* items have acceptance criteria | Sprint goals committed; WSJF AGENTS.md table updated | `AGENTS.md` WSJF + `ruflo_pi_backlog.yaml` |
+| **PI Sync** | PI Planning committed; ≥3 waves delivered | Velocity delta reviewed; ROAM risks triaged | `inbox_zero_latest.json` + `ROAM_TRACKER.yaml` |
+
+---
+
+### CI tier runners (run_all semantics)
+
+Two runners exist; do not conflate them:
+
+| Runner | Path | Purpose | Fail-closed |
+|--------|------|---------|-------------|
+| **Contract suite** | `tests/cicd/run_all.sh` | Gate/pace/provenance contracts (`fast` / `slow`) | Always propagates exit code; slow skips only via `AF_SLOW_SKIP_CONTRACTS` (named list) |
+| **Deploy orchestrator** | `scripts/cicd/run_all.sh` | Fast gates + optional slow deploy/edge checks | `AF_RUN_ALL_STRICT=1` or CI: slow exit fails the run; otherwise slow WARN is advisory |
+
+**Merge gate:** `tests/cicd/run_all.sh fast` on every PR. **Weekly cron:** `ruflo_wsjf_upgrade.sh --ci-slow` or `tests/cicd/run_all.sh slow` with `AF_RUN_ALL_STRICT=1`.
+
+**Invert:** If a cron path runs `scripts/cicd/run_all.sh --slow` without `AF_RUN_ALL_STRICT=1`, slow WARN is intentional probe-only — not a merge gate.
+
+
+### F4 pace authority (policy_snapshot)
+
+After `tick_cycle_policy_latest.json` is written, **`pace_cod_weight` and `pace_source` in `tick_post_latest.json` must come from policy**, not from the pre-policy `read_pace_bundle()` snapshot or a prior tick file. `reconcile_tick_post_pace.py` and the `EXIT` trap call `pace_bundle()` so `on_exit` cannot restore stale `pace_source`.
+
+`is_ci_env` (shell: `scripts/cicd/lib/is_ci_env.sh`, Python: `scorecard_gate.is_ci_env`) treats only truthy `CI` / `GITHUB_ACTIONS` values as CI — empty string is not CI.

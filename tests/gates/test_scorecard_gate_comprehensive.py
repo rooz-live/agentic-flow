@@ -323,6 +323,7 @@ def test_derive_coherence_signature_enforced_in_ci_and_precommit(tmp_path, monke
 def test_harden_blocks_unstaged_modifications_in_precommit(monkeypatch):
     sc = get_base()
     monkeypatch.setattr(gate, "_coherence_artifact_usable", lambda *a, **kw: True)
+    monkeypatch.setattr(gate, "_coherence_artifact_signed_usable", lambda *a, **kw: False)
     monkeypatch.setattr(gate, "_git", lambda args, **kw: "some_file.py" if args == ["diff", "--name-only"] else "")
     monkeypatch.setattr(gate, "derive_coherence", lambda *a, **kw: "PASS")
     monkeypatch.setattr(gate, "derive_gate_integrity", lambda *a, **kw: ("PASS", ""))
@@ -365,4 +366,42 @@ def test_run_no_invented_symbols_skips_untracked_files(tmp_path, monkeypatch):
     res = gate.run_no_invented_symbols(str(tmp_path))
     # Untracked files are not silently skipped; invented imports in them are flagged.
     assert res is False
+
+
+def test_blast_radius_proxy_overrides(monkeypatch):
+    monkeypatch.setattr(gate, "git_head", lambda *a, **k: "mock_commit")
+    monkeypatch.setattr(gate, "current_diff_sha", lambda *a, **k: "mock_diff")
+    monkeypatch.setattr(gate, "verify_signoff", lambda *a, **k: (True, "mock"))
+    monkeypatch.setattr(gate, "check_binding", lambda *a, **k: ([], []))
+    monkeypatch.setattr(gate, "collect_reward_proxies", lambda env: {"untracked_added": 0})
+    monkeypatch.setattr(gate, "derive_coherence", lambda *a, **k: "PASS")
+    monkeypatch.setattr(gate, "load_signals", lambda: [])
+    monkeypatch.setattr(gate, "run_signals", lambda *a, **k: [])
+
+    # Case A: 12 altered prod files -> br_proxy = 1.5. If user asserts 1.0, overrides to 1.5.
+    monkeypatch.setattr(gate, "get_altered_files", lambda *a, **kw: {f"src/file_{i}.py" for i in range(12)})
+    sc = get_base()
+    sc["impact"]["blast_radius"] = 1.0
+    hardened, _, warns, meta = gate.harden(sc, env={}, strict=False, ingest_only=True)
+    assert hardened["impact"]["blast_radius"] == 1.5
+    assert meta["blast_radius_proxy"] == 1.5
+    assert any("blast_radius overridden to 1.5" in w for w in warns)
+
+    # Case B: 5 altered prod files -> br_proxy = 1.0. If user asserts 0.5, overrides to 1.0.
+    monkeypatch.setattr(gate, "get_altered_files", lambda *a, **kw: {f"src/file_{i}.py" for i in range(5)})
+    sc = get_base()
+    sc["impact"]["blast_radius"] = 0.5
+    hardened, _, warns, meta = gate.harden(sc, env={}, strict=False, ingest_only=True)
+    assert hardened["impact"]["blast_radius"] == 1.0
+    assert meta["blast_radius_proxy"] == 1.0
+    assert any("blast_radius overridden to 1.0" in w for w in warns)
+
+    # Case C: 1 altered prod file -> br_proxy = 0.5. If user asserts 1.0 (higher), no override.
+    monkeypatch.setattr(gate, "get_altered_files", lambda *a, **kw: {"src/only_one.py"})
+    sc = get_base()
+    sc["impact"]["blast_radius"] = 1.0
+    hardened, _, warns, meta = gate.harden(sc, env={}, strict=False, ingest_only=True)
+    assert hardened["impact"]["blast_radius"] == 1.0
+    assert meta["blast_radius_proxy"] == 0.5
+    assert not any("blast_radius overridden" in w for w in warns)
 

@@ -38,6 +38,14 @@
 #   E3  --no-coherence → skips coherence check, proceeds to fetch
 #   E4  DoD artefact always written on real run (pass or fail)
 #   E5  one.sh upstream subcommand → delegates to upstream_upgrade_engine.py
+#
+#  P1-CICD-01 extension (upstream_runner.py + upstream_reporter.py)
+#   C1  harness_family present in every run_one_repo() result
+#   C2  harness_family present in cached/skip run_validations() results
+#   C3  PASS outcome → http_status_class=2xx
+#   C4  normal FAIL outcome → http_status_class=4xx and fail-fast (attempts=1) under retry>1
+#   C5  transient FAIL outcome → http_status_class=5xx and retries exhausted under retry>1
+#   C6  CICD receipt contains deliveries_per_hour throughput metric
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -91,7 +99,7 @@ test_r1_runner_pass() {
     echo "R1: Passing command → status=PASS, attempts=1"
 
     local out
-    out=$(python3 - "$TMPROOT" << 'PY' 2>&1
+    out=$(PYTEST_CURRENT_TEST=1 python3 - "$TMPROOT" << 'PY' 2>&1
 import sys, json
 from pathlib import Path
 sys.path.insert(0, 'scripts/cicd')
@@ -199,7 +207,7 @@ test_r5_log_truncation() {
     echo "R5: Output > log_truncate_bytes → truncation marker in log"
 
     local out
-    out=$(python3 - "$TMPROOT" << 'PY' 2>&1
+    out=$(PYTEST_CURRENT_TEST=1 python3 - "$TMPROOT" << 'PY' 2>&1
 import sys, json
 from pathlib import Path
 sys.path.insert(0, 'scripts/cicd')
@@ -612,6 +620,251 @@ PY
     fi
 }
 
+# ── P1-CICD-01: harness_family + http_status_class + retry policy + throughput ──
+
+test_c1_harness_family_in_run_result() {
+    echo ""
+    echo "C1: harness_family present in every run_one_repo() result"
+
+    local py_script out rc last_line
+    py_script=$(cat << 'PY'
+import sys, json, os
+from pathlib import Path
+sys.path.insert(0, 'scripts/cicd')
+from upstream_runner import run_one_repo
+
+expected = {
+    "cargo": "rust",
+    "pytest": "python",
+    "python": "python",
+    "playwright": "web",
+    "npm": "web",
+    "go": "go",
+    "docker": "docker",
+    "shell": "shell",
+    "unknown": "unknown",
+}
+
+failures = []
+for harness_type, expected_family in expected.items():
+    repo = {
+        "id": f"test-{harness_type}",
+        "url": "https://example.com/repo.git",
+        "branch": "main",
+        "integration_test": "true",
+        "dor_cmd": None,
+        "harness_type": harness_type,
+        "retry": 1,
+    }
+    result = run_one_repo(repo, "abc123", Path("."), run_timeout_s=5, retry=1)
+    if "harness_family" not in result:
+        failures.append(f"{harness_type}: missing harness_family")
+        continue
+    if result.get("harness_type") != harness_type:
+        failures.append(f"{harness_type}: harness_type mutated ({result.get('harness_type')})")
+    if result.get("harness_family") != expected_family:
+        failures.append(f"{harness_type}: expected family {expected_family}, got {result.get('harness_family')}")
+    if result.get("integration_status") != "PASS":
+        failures.append(f"{harness_type}: integration_status not PASS ({result.get('integration_status')})")
+
+print(json.dumps({"failures": failures}))
+sys.exit(0 if not failures else 1)
+PY
+)
+
+    rc=0
+    out=$(PYTEST_CURRENT_TEST=1 python3 - <<< "$py_script" 2>&1) || rc=$?
+    last_line=$(echo "$out" | grep -E '^\s*\{' | tail -1)
+
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if [[ $rc -eq 0 ]] && echo "$last_line" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); assert not d['failures']" 2>/dev/null; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        echo -e "\033[32m✓\033[0m  harness_family present and correct for all harness types"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        echo -e "\033[31m✗\033[0m  harness_family failures"
+        echo "$last_line" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); [print('    '+f) for f in d.get('failures',[])]" 2>/dev/null || echo "    raw: $last_line"
+    fi
+}
+
+# ── C2: harness_family present in cached/skip results ──────────────────────────
+test_c2_harness_family_in_skip_result() {
+    echo ""
+    echo "C2: harness_family present in run_validations() skip-list result"
+
+    local out last_line
+    out=$(PYTEST_CURRENT_TEST=1 python3 - << 'PY' 2>&1
+import sys, json
+from pathlib import Path
+sys.path.insert(0, 'scripts/cicd')
+from upstream_runner import run_validations
+
+repos = [
+    {"id": "skip-a", "url": "u", "branch": "main", "integration_test": "true", "active": True, "harness_type": "pytest"},
+    {"id": "run-a", "url": "u", "branch": "main", "integration_test": "true", "active": True, "harness_type": "npm"},
+]
+to_validate = [repos[1]]
+remote_heads = {"skip-a": "sha1", "run-a": "sha2"}
+results = run_validations(repos, to_validate, remote_heads, Path("."), parallel=False, default_run_timeout_s=5, default_retry=1)
+skip = [r for r in results if r["repository_id"] == "skip-a"][0]
+print(json.dumps({
+    "has_family": "harness_family" in skip,
+    "family": skip.get("harness_family"),
+    "harness_type": skip.get("harness_type"),
+    "has_status_class": "http_status_class" in skip,
+    "status_class": skip.get("http_status_class"),
+}))
+PY
+)
+
+    last_line=$(echo "$out" | grep -E '^\s*\{' | tail -1)
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$last_line" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); assert d['has_family'] and d['family']=='python' and d['harness_type']=='pytest' and d['has_status_class'] and isinstance(d['status_class'], str) and len(d['status_class'])>0" 2>/dev/null; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        echo -e "\033[32m✓\033[0m  skip-list result has harness_family=python and http_status_class"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        echo -e "\033[31m✗\033[0m  expected classification fields in skip result (got: $last_line)"
+    fi
+}
+
+# ── C3: http_status_class=2xx on PASS ──────────────────────────────────────────
+test_c3_http_status_class_pass() {
+    echo ""
+    echo "C3: PASS outcome → http_status_class=2xx"
+
+    local out last_line
+    out=$(PYTEST_CURRENT_TEST=1 python3 - << 'PY' 2>&1
+import sys, json
+from pathlib import Path
+sys.path.insert(0, 'scripts/cicd')
+from upstream_runner import run_one_repo
+
+repo = {"id": "test-2xx", "url": "https://example.com", "branch": "main", "integration_test": "true", "dor_cmd": None, "retry": 1}
+result = run_one_repo(repo, "abc", Path("."), run_timeout_s=5, retry=1)
+print(json.dumps({"status": result["integration_status"], "http_status_class": result.get("http_status_class"), "attempts": result["attempts"]}))
+PY
+)
+
+    last_line=$(echo "$out" | grep -E '^\s*\{' | tail -1)
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$last_line" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); assert d['status']=='PASS' and d['http_status_class']=='2xx' and d['attempts']==1" 2>/dev/null; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        echo -e "\033[32m✓\033[0m  PASS classified as 2xx"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        echo -e "\033[31m✗\033[0m  expected PASS/2xx/attempts=1 (got: $last_line)"
+    fi
+}
+
+# ── C4: 4xx-like fail-fast under retry>1 ───────────────────────────────────────
+test_c4_http_status_class_4xx_fail_fast() {
+    echo ""
+    echo "C4: normal FAIL → http_status_class=4xx and fail-fast (attempts=1 with retry=3)"
+
+    local out last_line
+    out=$(PYTEST_CURRENT_TEST=1 python3 - << 'PY' 2>&1
+import sys, json
+from pathlib import Path
+sys.path.insert(0, 'scripts/cicd')
+from upstream_runner import run_one_repo
+
+repo = {"id": "test-4xx", "url": "https://example.com", "branch": "main", "integration_test": "false", "dor_cmd": None, "retry": 3}
+result = run_one_repo(repo, "abc", Path("."), run_timeout_s=5, retry=3)
+print(json.dumps({"status": result["integration_status"], "http_status_class": result.get("http_status_class"), "attempts": result["attempts"]}))
+PY
+)
+
+    last_line=$(echo "$out" | grep -E '^\s*\{' | tail -1)
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$last_line" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); assert d['status']=='FAIL' and d['http_status_class']=='4xx' and d['attempts']==1" 2>/dev/null; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        echo -e "\033[32m✓\033[0m  normal FAIL classified as 4xx and not retried"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        echo -e "\033[31m✗\033[0m  expected FAIL/4xx/attempts=1 (got: $last_line)"
+    fi
+}
+
+# ── C5: 5xx-like retry under retry>1 ───────────────────────────────────────────
+test_c5_http_status_class_5xx_retry() {
+    echo ""
+    echo "C5: transient FAIL (timeout) → http_status_class=5xx and retry exhausted (retry=3)"
+
+    local out last_line
+    out=$(PYTEST_CURRENT_TEST=1 python3 - << 'PY' 2>&1
+import sys, json
+from pathlib import Path
+sys.path.insert(0, 'scripts/cicd')
+from upstream_runner import run_one_repo
+
+repo = {"id": "test-5xx", "url": "https://example.com", "branch": "main", "integration_test": "sleep 5", "dor_cmd": None, "retry": 3}
+result = run_one_repo(repo, "abc", Path("."), run_timeout_s=1, retry=3)
+print(json.dumps({"status": result["integration_status"], "http_status_class": result.get("http_status_class"), "attempts": result["attempts"]}))
+PY
+)
+
+    last_line=$(echo "$out" | grep -E '^\s*\{' | tail -1)
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if echo "$last_line" | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); assert d['status']=='FAIL' and d['http_status_class']=='5xx' and d['attempts']>1" 2>/dev/null; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        echo -e "\033[32m✓\033[0m  transient FAIL classified as 5xx and retried"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        echo -e "\033[31m✗\033[0m  expected FAIL/5xx/attempts>1 (got: $last_line)"
+    fi
+}
+
+# ── C6: deliveries_per_hour throughput metric in CICD receipt ───────────────────
+test_c6_throughput_metric_in_receipt() {
+    echo ""
+    echo "C6: CICD receipt contains deliveries_per_hour throughput metric"
+
+    local PROJ="$TMPROOT/receipt_proj"
+    mkdir -p "$PROJ/.goalie/evidence/upgrades" "$PROJ/config/cicd"
+
+    python3 - "$PROJ" << 'PY' 2>/dev/null
+import sys, json
+from pathlib import Path
+sys.path.insert(0, 'scripts/cicd')
+from upstream_reporter import save_report_and_cache
+
+proj = Path(sys.argv[1])
+results = [{
+    "repository_id": "test-pass",
+    "url": "u",
+    "branch": "main",
+    "latest_commit_sha": "abc123",
+    "integration_status": "PASS",
+    "duration_seconds": 2.0,
+    "skipped": False,
+    "attempts": 1,
+    "dor_status": "skipped",
+    "harness_type": "pytest",
+    "log": None,
+}]
+save_report_and_cache(results, {}, proj, "20260101T000000Z", run_id="TEST001", registry_repos=None, json_output=False)
+PY
+
+    local RECEIPT="$PROJ/.goalie/evidence/last_upstream_receipt.json"
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if [[ -f "$RECEIPT" ]] && python3 -c "
+import json
+r = json.load(open('$RECEIPT'))
+meta = r.get('meta', {})
+tp = meta.get('throughput_deliveries_per_hour') or meta.get('deliveries_per_hour')
+assert tp is not None, 'no throughput key in receipt meta'
+assert isinstance(tp, (int, float)) and tp > 0, f'invalid throughput value {tp}'
+print(f'throughput={tp}')
+" 2>/dev/null; then
+        TESTS_PASSED=$((TESTS_PASSED + 1))
+        echo -e "\033[32m✓\033[0m  CICD receipt contains deliveries_per_hour metric"
+    else
+        TESTS_FAILED=$((TESTS_FAILED + 1))
+        echo -e "\033[31m✗\033[0m  CICD receipt missing deliveries_per_hour metric"
+    fi
+}
+
 # ── Run all tests ─────────────────────────────────────────────────────────────
 main() {
     test_f1_registry_validation_missing_field
@@ -628,6 +881,12 @@ main() {
     test_e3_no_coherence_flag
     test_e4_dod_artifact_written
     test_e5_one_sh_upstream_subcommand
+    test_c1_harness_family_in_run_result
+    test_c2_harness_family_in_skip_result
+    test_c3_http_status_class_pass
+    test_c4_http_status_class_4xx_fail_fast
+    test_c5_http_status_class_5xx_retry
+    test_c6_throughput_metric_in_receipt
     print_test_summary
 }
 

@@ -27,7 +27,8 @@ test.describe('[hostbill-fqdn-contract]', () => {
   });
 
   test('addMeteredUsage API call string present in Rust bridge', () => {
-    const content = readFile(RUST_LIB);
+    const hostbillGw = 'src/gateways/hostbill_gateway.rs';
+    const content = readFile(hostbillGw);
     expect(content).toContain('addMeteredUsage');
   });
 
@@ -109,14 +110,15 @@ test.describe('[stripe-webhook-boundary]', () => {
 
 test.describe('[rust-hostbill-api-contract]', () => {
   const RUST_LIB = 'src/rust/eventops_pyo3/src/lib.rs';
+  const HOSTBILL_GW = 'src/gateways/hostbill_gateway.rs';
 
   test('EventOps_Technician_Hours variable name present in Rust bridge payload', () => {
-    const content = readFile(RUST_LIB);
+    const content = readFile(HOSTBILL_GW);
     expect(content).toContain('EventOps_Technician_Hours');
   });
 
   test('account_id field present in HostBill payload construction', () => {
-    const content = readFile(RUST_LIB);
+    const content = readFile(HOSTBILL_GW);
     expect(content).toContain('account_id');
   });
 

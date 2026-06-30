@@ -10,7 +10,9 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REGISTRY = REPO_ROOT / "config" / "fqdn_registry.yaml"
 
-REQUIRED_KEYS = ("fqdn", "migration_status", "health_path", "roam_risk_id", "gate_tier")
+REQUIRED_KEYS = ("fqdn", "migration_status", "health_path", "roam_risk_id", "gate_tier", "redundancy_tier", "secondary_origin")
+
+VALID_REDUNDANCY_TIERS = {"single", "active_active", "active_passive"}
 
 APEX_FQDNS = (
     "720.chat",
@@ -42,7 +44,11 @@ def test_every_domain_has_required_keys(domains):
     for entry in domains:
         fqdn = entry.get("fqdn", "<unknown>")
         for key in REQUIRED_KEYS:
-            assert key in entry and entry[key] not in (None, ""), f"{fqdn} missing {key}"
+            assert key in entry, f"{fqdn} missing {key}"
+            if key == "secondary_origin":
+                # null is a valid sentinel meaning "no secondary origin configured"
+                continue
+            assert entry[key] not in (None, ""), f"{fqdn} missing {key}"
 
 
 def test_health_path_non_empty(domains):
@@ -63,3 +69,25 @@ def test_telegram_epic_cab_present_and_smoke(domains):
     by_fqdn = {d.get("fqdn"): d for d in domains}
     assert "telegram.epic.cab" in by_fqdn, "telegram.epic.cab missing from registry"
     assert by_fqdn["telegram.epic.cab"].get("gate_tier") == "smoke"
+
+
+def test_redundancy_tier_valid(domains):
+    for entry in domains:
+        tier = entry.get("redundancy_tier")
+        assert tier in VALID_REDUNDANCY_TIERS, f"{entry.get('fqdn')} invalid redundancy_tier: {tier}"
+
+
+def test_billing_tier_single_origin_has_spof_risk(domains):
+    """Billing-tier domains on a single origin must carry the SPOF risk tag.
+
+    This documents the accepted single-point-of-failure while the secondary origin
+    is still BLOCKED (R-SPOF-01: second DNS host on separate IP).
+    """
+    for entry in domains:
+        if entry.get("gate_tier") != "billing":
+            continue
+        if entry.get("redundancy_tier") == "single":
+            risk = entry.get("roam_risk_id", "")
+            assert "R-SPOF" in str(risk) or "R-EDGE" in str(risk), (
+                f"{entry.get('fqdn')} is single-origin billing tier but lacks SPOF/edge risk tag"
+            )

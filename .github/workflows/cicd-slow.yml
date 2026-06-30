@@ -1,0 +1,62 @@
+name: CICD Slow Contracts
+
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  slow-contracts:
+    name: CICD slow tier (deploy, OP, autopilot)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: "Provenance verification (fail-closed: blocks CI without signed receipt)"
+        env:
+          CI: true
+          GITHUB_ACTIONS: true
+          AF_CI_SIGNING_KEY: ${{ secrets.AF_CI_SIGNING_KEY }}
+          AF_CI_SIGNING_PRINCIPAL: ci@agentic-flow.github
+        run: |
+          source scripts/gates/emit_ci_provenance.sh
+          echo "AF_GATE_CONTEXT=ci" >> "$GITHUB_ENV"
+          echo "AF_REQUIRE_SCORECARD=1" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y bash python3 python3-pip jq
+          pip install pyyaml python-dateutil pytest
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Disk steward (WSJF-ranked; R-DISK-01; auto-remediate when >=92%)
+        env:
+          AF_DISK_STEWARD_AUTO_APPLY: "1"
+          AF_DISK_STEWARD_ENFORCE: "1"
+        run: bash scripts/cicd/disk_steward.sh
+
+      - name: Ruflo doctor evidence (ROAM blockers; fail-closed)
+        env:
+          AF_DOCTOR_CONTRACT_STRICT: "1"
+        run: bash scripts/ruflo/doctor_remediate.sh
+
+      - name: Ruflo slow install smoke (optional)
+        env:
+          AF_SKIP_NETWORK: "1"
+          RUFLO_PLUGIN_INSTALL: "0"
+        run: |
+          source config/ruflo/version.env
+          npm install --no-save "ruflo@${RUFLO_VERSION}"
+          ./node_modules/.bin/ruflo --version
+
+      - name: Run slow contract suite
+        env:
+          AF_SKIP_OP_READ: "1"
+        run: bash tests/cicd/run_all.sh slow

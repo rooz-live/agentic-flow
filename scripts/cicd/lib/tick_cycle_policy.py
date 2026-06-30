@@ -14,6 +14,68 @@ def repo_root() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+
+def _load_utilization_signals(root: Path) -> dict[str, object]:
+    """Real signals: harness doctor rc, redblue run_id, ruflo plugin invoke counts."""
+    signals: dict[str, object] = {
+        "harness_doctor_rc": None,
+        "redblue_run_id": None,
+        "ruflo_plugin_count": 0,
+        "agenticow_degraded": None,
+        "ruflo_mcp_tool_count": 0,
+        "ruflo_mcp_degraded": None,
+    }
+    doctor = root / ".goalie/evidence/ruflo_doctor_latest.json"
+    if doctor.is_file():
+        try:
+            import json
+            doc = json.loads(doctor.read_text(encoding="utf-8"))
+            signals["ruflo_doctor_exit"] = doc.get("doctor_exit")
+            checks = doc.get("checks") or []
+            mh = [c for c in checks if "metaharness" in str(c.get("name", "")).lower()]
+            if mh:
+                signals["metaharness_check"] = mh[0].get("status")
+        except (json.JSONDecodeError, OSError):
+            pass
+    harness = root / ".goalie/evidence/harness_doctor_latest.json"
+    if harness.is_file():
+        try:
+            import json
+            doc = json.loads(harness.read_text(encoding="utf-8"))
+            signals["harness_doctor_rc"] = doc.get("doctor_exit")
+        except (json.JSONDecodeError, OSError):
+            pass
+    rb = root / ".goalie/evidence/redblue_mock_judge_latest.json"
+    if rb.is_file():
+        try:
+            import json
+            doc = json.loads(rb.read_text(encoding="utf-8"))
+            signals["redblue_run_id"] = doc.get("run_id") or doc.get("mock_run_id") or doc.get("report_path")
+        except (json.JSONDecodeError, OSError):
+            pass
+    plugins_dir = root / ".claude-flow/plugins"
+    if plugins_dir.is_dir():
+        signals["ruflo_plugin_count"] = sum(1 for p in plugins_dir.iterdir() if p.is_dir() and not p.name.startswith("."))
+    mcp = root / ".goalie/evidence/ruflo_mcp_probe_latest.json"
+    if mcp.is_file():
+        try:
+            import json
+            doc = json.loads(mcp.read_text(encoding="utf-8"))
+            signals["ruflo_mcp_tool_count"] = int(doc.get("mcp_tool_count") or 0)
+            signals["ruflo_mcp_degraded"] = doc.get("degraded")
+        except (json.JSONDecodeError, OSError):
+            pass
+    ac = root / ".goalie/evidence/agenticow_probe_latest.json"
+    if ac.is_file():
+        try:
+            import json
+            doc = json.loads(ac.read_text(encoding="utf-8"))
+            signals["agenticow_degraded"] = doc.get("degraded")
+        except (json.JSONDecodeError, OSError):
+            pass
+    return signals
+
+
 def load_policy(
     root: Path | None = None,
     *,
@@ -71,8 +133,35 @@ def load_policy(
         and aqe_coverage_ok and aqe_quality_ok and pace >= 1.0
     )
 
-    aqe_util = 100.0 if run_aqe and pace >= 1.0 else (50.0 if run_aqe else 0.0)
+    # Shippable utilization: 0 or 100 only (never 50% at full shippable pace).
+    aqe_util = 100.0 if run_aqe and pace >= 1.0 and utilize_mode == "full" else (
+        0.0 if pace >= 1.0 else (100.0 if run_aqe and utilize_mode == "full" else 0.0)
+    )
+    aqe_deferrable_ran = run_aqe and utilize_mode in ("deferrable", "blocker-remediation")
+    aqe_scope_util = (
+        100.0 if run_aqe and utilize_mode == "full" and pace >= 1.0
+        else (50.0 if aqe_deferrable_ran else 0.0)
+    )
+    shippable_utilization_pct = aqe_util if pace >= 1.0 and utilize_mode == "full" else 0.0
+    blocker_lane_active = bool(blocker_lane_has_now and (shippable_lane_empty or pace < 1.0))
+
+    util_signals = _load_utilization_signals(root)
     harness_util = 100.0 if run_upstream else (25.0 if utilize_deferrable and pace < 1.0 else 0.0)
+    hrc = util_signals.get("harness_doctor_rc")
+    utilize_mode_hint_out = utilize_mode_hint
+    if hrc == 0:
+        harness_util = max(harness_util, 100.0)
+    elif hrc is not None and hrc != 0:
+        harness_util = min(harness_util, 25.0)
+        utilize_mode_hint_out = utilize_mode_hint_out or "degraded"
+    elif hrc is None:
+        utilize_mode_hint_out = utilize_mode_hint_out or "degraded"
+    if util_signals.get("redblue_run_id"):
+        harness_util = max(harness_util, 75.0)
+    if int(util_signals.get("ruflo_plugin_count") or 0) > 0:
+        harness_util = max(harness_util, 50.0)
+    if int(util_signals.get("ruflo_mcp_tool_count") or 0) > 0:
+        harness_util = max(harness_util, 60.0)
 
     return {
         "pace_cod_weight": pace,
@@ -85,11 +174,17 @@ def load_policy(
         "aqe_scope": aqe_scope,
         "utilize_mode": utilize_mode,
         "aqe_utilization_pct": aqe_util,
+        "shippable_utilization_pct": shippable_utilization_pct,
+        "blocker_lane_active": blocker_lane_active,
+        "aqe_deferrable_ran": aqe_deferrable_ran,
+        "aqe_scope_utilization_pct": aqe_scope_util,
         "harness_utilization_pct": harness_util,
         "knobs": knobs,
         "cycle_vectors_fresh": bool(vectors),
         "shippable_lane_empty": shippable_lane_empty,
         "blocker_lane_has_now": blocker_lane_has_now,
+        "utilization_signals": util_signals,
+        "utilize_mode_hint": utilize_mode_hint_out,
     }
 
 

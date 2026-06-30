@@ -33,10 +33,10 @@ if [[ "$REQUIRE_WAIT" == "1" && "$WAIT" != "1" ]]; then
 fi
 
 if [[ "${AF_TLD_REGENERATE:-0}" == "1" ]]; then
-  pnpm run tld:targets:generate
+  python3 scripts/metrics/generate_tld_targets.py
 fi
 
-pnpm run tld:targets:check
+python3 scripts/metrics/generate_tld_targets.py --check
 
 echo "trigger_tld_gate_ci: dispatching $WORKFLOW ref=$REF deploy_run_id=$DEPLOY_RUN_ID (strict-only workflow)"
 gh workflow run "$WORKFLOW" --ref "$REF" -f deploy_run_id="$DEPLOY_RUN_ID"

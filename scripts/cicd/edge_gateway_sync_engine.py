@@ -100,10 +100,18 @@ def _write_dod_artifact(
         ],
     }
     path.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
-    # Symlink latest
+    # Symlink latest (absolute target to avoid relative-directory breakage)
     symlink = project_root / ".goalie" / "evidence" / "last_edge_sync_engine.json"
-    symlink.unlink(missing_ok=True)
-    symlink.symlink_to(path.name)
+    try:
+        symlink.unlink(missing_ok=True)
+    except IsADirectoryError:
+        pass
+    try:
+        symlink.symlink_to(path)
+    except FileExistsError:
+        # Race or stale regular file: remove and retry once
+        symlink.unlink(missing_ok=True)
+        symlink.symlink_to(path)
     print(f"✅ DoD artefact: {path}")
 
 

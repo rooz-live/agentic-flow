@@ -7,32 +7,74 @@ termination_requires:
 - compliance_exit_lte_2
 - staged_diff_non_empty
 wsjf_now_items:
-- id: P1-INDEX-01
-  prompt: 'Surgical index batch (max 40 files) under scripts/ and code/tooling/scripts/
-    only.
+- id: P1-RUFLO-01
+  prompt: 'WSJF Ruflo upgrade slice: config/ruflo/plugins.yaml + memory_graph.yaml;
+    ruflo_doctor_roam.py evidence; ruflo_wsjf_upgrade.sh --doctor-only on standup;
+    intel_pipeline_tick on retro. No DNS/SPOF work. One bounded commit.'
+  ceremony_tie_in:
+    standup: scripts/cicd/ruflo_wsjf_upgrade.sh --doctor-only + scripts/metrics/inbox_zero_timescape.sh
+    retro_replenish: scripts/cicd/intel_pipeline_tick.sh --judge-only
+    pi_prep: scripts/cicd/exec_wsjf_ruflo.sh
+- id: P1-VERSION-PORTFOLIO-01
+  wsjf: 9.4
+  roam: R-RUFLO-CONFIG-01
+  prompt: |
+    Retro replenish refine — version portfolio RCA closure (one bounded slice per wave).
 
-    Update docs/billing/CONSOLIDATION_INVENTORY.md with paths indexed.
+    ROOT CAUSES → SLICES (dependencies first):
 
-    Run dod-gate --perceive. Stage only; no commit unless perceive=0 and compliance=0.
+    RC-A (dual upstream): git upstream_upgrade_engine vs npm pins were disjoint.
+      → Slice 1: config/versions/portfolio.yaml canonical manifest (ruflo, agentic-qe, @metaharness/*, plugins).
+      → Depends: none. Blocks: none.
 
-    '
-- id: P1-INDEX-02
-  prompt: Bounded substrate index (INDEX_SLICE_MAX<=25) via index_slice_substrate.sh.
-    WSJF pathspec order; never blocks perceive (substrate_total advisory). Stage only;
-    commit when autopilot perceive=0. Update manifest at .goalie/evidence/learning/index_substrate_manifest.json.
+    RC-B (orphan npm view): auto-update-upstream.sh queried registry but was off-path.
+      → Slice 2: scripts/cicd/version_portfolio_probe.py → .goalie/evidence/version_portfolio_latest.json {pinned,latest,drift,action,blockers_active}.
+      → Wire read-only into tick_post after WSJF, before upstream (done in harness slice).
+      → Deprecate: auto-update-upstream.sh delegates to probe (VERSION_PORTFOLIO_PROBE=1).
+      → Depends: Slice 1. Blocks: PyYAML, npm on PATH.
+
+    RC-C (FA/SA scope): cycle_knob_engine never owned version knobs.
+      → Slice 3: probe action=observe|propose_sa|blocked only; pin bump VERSION_PIN_APPLY=1 + {SA} CYCLE_APPLY=1 OR human [FA] commit.
+      → Never auto-pin in tick_post or cycle FA.
+      → Depends: Slice 2. Blocks: none for observe.
+
+    RC-D (policy gates): disk, network, coherence block apply.
+      → Slice 4: probe embeds blockers (R-DISK-01 inbox_zero_gate, AF_SKIP_NETWORK, coherence PASS).
+      → Pin apply requires: doctor green + coherence refresh + slow CI (run_all.sh slow).
+      → Depends: RUFLO-P0-DISK free <90%. Blocks: R-DISK-01 Accepted until remediated.
+
+    RC-E (manifest drift): help.sh 3.14.1 vs version.env 3.15.0; aqe literals x3.
+      → Slice 5: scripts/cicd/render_version_pins.py generates aqe.sh + help.sh from portfolio.yaml (VERSION_PIN_APPLY=1 only).
+      → Depends: Slice 1–2. Blocks: Slice 3 policy.
+
+    INVERT: query every tick (read-only); mutate pins only on explicit SA/FA human path.
+
+    DoD: test_version_portfolio_probe.sh PASS; version_portfolio_latest.json in evidence; DEFINITIONS.md one table row; one commit.
+
+    Out of scope: DNS, SPOF, sub-hourly auto-merge, weight-eft.
+  ceremony_tie_in:
+    standup: scripts/cicd/version_portfolio_probe.py
+    retro_replenish: scripts/cicd/version_portfolio_probe.py --json && scripts/cicd/intel_pipeline_tick.sh --judge-only
+    pi_prep: scripts/cicd/exec_wsjf_ruflo.sh
+    wsjf_refine: after retro — rank P1-VERSION-PORTFOLIO-01 vs P1-RUFLO-01
+
+- id: RUFLO-P0-CLI
+  prompt: Normalize Claude hooks to ruflo@latest; run doctor_remediate; enable HNSW
+    graph. One bounded commit.
+- id: P1-LOOP-AUTO-01
+  prompt: 'Auto-merge loop branch when hard gates only pass: wire CI provenance +
+    scorecard --verify + receipt_chain enforce=1; no DNS/SPOF work. Document in DEFINITIONS.md.
+    One bounded commit.'
 - id: P1-CICD-01
   prompt: 'Expand upstream harness scope in upstream_runner.py: add downstream result
     classification (harness_family + http_status_class), 4xx/5xx retry policy, and
     throughput metric (deliveries_per_hour). Emit via upstream_reporter.py CICD receipt.
     Add tests in tests/gates/test_upstream_engine.sh. One bounded commit.'
-- id: P1-EDGE-01
-  prompt: 'Unify edge gateway sync evidence with CICD receipt store: edge_reporter.py
-    writes a standard receipt; fetch_run_report.py can query it by context=edge. Add
-    tests in tests/gates/test_edge_gateway_sync.sh. One bounded commit.'
 - id: P1-TRUST-01
   prompt: 'Harden scorecard artifact binding (R-CLS-03): make --precommit --ingest-only
-    scorecard SHIP without AF_GATE_CONTEXT=review/AF_RD_ENFORCE=0 hacks when signed coherence
-    artifact matches HEAD. Add tests in tests/gates/test_scorecard_gate.py. One bounded commit.'
+    scorecard SHIP without AF_GATE_CONTEXT=review/AF_RD_ENFORCE=0 hacks when signed
+    coherence artifact matches HEAD. Add tests in tests/gates/test_scorecard_gate.py.
+    One bounded commit.'
 - id: P1-ADB-01
   prompt: 'Run agentdb_freshness and compliance --cog --scope=governance until exit
     0 or documented warn.
@@ -97,8 +139,6 @@ quality_vectors:
 - aqe_quality_pass
 - aqe_coverage_pass
 - wave_autopilot_exit_0
-# knob_auto_adjust policy (inverted): green cycles hold/tighten sweet_spot toward 3;
-# red cycles widen remediation (lower sweet_spot, raise retries/minutes). Never widen on green.
 knob_auto_adjust:
   modes:
   - SA
@@ -121,8 +161,6 @@ knob_auto_adjust:
   proposal_path: .goalie/cron_state/cycle_proposal.json
   cycle_dispatch: ./scripts/one.sh cycle [FA|SA]
 timer:
-  # Env: LOOP_ONCE=1 LOOP_LIGHT=1 LOOP_IDLE_TASK=coherence|upstream-dry-run|ceremony
-  # Tightened 2026-06-28: interval 20→10min + ceremony_in_idle → 2.0 cycles/hr target
   interval_minutes: 10
   duration_hours: 4
   default_idle_task: ceremony
@@ -130,3 +168,79 @@ timer:
   iterate_after_tick: true
   engine: scripts/cicd/loop_timer_engine.sh
   dispatch: ./scripts/cicd/loop_timer_engine.sh
+wsjf_done_items:
+- id: P1-INDEX-01
+  status: done
+  completed: '2026-06-28'
+  prompt: 'Surgical index batch (max 40 files) under scripts/ and code/tooling/scripts/
+    only.
+
+    Update docs/billing/CONSOLIDATION_INVENTORY.md with paths indexed.
+
+    Run dod-gate --perceive. Stage only; no commit unless perceive=0 and compliance=0.
+
+    '
+  note: Surgical index batch complete; promoted P1-INDEX-02 to shippable now.
+- id: P1-INDEX-02
+  status: done
+  completed: '2026-06-28'
+  prompt: Bounded substrate index (INDEX_SLICE_MAX<=25) via index_slice_substrate.sh.
+    WSJF pathspec order; never blocks perceive (substrate_total advisory). Stage only;
+    commit when autopilot perceive=0. Update manifest at .goalie/evidence/learning/index_substrate_manifest.json.
+  note: Substrate index slice staged via index_slice_substrate.sh; manifest at .goalie/evidence/learning/index_substrate_manifest.json
+- id: P1-CICD-01
+  status: done
+  completed: '2026-06-29'
+  prompt: 'Expand upstream harness scope in upstream_runner.py: add downstream result
+    classification (harness_family + http_status_class), 4xx/5xx retry policy, and
+    throughput metric (deliveries_per_hour). Emit via upstream_reporter.py CICD receipt.
+    Add tests in tests/gates/test_upstream_engine.sh. One bounded commit.'
+  note: harness_family, http_status_class, retry policy, and throughput committed;
+    tests 26/26 pass
+- id: P1-EDGE-01
+  status: done
+  completed: '2026-06-29'
+  prompt: 'Unify edge gateway sync evidence with CICD receipt store: edge_reporter.py
+    writes a standard receipt; fetch_run_report.py can query it by context=edge. Add
+    tests in tests/gates/test_edge_gateway_sync.sh. One bounded commit.'
+  note: 'edge_reporter cicd.receipt.v1 + fetch_run_report --context edge test; gates
+    slice green on PR #133'
+wsjf_backlog_items:
+- id: P1-OPENSPEC-01
+  prompt: 'OpenSpec sweep: npx @fission-ai/openspec status + align specs to HEAD.'
+  status: deferred
+- id: P1-IMPECCABLE-01
+  prompt: npx impeccable update — refresh impeccable CLI/tooling pin.
+  status: deferred
+- id: P1-REDBLUE-01
+  prompt: '@metaharness/redblue + weight-eft harness integration.'
+  status: deferred
+- id: P1-HUMANLAYER-01
+  prompt: HumanLayer cask install + MCP bridge smoke.
+  status: deferred
+- id: P1-HIRE-01
+  prompt: hire.agentics.org profile sync (HIRE_SYNC_EARNINGS).
+  status: deferred
+- id: P1-MOBILE-01
+  prompt: Native pipeline (Detox/fastlane); links R-MOBILE-01 accepted risk.
+  status: deferred
+  roam_link: R-MOBILE-01
+pi_backlog:
+  ceremony_tie_in:
+    standup: ruflo_wsjf_upgrade.sh --doctor-only
+    retro_replenish: version_portfolio_probe.py --json && intel_pipeline_tick.sh --judge-only
+    pi_prep: exec_wsjf_ruflo.sh + pi_plan_sync.sh
+    pi_sync: exec_wsjf_ruflo.sh
+  items:
+  - id: P1-IMPECCABLE-01
+    prompt: npx impeccable update — refresh impeccable CLI/tooling pin.
+    status: deferred
+    ceremony_note: pi_prep candidate after Ruflo doctor green
+  - id: P1-REDBLUE-01
+    prompt: '@metaharness/redblue + weight-eft harness integration.'
+    status: deferred
+    ceremony_note: slow CI via ruflo-upgrade-slow.yml
+  - id: P1-OPENSPEC-01
+    prompt: 'OpenSpec sweep: npx @fission-ai/openspec status + align specs to HEAD.'
+    status: deferred
+    ceremony_note: pi_sync after intel_pipeline judge PASS

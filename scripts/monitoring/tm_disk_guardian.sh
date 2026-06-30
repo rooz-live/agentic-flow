@@ -28,6 +28,24 @@ NC='\033[0m'
 EVENTS_LOG="${HOME}/Library/Logs/wsjf-events.jsonl"
 CLEANUP=false
 
+
+GUARDIAN_SKIP_GIT_GC=0
+if [[ "${AF_DISK_STEWARD_DEEP_CLEAN:-0}" == "1" ]]; then
+  _repo_root="${REPO_ROOT:-$HOME/Documents/code}"
+  _steward_ev="${_repo_root}/.goalie/evidence/disk_steward_latest.json"
+  if [[ -f "$_steward_ev" ]] && command -v python3 >/dev/null 2>&1; then
+    GUARDIAN_SKIP_GIT_GC="$(python3 - "$_steward_ev" <<'PY' 2>/dev/null || echo 0
+import json, sys
+from pathlib import Path
+doc = json.loads(Path(sys.argv[1]).read_text())
+applied = {a.get('id') for a in doc.get('actions') or [] if a.get('status') == 'applied'}
+print('1' if applied & {'git-gc', 'git-repack-Ad', 'git-repack-Sa'} else '0')
+PY
+)"
+    emit_event "federated-guard" "disk_steward" "PASS" "INFO" "skip_git_gc=${GUARDIAN_SKIP_GIT_GC}"
+  fi
+fi
+
 for arg in "$@"; do
   case "$arg" in
     --cleanup) CLEANUP=true ;;
@@ -184,7 +202,10 @@ if [[ "$CLEANUP" == "true" ]]; then
 
   # 3. Git gc + temp pack cleanup
   GIT_PROJECT="$HOME/Documents/code/investing/agentic-flow"
-  if [[ -d "$GIT_PROJECT/.git" ]]; then
+  if [[ "$GUARDIAN_SKIP_GIT_GC" == "1" ]]; then
+    echo -e "${YELLOW}[SKIP] git gc delegated to disk steward (federated guard)${NC}"
+    emit_event "cleanup-git-gc" "$GIT_PROJECT/.git" "SKIPPED" "INFO" "federated_guard"
+  elif [[ -d "$GIT_PROJECT/.git" ]]; then
     git_before=$(du -sk "$GIT_PROJECT/.git/objects" 2>/dev/null | awk '{print $1}' || echo 0)
     # Remove stale locks and temp packs first
     find "$GIT_PROJECT/.git" \( -name "tmp_pack_*" -o -name "*.lock" \) -mmin +30 -delete 2>/dev/null || true

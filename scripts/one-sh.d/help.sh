@@ -23,7 +23,13 @@ Usage: ./scripts/one.sh <subcommand> [args...]
   upstream          Upstream repo upgrade engine: [--dry-run] [--force] [--parallel] [--json]
   edge-sync         Edge gateway DNS sync + health probe: [--dry-run] [--force] [--json]
   fetch-run-report  Query the CICD receipt store: [--summary] [--json] [--context C] [--status S]
-  aqe               Agentic QE v3.11.1: init, status, test, coverage, quality, workflow, ...
-  ruflo|workflow    Ruflo v3.14.1: init, workflow, task, swarm, session, memory, hooks, ...
+  aqe               Agentic QE v3.11.3: init, status, test, coverage, quality, workflow, ...
+  ruflo|workflow    Ruflo v3.15.0: init, workflow, task, swarm, session, memory, hooks, ...
   harness           Dispatch to the upgraded AI Agent Harness: <doctor|evolve|evolve:dry|init>
+  agenticow           Probe agenticow CLI/MCP pin (offline-safe)
+  weight-eft          Probe @metaharness/weight-eft gate (degraded_ok, probe-only)
+  disk-steward   WSJF disk evidence + optional remediate (R-DISK-01)
+  hygiene-daily  Daily disk steward probe (non-enforcing)
+  hygiene-weekly Weekly disk hygiene chain (steward → doctor → slow contracts)
+  run-all             Fast/slow CI runner (AF_RUN_ALL_STRICT=1 default)
 HELP

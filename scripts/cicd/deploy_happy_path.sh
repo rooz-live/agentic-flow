@@ -85,7 +85,7 @@ record_phase "goal" "$([[ $GOAL_EC -eq 0 ]] && echo ok || echo warn)" "roi_itera
 # ── Phase 1: DoR (env + coherence) ──────────────────────────────────────────
 log_phase "dor"
 set +e
-python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --sync-roam >/dev/null 2>&1
+AF_SKIP_OP_READ="${AF_SKIP_OP_READ:-1}" python3 "$ROOT/scripts/cicd/lib/env_key_resolver.py" --sync-roam >/dev/null 2>&1
 bash "$ROOT/scripts/one.sh" coherence
 COH_EC=$?
 set -e

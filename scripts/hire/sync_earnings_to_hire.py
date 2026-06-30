@@ -33,7 +33,7 @@ def _load_hire_client():
 
 def _build_earnings_export() -> dict:
     proc = subprocess.run(
-        ["python3", str(EARNINGS_EXPORT), "--output", "-"],
+        ["python3", str(EARNINGS_EXPORT), "--require-verified", "--output", "-"],
         capture_output=True,
         text=True,
         timeout=60,
@@ -51,7 +51,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     export = _build_earnings_export()
-    payload = {"method": "earnings/sync", "earnings": export}
+    if not export.get("verified"):
+        print(
+            json.dumps({"error": "refuse unverified earnings export", "export": export}, indent=2),
+            file=sys.stderr,
+        )
+        return 1
+    earnings_data = export.get("earnings", {})
+    if isinstance(earnings_data, dict):
+        earnings_data = [earnings_data]
+    payload = {"method": "earnings/sync", "earnings": earnings_data}
 
     if args.dry_run:
         print(json.dumps({"email": args.email, "payload": payload}, indent=2))

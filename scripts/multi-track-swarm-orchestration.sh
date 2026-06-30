@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+ROOT_DIR="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+# shellcheck source=scripts/ruflo/lib/ruflo_npx.sh
+source "$ROOT_DIR/scripts/ruflo/lib/ruflo_npx.sh"
 
 # Multi-Track Swarm Orchestration with Temporal Capacity Management
 # Timeline: March 5 (tonight) → March 6 (move day) → March 10 (strategy session)
@@ -59,7 +62,7 @@ EOF
 init_physical_move_swarm() {
     log "Track 1: Physical Move Swarm (WSJF 45.0) - 7.2h budget"
     
-    npx ruflo swarm init \
+    ruflo_npx swarm init \
         --topology hierarchical \
         --max-agents 10 \
         --strategy specialized \
@@ -96,21 +99,21 @@ init_physical_move_swarm() {
     checkpoint "Physical move swarm: 10 agents spawned"
     
     # Store tasks
-    npx ruflo memory store \
+    ruflo_npx memory store \
         --key "physical-move-tasks" \
         --value "1) Mover quotes (Thumbtack/Yelp/Angi), 2) Packing plan (room priorities), 3) Move date optimize, 4) Insurance quotes, 5) Gym/hotspot backup plan" \
         --namespace swarms
     
     # Route TDD tasks
-    npx ruflo hooks route \
+    ruflo_npx hooks route \
         --task "RED: MoverQuoteService returns 0 quotes → GREEN: Scrape Thumbtack/Yelp/Angi, aggregate 5+ quotes → REFACTOR: Add caching" \
         --context "physical-move-swarm"
     
-    npx ruflo hooks route \
+    ruflo_npx hooks route \
         --task "RED: PackingPlanGenerator returns empty → GREEN: Generate room-by-room plan (bedroom HIGH, kitchen MEDIUM) → REFACTOR: Add ML box estimation" \
         --context "physical-move-swarm"
     
-    npx ruflo hooks route \
+    ruflo_npx hooks route \
         --task "RED: MoveDateOptimizer returns undefined → GREEN: Find optimal date (mover availability + utilities timeline) → REFACTOR: Add weather API" \
         --context "physical-move-swarm"
     
@@ -121,7 +124,7 @@ init_physical_move_swarm() {
 init_utilities_credit_swarm() {
     log "Track 2: Utilities/Credit Swarm (WSJF 35.0) - 3.6h budget"
     
-    npx ruflo swarm init \
+    ruflo_npx swarm init \
         --topology hierarchical \
         --max-agents 8 \
         --strategy specialized \
@@ -154,16 +157,16 @@ init_utilities_credit_swarm() {
     
     checkpoint "Utilities/credit swarm: 8 agents spawned"
     
-    npx ruflo memory store \
+    ruflo_npx memory store \
         --key "utilities-credit-tasks" \
         --value "1) Draft FCRA dispute letters (Equifax/Experian/TransUnion), 2) CFPB complaint (LifeLock), 3) Duke Energy/Charlotte Water backup plan, 4) Credit freeze/unfreeze strategy, 5) Identity verification docs" \
         --namespace swarms
     
-    npx ruflo hooks route \
+    ruflo_npx hooks route \
         --task "Draft credit dispute letters using FCRA templates - historical pattern: 7-14 day response time" \
         --context "utilities-unblock-swarm"
     
-    npx ruflo hooks route \
+    ruflo_npx hooks route \
         --task "File CFPB complaint against LifeLock (case #98413679) - template available" \
         --context "utilities-unblock-swarm"
     
@@ -174,7 +177,7 @@ init_utilities_credit_swarm() {
 init_legal_contracts_swarm() {
     log "Track 3: Legal/Contracts Swarm (WSJF 30.0) - 2.7h budget"
     
-    npx ruflo swarm init \
+    ruflo_npx swarm init \
         --topology hierarchical \
         --max-agents 8 \
         --strategy specialized \
@@ -205,16 +208,16 @@ init_legal_contracts_swarm() {
     
     checkpoint "Legal/contracts swarm: 6 agents spawned"
     
-    npx ruflo memory store \
+    ruflo_npx memory store \
         --key "legal-contract-tasks" \
         --value "1) MAA arbitration materials (April 16), 2) Contract review (110 Frazier lease), 3) March 10 strategy session prep, 4) Pre-arbitration form template, 5) Settlement position memo" \
         --namespace swarms
     
-    npx ruflo hooks route \
+    ruflo_npx hooks route \
         --task "Review 110 Frazier lease for arbitration clause, rent escalation, early termination - historical pattern: <4h contract review" \
         --context "contract-legal-swarm"
     
-    npx ruflo hooks route \
+    ruflo_npx hooks route \
         --task "Draft pre-arbitration form template (due April 6) - case #26CV005596-590" \
         --context "contract-legal-swarm"
     
@@ -225,7 +228,7 @@ init_legal_contracts_swarm() {
 init_income_consulting_swarm() {
     log "Track 4: Income/Consulting Swarm (WSJF 25.0) - 2.7h budget"
     
-    npx ruflo swarm init \
+    ruflo_npx swarm init \
         --topology hierarchical-mesh \
         --max-agents 9 \
         --strategy specialized \
@@ -259,16 +262,16 @@ init_income_consulting_swarm() {
     
     checkpoint "Income/consulting swarm: 9 agents spawned"
     
-    npx ruflo memory store \
+    ruflo_npx memory store \
         --key "income-consulting-tasks" \
         --value "1) LinkedIn post (validation demo), 2) 720.chat email, 3) RAG/LLMLingua cover letter generator, 4) Simplify.jobs integration, 5) Consulting proposal template" \
         --namespace swarms
     
-    npx ruflo hooks route \
+    ruflo_npx hooks route \
         --task "Build RAG/LLMLingua cover letter generator - target: 25+ applications/week at <$0.01/letter" \
         --context "income-unblock-swarm"
     
-    npx ruflo hooks route \
+    ruflo_npx hooks route \
         --task "Draft LinkedIn post with validation dashboard demo link - target: 720.chat, TAG.VOTE, O-GOV.com outreach" \
         --context "income-unblock-swarm"
     
@@ -279,7 +282,7 @@ init_income_consulting_swarm() {
 init_tech_dashboard_swarm() {
     log "Track 5: Tech/Dashboard Swarm (WSJF 15.0) - 1.8h budget"
     
-    npx ruflo swarm init \
+    ruflo_npx swarm init \
         --topology hierarchical \
         --max-agents 7 \
         --strategy specialized \
@@ -311,12 +314,12 @@ init_tech_dashboard_swarm() {
     
     checkpoint "Tech/dashboard swarm: 7 agents spawned"
     
-    npx ruflo memory store \
+    ruflo_npx memory store \
         --key "tech-dashboard-tasks" \
         --value "1) Dashboard UI/UX design, 2) Feature flag implementation, 3) Integration tests (ON/OFF), 4) Deploy to rooz.live, 5) ADR template with date field" \
         --namespace swarms
     
-    npx ruflo hooks route \
+    ruflo_npx hooks route \
         --task "Design validation dashboard UI/UX with feature flag toggle - defer to post-move if time-constrained" \
         --context "tech-enablement-swarm"
     
@@ -332,16 +335,16 @@ monitor_all_swarms() {
     for swarm in "physical-move-swarm" "utilities-unblock-swarm" "contract-legal-swarm" "income-unblock-swarm" "tech-enablement-swarm"; do
         echo ""
         echo "--- $swarm ---"
-        npx ruflo swarm status --name "$swarm" 2>&1 | head -20 || warn "Status check for $swarm"
+        ruflo_npx swarm status --name "$swarm" 2>&1 | head -20 || warn "Status check for $swarm"
     done
     
     echo ""
     echo "=== Agent Summary ==="
-    npx ruflo agent list --format table 2>&1 || warn "Agent list check"
+    ruflo_npx agent list --format table 2>&1 || warn "Agent list check"
     
     echo ""
     echo "=== Memory Context ==="
-    npx ruflo memory search --query "tasks" --namespace swarms 2>&1 | head -30 || warn "Memory search"
+    ruflo_npx memory search --query "tasks" --namespace swarms 2>&1 | head -30 || warn "Memory search"
     
     checkpoint "Monitoring phase completed - 5 swarms active"
 }
@@ -367,11 +370,11 @@ generate_report() {
 
 | Track | WSJF | Budget | Agents | Priority | Status |
 |-------|------|--------|--------|----------|--------|
-| **Physical Move** | 45.0 | 7.2h (40%) | 10 | CRITICAL | $(npx ruflo swarm status --name physical-move-swarm 2>&1 | grep -o "Progress: [0-9.]*%" || echo "Initializing") |
-| **Utilities/Credit** | 35.0 | 3.6h (20%) | 8 | HIGH | $(npx ruflo swarm status --name utilities-unblock-swarm 2>&1 | grep -o "Progress: [0-9.]*%" || echo "Initializing") |
-| **Legal/Contracts** | 30.0 | 2.7h (15%) | 6 | HIGH | $(npx ruflo swarm status --name contract-legal-swarm 2>&1 | grep -o "Progress: [0-9.]*%" || echo "Initializing") |
-| **Income/Consulting** | 25.0 | 2.7h (15%) | 9 | MEDIUM | $(npx ruflo swarm status --name income-unblock-swarm 2>&1 | grep -o "Progress: [0-9.]*%" || echo "Initializing") |
-| **Tech/Dashboard** | 15.0 | 1.8h (10%) | 7 | LOW | $(npx ruflo swarm status --name tech-enablement-swarm 2>&1 | grep -o "Progress: [0-9.]*%" || echo "Initializing") |
+| **Physical Move** | 45.0 | 7.2h (40%) | 10 | CRITICAL | $(ruflo_npx swarm status --name physical-move-swarm 2>&1 | grep -o "Progress: [0-9.]*%" || echo "Initializing") |
+| **Utilities/Credit** | 35.0 | 3.6h (20%) | 8 | HIGH | $(ruflo_npx swarm status --name utilities-unblock-swarm 2>&1 | grep -o "Progress: [0-9.]*%" || echo "Initializing") |
+| **Legal/Contracts** | 30.0 | 2.7h (15%) | 6 | HIGH | $(ruflo_npx swarm status --name contract-legal-swarm 2>&1 | grep -o "Progress: [0-9.]*%" || echo "Initializing") |
+| **Income/Consulting** | 25.0 | 2.7h (15%) | 9 | MEDIUM | $(ruflo_npx swarm status --name income-unblock-swarm 2>&1 | grep -o "Progress: [0-9.]*%" || echo "Initializing") |
+| **Tech/Dashboard** | 15.0 | 1.8h (10%) | 7 | LOW | $(ruflo_npx swarm status --name tech-enablement-swarm 2>&1 | grep -o "Progress: [0-9.]*%" || echo "Initializing") |
 
 **Total Agents**: 40 across 5 swarms
 
@@ -617,8 +620,8 @@ main() {
     echo "- Expected ROI: $4,900-$5,400"
     echo ""
     echo "Next: Monitor swarm progress tonight and execute move tomorrow"
-    echo "  npx ruflo swarm status --name physical-move-swarm"
-    echo "  npx ruflo agent list --format table"
+    echo "  ruflo_npx swarm status --name physical-move-swarm"
+    echo "  ruflo_npx agent list --format table"
     echo "  cat $CAPACITY_FILE | jq '.'"
 }
 

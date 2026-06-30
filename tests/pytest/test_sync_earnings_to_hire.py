@@ -24,7 +24,7 @@ def mod():
 
 def test_dry_run_prints_payload(monkeypatch, capsys, mod):
     def _fake_export():
-        return {"schema": "metrics.earnings_export.v1", "earnings": {"agent": 1.0}}
+        return {"schema": "metrics.earnings_export.v1", "earnings": {"agent": 1.0}, "verified": True}
     monkeypatch.setattr(mod, "_build_earnings_export", _fake_export)
 
     rc = mod.main(["--email", "x@y.com", "--dry-run"])
@@ -33,12 +33,12 @@ def test_dry_run_prints_payload(monkeypatch, capsys, mod):
     data = json.loads(out)
     assert data["email"] == "x@y.com"
     assert data["payload"]["method"] == "earnings/sync"
-    assert data["payload"]["earnings"]["earnings"]["agent"] == 1.0
+    assert data["payload"]["earnings"][0]["agent"] == 1.0
 
 
 def test_main_returns_1_on_rpc_error(monkeypatch, mod, tmp_path):
     def _fake_export():
-        return {"earnings": {"agent": 1.0}}
+        return {"earnings": {"agent": 1.0}, "verified": True}
     monkeypatch.setattr(mod, "_build_earnings_export", _fake_export)
 
     captured = []

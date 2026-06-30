@@ -480,7 +480,7 @@ def test_save_edge_report_writes_cicd_receipt(tmp_path):
     cache = {}
     passed, _ = edge_reporter.save_edge_report_and_cache(results, cache, tmp_path, "20260619T100000Z")
     assert passed is True
-    receipt_file = tmp_path / ".goalie" / "evidence" / "edge_gateway" / "edge_receipt_20260619T100000Z.json"
+    receipt_file = tmp_path / ".goalie" / "evidence" / "edge_gateway" / "receipt_edge_sync_20260619T100000Z.json"
     assert receipt_file.is_file()
     data = json.loads(receipt_file.read_text(encoding="utf-8"))
     assert data["schema"] == "cicd.receipt.v1"

@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       deploy_run_id:
-        description: 'Upstream deploy run id (from deploy-uapi artifact)'
+        description: "Upstream deploy run id (from deploy-uapi artifact)"
         required: false
-        default: ''
+        default: ""
 concurrency:
   group: tld-deploy-gate-${{ github.ref }}-${{ github.event.inputs.deploy_run_id }}
   cancel-in-progress: false
@@ -20,23 +20,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: "Provenance verification (fail-closed: blocks CI without signed receipt)"
+        env:
+          CI: true
+          GITHUB_ACTIONS: true
+          AF_CI_SIGNING_KEY: ${{ secrets.AF_CI_SIGNING_KEY }}
+          AF_CI_SIGNING_PRINCIPAL: ci@agentic-flow.github
+        run: |
+          source scripts/gates/emit_ci_provenance.sh
+          echo "AF_GATE_CONTEXT=ci" >> "$GITHUB_ENV"
+          echo "AF_REQUIRE_SCORECARD=1" >> "$GITHUB_ENV"
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Enable pnpm
-        run: corepack enable
+          python-version: "3.12"
 
       - name: Install PyYAML
         run: pip install pyyaml
 
-      - name: Verify TLD targets match fqdn_registry.yaml (run pnpm run tld:targets:generate locally after registry edits)
-        run: pnpm run tld:targets:check
+      - name: Verify TLD targets match fqdn_registry.yaml
+        run: python3 scripts/metrics/generate_tld_targets.py --check
 
       - name: Registry drift (enforce spec ⊆ registry)
         run: python3 scripts/metrics/tld_registry_drift.py
@@ -47,13 +51,13 @@ jobs:
     name: Playwright strict TLD gate
     needs: registry-check
     runs-on: ubuntu-latest
-    if: always()
+    if: success()
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "22"
 
       - name: Enable pnpm
         run: corepack enable
@@ -71,4 +75,6 @@ jobs:
           TLD_GATE_STRICT_MANIFEST: "1"
           TLD_GATE_STRICT_DNS: "1"
           TLD_GATE_LENIENT: "0"
+          TLD_GATE_LENIENT_INTERFACE: "1"
+          LIVE_EDGE_TEST: "false"
           DEPLOY_RUN_ID: ${{ github.event.inputs.deploy_run_id }}

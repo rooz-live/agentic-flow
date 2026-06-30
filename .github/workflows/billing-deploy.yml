@@ -4,11 +4,11 @@ on:
   push:
     branches: [main, production]
     paths:
-      - 'src/**'
-      - 'src/rust/**'
-      - 'tests/**'
-      - 'Dockerfile'
-      - '.github/workflows/billing-deploy.yml'
+      - "src/**"
+      - "src/rust/**"
+      - "tests/**"
+      - "Dockerfile"
+      - ".github/workflows/billing-deploy.yml"
   pull_request:
     branches: [main]
 
@@ -38,10 +38,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: "Provenance verification (fail-closed: blocks CI without signed receipt)"
+        env:
+          CI: true
+          GITHUB_ACTIONS: true
+          AF_CI_SIGNING_KEY: ${{ secrets.AF_CI_SIGNING_KEY }}
+          AF_CI_SIGNING_PRINCIPAL: ci@agentic-flow.github
+        run: |
+          source scripts/gates/emit_ci_provenance.sh
+          echo "AF_GATE_CONTEXT=ci" >> "$GITHUB_ENV"
+          echo "AF_REQUIRE_SCORECARD=1" >> "$GITHUB_ENV"
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Download PyO3 wheel (from rust-build, not rebuilt)
         uses: actions/download-artifact@v4
@@ -90,7 +101,7 @@ jobs:
       - name: Setup Python for PyO3
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Install maturin
         run: pip install maturin
@@ -101,7 +112,7 @@ jobs:
           PYO3_USE_ABI3: "1"
 
       - name: Build PyO3 wheel
-        run: cd src/rust/eventops_pyo3 && maturin build --release
+        run: maturin build --release -m src/rust/eventops_pyo3/Cargo.toml
         env:
           PYO3_USE_ABI3: "1"
 
@@ -109,12 +120,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: eventops-pyo3-wheel
-          path: src/rust/eventops_pyo3/target/wheels/*.whl
+          path: target/wheels/eventops_pyo3*.whl
           retention-days: 7
 
       - name: "Smoke-test: import eventops_pyo3"
         run: |
-          pip install src/rust/eventops_pyo3/target/wheels/eventops_pyo3*.whl
+          pip install target/wheels/eventops_pyo3*.whl
           python3 -c "import eventops_pyo3; print('eventops_pyo3 import OK')"
 
   schema-regression:
@@ -125,7 +136,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Install deps
         run: pip install pytest
@@ -159,10 +170,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: "Provenance verification (fail-closed: blocks CI without signed receipt)"
+        env:
+          CI: true
+          GITHUB_ACTIONS: true
+          AF_CI_SIGNING_KEY: ${{ secrets.AF_CI_SIGNING_KEY }}
+          AF_CI_SIGNING_PRINCIPAL: ci@agentic-flow.github
+        run: |
+          source scripts/gates/emit_ci_provenance.sh
+          echo "AF_GATE_CONTEXT=ci" >> "$GITHUB_ENV"
+          echo "AF_REQUIRE_SCORECARD=1" >> "$GITHUB_ENV"
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Download PyO3 wheel (from rust-build artifact)
         uses: actions/download-artifact@v4
@@ -224,7 +246,7 @@ jobs:
   tld-deploy-gate:
     runs-on: ubuntu-latest
     needs: [deploy-staging]
-    if: false  # strict TLD gate: workflow_dispatch only (tld-deploy-gate.yml / deploy-uapi dispatch)
+    if: false # strict TLD gate: workflow_dispatch only (tld-deploy-gate.yml / deploy-uapi dispatch)
     steps:
       - uses: actions/checkout@v4
 

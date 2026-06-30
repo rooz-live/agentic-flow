@@ -9,6 +9,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  AF_CI_SIGNING_KEY: ${{ secrets.AF_CI_SIGNING_KEY }}
+  AF_CI_SIGNING_PRINCIPAL: ci@agentic-flow.github
+
 jobs:
 
   fqdn-registry-gate:
@@ -16,16 +20,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: "Emit CI Provenance"
+        run: source scripts/gates/emit_ci_provenance.sh
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - run: corepack enable
       - run: pip install pyyaml
       - name: Generated targets must match fqdn_registry.yaml
-        run: pnpm run tld:targets:check
+        run: python3 scripts/metrics/generate_tld_targets.py --check
   scorecard-gate:
     name: Originality/Impact Scorecard Verification
     runs-on: ubuntu-latest
@@ -38,36 +40,42 @@ jobs:
           python-version: '3.12'
 
       - name: "Install Rust toolchain"
-        uses: dtolnay/rust-action@stable
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: "Run Scorecard Gate with --verify"
-        run: |
-          # Derive coherence from real signals (cargo check + pytest + git ls-files)
-          # This closes the trust gap - no self-asserted coherence/gate_integrity allowed
-          if [ -f .goalie/scorecards/current.json ]; then
-            python3 scripts/gates/scorecard_gate.py --file .goalie/scorecards/current.json --verify --json --emit-evidence
-          elif [ -f .goalie/scorecards/required.json ]; then
-            python3 scripts/gates/scorecard_gate.py --file .goalie/scorecards/required.json --verify --json --emit-evidence
-          else
-            echo "⚠️  No scorecard found. Running in --precommit mode (soft skip if missing)..."
-            python3 scripts/gates/scorecard_gate.py --precommit --verify --json --emit-evidence || true
-          fi
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/rust/eventops_pyo3
+
+      - name: "Install coherence signal deps"
+        run: pip install pyyaml python-dateutil pytest
+
+      - name: "Run Scorecard Gate with --verify (fail-closed)"
+        run: bash scripts/gates/run_scorecard_verify_ci.sh
         env:
           CI: true
+          GITHUB_ACTIONS: true
           GITHUB_EVENT_NAME: ${{ github.event_name }}
+          PR_BODY: ${{ github.event.pull_request.body || github.event.head_commit.message }}
+          AF_DIFF_BASE: origin/${{ github.base_ref || 'main' }}
           AF_REQUIRE_SCORECARD: "1"
+          AF_SKIP_OP_READ: "1"
+          AF_CI_SIGNING_KEY: ${{ secrets.AF_CI_SIGNING_KEY }}
+          AF_CI_SIGNING_PRINCIPAL: ci@agentic-flow.github
 
       - name: Upload Scorecard Evidence
         uses: actions/upload-artifact@v4
         with:
           name: scorecard-evidence
-          path: .goalie/evidence/
+          path: .goalie/evidence/scorecard-*.json
 
   shell-gate-tests:
     name: Shell Gate Tests (tests/gates/*.sh)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: "Emit CI Provenance"
+        run: source scripts/gates/emit_ci_provenance.sh
 
       - name: "Install bash 5 + dependencies"
         run: |
@@ -77,7 +85,12 @@ jobs:
           bash --version | head -1
 
       - name: "Install Python test deps"
-        run: pip install pytest
+        run: pip install pyyaml python-dateutil pytest
+
+      - name: "Git identity for gate contract tests"
+        run: |
+          git config --global user.email "ci@agentic-flow.local"
+          git config --global user.name "agentic-flow-ci"
 
       - name: "Run shell gate tests"
         run: |
@@ -99,7 +112,7 @@ jobs:
 
 
       - name: "Run CICD contract tests (LNNNL dual-lane, tick_post — NO SKIP)"
-        run: bash tests/cicd/run_all.sh
+        run: bash tests/cicd/run_all.sh fast
 
       - name: "Verify TLD targets generator (registry canonical)"
         run: python3 scripts/metrics/generate_tld_targets.py --check
@@ -138,8 +151,11 @@ jobs:
       - name: "Orchestrator Circle: Execute Canonical One.sh Execution Ledger"
         run: |
           chmod +x scripts/one.sh
+          source scripts/gates/emit_ci_provenance.sh
           ./scripts/one.sh ci
         env:
           CI: true
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           PR_BODY: ${{ github.event.pull_request.body || github.event.head_commit.message }}
+          AF_CI_SIGNING_KEY: ${{ secrets.AF_CI_SIGNING_KEY }}
+          AF_CI_SIGNING_PRINCIPAL: ci@agentic-flow.github

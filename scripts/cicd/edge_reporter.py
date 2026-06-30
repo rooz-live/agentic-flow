@@ -222,7 +222,7 @@ def save_edge_report_and_cache(
                 "skipped_count": skipped_count,
             },
         )
-        receipt_file = evidence_dir / f"edge_receipt_{timestamp}.json"
+        receipt_file = evidence_dir / f"receipt_edge_sync_{timestamp}.json"
         with open(receipt_file, "w", encoding="utf-8") as f:
             json.dump(receipt_data, f, indent=2)
             f.write("\n")

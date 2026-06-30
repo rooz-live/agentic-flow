@@ -86,3 +86,74 @@ def test_one_sh_help_text_routes_to_slice(cmd, expected):
     )
     assert result.returncode == 0, f"stderr: {result.stderr}"
     assert expected.lower() in result.stdout.lower()
+
+def test_harness_help_documents_metaharness():
+    """one.sh harness --help must document MetaHarness commands (not npm generic help)."""
+    root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        ["bash", str(root / "scripts" / "one.sh"), "harness", "--help"],
+        capture_output=True,
+        text=True,
+        cwd=str(root),
+        timeout=30,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}"
+    out = (result.stdout + result.stderr).lower()
+    assert "metaharness" in out or "doctor" in out
+    assert "evolve" in out
+
+
+def test_harness_doctor_via_one_sh():
+    """one.sh harness doctor must run MetaHarness kernel checks."""
+    root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        ["bash", str(root / "scripts" / "one.sh"), "harness", "doctor"],
+        capture_output=True,
+        text=True,
+        cwd=str(root),
+        timeout=60,
+    )
+    assert result.returncode == 0, f"stderr: {result.stderr}\nstdout: {result.stdout}"
+    assert "kernel" in result.stdout.lower() or "checks passed" in result.stdout.lower()
+
+
+def test_workflow_alias_matches_ruflo_help():
+    """one.sh workflow must alias one.sh ruflo."""
+    root = Path(__file__).resolve().parents[2]
+    ruflo = subprocess.run(
+        ["bash", str(root / "scripts" / "one.sh"), "ruflo", "--help"],
+        capture_output=True,
+        text=True,
+        cwd=str(root),
+        timeout=30,
+    )
+    workflow = subprocess.run(
+        ["bash", str(root / "scripts" / "one.sh"), "workflow", "--help"],
+        capture_output=True,
+        text=True,
+        cwd=str(root),
+        timeout=30,
+    )
+    assert ruflo.returncode == 0 and workflow.returncode == 0
+    assert ruflo.stdout == workflow.stdout
+
+
+
+def test_one_sh_portfolio_probe_dry_run():
+    """one.sh portfolio --dry-run must emit version_portfolio.v1 JSON."""
+    root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        ["bash", str(root / "scripts" / "one.sh"), "portfolio", "--dry-run", "--json"],
+        capture_output=True,
+        text=True,
+        cwd=str(root),
+        env={**__import__("os").environ, "AF_SKIP_NETWORK": "1"},
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    import json
+    doc = json.loads(result.stdout)
+    assert doc.get("schema") == "version_portfolio.v1"
+    ids = {p["id"] for p in doc.get("packages", [])}
+    assert "ruflo" in ids
+    assert "metaharness-kernel" in ids

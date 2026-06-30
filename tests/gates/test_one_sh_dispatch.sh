@@ -157,8 +157,9 @@ test_ci_runs_all_three_circles_in_order() {
     CALL_LOG="$TMPROOT/call_order.log"
     # Build a fake repo with stub scripts that log their call order
     REPO="$TMPROOT/ci_order"
-    mkdir -p "$REPO/scripts/ci" "$REPO/scripts/gates" "$REPO/scripts/deploy"
+    mkdir -p "$REPO/scripts/ci" "$REPO/scripts/gates" "$REPO/scripts/deploy" "$REPO/scripts/one-sh.d"
     cp "$ONE_SH" "$REPO/scripts/one.sh"
+    cp "$ROOT_DIR/scripts/one-sh.d/ci.sh" "$REPO/scripts/one-sh.d/ci.sh"
 
     for script in ci-assess ci-orchestrate ci-swarm; do
         cat > "$REPO/scripts/ci/$script.sh" <<STUB
@@ -221,8 +222,9 @@ test_ci_short_circuits_on_assess_failure() {
 
     CALL_LOG="$TMPROOT/call_order_fail.log"
     REPO="$TMPROOT/ci_fail"
-    mkdir -p "$REPO/scripts/ci"
+    mkdir -p "$REPO/scripts/ci" "$REPO/scripts/one-sh.d"
     cp "$ONE_SH" "$REPO/scripts/one.sh"
+    cp "$ROOT_DIR/scripts/one-sh.d/ci.sh" "$REPO/scripts/one-sh.d/ci.sh"
 
     cat > "$REPO/scripts/ci/ci-assess.sh" <<'STUB'
 #!/usr/bin/env bash

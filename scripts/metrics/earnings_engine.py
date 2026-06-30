@@ -18,18 +18,26 @@ from typing import Any
 LEDGER_PATH = ".goalie/earnings_ledger.jsonl"
 
 
-def repo_root() -> Path:
+def code_root() -> Path:
     return Path(__file__).resolve().parents[2]
+
+
+def repo_root() -> Path:
+    env = os.environ.get("REPO_ROOT")
+    if env:
+        return Path(env)
+    return code_root()
 
 
 def verify_scorecard(path: Path, root: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Run scorecard_gate harden + evaluate; return (result, hardened_card, meta)."""
-    sys.path.insert(0, str(root))
+    sys.path.insert(0, str(code_root()))
     from scripts.gates.scorecard_gate import evaluate, finalize, harden
 
     card = json.loads(path.read_text(encoding="utf-8"))
     env = dict(os.environ)
-    is_ci = str(env.get("CI", "")).lower() in ("1", "true", "yes") or "GITHUB_ACTIONS" in env
+    from scripts.gates.scorecard_gate import is_ci_env
+    is_ci = is_ci_env(env)
     strict = is_ci or env.get("AF_STRICT_SIGN_OFF", "0") == "1"
     hardened, extra_blocks, extra_warnings, meta = harden(
         card, env=env, strict=strict, ingest_only=False

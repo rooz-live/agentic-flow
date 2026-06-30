@@ -15,6 +15,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_ROOT"
 
+CMD="${1:-check}"
+shift || true
+
+# Invert: check = read-only portfolio probe; update/audit = legacy update path (cron).
+if [[ "$CMD" == "check" && "${VERSION_PORTFOLIO_PROBE:-1}" == "1" && -f "$PROJECT_ROOT/scripts/cicd/version_portfolio_probe.py" ]]; then
+  echo "[auto-update-upstream] check → version_portfolio_probe.py (read-only drift)"
+  python3 "$PROJECT_ROOT/scripts/cicd/version_portfolio_probe.py" --json
+  exit $?
+fi
+
+if [[ "$CMD" == "probe-only" ]]; then
+  echo "[auto-update-upstream] probe-only (explicit)"
+  python3 "$PROJECT_ROOT/scripts/cicd/version_portfolio_probe.py" --json
+  exit $?
+fi
+
+# update | audit | * → fall through to legacy upstream update logic
+
 # Colors
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -28,7 +46,7 @@ error() { echo -e "${RED}✗${NC} $*"; }
 warn() { echo -e "${YELLOW}⚠${NC} $*"; }
 
 # Configuration
-UPDATE_MODE="${1:-check}"  # check, update, force
+UPDATE_MODE="${CMD:-check}"  # check, update, force (CMD parsed at top)
 UPDATE_LOG="/tmp/upstream-updates-$(date +%Y%m%d).log"
 
 ################################################################################

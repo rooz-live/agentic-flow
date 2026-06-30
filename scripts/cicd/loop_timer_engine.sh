@@ -9,6 +9,7 @@ cd "$ROOT"
 export AF_LNNNL_ENFORCE="${AF_LNNNL_ENFORCE:-1}"
 export AF_TICK_POST_ENFORCE="${AF_TICK_POST_ENFORCE:-1}"
 export AF_LNNNL_STALE_ENFORCE="${AF_LNNNL_STALE_ENFORCE:-1}"
+export AF_ALLOW_OP_READ="${AF_ALLOW_OP_READ:-0}"
 
 source "$ROOT/scripts/cicd/lib/cls_common.sh"
 

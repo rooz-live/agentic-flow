@@ -4,6 +4,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
+# Global bypass of slow/blocking git fsck + count-objects on the monorepo root
+# to avoid hangs caused by APFS dataless placeholders under macOS/iCloud/OneDrive.
+export AF_DISK_SKIP_GIT_FSCK=1
+export AF_DISK_SKIP_LOOSE_COUNT=1
+export AF_DISK_FSCK_TEST_ALLOW_SKIP=1
+
 FAST_TESTS=(
   test_cls_manifest_canonical.sh
   test_perceive_metrics_split.sh
@@ -17,12 +23,14 @@ FAST_TESTS=(
   test_lnnnl_dual_lane_contract.sh
   test_receipt_chain.sh
   test_receipt_chain_enforce.sh
+  test_receipt_chain_intel_enforce.sh
   test_tick_post_timescape_order.sh
   test_tick_post_stale_enforce.sh
   test_tick_post_trap_pace_order.sh
   test_emit_ci_provenance_failclosed.sh
   test_provenance.sh
   test_tick_post_trap_on_exit.sh
+  test_tick_post_ci_enforce.sh
   test_update_lnnnl_integrity.sh
   test_ruflo_upgrade_contract.sh
   test_version_portfolio_probe.sh
@@ -33,6 +41,9 @@ FAST_TESTS=(
   test_tick_rehydration_manifest.sh
   test_session_rehydration_reader.sh
   test_doctor_shape_consistency.sh
+  test_disk_steward_repair_order.sh
+  test_memory_graph_tiers.sh
+  test_doctor_disk_signal.sh
 )
 
 SLOW_TESTS=(
@@ -48,10 +59,22 @@ SLOW_TESTS=(
   test_exit_artifact_inbox.sh
   test_ruflo_plugins_manifest.sh
   test_memory_graph_config.sh
+  test_memory_graph_tiers.sh
   test_ruflo_plugins_installed.sh
   test_agenticow_mcp_smoke.sh
   test_ruflo_mcp_smoke.sh
   test_weight_eft_probe.sh
+  test_disk_steward.sh
+  test_disk_steward_pack_corrupt.sh
+  test_disk_steward_fsck_full.sh
+  test_doctor_reads_steward.sh
+  test_doctor_disk_signal.sh
+  test_disk_steward_wrapper_parity.sh
+  test_harness_doctor_policy_wiring.sh
+  test_tick_post_scorecard_precheck.sh
+  test_tick_post_trap_integration.sh
+  test_tick_post_lnnnl_enforce.sh
+  test_one_sh_portfolio_harness.sh
 )
 
 # AF_SLOW_SKIP_CONTRACTS: explicit, NAMED allowlist (slow tier only, comma-separated).
@@ -91,13 +114,13 @@ run_tier() {
 TIER="${1:-fast}"
 case "$TIER" in
   fast)
-    run_tier fast "${FAST_TESTS[@]}"
+    AF_SKIP_DISK_STEWARD=1 run_tier fast "${FAST_TESTS[@]}"
     ;;
   slow)
     run_tier slow "${SLOW_TESTS[@]}"
     ;;
   all)
-    run_tier fast "${FAST_TESTS[@]}"
+    AF_SKIP_DISK_STEWARD=1 run_tier fast "${FAST_TESTS[@]}"
     run_tier slow "${SLOW_TESTS[@]}"
     echo "PASS test:cicd:all ($(( ${#FAST_TESTS[@]} + ${#SLOW_TESTS[@]} )) contracts)"
     ;;

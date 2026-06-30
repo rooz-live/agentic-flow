@@ -12,6 +12,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TICK_POST = REPO_ROOT / "scripts" / "cicd" / "tick_post_hooks.sh"
 ONE_SH = REPO_ROOT / "scripts" / "one.sh"
+CYCLE_SH = REPO_ROOT / "scripts" / "one-sh.d" / "cycle.sh"
 
 
 def _tick_post_text() -> str:
@@ -22,8 +23,12 @@ def _one_sh_text() -> str:
     return ONE_SH.read_text(encoding="utf-8")
 
 
+def _cycle_sh_text() -> str:
+    return CYCLE_SH.read_text(encoding="utf-8")
+
+
 def test_tick_post_has_upstream_full_guard():
-    """AF_UPSTREAM_FULL=1 check must be present in tick_post_hooks.sh."""
+    """tick_post_hooks.sh must have the AF_UPSTREAM_FULL guard."""
     text = _tick_post_text()
     assert "AF_UPSTREAM_FULL" in text, (
         "tick_post_hooks.sh missing AF_UPSTREAM_FULL guard — "
@@ -60,7 +65,7 @@ def test_tick_post_upstream_parallel_flag():
 
 def test_one_sh_cycle_upstream_full_flag():
     """one.sh cycle --upstream-full must export AF_UPSTREAM_FULL=1."""
-    text = _one_sh_text()
+    text = _cycle_sh_text()
     assert "--upstream-full" in text, (
         "one.sh cycle missing --upstream-full flag — "
         "cannot opt into full upstream upgrade from cycle subcommand"
@@ -72,7 +77,7 @@ def test_one_sh_cycle_upstream_full_flag():
 
 def test_one_sh_cycle_upstream_parallel_flag():
     """one.sh cycle --upstream-parallel must export AF_UPSTREAM_PARALLEL=1."""
-    text = _one_sh_text()
+    text = _cycle_sh_text()
     assert "--upstream-parallel" in text, (
         "one.sh cycle missing --upstream-parallel flag"
     )

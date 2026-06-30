@@ -105,6 +105,7 @@ snapshot_evidence
 # --- Common env: run the REAL script against the real repo ------------------
 export REPO_ROOT="$ROOT"
 export AF_SKIP_OP_READ=1
+export AF_SKIP_DISK_STEWARD=1
 export AF_QUIET=1
 export CI=false
 export CEREMONY_RAN=1

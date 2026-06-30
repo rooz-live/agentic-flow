@@ -1240,6 +1240,12 @@ def derive_gate_integrity(env: Optional[dict] = None) -> GateIntegrityResult:
 
 
 def _git(args: list, timeout: int = 30, root: Any = ".") -> Optional[str]:
+    env_timeout = os.environ.get("AF_GIT_TIMEOUT")
+    if env_timeout:
+        try:
+            timeout = int(env_timeout)
+        except ValueError:
+            pass
     try:
         proc = subprocess.run(
             ["git"] + args, capture_output=True, text=True, timeout=timeout, cwd=str(root)

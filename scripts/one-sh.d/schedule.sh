@@ -15,7 +15,20 @@ HELP
 fi
 
 echo "--> WSJF Schedule update..."
-exec python3 "$ROOT_DIR/scripts/cicd/update_lnnnl.py" "$@"
+# NOTE: no `exec` here — `exec` made the WSJF-evidence step below DEAD CODE (it never
+# ran), and the old `$ROOT` was undefined (should be `$ROOT_DIR`), so the line was pure
+# theater: a broken evidence step silently swallowed by `|| true`. Now the LNNNL update
+# runs as a child (set -e still propagates its failure) and the evidence step actually runs.
+python3 "$ROOT_DIR/scripts/cicd/update_lnnnl.py" "$@"
 
-# WSJF exec evidence
-bash "$ROOT/scripts/cicd/exec_wsjf_ruflo.sh" 2>/dev/null || true
+# WSJF exec evidence — named skip (AF_SKIP_WSJF_EXEC). NEVER blanket `|| true`: the exit is
+# captured and warned so a broken exec_wsjf step cannot stay hidden. Advisory only (it
+# writes wsjf_ruflo_latest.json), so a non-zero rc warns rather than aborting the schedule.
+if [[ "${AF_SKIP_WSJF_EXEC:-0}" == "1" ]]; then
+    echo "SKIP exec_wsjf_ruflo (AF_SKIP_WSJF_EXEC=1)"
+else
+    if ! bash "$ROOT_DIR/scripts/cicd/exec_wsjf_ruflo.sh" >/dev/null 2>&1; then
+        _rc=$?
+        echo "WARN: exec_wsjf_ruflo.sh failed (rc=$_rc) — WSJF exec evidence not recorded" >&2
+    fi
+fi

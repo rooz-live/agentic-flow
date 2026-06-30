@@ -148,10 +148,14 @@ def load_policy(
     util_signals = _load_utilization_signals(root)
     harness_util = 100.0 if run_upstream else (25.0 if utilize_deferrable and pace < 1.0 else 0.0)
     hrc = util_signals.get("harness_doctor_rc")
+    utilize_mode_hint_out = utilize_mode_hint
     if hrc == 0:
         harness_util = max(harness_util, 100.0)
     elif hrc is not None and hrc != 0:
         harness_util = min(harness_util, 25.0)
+        utilize_mode_hint_out = utilize_mode_hint_out or "degraded"
+    elif hrc is None:
+        utilize_mode_hint_out = utilize_mode_hint_out or "degraded"
     if util_signals.get("redblue_run_id"):
         harness_util = max(harness_util, 75.0)
     if int(util_signals.get("ruflo_plugin_count") or 0) > 0:
@@ -180,6 +184,7 @@ def load_policy(
         "shippable_lane_empty": shippable_lane_empty,
         "blocker_lane_has_now": blocker_lane_has_now,
         "utilization_signals": util_signals,
+        "utilize_mode_hint": utilize_mode_hint_out,
     }
 
 

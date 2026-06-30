@@ -256,6 +256,64 @@ test_one_sh_portfolio_subcommand() {
   fi
 }
 
+
+
+
+test_hygiene_weekly_route() {
+  echo ""
+  echo "P11: one.sh hygiene-daily / hygiene-weekly routes"
+  cd "$ROOT_DIR"
+  for sub in hygiene-daily hygiene-weekly; do
+    TESTS_RUN=$((TESTS_RUN + 1))
+    if grep -qE "${sub}\)" "$ONE_SH"; then
+      TESTS_PASSED=$((TESTS_PASSED + 1))
+      echo -e "\033[32m✓\033[0m  one.sh routes ${sub}"
+    else
+      TESTS_FAILED=$((TESTS_FAILED + 1))
+      echo -e "\033[31m✗\033[0m  one.sh missing ${sub} subcommand"
+    fi
+  done
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if grep -q 'id: R-PACK-CORRUPT' "$ROOT_DIR/config/versions/portfolio.yaml"; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "\033[32m✓\033[0m  portfolio R-PACK-CORRUPT blocker"
+  else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo -e "\033[31m✗\033[0m  portfolio missing R-PACK-CORRUPT"
+  fi
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if [[ -x "$ROOT_DIR/scripts/cicd/disk_hygiene_weekly.sh" ]]; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "\033[32m✓\033[0m  disk_hygiene_weekly.sh executable"
+  else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo -e "\033[31m✗\033[0m  disk_hygiene_weekly.sh missing"
+  fi
+}
+
+test_disk_steward_route() {
+  echo ""
+  echo "P10: one.sh disk-steward → disk_steward.sh"
+  TESTS_RUN=$((TESTS_RUN + 1))
+  if grep -qE 'disk-steward\)' "$ONE_SH"; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "\033[32m✓\033[0m  one.sh routes disk-steward"
+  else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo -e "\033[31m✗\033[0m  one.sh missing disk-steward subcommand"
+  fi
+  TESTS_RUN=$((TESTS_RUN + 1))
+  cd "$ROOT_DIR"
+  AF_DISK_SKIP_LOOSE_COUNT=1 AF_DISK_SKIP_GIT_FSCK=1 AF_DISK_LOW_PCT=1 REPO_ROOT="$ROOT_DIR" bash "$ONE_SH" disk-steward >/dev/null 2>&1
+  if [[ -f "$ROOT_DIR/.goalie/evidence/disk_steward_latest.json" ]]; then
+    TESTS_PASSED=$((TESTS_PASSED + 1))
+    echo -e "\033[32m✓\033[0m  one.sh disk-steward writes evidence"
+  else
+    TESTS_FAILED=$((TESTS_FAILED + 1))
+    echo -e "\033[31m✗\033[0m  disk-steward evidence missing"
+  fi
+}
+
 main() {
   test_help_lists_portfolio_subcommands
   test_harness_metaharness_wiring
@@ -266,6 +324,8 @@ main() {
   test_workflow_alias_matches_ruflo
   test_agenticow_probe
   test_redblue_manifest_link
+  test_disk_steward_route
+  test_hygiene_weekly_route
   print_test_summary
 }
 

@@ -13,6 +13,14 @@ from pathlib import Path
 
 import yaml
 
+# Shared disk thresholds (R-DISK-01)
+import sys
+_lib = Path(__file__).resolve().parent / "lib"
+if str(_lib) not in sys.path:
+    sys.path.insert(0, str(_lib))
+from disk_thresholds import STEWARD_EVIDENCE_MAX_AGE_SEC, low_pct
+
+
 SCHEMA = "ruflo_doctor_roam.v1"
 CHECK_RE = re.compile(r"^([✓⚠✗])\s+([^:]+):\s*(.*)$")
 SUMMARY_RE = re.compile(r"Summary:\s*(\d+)\s+passed,\s*(\d+)\s+warnings,\s*(\d+)\s+failed")
@@ -62,13 +70,13 @@ def _hints_from_checks(checks: list[dict], disk_pct: float | None) -> tuple[list
             if chk["status"] == "fail":
                 disk_blocked = True
                 blockers.append(_roam_hint(
-                    "R-RUFLO-DISK-01", "BLOCKED",
+                    "R-DISK-01", "BLOCKED",
                     chk.get("detail") or f"disk {disk_pct}% used",
                     severity="critical",
                 ))
             elif chk["status"] == "warn":
                 warnings.append(_roam_hint(
-                    "R-RUFLO-DISK-01", "OWNED",
+                    "R-DISK-01", "OWNED",
                     chk.get("detail") or f"disk {disk_pct}% used",
                     severity="high",
                 ))
@@ -85,11 +93,72 @@ def _hints_from_checks(checks: list[dict], disk_pct: float | None) -> tuple[list
             if chk["status"] == "fail":
                 warnings.append(_roam_hint("R-RUFLO-PLUGIN-01", "OWNED", chk.get("detail", name)))
 
-    if disk_pct is not None and disk_pct >= 95 and not disk_blocked:
+    threshold = low_pct()
+    if disk_pct is not None and disk_pct >= threshold and not disk_blocked:
         disk_blocked = True
-        blockers.append(_roam_hint("R-RUFLO-DISK-01", "BLOCKED", f"disk {disk_pct}% used", severity="critical"))
+        blockers.append(_roam_hint("R-DISK-01", "BLOCKED", f"disk {disk_pct}% used (>={threshold}%)", severity="critical"))
 
     return blockers, warnings
+
+
+def _disk_steward_evidence(root: Path) -> dict | None:
+    """Load the canonical disk_steward evidence (R-DISK-01 owner).
+
+    Returns None when absent/unreadable — never raises, so the doctor still emits a
+    payload when the steward has not run. This is the unification seam: the doctor
+    propagates the steward's verdict so consumers see ONE consistent disk signal.
+    """
+    p = root / ".goalie/evidence/disk_steward_latest.json"
+    if not p.is_file():
+        return None
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _steward_fresh(doc: dict | None) -> bool:
+    if not isinstance(doc, dict):
+        return False
+    ts = doc.get("timestamp")
+    if not ts:
+        return False
+    try:
+        from datetime import datetime
+        seen = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        age = (datetime.now(timezone.utc) - seen).total_seconds()
+        return age <= STEWARD_EVIDENCE_MAX_AGE_SEC
+    except (ValueError, TypeError):
+        return False
+
+
+def _steward_disk_blockers(doc: dict | None) -> list[dict]:
+    """Surface BLOCKED risks from disk_steward evidence (canonical R-DISK-01 owner)."""
+    if not isinstance(doc, dict) or not _steward_fresh(doc):
+        return []
+    threshold = low_pct()
+    blockers: list[dict] = []
+    pct = doc.get("disk_used_pct")
+    fsck = doc.get("git_fsck_rc")
+    if isinstance(pct, (int, float)) and pct >= threshold:
+        blockers.append(_roam_hint(
+            "R-DISK-01", "BLOCKED",
+            f"disk {pct}% used (>={threshold}% threshold) — per disk_steward_latest.json",
+            severity="critical",
+        ))
+    if isinstance(fsck, int) and fsck != 0:
+        blockers.append(_roam_hint(
+            "R-GIT-FSCK-01", "BLOCKED",
+            f"git_fsck_rc={fsck} mode={doc.get('git_fsck_mode')} — per disk_steward_latest.json",
+            severity="critical",
+        ))
+    if doc.get("pack_corrupt") is True:
+        blockers.append(_roam_hint(
+            "R-PACK-CORRUPT", "BLOCKED",
+            "pack_corrupt=true — per disk_steward_latest.json",
+            severity="critical",
+        ))
+    return blockers
 
 
 def _ruflo_version(root: Path) -> str | None:
@@ -133,8 +202,22 @@ def run_doctor(root: Path) -> tuple[int, str]:
 def build_payload(root: Path) -> tuple[dict, int]:
     doctor_exit, doctor_text = run_doctor(root)
     checks = _parse_checks(doctor_text)
+    steward_doc = _disk_steward_evidence(root)
     disk_pct = _disk_pct(root)
+    # When steward evidence is fresh, use its disk_pct for threshold blockers so doctor
+    # and steward share ONE signal (avoids live-disk vs evidence mismatch in CI tests).
+    if steward_doc and _steward_fresh(steward_doc):
+        steward_pct = steward_doc.get("disk_used_pct")
+        if isinstance(steward_pct, (int, float)):
+            disk_pct = steward_pct
     blockers, warnings = _hints_from_checks(checks, disk_pct)
+
+    # Unify the disk signal: propagate the disk_steward verdict (canonical R-DISK-01
+    # owner). Without this an OFFLINE doctor (AF_SKIP_NETWORK=1) hides critical-disk /
+    # corrupt-repo conditions, so consumers saw an inconsistent shape vs the steward.
+    for steward_block in _steward_disk_blockers(steward_doc):
+        if not any(b["id"] == steward_block["id"] for b in blockers):
+            blockers.append(steward_block)
 
     summary_match = SUMMARY_RE.search(doctor_text)
     summary = {
@@ -151,6 +234,7 @@ def build_payload(root: Path) -> tuple[dict, int]:
         "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "doctor_exit": doctor_exit,
         "disk_pct_used": disk_pct,
+        "disk_steward_evidence": steward_doc is not None,
         "checks": checks,
         "summary": summary,
         "roam_blockers": blockers,

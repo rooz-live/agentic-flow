@@ -105,10 +105,10 @@ def _pace_from_lnnnl(path: Path) -> float:
 def _anti_cvt_untracked(root: Path) -> int:
     try:
         res = subprocess.run(
-            ["git", "status", "--porcelain"], cwd=root, capture_output=True, text=True, check=False,
+            ["git", "status", "--porcelain"], cwd=root, capture_output=True, text=True, check=False, timeout=5
         )
         return sum(1 for line in res.stdout.splitlines() if line.startswith("??"))
-    except OSError:
+    except Exception:
         return 0
 
 

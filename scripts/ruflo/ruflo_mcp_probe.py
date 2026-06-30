@@ -10,13 +10,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-def _ruflo_version(root: Path) -> str:
+def _ruflo_version(root: Path) -> str | None:
     vf = root / "config/ruflo/version.env"
     if vf.is_file():
         for line in vf.read_text(encoding="utf-8").splitlines():
             if line.startswith("RUFLO_VERSION="):
                 return line.split("=", 1)[1].strip()
-    return os.environ.get("RUFLO_VERSION", "3.15.0")
+    return os.environ.get("RUFLO_VERSION")
 
 
 def _probe_tools(root: Path, ver: str) -> tuple[int, bool, str]:
@@ -43,6 +43,9 @@ def _probe_tools(root: Path, ver: str) -> tuple[int, bool, str]:
 def main() -> int:
     root = Path(os.environ.get("REPO_ROOT", Path(__file__).resolve().parents[2]))
     ver = _ruflo_version(root)
+    if ver is None:
+        print("FATAL: RUFLO_VERSION unset and config/ruflo/version.env missing (drift guard)", file=sys.stderr)
+        return 1
     tool_count, degraded, status = _probe_tools(root, ver)
     payload = {
         "schema": "ruflo_mcp_probe.v1",

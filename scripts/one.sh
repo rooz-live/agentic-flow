@@ -14,6 +14,7 @@
 #   run-safely       → (inline: git stash checkpoint + rollback on failure)
 #   mail-wave-close  → scripts/mail/mail-wave-close.sh
 #   schedule|wsjf    → scripts/one-sh.d/schedule.sh → scripts/cicd/update_lnnnl.py
+#   disk-steward     → scripts/cicd/disk_steward.sh (R-DISK-01; AF_DISK_STEWARD_ENFORCE=1, AF_DISK_GIT_FSCK_FULL=1, AF_DISK_STEWARD_DEEP_CLEAN=1)
 #   dod-gate         → scripts/dod-gate.sh [--pre-task|--post-task|--full]
 #   scorecard        → scripts/gates/scorecard_gate.py [--verify|--file PATH|--json]
 #   upstream         → scripts/cicd/upstream_upgrade_engine.py [--dry-run|--force|--parallel|--json]
@@ -21,6 +22,7 @@
 #   aqe              → scripts/one-sh.d/aqe.sh [init|status|<aqe-cmd>]
 #   ruflo|workflow   → scripts/one-sh.d/workflow.sh [init|status|<ruflo-cmd>]
 #   portfolio        → scripts/cicd/version_portfolio_probe.py [--json|--dry-run]
+#   weight-eft       → scripts/one-sh.d/weight-eft.sh [probe|--status] (degraded_ok; AF_WEIGHT_EFT_ENFORCE=1)
 #   harness          → apps/agent-harness npm run <doctor|evolve|evolve:dry|init>
 set -euo pipefail
 
@@ -86,18 +88,7 @@ case "$CMD" in
         ;;
 
     cycle)
-        shift
-        # --upstream-full: pass AF_UPSTREAM_FULL=1 to enable full upstream upgrade in tick_post.
-        # --upstream-parallel: also enables AF_UPSTREAM_PARALLEL=1 for concurrent repo execution.
-        _CYCLE_ARGS=()
-        for _arg in "$@"; do
-          case "$_arg" in
-            --upstream-full)    export AF_UPSTREAM_FULL=1 ;;
-            --upstream-parallel) export AF_UPSTREAM_PARALLEL=1 ;;
-            *) _CYCLE_ARGS+=("$_arg") ;;
-          esac
-        done
-        exec bash "$ROOT_DIR/scripts/cicd/cycle_tick.sh" "${_CYCLE_ARGS[@]}"
+        exec bash "$ROOT_DIR/scripts/one-sh.d/cycle.sh" "$@"
         ;;
 
     run-all)
@@ -125,6 +116,25 @@ case "$CMD" in
 
     schedule|wsjf)
         exec bash "$ROOT_DIR/scripts/one-sh.d/schedule.sh" "${@:2}"
+        ;;
+
+    disk-steward)
+        # WSJF-ranked disk stewardship — R-DISK-01 evidence + optional auto-remediate.
+        # Env: AF_DISK_LOW_PCT (probe threshold), AF_DISK_APPLY_PCT,
+        #      AF_DISK_STEWARD_APPLY=1 (force remediate), AF_DISK_STEWARD_AUTO_APPLY,
+        #      AF_DISK_STEWARD_ENFORCE=1 (exit 2 when disk is critical),
+        #      AF_DISK_STEWARD_REPAIR=1 (REPAIR tier: tags, pack quarantine, fetch),
+        #      AF_DISK_FSCK_TIMEOUT_SEC (full fsck timeout; default 600, connectivity 60),
+        #      AF_DISK_GIT_FSCK_FULL=1 (full git fsck), AF_DISK_STEWARD_DEEP_CLEAN=1.
+        exec bash "$ROOT_DIR/scripts/cicd/disk_steward.sh" "${@:2}"
+        ;;
+
+    hygiene-daily)
+        exec bash "$ROOT_DIR/scripts/cicd/disk_hygiene_daily.sh" "${@:2}"
+        ;;
+
+    hygiene-weekly)
+        exec bash "$ROOT_DIR/scripts/cicd/disk_hygiene_weekly.sh" "${@:2}"
         ;;
 
     dod-gate)
@@ -177,67 +187,18 @@ case "$CMD" in
         ;;
 
     agenticow)
-        shift
-        if [[ $# -eq 0 || "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-            cat <<'HELP'
-Usage: ./scripts/one.sh agenticow [probe|--mcp-smoke]
-
-  probe       Write agenticow_probe_latest.json (offline-safe)
-  --mcp-smoke Online MCP smoke when AF_SKIP_NETWORK=0
-HELP
-            [[ $# -eq 0 ]] && exit 1 || exit 0
-        fi
-        CMD="${1:-probe}"; shift
-        case "$CMD" in
-            probe) exec python3 "$ROOT_DIR/scripts/ruflo/agenticow_probe.py" "$@" ;;
-            --mcp-smoke) AF_AGENTICOW_MCP_SMOKE=1 exec python3 "$ROOT_DIR/scripts/ruflo/agenticow_probe.py" --mcp-smoke "$@" ;;
-            *) echo "unknown agenticow command: $CMD" >&2; exit 2 ;;
-        esac
+        exec bash "$ROOT_DIR/scripts/one-sh.d/agenticow.sh" "$@"
         ;;
 
     weight-eft|weight_eft)
-        # Probe-only stub (Defect 5). @metaharness/weight-eft is declared in
-        # apps/agent-harness devDependencies but NOT published on npm (degraded_ok).
-        # Runs scripts/cicd/weight_eft_gate.py → weight_eft_gate_latest.json with
-        # degraded=true until the package ships. Deliberately NOT wired into any
-        # production install / tick_post path (no post-50-PASS-receipt hook).
-        shift
-        if [[ $# -eq 0 || "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-            cat <<'HELP'
-Usage: ./scripts/one.sh weight-eft [probe|--status]
-
-  probe     Write weight_eft_gate_latest.json (degraded=true until package ships)
-  --status  Print the latest gate evidence JSON (offline-safe)
-HELP
-            [[ $# -eq 0 ]] && exit 1 || exit 0
-        fi
-        CMD="${1:-probe}"; shift
-        case "$CMD" in
-            probe) exec python3 "$ROOT_DIR/scripts/cicd/weight_eft_gate.py" "$@" ;;
-            --status)
-                EVIDENCE="$ROOT_DIR/.goalie/evidence/weight_eft_gate_latest.json"
-                python3 "$ROOT_DIR/scripts/cicd/weight_eft_gate.py" >/dev/null || true
-                [[ -f "$EVIDENCE" ]] && cat "$EVIDENCE" || { echo "no weight-eft evidence yet"; exit 1; }
-                ;;
-            *) echo "unknown weight-eft command: $CMD" >&2; exit 2 ;;
-        esac
+        # Weight-EFT gate probe — writes .goalie/evidence/weight_eft_gate_latest.json.
+        # Also invoked post-receipt in receipt_chain.sh; inert until AF_WEIGHT_EFT_AVAILABLE=1
+        # and @metaharness/weight-eft ships on npm. Env: AF_WEIGHT_EFT_ENFORCE=1.
+        exec bash "$ROOT_DIR/scripts/one-sh.d/weight-eft.sh" "$@"
         ;;
 
     harness)
-        # Dispatch to the upgraded MetaHarness agent harness (apps/agent-harness).
-        shift
-        if [[ $# -eq 0 || "${1:-}" == "--help" || "${1:-}" == "-h" || "${1:-}" == "help" ]]; then
-            cat <<'HELP'
-Usage: ./scripts/one.sh harness <doctor|evolve|evolve:dry|init> [args...]
-
-  doctor      MetaHarness kernel + host adapter health (@metaharness/kernel)
-  evolve      Darwin evolution loop (real sandbox; @metaharness/darwin)
-  evolve:dry  Darwin evolution dry-run (mock sandbox)
-  init        Scaffold harness workspace
-HELP
-            [[ $# -eq 0 ]] && exit 1 || exit 0
-        fi
-        exec npm --prefix "$ROOT_DIR/apps/agent-harness" run "$@"
+        exec bash "$ROOT_DIR/scripts/one-sh.d/harness.sh" "$@"
         ;;
 
     help|--help|-h)

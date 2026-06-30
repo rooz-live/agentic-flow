@@ -28,5 +28,8 @@ Usage: ./scripts/one.sh <subcommand> [args...]
   harness           Dispatch to the upgraded AI Agent Harness: <doctor|evolve|evolve:dry|init>
   agenticow           Probe agenticow CLI/MCP pin (offline-safe)
   weight-eft          Probe @metaharness/weight-eft gate (degraded_ok, probe-only)
+  disk-steward   WSJF disk evidence + optional remediate (R-DISK-01)
+  hygiene-daily  Daily disk steward probe (non-enforcing)
+  hygiene-weekly Weekly disk hygiene chain (steward → doctor → slow contracts)
   run-all             Fast/slow CI runner (AF_RUN_ALL_STRICT=1 default)
 HELP

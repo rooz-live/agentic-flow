@@ -20,7 +20,7 @@ import ruflo_doctor_roam as d
 REQUIRED = {
     "schema", "timestamp", "doctor_exit", "disk_pct_used", "checks", "summary",
     "roam_blockers", "roam_warnings", "memory_graph", "af_skip_network",
-    "doctor_tail", "inbox_zero_gate", "blockers", "warnings",
+    "doctor_tail", "inbox_zero_gate", "disk_steward_evidence", "blockers", "warnings",
 }
 ITEM_FIELDS = {"id", "disposition", "note", "severity"}
 root = Path(".")

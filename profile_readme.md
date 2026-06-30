@@ -35,13 +35,13 @@ A billing and transaction platform designed with Domain-Driven Design (DDD), str
 
 | Metric / Vector | Latest Value | Cumulative Total |
 | :--- | :---: | :---: |
-| 🤖 **Agent** | `5.0` | `170.0` |
-| ⚙️ **Engine** | `1.0` | `36.0` |
-| 🛠️ **Engineer** | `3.5` | `90.5` |
-| 💡 **Ingenuity** | `6.0` | `90.0` |
-| 💰 **Total Earnings** | **`15.5`** | **`386.5`** |
+| 🤖 **Agent** | `5.0` | `180.0` |
+| ⚙️ **Engine** | `1.0` | `38.0` |
+| 🛠️ **Engineer** | `3.5` | `97.5` |
+| 💡 **Ingenuity** | `6.0` | `102.0` |
+| 💰 **Total Earnings** | **`15.5`** | **`417.5`** |
 
-> **Last Verified Cycle**: `2026-06-29T19:21:54.863670Z` | **Commit**: `249836cb`
+> **Last Verified Cycle**: `2026-06-29T21:07:40.693411Z` | **Commit**: `8ddd6103`
 
 ---
 

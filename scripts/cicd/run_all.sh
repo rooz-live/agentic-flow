@@ -85,18 +85,31 @@ sys.exit(0 if disp=='SHIP' else 1)
   if [[ $FAST_EXIT -eq 0 && -x "$ROOT/scripts/gates/emit_ci_provenance.sh" ]]; then
     echo "--- provenance ---"
     set +e
-    # Named-skip list: AF_CI_SIGNING_KEY absent → skip is documented, not silenced.
-    # Bare || true is banned; capture rc and warn instead.
-    bash "$ROOT/scripts/gates/emit_ci_provenance.sh" 2>/dev/null
+    bash "$ROOT/scripts/gates/emit_ci_provenance.sh"
     _PROV_EXIT=$?
     set -e
     if [[ $_PROV_EXIT -ne 0 ]]; then
-      if [[ -z "${AF_CI_SIGNING_KEY:-}" ]]; then
-        echo "WARN: provenance emit skipped (AF_CI_SIGNING_KEY absent — expected in forks/local; document blocker if CI)"
+      if is_ci_env; then
+        echo "FAST TIER FAIL: provenance emit (exit=$_PROV_EXIT)"
+        FAST_EXIT=$_PROV_EXIT
+      elif [[ -z "${AF_CI_SIGNING_KEY:-}" ]]; then
+        echo "WARN: provenance emit skipped (AF_CI_SIGNING_KEY absent — expected in forks/local)"
       else
         echo "FAST TIER FAIL: provenance emit (exit=$_PROV_EXIT)"
         FAST_EXIT=$_PROV_EXIT
       fi
+    fi
+  fi
+
+  if [[ $FAST_EXIT -eq 0 ]]; then
+    echo "--- fast contracts (tests/cicd/run_all.sh) ---"
+    set +e
+    bash "$ROOT/tests/cicd/run_all.sh" fast
+    _FAST_CONTRACT=$?
+    set -e
+    if [[ $_FAST_CONTRACT -ne 0 ]]; then
+      FAST_EXIT=$_FAST_CONTRACT
+      echo "FAST TIER FAIL: fast contracts (exit=$_FAST_CONTRACT)"
     fi
   fi
 
@@ -120,8 +133,13 @@ if [[ "$SLOW" == "1" ]]; then
   fi
   SLOW_EXIT=$?
   set -e
-  [[ $SLOW_EXIT -ne 0 ]] && echo "SLOW TIER WARN: upstream (exit=$SLOW_EXIT)"
-  [[ "${AF_RUN_ALL_OPS_ENFORCE:-0}" == "1" && $SLOW_EXIT -ne 0 ]] && echo "SLOW TIER FAIL: upstream enforced"
+  if is_ci_env && [[ $SLOW_EXIT -ne 0 ]]; then
+    echo "SLOW TIER FAIL: upstream (exit=$SLOW_EXIT; CI fail-closed)"
+  elif [[ "${AF_RUN_ALL_OPS_ENFORCE:-0}" == "1" && $SLOW_EXIT -ne 0 ]]; then
+    echo "SLOW TIER FAIL: upstream enforced (exit=$SLOW_EXIT)"
+  elif [[ $SLOW_EXIT -ne 0 ]]; then
+    echo "SLOW TIER WARN: upstream (exit=$SLOW_EXIT)"
+  fi
 
   echo "--- edge gateway sync (dry-run unless AF_EDGE_SYNC_FULL=1) ---"
   set +e
@@ -174,8 +192,13 @@ if is_ci_env || [[ "${AF_RUN_ALL_STRICT:-0}" == "1" ]]; then
 fi
 if [[ $_STRICT -eq 1 ]]; then
   _FINAL=$FAST_EXIT
-  if [[ "$SLOW" == "1" && $SLOW_EXIT -ne 0 ]]; then
-    _FINAL=$(( _FINAL != 0 ? _FINAL : SLOW_EXIT ))
+  if [[ "$SLOW" == "1" ]]; then
+    if [[ $SLOW_EXIT -ne 0 ]]; then
+      _FINAL=$(( _FINAL != 0 ? _FINAL : SLOW_EXIT ))
+    fi
+    if [[ $CONTRACT_EXIT -ne 0 ]]; then
+      _FINAL=$(( _FINAL != 0 ? _FINAL : CONTRACT_EXIT ))
+    fi
   fi
   echo "=== run_all: STRICT exit $_FINAL (fast=$FAST_EXIT slow=$SLOW_EXIT contract=$CONTRACT_EXIT) ==="
   exit "$_FINAL"

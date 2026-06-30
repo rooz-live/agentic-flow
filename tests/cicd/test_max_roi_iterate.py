@@ -7,6 +7,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts" / "metrics"))
 sys.path.insert(0, str(ROOT / "scripts" / "cicd" / "lib"))
+os.environ["AF_SKIP_DISK_STEWARD"] = "1"
+os.environ["AF_SKIP_NETWORK"] = "1"
 import max_roi_cycles as mrc
 import roi_iterate as ri
 

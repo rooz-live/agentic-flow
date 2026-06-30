@@ -81,6 +81,7 @@ payload = {
     "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "manifest": str(manifest_p) if manifest_p else None,
     "manifest_sha256_prefix": sha,
+    "run_id": str(uuid.uuid4()),
     "mock_judge": False,
     "degraded": True,
     "roam_risk": "R-REDBLUE-01",

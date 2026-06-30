@@ -14,8 +14,8 @@
 #   Phase 2: F9 hire-receipt schema contract. Every hire_receipts.jsonl line must
 #            carry receipt_id/timestamp/status_code/endpoint, with the success
 #            invariant status_code in {200,201,202} (the F-series "PASS").
-#   Phase 3: ENFORCE=1 with NO scorecard -> fail-closed (non-zero exit, receipt
-#            status != PASS).
+#   Phase 3: NO scorecard -> fail-closed exit 1 even when AF_RECEIPT_CHAIN_ENFORCE=0
+#            (scorecard is unconditional); ENFORCE=1 also asserts receipt != PASS.
 #   Phase 4: sequence closure — verify -> export -> compile -> hire all produced
 #            artifacts and the last receipt in the chain has status=PASS.
 #
@@ -176,6 +176,61 @@ if [[ "$RES1" == *scorecards/current.json ]]; then pass "phase1 scorecard resolv
 S1="$(receipt_status "$P1/.goalie/evidence/receipts")"
 if [[ "$S1" == "PASS" ]]; then pass "phase1 receipt status=PASS (enforce happy path)"; else fail "phase1 receipt status=$S1 want PASS"; fi
 
+echo "=== Scenario 1: Bash Mock Hire Sync ==="
+bash "$CHAIN"
+
+REPO_ROOT="$P1" python3 "$ROOT/scripts/metrics/scorecard_resolver.py" --resolve-path | grep -q 'scorecards/current.json'
+test -f "$P1/.goalie/earnings_ledger.jsonl"
+test -f "$P1/.goalie/evidence/earnings_latest.json"
+
+RECEIPT="$(ls -t "$P1/.goalie/evidence/receipts"/tick_*.json | head -1)"
+STATUS="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['status'])" "$RECEIPT")"
+[[ "$STATUS" == "PASS" ]] || { echo "FAIL: expected PASS receipt, got $STATUS"; exit 1; }
+
+HIRE_LOG="$P1/.goalie/evidence/hire_receipts.jsonl"
+test -f "$HIRE_LOG" || { echo "FAIL: chain must append hire_receipts.jsonl (F9)"; exit 1; }
+REPO_ROOT="$P1" python3 - "$HIRE_LOG" <<'PY'
+import json, sys
+from pathlib import Path
+log = Path(sys.argv[1])
+entry = json.loads(log.read_text(encoding="utf-8").strip().splitlines()[-1])
+for key in ("receipt_id", "timestamp", "status_code", "endpoint"):
+    if key not in entry or not str(entry.get(key, "")).strip():
+        raise SystemExit(f"missing or empty: {key}")
+print("OK hire receipt schema (chain)")
+PY
+
+echo "=== Scenario 2: Python-level mock hire sync under ENFORCE=1 ==="
+rm -f "$P1/.goalie/evidence/receipts"/tick_*.json
+rm -f "$HIRE_LOG"
+
+export AF_RECEIPT_CHAIN_ENFORCE=1
+export AF_HIRE_MCP_MOCK=1
+export HIRE_MCP_TOKEN="mock-token"
+export AF_RECEIPT_CHAIN_MOCK_HIRE=0
+
+bash "$CHAIN"
+
+test -f "$HIRE_LOG" || { echo "FAIL: python-level mock hire must append hire_receipts.jsonl"; exit 1; }
+RECEIPT2="$(ls -t "$P1/.goalie/evidence/receipts"/tick_*.json | head -1)"
+STATUS2="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['status'])" "$RECEIPT2")"
+[[ "$STATUS2" == "PASS" ]] || { echo "FAIL: expected PASS receipt in Scenario 2, got $STATUS2"; exit 1; }
+
+REPO_ROOT="$P1" python3 - "$HIRE_LOG" <<'PY'
+import json, sys
+from pathlib import Path
+log = Path(sys.argv[1])
+entry = json.loads(log.read_text(encoding="utf-8").strip().splitlines()[-1])
+for key in ("receipt_id", "timestamp", "status_code", "endpoint"):
+    if key not in entry or not str(entry.get(key, "")).strip():
+        raise SystemExit(f"missing or empty: {key}")
+if entry.get("status_code") != 200:
+    raise SystemExit(f"expected status_code 200, got {entry.get('status_code')}")
+print("OK hire receipt schema and 200 status (Scenario 2 python mock)")
+PY
+
+unset REPO_ROOT
+
 # ============================================================================
 # Phase 2 — F9 hire-receipt schema contract (every hire_receipts.jsonl line).
 # ============================================================================
@@ -230,23 +285,37 @@ set -e
 if [[ $P2_EC -eq 0 ]]; then pass "phase2 every hire line satisfies F9 schema + success code"; else fail "phase2 F9 schema validation failed (see stderr)"; fi
 
 # ============================================================================
-# Phase 3 — ENFORCE=1 + NO scorecard: fail-closed (non-zero, receipt != PASS).
+# Phase 3 — NO scorecard: global fail-closed (non-zero, receipt != PASS); ENFORCE=0.
 # ============================================================================
-echo "=== Phase 3: ENFORCE=1 + NO scorecard (fail-closed) ==="
+echo "=== Phase 3: ENFORCE=0 + NO scorecard (fail-closed baseline) ==="
 P3="$(mk_data_root phase3)"
 # Intentionally do NOT write a scorecard -> resolver returns nothing.
 export REPO_ROOT="$P3"
-export AF_RECEIPT_CHAIN_ENFORCE=1
+export AF_RECEIPT_CHAIN_ENFORCE=0
 export AF_VERIFY_SIGNALS="$P3/.goalie/scorecards/verify_signals.json"
 
 set +e
 bash "$CHAIN" >"$BASE/phase3.log" 2>&1
 P3_EC=$?
 set -e
-if [[ $P3_EC -ne 0 ]]; then pass "phase3 fail-closed exit=$P3_EC (non-zero, no scorecard)"; else fail "phase3 exit=0 want non-zero (missing scorecard must block under ENFORCE=1)"; fi
+if [[ $P3_EC -ne 0 ]]; then pass "phase3 fail-closed exit=$P3_EC (no scorecard, ENFORCE=0)"; else fail "phase3 exit=0 want non-zero (missing scorecard must fail-closed even when ENFORCE=0)"; fi
 
 S3="$(receipt_status "$P3/.goalie/evidence/receipts")"
 if [[ "$S3" != "PASS" ]]; then pass "phase3 receipt status=$S3 (not PASS -> fail-closed)"; else fail "phase3 receipt status=PASS but expected BLOCK/SKIP (fail-closed violated)"; fi
+
+# Phase 3b — ENFORCE=0 + NO scorecard: still fail-closed (exit 1).
+echo "=== Phase 3b: ENFORCE=0 + NO scorecard (fail-closed) ==="
+P3B="$(mk_data_root phase3b)"
+export REPO_ROOT="$P3B"
+export AF_RECEIPT_CHAIN_ENFORCE=0
+export AF_VERIFY_SIGNALS="$P3B/.goalie/scorecards/verify_signals.json"
+
+set +e
+bash "$CHAIN" >"$BASE/phase3b.log" 2>&1
+P3B_EC=$?
+set -e
+if [[ $P3B_EC -eq 1 ]]; then pass "phase3b exit=1 without scorecard (ENFORCE=0 still blocks)"; else fail "phase3b exit=$P3B_EC want 1 (missing scorecard is unconditional fail-closed)"; fi
+
 
 # ============================================================================
 # Phase 4 — sequence closure: verify -> export -> compile -> hire -> PASS.

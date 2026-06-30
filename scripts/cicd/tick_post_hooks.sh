@@ -104,7 +104,11 @@ on_exit() {
     bundle='{"pace_source":"stale","pace_cod_weight":null}'
     SAVED_PACE_BUNDLE="$bundle"
   fi
-  write_tick_evidence "$bundle" || true
+  if ! write_tick_evidence "$bundle"; then
+    if is_ci_env || [[ "${AF_TICK_POST_ENFORCE:-${AF_LNNNL_ENFORCE:-1}}" == "1" ]]; then
+      TICK_POST_EXIT=1
+    fi
+  fi
 }
 trap on_exit EXIT
 
@@ -135,11 +139,36 @@ export AF_SKIP_OP_READ=1
 # shellcheck source=scripts/cicd/lib/disk_steward_invoke.sh
 source "$ROOT/scripts/cicd/lib/disk_steward_invoke.sh"
 echo "=== tick_post: disk steward (R-DISK-01 runbook when low) ==="
-disk_steward_maybe "$ROOT" || echo "WARN: disk_steward (low disk — see disk_steward_latest.json runbook)"
+_disk_enforce_default=0
+if is_ci_env; then
+  _disk_enforce_default=1
+fi
+AF_DISK_STEWARD_ENFORCE="${AF_DISK_STEWARD_ENFORCE:-$_disk_enforce_default}"
+set +e
+disk_steward_maybe "$ROOT"
+_disk_rc=$?
+set -e
+if [[ "$_disk_rc" -ne 0 ]]; then
+  echo "WARN: disk_steward (low disk — see disk_steward_latest.json runbook)"
+  _tick_post_enforce_fail "disk_steward" "$_disk_rc"
+fi
 
 echo "=== tick_post: exec WSJF ruflo PI backlog ==="
+_wsjf_enforce_default=0
+if is_ci_env; then
+  _wsjf_enforce_default=1
+fi
 if [[ -x "$ROOT/scripts/cicd/exec_wsjf_ruflo.sh" ]]; then
-  bash "$ROOT/scripts/cicd/exec_wsjf_ruflo.sh" || echo "WARN: exec_wsjf_ruflo failed"
+  set +e
+  bash "$ROOT/scripts/cicd/exec_wsjf_ruflo.sh"
+  _wsjf_rc=$?
+  set -e
+  if [[ "$_wsjf_rc" -ne 0 ]]; then
+    echo "WARN: exec_wsjf_ruflo failed (exit=$_wsjf_rc)"
+    if [[ "${AF_WSJF_POST_ENFORCE:-$_wsjf_enforce_default}" == "1" ]]; then
+      _tick_post_enforce_fail "exec_wsjf_ruflo" "$_wsjf_rc"
+    fi
+  fi
 fi
 
 echo "=== tick_post: WSJF (single owner; before relate/upstream) ==="
@@ -312,11 +341,18 @@ if [[ -x "$ROOT/scripts/cicd/receipt_chain.sh" ]]; then
     _receipt_enforce_default=1
   fi
 
-  # CI fail-closed: ensure canonical scorecard exists before receipt enforce (SKIP → exit 1).
+  # CI fail-closed: materialize scorecard before receipt_chain (no SKIP theater).
   if ! python3 "$ROOT/scripts/metrics/scorecard_resolver.py" --resolve-path >/dev/null 2>&1; then
     if [[ -f "$ROOT/.goalie/scorecards/required.json" ]]; then
+      mkdir -p "$ROOT/.goalie/scorecards"
       cp "$ROOT/.goalie/scorecards/required.json" "$ROOT/.goalie/scorecards/current.json"
       echo "tick_post: scorecard bootstrap from required.json (CI receipt enforce)"
+    fi
+    if ! python3 "$ROOT/scripts/metrics/scorecard_resolver.py" --resolve-path >/dev/null 2>&1; then
+      if [[ "${AF_RECEIPT_CHAIN_ENFORCE:-$_receipt_enforce_default}" == "1" ]]; then
+        echo "BLOCK: no scorecard on disk before receipt_chain (fail-closed)" >&2
+        _tick_post_enforce_fail "receipt_chain_precheck" 1
+      fi
     fi
   fi
   AF_RECEIPT_CHAIN_ENFORCE="${AF_RECEIPT_CHAIN_ENFORCE:-$_receipt_enforce_default}" bash "$ROOT/scripts/cicd/receipt_chain.sh" || _tick_post_enforce_fail "receipt_chain" $?

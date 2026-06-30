@@ -65,6 +65,33 @@ def _load_evidence(root: Path) -> dict[str, Any]:
         return {}
 
 
+
+
+def _disk_steward_pin_blockers(root: Path) -> list[dict[str, Any]]:
+    """Active pin blockers from canonical disk_steward evidence."""
+    p = root / ".goalie/evidence/disk_steward_latest.json"
+    if not p.is_file():
+        return []
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return [{"id": "R-PACK-CORRUPT", "reason": "unreadable disk_steward_latest.json"}]
+    active: list[dict[str, Any]] = []
+    if doc.get("pack_corrupt") is True:
+        active.append({"id": "R-PACK-CORRUPT", "reason": "pack_corrupt=true"})
+    pct = doc.get("disk_used_pct")
+    low = doc.get("low_threshold_pct", 90)
+    if isinstance(pct, (int, float)) and pct >= low:
+        active.append({"id": "R-DISK-01", "reason": f"disk_used_pct={pct}"})
+    fsck = doc.get("git_fsck_rc")
+    if isinstance(fsck, int) and fsck != 0:
+        active.append({"id": "R-GIT-FSCK-01", "reason": f"git_fsck_rc={fsck}"})
+    for rid in doc.get("roam_risks") or []:
+        if rid in ("R-PACK-CORRUPT", "R-DISK-01", "R-GIT-FSCK-01"):
+            if not any(b.get("id") == rid for b in active):
+                active.append({"id": rid, "reason": f"roam_risks includes {rid}"})
+    return active
+
 def _apply_allowed(evidence: dict[str, Any], *, sync_help_only: bool) -> tuple[bool, str]:
     if os.environ.get("VERSION_PIN_FORCE", "0") == "1":
         return True, "VERSION_PIN_FORCE=1"
@@ -76,7 +103,14 @@ def _apply_allowed(evidence: dict[str, Any], *, sync_help_only: bool) -> tuple[b
         return False, "CYCLE_APPLY=1 ({SA}) or VERSION_PIN_FA=1 (human [FA]) required"
     if sync_help_only:
         return True, "sync-help only (no registry bump)"
-    blockers = evidence.get("blockers_active") or []
+    blockers = list(evidence.get("blockers_active") or [])
+    root = repo_root()
+    steward_blockers = _disk_steward_pin_blockers(root)
+    if steward_blockers:
+        seen = {b.get("id") for b in blockers}
+        for sb in steward_blockers:
+            if sb.get("id") not in seen:
+                blockers.append(sb)
     if blockers:
         return False, f"blockers_active: {[b.get('id') for b in blockers]}"
     return True, "ok"

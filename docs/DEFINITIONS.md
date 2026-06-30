@@ -31,6 +31,21 @@ graph TD
 
 ---
 
+### Disk stewardship registry (R-DISK-01)
+
+`config/cicd/cleanup_registry.yaml` lists WSJF-ranked actions in tiers **SAFE** (npm cache, ephemeral prune), **REPAIR** (broken tag delete, pack quarantine, `git fetch`), and **COMPACT** (`git gc`, repack). COMPACT runs only when connectivity `git fsck` passes and REPAIR left no unresolved failures.
+
+| Env | Role |
+|-----|------|
+| `AF_DISK_STEWARD_APPLY=1` | Force SAFE+tiers per DAG |
+| `AF_DISK_STEWARD_REPAIR=1` | Enable REPAIR tier (default off) |
+| `AF_DISK_FSCK_TIMEOUT_SEC` | Full-fsck timeout seconds (default 600; connectivity check 60s) |
+| `AF_DISK_STEWARD_ENFORCE=1` | Exit 2 when disk ≥ low threshold |
+
+Evidence schema `disk_steward.v1.1` adds `actions[]` with per-step `tier`/`status`, `blockers`, `next_recommended`, and `volume` (mount for `disk_used_pct`).
+
+---
+
 ## 🚦 2. Definition of Readiness (DoR)
 
 **Definition of Readiness (DoR)** specifies the entry criteria that must be satisfied before any agent or engineer can execute a task. It ensures the environment is clean, stable, and secure to prevent polluting the codebase.
@@ -68,6 +83,7 @@ graph TD
   - `pytest` suite passes 100% with no regressions or un-mocked side-effects.
   - `playwright` E2E spec list is discoverable and passes.
 - [ ] **Cryptographic Sign-off**: A valid scorecard file must be generated at `.goalie/scorecards/current.json` containing verified `coherence_results.json` signals, signed by an allowed workspace key.
+- [ ] **Receipt chain scorecard**: A canonical scorecard must resolve for `receipt_chain.sh` (see **Receipt chain scorecard (DoD)**); missing scorecard exits **1** even when `AF_RECEIPT_CHAIN_ENFORCE=0`.
 - [ ] **Anti-CVT Enforcement**: All code changes are staged, tracked via `git status`, and committed to git (or staged for review) with zero untracked side-effects.
 - [ ] **Public Edge Proof**: Endpoint health probes (like `public_synthetic_check.sh`) must pass or have explicitly logged blockers in `.goalie/evidence/public-edge/`.
 
@@ -268,6 +284,8 @@ Legacy artifacts (no `tld_gate_status`) or stale artifacts (`hash` ≠ `git HEAD
 | 5 | `sync_earnings_to_hire.py` | MCP profile sync when `HIRE_MCP_TOKEN` is set |
 | 6 | `hire_mcp_client.py` | Appends one JSON line to `.goalie/evidence/hire_receipts.jsonl` per MCP call |
 | 7 | `receipt_chain.sh` | Writes `.goalie/evidence/receipts/tick_*.json` with `status=PASS` **last** |
+**DoD (receipt chain scorecard):** A tick may not claim receipt-chain closure unless `scorecard_resolver.py` resolves a canonical scorecard at `.goalie/scorecards/current.json` (fallback: `.goalie/scorecards/latest.json`; coherence-only artifacts are rejected). Missing scorecard must fail with non-zero exit even when `AF_RECEIPT_CHAIN_ENFORCE=0`; enforcement only hardens downstream verify/hire/intel steps.
+
 
 | Env | Default | Meaning |
 |-----|---------|---------|
@@ -277,6 +295,14 @@ Legacy artifacts (no `tld_gate_status`) or stale artifacts (`hash` ≠ `git HEAD
 | `HIRE_MCP_TOKEN` | unset | Bearer token for hire MCP; required for live hire sync |
 | `AF_RECEIPT_CHAIN_ALLOW_DRY_HIRE` | `0` | When `1`, runs `sync_earnings_to_hire.py --dry-run` (no `hire_receipts.jsonl` append) |
 | `AF_RECEIPT_CHAIN_MOCK_HIRE` | `0` | Contract tests only: append validated F9 hire receipt without MCP (not for production ticks) |
+
+### Receipt chain scorecard (DoD)
+
+Tick **DoD** for the closed MPP receipt chain requires a **canonical scorecard** resolvable by `scorecard_resolver.py` (typically `.goalie/scorecards/current.json` or `latest.json`). Coherence-only artifacts (for example `coherence_results.json`) do **not** satisfy this gate.
+
+- Missing or unresolvable scorecard: `receipt_chain.sh` exits **1** and writes a tick receipt with `status=FAIL` — **independent of** `AF_RECEIPT_CHAIN_ENFORCE` (fail-closed baseline).
+- With `AF_RECEIPT_CHAIN_ENFORCE=1` (CI / `tick_post_hooks.sh`): downstream steps and non-`PASS` tick receipts also block the tick.
+- Contract coverage: `tests/cicd/test_receipt_chain_enforce.sh`, `tests/cicd/test_receipt_chain_intel_enforce.sh`.
 
 ### `#.%` sentinel vs policy snapshot
 
@@ -422,6 +448,20 @@ Emit via: `python3 scripts/metrics/inbox_zero_timescape.py --json → .goalie/ev
 | **PI Sync** | PI Planning committed; ≥3 waves delivered | Velocity delta reviewed; ROAM risks triaged | `inbox_zero_latest.json` + `ROAM_TRACKER.yaml` |
 
 ---
+
+### CI tier runners (run_all semantics)
+
+Two runners exist; do not conflate them:
+
+| Runner | Path | Purpose | Fail-closed |
+|--------|------|---------|-------------|
+| **Contract suite** | `tests/cicd/run_all.sh` | Gate/pace/provenance contracts (`fast` / `slow`) | Always propagates exit code; slow skips only via `AF_SLOW_SKIP_CONTRACTS` (named list) |
+| **Deploy orchestrator** | `scripts/cicd/run_all.sh` | Fast gates + optional slow deploy/edge checks | `AF_RUN_ALL_STRICT=1` or CI: slow exit fails the run; otherwise slow WARN is advisory |
+
+**Merge gate:** `tests/cicd/run_all.sh fast` on every PR. **Weekly cron:** `ruflo_wsjf_upgrade.sh --ci-slow` or `tests/cicd/run_all.sh slow` with `AF_RUN_ALL_STRICT=1`.
+
+**Invert:** If a cron path runs `scripts/cicd/run_all.sh --slow` without `AF_RUN_ALL_STRICT=1`, slow WARN is intentional probe-only — not a merge gate.
+
 
 ### F4 pace authority (policy_snapshot)
 

@@ -9,6 +9,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts" / "cicd" / "lib"))
+os.environ["AF_SKIP_DISK_STEWARD"] = "1"
+os.environ["AF_SKIP_NETWORK"] = "1"
 import ceremony_engine as ce
 
 

@@ -20,8 +20,8 @@ for f in "${STAGED[@]}"; do
 done
 
 if [[ ${#BLOCKED[@]} -gt 0 ]]; then
-  echo "pre-commit: FAIL loop artifacts staged (.goalie/, reports/)." >&2
-  echo "Set LOOP_ARTIFACT_OK=1 only for intentional evidence commits." >&2
-  printf '%s\n' "${BLOCKED[@]}" >&2
-  exit 1
+  echo "pre-commit: Auto-unstaging blocked loop artifacts to keep commit clean:" >&2
+  printf '  %s\n' "${BLOCKED[@]}" >&2
+  git reset HEAD -- "${BLOCKED[@]}" >/dev/null
+  echo "pre-commit: Blocked files have been unstaged successfully." >&2
 fi

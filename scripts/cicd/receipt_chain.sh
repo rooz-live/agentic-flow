@@ -83,12 +83,9 @@ COMPILE_EXIT=0
 HIRE_EXIT=0
 
 if ! SCORECARD="$(_resolve_scorecard)"; then
-  echo "receipt_chain: no scorecard found"
-  _write_receipt "SKIP" 0 "" "" '["no scorecard candidate on disk"]'
-  if [[ "$ENFORCE" == "1" ]]; then
-    exit 1
-  fi
-  exit 0
+  echo "receipt_chain: no scorecard found (fail-closed)"
+  _write_receipt "FAIL" 1 "" "" '["no scorecard candidate on disk"]'
+  exit 1
 fi
 
 if [[ -n "${GITHUB_ACTIONS:-}" ]] && [[ -f "$CODE_ROOT/scripts/gates/emit_ci_provenance.sh" ]]; then
